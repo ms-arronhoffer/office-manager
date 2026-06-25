@@ -240,6 +240,22 @@ async def remove_payment_entry(
     )
 
 
+async def remove_bill_entry(
+    db: AsyncSession,
+    organization_id: uuid.UUID | None,
+    bill: VendorBill,
+    *,
+    commit: bool = True,
+) -> int:
+    """Delete the GL entry posted for a bill (used when a bill is voided)."""
+    from app.services import gl_service
+
+    return await gl_service.delete_entries_by_source(
+        db, organization_id, source=AP_SOURCE, source_ref=_bill_ref(bill),
+        commit=commit,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Source-ref / memo helpers
 # ---------------------------------------------------------------------------

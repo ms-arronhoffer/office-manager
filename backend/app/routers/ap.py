@@ -383,8 +383,6 @@ async def void_bill(
     current_user: User = Depends(FinanceUser),
 ):
     """Void a finalized bill, reversing its GL entry. Paid bills cannot be voided."""
-    from app.services import gl_service
-
     org_id = current_user.organization_id
     bill = await _load_bill(db, bill_id, org_id)
     if bill.status != "finalized":
@@ -397,9 +395,7 @@ async def void_bill(
             status_code=status.HTTP_409_CONFLICT,
             detail="A bill with payments cannot be voided; remove its payments first.",
         )
-    await gl_service.delete_entries_by_source(
-        db, org_id, source=svc.AP_SOURCE, source_ref=svc._bill_ref(bill), commit=False
-    )
+    await svc.remove_bill_entry(db, org_id, bill, commit=False)
     bill.journal_entry_id = None
     bill.status = "void"
     await db.commit()
