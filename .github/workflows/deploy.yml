@@ -56,6 +56,15 @@ jobs:
           load: true
 
       # 5. Notify Portainer to pull together the stack with its UI-defined env vars
-      - name: Trigger Portainer Webhook
+      #- name: Trigger Portainer Webhook
+      #  run: |
+      #    curl -X POST "${{ secrets.PORTAINER_WEBHOOK_URL }}"
+
+      # Replace your "Trigger Portainer Webhook" step with this:
+      - name: Force Local Container Update
         run: |
-          curl -X POST "${{ secrets.PORTAINER_WEBHOOK_URL }}"
+          # 1. Force docker compose to recreate the containers with the fresh local layers
+          docker compose -f docker-compose.yml up -d --force-recreate --no-deps backend frontend admin-frontend landing
+          
+          # 2. Clean up older dangling image layers to save space
+          docker image prune -f
