@@ -199,10 +199,7 @@ async def create_office(
         select(Organization).where(Organization.id == current_user.organization_id)
     )
     org = org_result.scalar_one_or_none()
-    if not org:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
-
-    limit = ent.get_limit(org, "max_offices")
+    limit = ent.get_limit(org, "max_offices") if org else None
     if limit is not None:
         office_count_result = await db.execute(
             select(func.count(Office.id)).where(

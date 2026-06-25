@@ -130,8 +130,10 @@ async def enforce_org_access(
 def require_feature(feature: str):
     """Require the current user's organization to be entitled to ``feature``.
 
-    Super-admins bypass the check. Org-less users are rejected. Orgs lacking the
-    feature receive a 402 (payment required) with an upgrade message.
+    Super-admins and org-less users bypass the check (mirroring
+    ``enforce_org_access``, where users without an organization are treated as
+    internal/platform accounts). Orgs lacking the feature receive a 402 (payment
+    required) with an upgrade message.
     """
     async def checker(
         user: User = Depends(get_current_user),
@@ -139,10 +141,8 @@ def require_feature(feature: str):
     ) -> User:
         from app.services import entitlements as ent  # local import avoids cycle
 
-        if user.is_super_admin:
+        if user.is_super_admin or user.organization_id is None:
             return user
-        if user.organization_id is None:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User has no organization")
 
         result = await db.execute(select(Organization).where(Organization.id == user.organization_id))
         org = result.scalar_one_or_none()
