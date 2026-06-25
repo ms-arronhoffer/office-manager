@@ -5,7 +5,7 @@ export interface User {
   email: string;
   display_name: string;
   auth_provider: string;
-  role: 'admin' | 'editor' | 'viewer' | 'ticketer';
+  role: 'admin' | 'editor' | 'viewer' | 'ticketer' | 'accountant';
   is_super_admin: boolean;
   is_active: boolean;
   last_login_at?: string;
@@ -770,6 +770,78 @@ export interface OperatingExpenseVariance {
   actual: number | null;
   variance: number | null;
 }
+
+// ─── General Ledger ──────────────────────────────────────────────────────────
+export interface GLAccount {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+  normal_balance: string;
+  is_active: boolean;
+}
+
+export interface GLAccountCreate {
+  code: string;
+  name: string;
+  type: string;
+}
+
+export interface AccountingPeriod {
+  id: string;
+  year: number;
+  month: number;
+  status: string;
+  closed_at: string | null;
+  closed_by_id: string | null;
+}
+
+export interface JournalLine {
+  id: string;
+  account_id: string;
+  account_code: string;
+  account_name: string;
+  line_number: number;
+  debit: number;
+  credit: number;
+  memo: string | null;
+}
+
+export interface JournalEntry {
+  id: string;
+  entry_date: string;
+  memo: string | null;
+  source: string;
+  source_ref: string | null;
+  status: string;
+  posted_at: string | null;
+  lines: JournalLine[];
+}
+
+export interface JournalLineInput {
+  account_id: string;
+  debit: string;
+  credit: string;
+  memo?: string | null;
+}
+
+export interface JournalEntryCreate {
+  entry_date: string;
+  memo?: string | null;
+  lines: JournalLineInput[];
+}
+
+export interface TrialBalanceRow {
+  account_id: string;
+  code: string;
+  name: string;
+  type: string;
+  debit: number;
+  credit: number;
+  balance: number;
+  balance_side: string;
+}
+
 
 // ─── Vendor Portal ────────────────────────────────────────────────────────────
 export interface PortalTokenResponse {

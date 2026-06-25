@@ -28,6 +28,7 @@ interface SelectOption {
 const ROLE_OPTIONS: SelectOption[] = [
   { label: 'Admin', value: 'admin' },
   { label: 'Editor', value: 'editor' },
+  { label: 'Accountant', value: 'accountant' },
   { label: 'Viewer', value: 'viewer' },
 ];
 
@@ -49,7 +50,7 @@ const emptyForm = (): UserFormState => ({
   email: '',
   display_name: '',
   password: '',
-  role: ROLE_OPTIONS[2],
+  role: ROLE_OPTIONS.find((r) => r.value === 'viewer')!,
   is_active: true,
 });
 
@@ -57,7 +58,7 @@ const formFromUser = (user: User): UserFormState => ({
   email: user.email,
   display_name: user.display_name,
   password: '',
-  role: ROLE_OPTIONS.find((r) => r.value === user.role) ?? ROLE_OPTIONS[2],
+  role: ROLE_OPTIONS.find((r) => r.value === user.role) ?? ROLE_OPTIONS.find((r) => r.value === 'viewer')!,
   is_active: user.is_active,
 });
 

@@ -43,6 +43,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
 
   const isAdmin = user?.role === 'admin';
   const isEditorOrAdmin = user?.role === 'admin' || user?.role === 'editor';
+  const isFinance = user?.role === 'admin' || user?.role === 'accountant';
   const pinnedOffices = getPinnedOffices();
 
   const navItems = useMemo(() => [
@@ -79,6 +80,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
         { type: 'link' as const, text: 'Financial Dashboard', href: '/financial-dashboard' },
         { type: 'link' as const, text: 'Rent Roll', href: '/rent-roll' },
         { type: 'link' as const, text: 'Operating Expenses', href: '/operating-expenses' },
+        ...(isFinance ? [{ type: 'link' as const, text: 'General Ledger', href: '/general-ledger' }] : []),
         { type: 'link' as const, text: 'Reports & Lease Accounting', href: '/reports' },
         ...(isAdmin ? [{ type: 'link' as const, text: 'Billing', href: '/billing' }] : []),
       ],
@@ -133,7 +135,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       text: 'Settings',
       href: '/settings',
     },
-  ], [isAdmin, isEditorOrAdmin, pinnedOffices]);
+  ], [isAdmin, isEditorOrAdmin, isFinance, pinnedOffices]);
 
   return (
     <>

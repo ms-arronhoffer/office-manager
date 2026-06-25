@@ -68,6 +68,7 @@ const VendorPortalPage = lazy(() => import('@/pages/VendorPortalPage'));
 const InsuranceCertificatesPage = lazy(() => import('@/pages/InsuranceCertificatesPage'));
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const FinancialDashboardPage = lazy(() => import('@/pages/FinancialDashboardPage'));
+const GeneralLedgerPage = lazy(() => import('@/pages/GeneralLedgerPage'));
 
 const PageLoader = () => (
   <Box textAlign="center" padding={{ top: 'xxxl' }}>
@@ -167,6 +168,7 @@ const App: React.FC = () => {
                         <Route path="sla-dashboard" element={<SlaDashboardPage />} />
                         <Route path="recurring-ticket-rules" element={<RoleGuard allowedRoles={['admin', 'editor']}><RecurringTicketsPage /></RoleGuard>} />
                         <Route path="operating-expenses" element={<RoleGuard allowedRoles={['admin', 'editor']}><OperatingExpensesPage /></RoleGuard>} />
+                        <Route path="general-ledger" element={<RoleGuard allowedRoles={['admin', 'accountant']}><GeneralLedgerPage /></RoleGuard>} />
                         <Route path="insurance-certificates" element={<RoleGuard allowedRoles={['admin', 'editor']}><InsuranceCertificatesPage /></RoleGuard>} />
                         <Route path="space" element={<SpacePage />} />
                         <Route path="*" element={<NotFoundPage />} />
