@@ -18,6 +18,12 @@ import type {
   Vendor,
   VendorCreate,
   VendorUpdate,
+  ManagementCompany,
+  ManagementCompanyCreate,
+  ManagementCompanyUpdate,
+  EntityContact,
+  EntityContactCreate,
+  EntityContactUpdate,
   Transition,
   TransitionCreate,
   TransitionUpdate,
@@ -306,6 +312,39 @@ export const vendors = {
   restore: (id: string) => client.patch<Vendor>(`/vendors/${id}/restore`),
 
   exportCsv: () => client.get('/vendors/export', { responseType: 'blob' }),
+};
+
+// ─── Management Companies ─────────────────────────────────────────────────────
+export const managementCompanies = {
+  list: (params?: Record<string, unknown>) =>
+    client.get<PaginatedResponse<ManagementCompany>>('/management-companies', { params }),
+
+  get: (id: string) => client.get<ManagementCompany>(`/management-companies/${id}`),
+
+  create: (data: ManagementCompanyCreate) =>
+    client.post<ManagementCompany>('/management-companies', data),
+
+  update: (id: string, data: ManagementCompanyUpdate) =>
+    client.put<ManagementCompany>(`/management-companies/${id}`, data),
+
+  delete: (id: string) => client.delete(`/management-companies/${id}`),
+
+  restore: (id: string) => client.patch<ManagementCompany>(`/management-companies/${id}/restore`),
+};
+
+// ─── Contacts (reusable across entities) ──────────────────────────────────────
+export const contacts = {
+  list: (entityType: string, entityId: string) =>
+    client.get<EntityContact[]>('/contacts', {
+      params: { entity_type: entityType, entity_id: entityId },
+    }),
+
+  create: (data: EntityContactCreate) => client.post<EntityContact>('/contacts', data),
+
+  update: (id: string, data: EntityContactUpdate) =>
+    client.put<EntityContact>(`/contacts/${id}`, data),
+
+  delete: (id: string) => client.delete(`/contacts/${id}`),
 };
 
 // ─── Transitions ──────────────────────────────────────────────────────────────

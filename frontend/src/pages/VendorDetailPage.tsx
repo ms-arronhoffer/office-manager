@@ -16,6 +16,7 @@ import { vendors as vendorsApi, vendorPortalInternal } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
 import { useFlashbar } from '@/context/FlashbarContext';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
+import ContactsPanel from '@/components/common/ContactsPanel';
 import { formatAddress } from '@/components/common/AddressFields';
 import type { Vendor } from '@/types';
 
@@ -234,6 +235,10 @@ const VendorDetailPage: React.FC = () => {
               )}
             </SpaceBetween>
           </Container>
+        )}
+
+        {id && (
+          <ContactsPanel entityType="vendor" entityId={id} canEdit={canEdit} />
         )}
 
         {id && (

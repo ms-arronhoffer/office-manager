@@ -46,6 +46,9 @@ const WizardDocsPage = lazy(() => import('@/pages/WizardDocsPage'));
 const VendorsPage = lazy(() => import('@/pages/VendorsPage'));
 const VendorFormPage = lazy(() => import('@/pages/VendorFormPage'));
 const VendorDetailPage = lazy(() => import('@/pages/VendorDetailPage'));
+const ManagementCompaniesPage = lazy(() => import('@/pages/ManagementCompaniesPage'));
+const ManagementCompanyDetailPage = lazy(() => import('@/pages/ManagementCompanyDetailPage'));
+const ManagementCompanyFormPage = lazy(() => import('@/pages/ManagementCompanyFormPage'));
 const DataDictionaryPage = lazy(() => import('@/pages/DataDictionaryPage'));
 const EmailRulesPage = lazy(() => import('@/pages/EmailRulesPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
@@ -133,6 +136,13 @@ const App: React.FC = () => {
                         <Route path="vendors/new" element={<VendorFormPage />} />
                         <Route path="vendors/:id" element={<VendorDetailPage />} />
                         <Route path="vendors/:id/edit" element={<VendorFormPage />} />
+                        <Route path="management-companies" element={<ManagementCompaniesPage />} />
+                        <Route path="management-companies/new" element={<ManagementCompanyFormPage />} />
+                        <Route path="management-companies/:id" element={<ManagementCompanyDetailPage />} />
+                        <Route
+                          path="management-companies/:id/edit"
+                          element={<ManagementCompanyFormPage />}
+                        />
                         <Route path="transitions" element={<TransitionsPage />} />
                         <Route path="transitions/new" element={<TransitionFormPage />} />
                         <Route path="transitions/:id" element={<TransitionDetailPage />} />

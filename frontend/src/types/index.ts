@@ -417,6 +417,8 @@ export interface Landlord {
   entity_type?: string;
   tax_id?: string;
   management_company?: string;
+  management_company_id?: string;
+  management_company_ref?: ManagementCompanyRef;
   preferred_payment_method?: string;
   payment_terms?: string;
   vendor_id?: string;
@@ -456,6 +458,7 @@ export interface LandlordCreate {
   entity_type?: string;
   tax_id?: string;
   management_company?: string;
+  management_company_id?: string | null;
   preferred_payment_method?: string;
   payment_terms?: string;
   vendor_id?: string;
@@ -463,6 +466,104 @@ export interface LandlordCreate {
 }
 
 export interface LandlordUpdate extends Partial<LandlordCreate> {}
+
+// ─── Management Company ───────────────────────────────────────────────────────
+export interface ManagementCompanyRef {
+  id: string;
+  name: string;
+  contact_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  website?: string;
+  portal_url?: string;
+}
+
+export interface ManagementCompany {
+  id: string;
+  name: string;
+  contact_name?: string;
+  contact_title?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  secondary_phone?: string;
+  fax?: string;
+  website?: string;
+  portal_url?: string;
+  address_line_1?: string;
+  address_line_2?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ManagementCompanyCreate {
+  name: string;
+  contact_name?: string;
+  contact_title?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  secondary_phone?: string;
+  fax?: string;
+  website?: string;
+  portal_url?: string;
+  address_line_1?: string;
+  address_line_2?: string;
+  city?: string;
+  state?: string;
+  zip_code?: string;
+  notes?: string;
+}
+
+export interface ManagementCompanyUpdate extends Partial<ManagementCompanyCreate> {}
+
+// ─── Entity Contact (reusable across entities) ────────────────────────────────
+export type EntityContactType = 'landlord' | 'vendor' | 'management_company';
+
+export interface EntityContact {
+  id: string;
+  entity_type: EntityContactType;
+  entity_id: string;
+  contact_name: string;
+  title?: string;
+  contact_type?: string;
+  department?: string;
+  is_primary: boolean;
+  email?: string;
+  phone?: string;
+  mobile?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EntityContactCreate {
+  entity_type: EntityContactType;
+  entity_id: string;
+  contact_name: string;
+  title?: string;
+  contact_type?: string;
+  department?: string;
+  is_primary?: boolean;
+  email?: string;
+  phone?: string;
+  mobile?: string;
+  notes?: string;
+}
+
+export interface EntityContactUpdate {
+  contact_name?: string;
+  title?: string;
+  contact_type?: string;
+  department?: string;
+  is_primary?: boolean;
+  email?: string;
+  phone?: string;
+  mobile?: string;
+  notes?: string;
+}
 
 // ─── Vendor ──────────────────────────────────────────────────────────────────
 export interface VendorOfficeRef {

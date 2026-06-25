@@ -1,9 +1,13 @@
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 from sqlalchemy import String, Text, Boolean, ForeignKey, Index, Table, Column
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 from app.models.mixins import SoftDeleteMixin
+
+if TYPE_CHECKING:
+    from app.models.management_company import ManagementCompany
 
 
 # Association table for the many-to-many relationship between a landlord and the
@@ -57,7 +61,12 @@ class Landlord(SoftDeleteMixin, TimestampMixin, Base):
     # Business / legal entity details.
     entity_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     tax_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Legacy free-form management company name (kept for back-compat). New
+    # records should link to a ManagementCompany via management_company_id.
     management_company: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    management_company_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("management_companies.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     # Billing / payment details.
     preferred_payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
     payment_terms: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -65,6 +74,9 @@ class Landlord(SoftDeleteMixin, TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     office: Mapped["Office | None"] = relationship(back_populates="landlords")
+    management_company_ref: Mapped["ManagementCompany | None"] = relationship(
+        "ManagementCompany", back_populates="landlords"
+    )
     # Offices owned by this landlord (one or many).
     owned_offices: Mapped[list["Office"]] = relationship(
         secondary=landlord_offices, back_populates="owner_landlords"

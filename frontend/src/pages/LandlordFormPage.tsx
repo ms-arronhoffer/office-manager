@@ -15,7 +15,7 @@ import Box from '@cloudscape-design/components/box';
 import Spinner from '@cloudscape-design/components/spinner';
 import Alert from '@cloudscape-design/components/alert';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
-import { landlords as landlordsApi, offices as officesApi, attachments as attachmentsApi } from '@/api';
+import { landlords as landlordsApi, offices as officesApi, attachments as attachmentsApi, managementCompanies as managementCompaniesApi } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
 import AddressFields, { type StructuredAddress } from '@/components/common/AddressFields';
 import type { LandlordCreate, Office } from '@/types';
@@ -81,6 +81,8 @@ const LandlordFormPage: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<SelectOption | null>(null);
   const [officeOptions, setOfficeOptions] = useState<SelectOption[]>([]);
   const [selectedOffices, setSelectedOffices] = useState<SelectOption[]>([]);
+  const [mgmtCompanyOptions, setMgmtCompanyOptions] = useState<SelectOption[]>([]);
+  const [selectedMgmtCompany, setSelectedMgmtCompany] = useState<SelectOption | null>(null);
   const [propertyAddress, setPropertyAddress] = useState<StructuredAddress>({});
   const [mailingAddress, setMailingAddress] = useState<StructuredAddress>({});
   // Legacy free-form values from existing records, kept so we don't wipe them on save.
@@ -105,6 +107,20 @@ const LandlordFormPage: React.FC = () => {
       }
     };
     loadOffices();
+  }, []);
+
+  useEffect(() => {
+    const loadMgmtCompanies = async () => {
+      try {
+        const res = await managementCompaniesApi.list({ page_size: 1000 });
+        setMgmtCompanyOptions(
+          res.data.items.map((c) => ({ label: c.name, value: String(c.id) })),
+        );
+      } catch {
+        // non-critical
+      }
+    };
+    loadMgmtCompanies();
   }, []);
 
   useEffect(() => {
@@ -135,6 +151,12 @@ const LandlordFormPage: React.FC = () => {
         setSelectedOffices(
           (l.owned_offices ?? []).map((o) => ({ label: o.location_name, value: String(o.id) })),
         );
+        if (l.management_company_ref) {
+          setSelectedMgmtCompany({
+            label: l.management_company_ref.name,
+            value: String(l.management_company_ref.id),
+          });
+        }
         setPropertyAddress({
           address_line_1: l.address_line_1,
           address_line_2: l.address_line_2,
@@ -188,6 +210,7 @@ const LandlordFormPage: React.FC = () => {
       fax: formValues.fax.trim() || undefined,
       website: formValues.website.trim() || undefined,
       management_company: formValues.management_company.trim() || undefined,
+      management_company_id: selectedMgmtCompany?.value || null,
       entity_type: entityType?.value || undefined,
       tax_id: formValues.tax_id.trim() || undefined,
       preferred_payment_method: paymentMethod?.value || undefined,
@@ -362,11 +385,23 @@ const LandlordFormPage: React.FC = () => {
                 />
               </FormField>
 
-              <FormField label="Management Company">
-                <Input
-                  value={formValues.management_company}
-                  onChange={({ detail }) => setField('management_company', detail.value)}
-                  placeholder="Enter property management company"
+              <FormField
+                label="Property Management Company"
+                description="Link this landlord to a management company record. Manage these under Portfolio → Property Management."
+              >
+                <Select
+                  selectedOption={selectedMgmtCompany}
+                  onChange={({ detail }) =>
+                    setSelectedMgmtCompany(
+                      detail.selectedOption.value
+                        ? (detail.selectedOption as SelectOption)
+                        : null,
+                    )
+                  }
+                  options={[{ label: 'None', value: '' }, ...mgmtCompanyOptions]}
+                  placeholder="Select a management company"
+                  filteringType="auto"
+                  empty="No management companies found"
                 />
               </FormField>
 
