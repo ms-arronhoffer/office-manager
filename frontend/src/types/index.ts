@@ -1404,6 +1404,57 @@ export interface LeaseRenewal {
   updated_at: string;
 }
 
+// ─── Lease Abstract ───────────────────────────────────────────────────────────
+export type AbstractFieldType =
+  | 'text'
+  | 'textarea'
+  | 'date'
+  | 'currency'
+  | 'number'
+  | 'percent'
+  | 'boolean'
+  | 'select';
+
+export type AbstractClauseStatus = 'contains_content' | 'needs_content' | 'incomplete';
+
+export interface AbstractFieldSchema {
+  key: string;
+  label: string;
+  type: AbstractFieldType;
+  options?: string[];
+}
+
+export interface AbstractClause {
+  category_key: string;
+  name: string;
+  group: string;
+  order: number;
+  fields: AbstractFieldSchema[];
+  status: AbstractClauseStatus;
+  content?: Record<string, unknown> | null;
+  notes?: string | null;
+  updated_at?: string | null;
+}
+
+export interface AbstractSummary {
+  total: number;
+  contains_content: number;
+  needs_content: number;
+  incomplete: number;
+}
+
+export interface LeaseAbstractResponse {
+  lease_id: string;
+  clauses: AbstractClause[];
+  summary: AbstractSummary;
+}
+
+export interface AbstractClauseUpdate {
+  content?: Record<string, unknown> | null;
+  notes?: string | null;
+  status?: AbstractClauseStatus;
+}
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 export interface NotificationItem {
   id: string;

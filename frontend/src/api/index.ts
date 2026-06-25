@@ -64,6 +64,9 @@ import type {
   LeasePortfolioResponse,
   LeaseRenewal,
   LeaseOption,
+  LeaseAbstractResponse,
+  AbstractClause,
+  AbstractClauseUpdate,
   RentRollResponse,
   NotificationItem,
   Organization,
@@ -252,6 +255,12 @@ export const leases = {
 
   rentRoll: (params?: Record<string, unknown>) =>
     client.get<RentRollResponse>('/leases/rent-roll', { params }),
+
+  getAbstract: (leaseId: string) =>
+    client.get<LeaseAbstractResponse>(`/leases/${leaseId}/abstract`),
+
+  updateAbstractClause: (leaseId: string, categoryKey: string, data: AbstractClauseUpdate) =>
+    client.put<AbstractClause>(`/leases/${leaseId}/abstract/${categoryKey}`, data),
 };
 
 // ─── Landlords ────────────────────────────────────────────────────────────────
