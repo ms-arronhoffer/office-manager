@@ -58,7 +58,7 @@ from app.routers import (  # noqa: E402
     wizard_configs, vendors, imports, email_rules, trash, site_settings,
     ticket_templates, recurring_ticket_rules, notifications, organizations, billing, api_keys,
     webhooks, operating_expenses, vendor_portal, insurance_certificates, ws, work_order_costs,
-    space, gl, cam,
+    space, gl, cam, lifecycle,
 )
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit  # noqa: E402
 
@@ -100,6 +100,7 @@ app.include_router(work_order_costs.router, prefix="/api/v1", tags=["Work Order 
 app.include_router(space.router, prefix="/api/v1", tags=["Space Management"])
 app.include_router(gl.router, prefix="/api/v1/gl", tags=["General Ledger"])
 app.include_router(cam.router, prefix="/api/v1/cam", tags=["CAM Reconciliation"])
+app.include_router(lifecycle.router, prefix="/api/v1/lifecycle", tags=["Lease Lifecycle Accounting"])
 
 
 app.include_router(admin_orgs.router, prefix="/admin/v1/orgs", tags=["Admin - Orgs"])

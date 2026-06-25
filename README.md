@@ -693,7 +693,8 @@ docker compose exec db psql -U office_admin -d office_manager
 - **Period Close** — fiscal-month accounting periods that can be closed to lock reported financials; postings into a closed period are rejected
 - **Journal Export** — QuickBooks-compatible general-journal CSV export for hand-off to external accounting packages
 - **CAM Reconciliation** — US-commercial operating-expense recovery reconciliation per lease-year: gross-up to an occupancy standard, tenant pro-rata share, base-year/expense-stop offsets, and controllable-expense caps (cumulative, compounded, or non-cumulative). Statements seed from recorded operating expenses, can be finalized to an immutable record, and post the resulting true-up (tenant owes) or credit (tenant is owed) to the GL
-- **Finance access** — General Ledger and CAM endpoints are restricted to the **admin** and **accountant** roles
+- **Lease Lifecycle Accounting** — audit-grade ASC 842 / IFRS 16 remeasurement for post-commencement events: modifications, renewals/option exercises, and partial or full terminations. Pre-event carrying amounts are read straight off the lease's original schedule, the liability is remeasured to the present value of revised payments, the right-of-use asset is adjusted, and the balancing gain or loss is recognized. Events can be finalized to an immutable record and post the remeasurement, termination penalty, and gain/loss to the GL
+- **Finance access** — General Ledger, CAM, and Lease Lifecycle endpoints are restricted to the **admin** and **accountant** roles
 
 ### Developer & Integration
 - **API Keys** — `om_`-prefixed tokens with bcrypt-hashed storage, scope system (`read:*`, `write:tickets`, etc.), and management UI
@@ -725,6 +726,6 @@ docker compose exec db psql -U office_admin -d office_manager
 | Admin       | Yes  | Yes         | Yes    | Yes          | No             |
 | Super Admin | Yes  | Yes         | Yes    | Yes          | Yes            |
 
-The **accountant** role additionally unlocks the finance-only **General Ledger** and **CAM Reconciliation** endpoints, which are otherwise restricted to admins.
+The **accountant** role additionally unlocks the finance-only **General Ledger**, **CAM Reconciliation**, and **Lease Lifecycle Accounting** endpoints, which are otherwise restricted to admins.
 
 Super-admin accounts require TOTP two-factor authentication — enrollment is enforced on first login. See [docs/MFA_SETUP.md](docs/MFA_SETUP.md).
