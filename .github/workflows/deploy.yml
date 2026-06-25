@@ -55,26 +55,35 @@ jobs:
           push: false
           load: true
 
-      # 5. Hot-swap the containers directly via Docker without needing the compose env variables
-      - name: Force Local Container Update
+      # 5. Recreate the whole stack so every service picks up its new image
+      - name: Deploy Updated Stack
+        env:
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          ADMIN_FRONTEND_URL: ${{ secrets.ADMIN_FRONTEND_URL }}
+          DEFAULT_ADMIN_EMAIL: ${{ secrets.DEFAULT_ADMIN_EMAIL }}
+          DEFAULT_ADMIN_PASSWORD: ${{ secrets.DEFAULT_ADMIN_PASSWORD }}
+          APP_PORT: ${{ secrets.APP_PORT }}
+          ADMIN_PORT: ${{ secrets.ADMIN_PORT }}
+          LANDING_PORT: ${{ secrets.LANDING_PORT }}
         run: |
-          # Use standard docker stop/rm/run syntax to recreate just the app containers.
-          # Because Portainer created them originally, we can use 'docker animate' or a standard bounce:
-          
-          echo "Bouncing application containers to pick up new image layers..."
-          
-          # Stop and remove the old instances safely
-          docker rm -f dev-office-manager-backend-1 || true
-          docker rm -f dev-office-manager-frontend-1 || true
-          docker rm -f dev-office-manager-admin-frontend-1 || true
-          docker rm -f dev-office-manager-landing-1 || true
+          # Recreate every service (backend, frontend, admin-frontend, landing, db)
+          # using the freshly built :latest images. Using the same compose project
+          # name keeps the existing container names, networks and volumes intact so
+          # Portainer continues to track the stack.
+          echo "Recreating application stack to pick up new image layers..."
 
-          # If you prefer to let Portainer keep tracking them cleanly without breaking its tracking ID, 
-          # you can also execute a container restart if the daemon layer mapping updates automatically:
-          # docker restart dev-office-manager-backend-1 dev-office-manager-frontend-1 dev-office-manager-admin-frontend-1 dev-office-manager-landing-1
+          docker compose -p dev-office-manager -f docker-compose.yml up -d --force-recreate --remove-orphans
 
-          # Alternatively, the absolute cleanest way to force Portainer CE to pick it up without breaking the environment definitions:
-          # We call Portainer's stack update mechanism or bypass the validation checks.
-          
-          # Let's clean up older dangling image layers to save space
+          # Clean up older dangling image layers to save space
           docker image prune -f
