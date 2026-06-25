@@ -107,9 +107,10 @@ class JournalEntry(TimestampMixin, Base):
     )
     entry_date: Mapped[date] = mapped_column(Date, nullable=False)
     memo: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    # "manual" or "lease"
+    # Origin of the entry, e.g. "manual", "lease", or "cam".
     source: Mapped[str] = mapped_column(String(20), default="manual", nullable=False)
-    # Optional reference to the originating record (e.g. a lease id) as text.
+    # Optional reference to the originating record (e.g. a lease id or CAM
+    # reconciliation id) as text.
     source_ref: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     # "draft" or "posted"
     status: Mapped[str] = mapped_column(String(10), default="posted", nullable=False)
