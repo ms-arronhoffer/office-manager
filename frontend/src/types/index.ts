@@ -570,6 +570,14 @@ export interface HeatPump {
   model?: string;
   serial_number?: string;
   install_year?: number;
+  refrigerant_type?: string;
+  tonnage?: number;
+  seer_rating?: number;
+  filter_size?: string;
+  warranty_expiration?: string;
+  last_service_date?: string;
+  next_service_date?: string;
+  status?: string;
   notes?: string;
   service_logs?: HeatPumpServiceLog[];
   created_at?: string;

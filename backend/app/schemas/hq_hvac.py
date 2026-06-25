@@ -30,6 +30,14 @@ class HeatPumpResponse(BaseModel):
     model: str | None
     serial_number: str | None
     install_year: int | None
+    refrigerant_type: str | None
+    tonnage: Decimal | None
+    seer_rating: Decimal | None
+    filter_size: str | None
+    warranty_expiration: date | None
+    last_service_date: date | None
+    next_service_date: date | None
+    status: str
     notes: str | None
     service_logs: list[HeatPumpServiceLogResponse]
     created_at: datetime
@@ -44,6 +52,14 @@ class HeatPumpCreate(BaseModel):
     model: str | None = None
     serial_number: str | None = None
     install_year: int | None = None
+    refrigerant_type: str | None = None
+    tonnage: Decimal | None = None
+    seer_rating: Decimal | None = None
+    filter_size: str | None = None
+    warranty_expiration: date | None = None
+    last_service_date: date | None = None
+    next_service_date: date | None = None
+    status: str = "active"
     notes: str | None = None
 
 
@@ -53,6 +69,14 @@ class HeatPumpUpdate(BaseModel):
     model: str | None = None
     serial_number: str | None = None
     install_year: int | None = None
+    refrigerant_type: str | None = None
+    tonnage: Decimal | None = None
+    seer_rating: Decimal | None = None
+    filter_size: str | None = None
+    warranty_expiration: date | None = None
+    last_service_date: date | None = None
+    next_service_date: date | None = None
+    status: str | None = None
     notes: str | None = None
 
 
