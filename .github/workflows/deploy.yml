@@ -55,7 +55,31 @@ jobs:
           push: false
           load: true
 
-      # 5. Recreate the whole stack so every service picks up its new image
+      # 5. Fail fast if any required secret is missing or empty. These map to the
+      #    compose `${VAR:?...}` required variables; an unset GitHub secret is
+      #    silently substituted with an empty string, which otherwise surfaces as
+      #    a cryptic "required variable ... is missing a value" interpolation error.
+      - name: Validate Required Secrets
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DEFAULT_ADMIN_PASSWORD: ${{ secrets.DEFAULT_ADMIN_PASSWORD }}
+        run: |
+          missing=()
+          for var in POSTGRES_PASSWORD JWT_SECRET DEFAULT_ADMIN_PASSWORD; do
+            if [ -z "${!var}" ]; then
+              missing+=("$var")
+            fi
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Missing required repository secret(s): ${missing[*]}"
+            echo "Set them under Settings > Secrets and variables > Actions > Repository secrets."
+            echo "Names are case-sensitive and must match exactly."
+            exit 1
+          fi
+          echo "All required secrets are present."
+
+      # 6. Recreate the whole stack so every service picks up its new image
       - name: Deploy Updated Stack
         env:
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
