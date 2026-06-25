@@ -61,6 +61,11 @@ def _d(value) -> Decimal | None:
     return Decimal(str(value))
 
 
+def _floor_zero(value: Decimal) -> Decimal:
+    """Clamp a currency amount to zero (a negative ROU balance is not carried)."""
+    return value if value > 0 else Decimal("0")
+
+
 # ---------------------------------------------------------------------------
 # Present value of a revised payment stream
 # ---------------------------------------------------------------------------
@@ -162,7 +167,7 @@ def compute_lifecycle_event(
         liability_adjustment = _q(revised_liability - pre_liab)
         # ROU moves with the liability; a decrease below zero is a P&L gain.
         tentative_rou = _q(pre_rou_amt + liability_adjustment)
-        post_rou = tentative_rou if tentative_rou > 0 else Decimal("0")
+        post_rou = _floor_zero(tentative_rou)
         post_liability = revised_liability
 
     elif event_type == "full_termination":
@@ -185,7 +190,7 @@ def compute_lifecycle_event(
             revised_liability = _remeasured_liability()
             remeasure_delta = _q(revised_liability - liability_after)
             tentative_rou = _q(rou_after + remeasure_delta)
-            post_rou = tentative_rou if tentative_rou > 0 else Decimal("0")
+            post_rou = _floor_zero(tentative_rou)
             post_liability = revised_liability
         else:
             revised_liability = liability_after
