@@ -67,5 +67,10 @@ class ManagementCompanyRef(BaseModel):
 
     id: uuid.UUID
     name: str
+    contact_name: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    website: str | None = None
+    portal_url: str | None = None
 
     model_config = {"from_attributes": True}

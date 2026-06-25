@@ -188,7 +188,6 @@ const LandlordDetailPage: React.FC = () => {
             <ColumnLayout columns={3} variant="text-grid">
               <ValuePair label="Name" value={landlord.contact_name} />
               <ValuePair label="Company" value={landlord.landlord_company} />
-              <ValuePair label="Management Company" value={landlord.management_company} />
               <ValuePair label="Entity Type" value={landlord.entity_type} />
               <ValuePair label="Tax ID / EIN" value={landlord.tax_id} />
               <ValuePair label="Email" value={landlord.contact_email} />
@@ -244,7 +243,55 @@ const LandlordDetailPage: React.FC = () => {
             </ColumnLayout>
           </Container>
 
-          {/* Owned Offices */}
+          {/* Property Management Company */}
+          {(landlord.management_company_ref || landlord.management_company) && (
+            <Container header={<Header variant="h2">Property Management Company</Header>}>
+              {landlord.management_company_ref ? (
+                <ColumnLayout columns={3} variant="text-grid">
+                  <ValuePair
+                    label="Company"
+                    value={
+                      <Link
+                        onFollow={() =>
+                          navigate(`/management-companies/${landlord.management_company_ref!.id}`)
+                        }
+                      >
+                        {landlord.management_company_ref.name}
+                      </Link>
+                    }
+                  />
+                  <ValuePair
+                    label="Contact"
+                    value={landlord.management_company_ref.contact_name}
+                  />
+                  <ValuePair label="Phone" value={landlord.management_company_ref.contact_phone} />
+                  <ValuePair label="Email" value={landlord.management_company_ref.contact_email} />
+                  <ValuePair
+                    label="Website"
+                    value={
+                      landlord.management_company_ref.website ? (
+                        <Link external href={landlord.management_company_ref.website}>
+                          {landlord.management_company_ref.website}
+                        </Link>
+                      ) : undefined
+                    }
+                  />
+                  <ValuePair
+                    label="Online Portal"
+                    value={
+                      landlord.management_company_ref.portal_url ? (
+                        <Link external href={landlord.management_company_ref.portal_url}>
+                          {landlord.management_company_ref.portal_url}
+                        </Link>
+                      ) : undefined
+                    }
+                  />
+                </ColumnLayout>
+              ) : (
+                <ValuePair label="Management Company" value={landlord.management_company} />
+              )}
+            </Container>
+          )}
           <Container
             header={
               <Header variant="h2" counter={`(${(landlord.owned_offices ?? []).length})`}>

@@ -41,6 +41,9 @@ async def test_management_company_crud_and_landlord_link(client, admin_user):
     landlord = created.json()
     assert landlord["management_company_id"] == company_id
     assert landlord["management_company_ref"]["name"] == "Skyline Property Management"
+    # The embedded ref carries enough contact detail to render on the landlord page.
+    assert landlord["management_company_ref"]["contact_name"] == "Pat Manager"
+    assert landlord["management_company_ref"]["portal_url"] == "https://portal.skyline.test"
 
     # Update the company.
     upd = await client.put(
