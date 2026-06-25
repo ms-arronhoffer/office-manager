@@ -16,6 +16,8 @@ import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
 import Box from '@cloudscape-design/components/box';
 import { transitions as transitionsApi, offices as officesApi, attachments as attachmentsApi } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
+import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
+import { OfficeQuickCreate } from '@/components/common/QuickCreateForms';
 import AddressFields, {
   type StructuredAddress,
   parseUsAddress,
@@ -249,14 +251,17 @@ const TransitionFormPage: React.FC = () => {
             </SpaceBetween>
 
             <FormField label="Office">
-              <Select
+              <EntityQuickCreateSelect
                 selectedOption={selectedOffice}
-                onChange={({ detail }) =>
-                  setSelectedOffice(detail.selectedOption as SelectOption)
-                }
+                onChange={(opt) => setSelectedOffice(opt)}
                 options={officeOptions}
                 placeholder="Select office"
-                filteringType="auto"
+                quickCreate={{
+                  label: '+ Add new office…',
+                  render: ({ visible, onClose, onCreated }) => (
+                    <OfficeQuickCreate visible={visible} onClose={onClose} onCreated={onCreated} />
+                  ),
+                }}
               />
             </FormField>
 

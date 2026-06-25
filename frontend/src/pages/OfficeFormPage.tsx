@@ -18,6 +18,8 @@ import Box from '@cloudscape-design/components/box';
 import Modal from '@cloudscape-design/components/modal';
 import { offices as officesApi, managers as managersApi, attachments as attachmentsApi, organizations as organizationsApi } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
+import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
+import { ManagerQuickCreate } from '@/components/common/QuickCreateForms';
 import AddressFields, { type StructuredAddress } from '@/components/common/AddressFields';
 import type { OfficeCreate, Manager } from '@/types';
 
@@ -366,19 +368,23 @@ const OfficeFormPage: React.FC = () => {
                 </FormField>
 
                 <FormField label="Manager">
-                  <Select
+                  <EntityQuickCreateSelect
                     selectedOption={selectedManagerOption}
-                    onChange={({ detail }) =>
-                      setField(
-                        'manager_id',
-                        detail.selectedOption?.value
-                          ? detail.selectedOption.value
-                          : undefined,
-                      )
+                    onChange={(opt) =>
+                      setField('manager_id', opt?.value ? opt.value : undefined)
                     }
                     options={[{ label: '— None —', value: '' }, ...managers]}
                     placeholder="Select a manager"
-                    filteringType="auto"
+                    quickCreate={{
+                      label: '+ Add new manager…',
+                      render: ({ visible, onClose, onCreated }) => (
+                        <ManagerQuickCreate
+                          visible={visible}
+                          onClose={onClose}
+                          onCreated={onCreated}
+                        />
+                      ),
+                    }}
                   />
                 </FormField>
 
