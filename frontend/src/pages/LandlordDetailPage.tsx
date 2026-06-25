@@ -13,12 +13,25 @@ import Alert from '@cloudscape-design/components/alert';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
+import Select from '@cloudscape-design/components/select';
+import Checkbox from '@cloudscape-design/components/checkbox';
+import StatusIndicator from '@cloudscape-design/components/status-indicator';
+import Link from '@cloudscape-design/components/link';
 import { landlords as landlordsApi } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
 import { useFlashbar } from '@/context/FlashbarContext';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import { formatAddress } from '@/components/common/AddressFields';
-import type { Landlord, LandlordAdditionalName, LandlordContact } from '@/types';
+import type { Landlord, LandlordAdditionalName, LandlordContact, LandlordOfficeRef } from '@/types';
+
+const CONTACT_TYPE_OPTIONS = [
+  { label: 'General', value: 'general' },
+  { label: 'Billing', value: 'billing' },
+  { label: 'Maintenance', value: 'maintenance' },
+  { label: 'Property Manager', value: 'property_manager' },
+  { label: 'Legal', value: 'legal' },
+  { label: 'Emergency', value: 'emergency' },
+];
 
 const ValuePair: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <div>
@@ -40,7 +53,7 @@ const LandlordDetailPage: React.FC = () => {
 
   // Contact form state
   const [addContactVisible, setAddContactVisible] = useState(false);
-  const [contactForm, setContactForm] = useState({ contact_name: '', title: '', email: '', phone: '', notes: '' });
+  const [contactForm, setContactForm] = useState({ contact_name: '', title: '', contact_type: '', is_primary: false, email: '', phone: '', notes: '' });
   const [addingContact, setAddingContact] = useState(false);
   const [contactError, setContactError] = useState<string | null>(null);
   const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
@@ -65,7 +78,7 @@ const LandlordDetailPage: React.FC = () => {
     if (!id || !landlord) return;
     try {
       await landlordsApi.delete(id);
-      const label = landlord.name;
+      const label = landlord.landlord_company || landlord.contact_name || landlord.office_name || 'Landlord';
       navigate('/landlords');
       addFlash({
         type: 'success',
@@ -96,11 +109,13 @@ const LandlordDetailPage: React.FC = () => {
       await landlordsApi.addContact(id, {
         contact_name: contactForm.contact_name.trim(),
         title: contactForm.title.trim() || undefined,
+        contact_type: contactForm.contact_type || undefined,
+        is_primary: contactForm.is_primary,
         email: contactForm.email.trim() || undefined,
         phone: contactForm.phone.trim() || undefined,
         notes: contactForm.notes.trim() || undefined,
       });
-      setContactForm({ contact_name: '', title: '', email: '', phone: '', notes: '' });
+      setContactForm({ contact_name: '', title: '', contact_type: '', is_primary: false, email: '', phone: '', notes: '' });
       setAddContactVisible(false);
       await fetchLandlord();
     } catch {
@@ -163,7 +178,7 @@ const LandlordDetailPage: React.FC = () => {
                 </SpaceBetween>
               }
             >
-              {landlord.name}
+              {landlord.landlord_company || landlord.contact_name || landlord.office_name || 'Landlord'}
             </Header>
           </SpaceBetween>
         }
@@ -173,8 +188,25 @@ const LandlordDetailPage: React.FC = () => {
             <ColumnLayout columns={3} variant="text-grid">
               <ValuePair label="Name" value={landlord.contact_name} />
               <ValuePair label="Company" value={landlord.landlord_company} />
+              <ValuePair label="Management Company" value={landlord.management_company} />
+              <ValuePair label="Entity Type" value={landlord.entity_type} />
+              <ValuePair label="Tax ID / EIN" value={landlord.tax_id} />
               <ValuePair label="Email" value={landlord.contact_email} />
               <ValuePair label="Phone" value={landlord.contact_phone} />
+              <ValuePair label="Secondary Phone" value={landlord.secondary_phone} />
+              <ValuePair label="Fax" value={landlord.fax} />
+              <ValuePair
+                label="Website"
+                value={
+                  landlord.website ? (
+                    <Link external href={landlord.website}>
+                      {landlord.website}
+                    </Link>
+                  ) : undefined
+                }
+              />
+              <ValuePair label="Preferred Payment Method" value={landlord.preferred_payment_method} />
+              <ValuePair label="Payment Terms" value={landlord.payment_terms} />
               <ValuePair
                 label="Property Address"
                 value={
@@ -212,6 +244,33 @@ const LandlordDetailPage: React.FC = () => {
             </ColumnLayout>
           </Container>
 
+          {/* Owned Offices */}
+          <Container
+            header={
+              <Header variant="h2" counter={`(${(landlord.owned_offices ?? []).length})`}>
+                Owned Offices
+              </Header>
+            }
+          >
+            <Table<LandlordOfficeRef>
+              columnDefinitions={[
+                {
+                  id: 'name',
+                  header: 'Office',
+                  cell: (item) => (
+                    <Link onFollow={() => navigate(`/offices/${item.id}`)}>{item.location_name}</Link>
+                  ),
+                },
+              ]}
+              items={landlord.owned_offices ?? []}
+              empty={
+                <Box textAlign="center" color="inherit" padding="m">
+                  No offices linked to this landlord.
+                </Box>
+              }
+            />
+          </Container>
+
           {/* Notes */}
           <Container header={<Header variant="h2">Notes</Header>}>
             <Box>{landlord.notes || 'No notes.'}</Box>
@@ -243,6 +302,24 @@ const LandlordDetailPage: React.FC = () => {
               <Table<LandlordContact>
                 columnDefinitions={[
                   { id: 'name', header: 'Name', cell: (item) => item.contact_name },
+                  {
+                    id: 'type',
+                    header: 'Type',
+                    cell: (item) =>
+                      item.contact_type
+                        ? item.contact_type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+                        : '—',
+                  },
+                  {
+                    id: 'primary',
+                    header: 'Primary',
+                    cell: (item) =>
+                      item.is_primary ? (
+                        <StatusIndicator type="success">Primary</StatusIndicator>
+                      ) : (
+                        '—'
+                      ),
+                  },
                   { id: 'title', header: 'Title', cell: (item) => item.title || '—' },
                   { id: 'email', header: 'Email', cell: (item) => item.email || '—' },
                   { id: 'phone', header: 'Phone', cell: (item) => item.phone || '—' },
@@ -295,6 +372,28 @@ const LandlordDetailPage: React.FC = () => {
                         placeholder="e.g., Property Manager"
                       />
                     </FormField>
+                    <FormField label="Contact Type">
+                      <Select
+                        selectedOption={
+                          contactForm.contact_type
+                            ? CONTACT_TYPE_OPTIONS.find((o) => o.value === contactForm.contact_type) ?? null
+                            : null
+                        }
+                        onChange={({ detail }) =>
+                          setContactForm((f) => ({ ...f, contact_type: detail.selectedOption.value ?? '' }))
+                        }
+                        options={CONTACT_TYPE_OPTIONS}
+                        placeholder="Select a type"
+                      />
+                    </FormField>
+                    <Checkbox
+                      checked={contactForm.is_primary}
+                      onChange={({ detail }) =>
+                        setContactForm((f) => ({ ...f, is_primary: detail.checked }))
+                      }
+                    >
+                      Primary contact
+                    </Checkbox>
                     <FormField label="Email">
                       <Input
                         value={contactForm.email}
@@ -327,7 +426,7 @@ const LandlordDetailPage: React.FC = () => {
                       <Button
                         onClick={() => {
                           setAddContactVisible(false);
-                          setContactForm({ contact_name: '', title: '', email: '', phone: '', notes: '' });
+                          setContactForm({ contact_name: '', title: '', contact_type: '', is_primary: false, email: '', phone: '', notes: '' });
                         }}
                       >
                         Cancel
@@ -354,12 +453,12 @@ const LandlordDetailPage: React.FC = () => {
                 {
                   id: 'name',
                   header: 'Name',
-                  cell: (item) => item.name,
+                  cell: (item) => item.co_name || item.vendor_name || item.other_names || item.additional_names || '—',
                 },
                 {
-                  id: 'role',
-                  header: 'Role',
-                  cell: (item) => item.role || '—',
+                  id: 'other',
+                  header: 'Other Names',
+                  cell: (item) => item.other_names || '—',
                 },
               ]}
               items={landlord.additional_names}

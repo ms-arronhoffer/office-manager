@@ -371,11 +371,18 @@ export interface LandlordContact {
   landlord_id: string;
   contact_name: string;
   title?: string;
+  contact_type?: string;
+  is_primary?: boolean;
   email?: string;
   phone?: string;
   notes?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface LandlordOfficeRef {
+  id: string;
+  location_name: string;
 }
 
 export interface Landlord {
@@ -403,11 +410,20 @@ export interface Landlord {
   title?: string;
   contact_email?: string;
   contact_phone?: string;
+  secondary_phone?: string;
+  fax?: string;
+  website?: string;
   online_sign_in?: string;
+  entity_type?: string;
+  tax_id?: string;
+  management_company?: string;
+  preferred_payment_method?: string;
+  payment_terms?: string;
   vendor_id?: string;
   notes?: string;
   additional_names?: LandlordAdditionalName[];
   contacts?: LandlordContact[];
+  owned_offices?: LandlordOfficeRef[];
   created_at: string;
   updated_at: string;
 }
@@ -415,6 +431,7 @@ export interface Landlord {
 export interface LandlordCreate {
   ern?: string;
   office_name?: string;
+  office_ids?: string[];
   address?: string;
   contact_mailing_address?: string;
   address_line_1?: string;
@@ -432,7 +449,15 @@ export interface LandlordCreate {
   title?: string;
   contact_email?: string;
   contact_phone?: string;
+  secondary_phone?: string;
+  fax?: string;
+  website?: string;
   online_sign_in?: string;
+  entity_type?: string;
+  tax_id?: string;
+  management_company?: string;
+  preferred_payment_method?: string;
+  payment_terms?: string;
   vendor_id?: string;
   notes?: string;
 }
