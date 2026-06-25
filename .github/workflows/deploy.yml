@@ -1,0 +1,26 @@
+name: Build Image and Notify Portainer
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-redeploy:
+    # Forces the job to execute exclusively on your local self-hosted runner
+    runs-on: self-hosted 
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image Locally
+        run: |
+          # Build the new image layer locally. 
+          # Ensure the image tag matches exactly what Portainer is configured to look for.
+          docker build -t office-manager:latest .
+
+      - name: Post Webhook to Portainer
+        run: |
+          # Ping Portainer to notify it that a fresh image layer is ready
+          curl -X POST "${{ secrets.PORTAINER_WEBHOOK_URL }}"
