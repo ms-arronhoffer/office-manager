@@ -14,8 +14,9 @@ import Alert from '@cloudscape-design/components/alert';
 import BarChart from '@cloudscape-design/components/bar-chart';
 import Badge from '@cloudscape-design/components/badge';
 import Button from '@cloudscape-design/components/button';
-import { dashboard, maintenanceTickets as ticketsApi, activityLog } from '@/api';
-import type { DashboardSummary, LeaseExpirationByYear, Transition, MaintenanceTicket, ActivityLogEntry } from '@/types';
+import ColumnLayout from '@cloudscape-design/components/column-layout';
+import { dashboard, maintenanceTickets as ticketsApi, activityLog, leases as leasesApi, reports as reportsApi, operatingExpenses as operatingExpensesApi } from '@/api';
+import type { DashboardSummary, LeaseExpirationByYear, Transition, MaintenanceTicket, ActivityLogEntry, RentRollResponse, LeasePortfolioResponse, OperatingExpenseVariance } from '@/types';
 import { usePreferences } from '@/context/PreferencesContext';
 import { useAuth } from '@/auth/AuthContext';
 import DashboardSettingsModal from '@/components/dashboard/DashboardSettingsModal';
@@ -31,6 +32,7 @@ interface HvacDueItem {
 
 const DASHBOARD_WIDGETS = [
   { id: 'stat_cards', label: 'Summary Statistics' },
+  { id: 'financial_kpis', label: 'Financial KPIs' },
   { id: 'tickets_table', label: 'Open & In Progress Tickets' },
   { id: 'lease_chart', label: 'Lease Expirations Chart' },
   { id: 'hvac_table', label: 'Upcoming HVAC Services' },
@@ -41,6 +43,7 @@ const DASHBOARD_WIDGETS = [
 function getDefaultWidgets(role: string): Record<string, boolean> {
   const defaults: Record<string, boolean> = {
     stat_cards: true,
+    financial_kpis: true,
     tickets_table: true,
     lease_chart: true,
     hvac_table: true,
@@ -48,11 +51,22 @@ function getDefaultWidgets(role: string): Record<string, boolean> {
     activity_feed: true,
   };
   if (role === 'ticketer') {
+    defaults.financial_kpis = false;
     defaults.lease_chart = false;
     defaults.hvac_table = false;
     defaults.transitions_table = false;
   }
   return defaults;
+}
+
+function formatCurrency(value: number | null | undefined, currency = 'USD'): string {
+  if (value == null) return '—';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value);
 }
 
 const StatBox: React.FC<{ label: string; value: number | string; status?: 'success' | 'warning' | 'error' | 'info'; onClick?: () => void }> = ({ label, value, status = 'info', onClick }) => (
@@ -78,6 +92,9 @@ const DashboardPage: React.FC = () => {
   const [activeTransitions, setActiveTransitions] = useState<Transition[]>([]);
   const [openTickets, setOpenTickets] = useState<MaintenanceTicket[]>([]);
   const [recentActivity, setRecentActivity] = useState<ActivityLogEntry[]>([]);
+  const [rentRoll, setRentRoll] = useState<RentRollResponse | null>(null);
+  const [portfolio, setPortfolio] = useState<LeasePortfolioResponse | null>(null);
+  const [camVariance, setCamVariance] = useState<OperatingExpenseVariance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -109,6 +126,16 @@ const DashboardPage: React.FC = () => {
         const inProgressRes = await ticketsApi.list({ status: 'in_progress', page_size: 100 });
         const inProgressItems = inProgressRes.data.items || [];
         setOpenTickets([...openItems, ...inProgressItems]);
+
+        // Financial KPIs (best-effort; tolerate role-gated / unavailable endpoints)
+        const [rentRollRes, portfolioRes, varianceRes] = await Promise.allSettled([
+          leasesApi.rentRoll(),
+          reportsApi.leaseAccountingPortfolio(),
+          operatingExpensesApi.variance(),
+        ]);
+        if (rentRollRes.status === 'fulfilled') setRentRoll(rentRollRes.value.data);
+        if (portfolioRes.status === 'fulfilled') setPortfolio(portfolioRes.value.data);
+        if (varianceRes.status === 'fulfilled') setCamVariance(varianceRes.value.data);
       } catch (err) {
         console.error('Dashboard fetch error:', err);
         setError('Failed to load dashboard data. Please refresh the page.');
@@ -126,6 +153,10 @@ const DashboardPage: React.FC = () => {
       </Box>
     );
   }
+
+  const camOverBudgetCount = camVariance.filter(
+    (v) => v.budgeted != null && v.actual != null && v.actual > v.budgeted,
+  ).length;
 
   return (
     <ContentLayout
@@ -203,6 +234,49 @@ const DashboardPage: React.FC = () => {
               onClick={() => navigate('/hvac-contracts?due_soon=true')}
             />
           </Grid>
+        )}
+
+        {/* Financial KPIs */}
+        {isVisible('financial_kpis') && (
+          <Container
+            header={
+              <Header
+                variant="h2"
+                actions={<Link onFollow={() => navigate('/financial-dashboard')}>Financial dashboard</Link>}
+              >
+                Financial Overview
+              </Header>
+            }
+          >
+            <ColumnLayout columns={4} variant="text-grid">
+              <div style={{ cursor: 'pointer' }} onClick={() => navigate('/rent-roll')}>
+                <Box variant="awsui-key-label">Annual Rent Obligation</Box>
+                <Box variant="h2" fontWeight="bold">{formatCurrency(rentRoll?.total_annual)}</Box>
+              </div>
+              <div style={{ cursor: 'pointer' }} onClick={() => navigate('/financial-dashboard')}>
+                <Box variant="awsui-key-label">Total ROU Asset</Box>
+                <Box variant="h2" fontWeight="bold">{formatCurrency(portfolio?.total_rou)}</Box>
+              </div>
+              <div style={{ cursor: 'pointer' }} onClick={() => navigate('/financial-dashboard')}>
+                <Box variant="awsui-key-label">Total Lease Liability</Box>
+                <Box variant="h2" fontWeight="bold">
+                  {formatCurrency(
+                    portfolio
+                      ? portfolio.total_current_liability + portfolio.total_noncurrent_liability
+                      : null,
+                  )}
+                </Box>
+              </div>
+              <div style={{ cursor: 'pointer' }} onClick={() => navigate('/operating-expenses')}>
+                <Box variant="awsui-key-label">CAM Categories Over Budget</Box>
+                <Box>
+                  <StatusIndicator type={camOverBudgetCount > 0 ? 'warning' : 'success'}>
+                    {camOverBudgetCount}
+                  </StatusIndicator>
+                </Box>
+              </div>
+            </ColumnLayout>
+          </Container>
         )}
 
         {/* Open / In Progress Maintenance Tickets */}
