@@ -11,27 +11,14 @@ import Table from '@cloudscape-design/components/table';
 import Spinner from '@cloudscape-design/components/spinner';
 import Alert from '@cloudscape-design/components/alert';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
-import FormField from '@cloudscape-design/components/form-field';
-import Input from '@cloudscape-design/components/input';
-import Select from '@cloudscape-design/components/select';
-import Checkbox from '@cloudscape-design/components/checkbox';
-import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import Link from '@cloudscape-design/components/link';
 import { landlords as landlordsApi } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
 import { useFlashbar } from '@/context/FlashbarContext';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
+import ContactsPanel from '@/components/common/ContactsPanel';
 import { formatAddress } from '@/components/common/AddressFields';
-import type { Landlord, LandlordAdditionalName, LandlordContact, LandlordOfficeRef } from '@/types';
-
-const CONTACT_TYPE_OPTIONS = [
-  { label: 'General', value: 'general' },
-  { label: 'Billing', value: 'billing' },
-  { label: 'Maintenance', value: 'maintenance' },
-  { label: 'Property Manager', value: 'property_manager' },
-  { label: 'Legal', value: 'legal' },
-  { label: 'Emergency', value: 'emergency' },
-];
+import type { Landlord, LandlordAdditionalName, LandlordOfficeRef } from '@/types';
 
 const ValuePair: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <div>
@@ -50,13 +37,6 @@ const LandlordDetailPage: React.FC = () => {
   const [landlord, setLandlord] = useState<Landlord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Contact form state
-  const [addContactVisible, setAddContactVisible] = useState(false);
-  const [contactForm, setContactForm] = useState({ contact_name: '', title: '', contact_type: '', is_primary: false, email: '', phone: '', notes: '' });
-  const [addingContact, setAddingContact] = useState(false);
-  const [contactError, setContactError] = useState<string | null>(null);
-  const [deletingContactId, setDeletingContactId] = useState<string | null>(null);
 
   const fetchLandlord = useCallback(async () => {
     if (!id) return;
@@ -98,44 +78,6 @@ const LandlordDetailPage: React.FC = () => {
       });
     } catch {
       setError('Failed to delete landlord.');
-    }
-  };
-
-  const handleAddContact = async () => {
-    if (!id || !contactForm.contact_name.trim()) return;
-    setAddingContact(true);
-    setContactError(null);
-    try {
-      await landlordsApi.addContact(id, {
-        contact_name: contactForm.contact_name.trim(),
-        title: contactForm.title.trim() || undefined,
-        contact_type: contactForm.contact_type || undefined,
-        is_primary: contactForm.is_primary,
-        email: contactForm.email.trim() || undefined,
-        phone: contactForm.phone.trim() || undefined,
-        notes: contactForm.notes.trim() || undefined,
-      });
-      setContactForm({ contact_name: '', title: '', contact_type: '', is_primary: false, email: '', phone: '', notes: '' });
-      setAddContactVisible(false);
-      await fetchLandlord();
-    } catch {
-      setContactError('Failed to add contact.');
-    } finally {
-      setAddingContact(false);
-    }
-  };
-
-  const handleDeleteContact = async (contactId: string) => {
-    if (!id) return;
-    setDeletingContactId(contactId);
-    setContactError(null);
-    try {
-      await landlordsApi.deleteContact(id, contactId);
-      await fetchLandlord();
-    } catch {
-      setContactError('Failed to delete contact.');
-    } finally {
-      setDeletingContactId(null);
     }
   };
 
@@ -324,174 +266,7 @@ const LandlordDetailPage: React.FC = () => {
           </Container>
 
           {/* Additional Contacts */}
-          <Container
-            header={
-              <Header
-                variant="h2"
-                counter={`(${(landlord.contacts ?? []).length})`}
-                actions={
-                  canEdit ? (
-                    <Button onClick={() => setAddContactVisible(true)}>Add Contact</Button>
-                  ) : undefined
-                }
-              >
-                Additional Contacts
-              </Header>
-            }
-          >
-            <SpaceBetween size="m">
-              {contactError && (
-                <Alert type="error" dismissible onDismiss={() => setContactError(null)}>
-                  {contactError}
-                </Alert>
-              )}
-
-              <Table<LandlordContact>
-                columnDefinitions={[
-                  { id: 'name', header: 'Name', cell: (item) => item.contact_name },
-                  {
-                    id: 'type',
-                    header: 'Type',
-                    cell: (item) =>
-                      item.contact_type
-                        ? item.contact_type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-                        : '—',
-                  },
-                  {
-                    id: 'primary',
-                    header: 'Primary',
-                    cell: (item) =>
-                      item.is_primary ? (
-                        <StatusIndicator type="success">Primary</StatusIndicator>
-                      ) : (
-                        '—'
-                      ),
-                  },
-                  { id: 'title', header: 'Title', cell: (item) => item.title || '—' },
-                  { id: 'email', header: 'Email', cell: (item) => item.email || '—' },
-                  { id: 'phone', header: 'Phone', cell: (item) => item.phone || '—' },
-                  { id: 'notes', header: 'Notes', cell: (item) => item.notes || '—' },
-                  ...(canEdit
-                    ? [
-                        {
-                          id: 'actions',
-                          header: '',
-                          cell: (item: LandlordContact) => (
-                            <Button
-                              variant="inline-icon"
-                              iconName="remove"
-                              ariaLabel="Delete contact"
-                              loading={deletingContactId === item.id}
-                              onClick={() => handleDeleteContact(item.id)}
-                            />
-                          ),
-                          width: 50,
-                        },
-                      ]
-                    : []),
-                ]}
-                items={landlord.contacts ?? []}
-                empty={
-                  <Box textAlign="center" color="inherit" padding="m">
-                    No additional contacts.
-                  </Box>
-                }
-              />
-
-              {addContactVisible && (
-                <Container header={<Header variant="h3">New Contact</Header>}>
-                  <SpaceBetween size="s">
-                    <FormField label="Name" constraintText="Required">
-                      <Input
-                        value={contactForm.contact_name}
-                        onChange={({ detail }) =>
-                          setContactForm((f) => ({ ...f, contact_name: detail.value }))
-                        }
-                        placeholder="Contact name"
-                      />
-                    </FormField>
-                    <FormField label="Title">
-                      <Input
-                        value={contactForm.title}
-                        onChange={({ detail }) =>
-                          setContactForm((f) => ({ ...f, title: detail.value }))
-                        }
-                        placeholder="e.g., Property Manager"
-                      />
-                    </FormField>
-                    <FormField label="Contact Type">
-                      <Select
-                        selectedOption={
-                          contactForm.contact_type
-                            ? CONTACT_TYPE_OPTIONS.find((o) => o.value === contactForm.contact_type) ?? null
-                            : null
-                        }
-                        onChange={({ detail }) =>
-                          setContactForm((f) => ({ ...f, contact_type: detail.selectedOption.value ?? '' }))
-                        }
-                        options={CONTACT_TYPE_OPTIONS}
-                        placeholder="Select a type"
-                      />
-                    </FormField>
-                    <Checkbox
-                      checked={contactForm.is_primary}
-                      onChange={({ detail }) =>
-                        setContactForm((f) => ({ ...f, is_primary: detail.checked }))
-                      }
-                    >
-                      Primary contact
-                    </Checkbox>
-                    <FormField label="Email">
-                      <Input
-                        value={contactForm.email}
-                        onChange={({ detail }) =>
-                          setContactForm((f) => ({ ...f, email: detail.value }))
-                        }
-                        placeholder="Email address"
-                        type="email"
-                      />
-                    </FormField>
-                    <FormField label="Phone">
-                      <Input
-                        value={contactForm.phone}
-                        onChange={({ detail }) =>
-                          setContactForm((f) => ({ ...f, phone: detail.value }))
-                        }
-                        placeholder="Phone number"
-                      />
-                    </FormField>
-                    <FormField label="Notes">
-                      <Input
-                        value={contactForm.notes}
-                        onChange={({ detail }) =>
-                          setContactForm((f) => ({ ...f, notes: detail.value }))
-                        }
-                        placeholder="Additional info"
-                      />
-                    </FormField>
-                    <SpaceBetween direction="horizontal" size="xs">
-                      <Button
-                        onClick={() => {
-                          setAddContactVisible(false);
-                          setContactForm({ contact_name: '', title: '', contact_type: '', is_primary: false, email: '', phone: '', notes: '' });
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        variant="primary"
-                        onClick={handleAddContact}
-                        loading={addingContact}
-                        disabled={!contactForm.contact_name.trim()}
-                      >
-                        Add Contact
-                      </Button>
-                    </SpaceBetween>
-                  </SpaceBetween>
-                </Container>
-              )}
-            </SpaceBetween>
-          </Container>
+          {id && <ContactsPanel entityType="landlord" entityId={id} canEdit={canEdit} />}
 
           {landlord.additional_names && landlord.additional_names.length > 0 && (
             <Table<LandlordAdditionalName>

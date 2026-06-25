@@ -23,6 +23,8 @@ import {
   attachments as attachmentsApi,
 } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
+import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
+import { OfficeQuickCreate, ManagerQuickCreate } from '@/components/common/QuickCreateForms';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import type { HvacContractCreate, Office, Manager } from '@/types';
 
@@ -286,15 +288,22 @@ const HvacContractFormPage: React.FC = () => {
                 </FormField>
 
                 <FormField label="Office">
-                  <Select
+                  <EntityQuickCreateSelect
                     selectedOption={selectedOffice}
-                    onChange={({ detail }) =>
-                      setSelectedOffice(detail.selectedOption as SelectOption | null)
-                    }
+                    onChange={(opt) => setSelectedOffice(opt)}
                     options={officeOptions}
                     placeholder="Select an office"
-                    filteringType="auto"
                     empty="No offices available"
+                    quickCreate={{
+                      label: '+ Add new office…',
+                      render: ({ visible, onClose, onCreated }) => (
+                        <OfficeQuickCreate
+                          visible={visible}
+                          onClose={onClose}
+                          onCreated={onCreated}
+                        />
+                      ),
+                    }}
                   />
                 </FormField>
 
@@ -318,15 +327,22 @@ const HvacContractFormPage: React.FC = () => {
                 </SpaceBetween>
 
                 <FormField label="Manager">
-                  <Select
+                  <EntityQuickCreateSelect
                     selectedOption={selectedManager}
-                    onChange={({ detail }) =>
-                      setSelectedManager(detail.selectedOption as SelectOption | null)
-                    }
+                    onChange={(opt) => setSelectedManager(opt)}
                     options={managerOptions}
                     placeholder="Select a manager"
-                    filteringType="auto"
                     empty="No managers available"
+                    quickCreate={{
+                      label: '+ Add new manager…',
+                      render: ({ visible, onClose, onCreated }) => (
+                        <ManagerQuickCreate
+                          visible={visible}
+                          onClose={onClose}
+                          onCreated={onCreated}
+                        />
+                      ),
+                    }}
                   />
                 </FormField>
 

@@ -8,7 +8,6 @@ import Form from '@cloudscape-design/components/form';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
-import Multiselect from '@cloudscape-design/components/multiselect';
 import Textarea from '@cloudscape-design/components/textarea';
 import Button from '@cloudscape-design/components/button';
 import Box from '@cloudscape-design/components/box';
@@ -17,6 +16,14 @@ import Alert from '@cloudscape-design/components/alert';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
 import { landlords as landlordsApi, offices as officesApi, attachments as attachmentsApi, managementCompanies as managementCompaniesApi } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
+import {
+  EntityQuickCreateSelect,
+  EntityQuickCreateMultiselect,
+} from '@/components/common/EntityQuickCreateSelect';
+import {
+  ManagementCompanyQuickCreate,
+  OfficeQuickCreate,
+} from '@/components/common/QuickCreateForms';
 import AddressFields, { type StructuredAddress } from '@/components/common/AddressFields';
 import type { LandlordCreate, Office } from '@/types';
 
@@ -389,19 +396,24 @@ const LandlordFormPage: React.FC = () => {
                 label="Property Management Company"
                 description="Link this landlord to a management company record. Manage these under Portfolio → Property Management."
               >
-                <Select
+                <EntityQuickCreateSelect
                   selectedOption={selectedMgmtCompany}
-                  onChange={({ detail }) =>
-                    setSelectedMgmtCompany(
-                      detail.selectedOption.value
-                        ? (detail.selectedOption as SelectOption)
-                        : null,
-                    )
+                  onChange={(opt) =>
+                    setSelectedMgmtCompany(opt && opt.value ? opt : null)
                   }
                   options={[{ label: 'None', value: '' }, ...mgmtCompanyOptions]}
                   placeholder="Select a management company"
-                  filteringType="auto"
                   empty="No management companies found"
+                  quickCreate={{
+                    label: '+ Add new management company…',
+                    render: ({ visible, onClose, onCreated }) => (
+                      <ManagementCompanyQuickCreate
+                        visible={visible}
+                        onClose={onClose}
+                        onCreated={onCreated}
+                      />
+                    ),
+                  }}
                 />
               </FormField>
 
@@ -417,15 +429,22 @@ const LandlordFormPage: React.FC = () => {
                 label="Owned Offices"
                 description="Offices owned by this landlord (one or many)."
               >
-                <Multiselect
+                <EntityQuickCreateMultiselect
                   selectedOptions={selectedOffices}
-                  onChange={({ detail }) =>
-                    setSelectedOffices(detail.selectedOptions as SelectOption[])
-                  }
+                  onChange={(opts) => setSelectedOffices(opts)}
                   options={officeOptions}
                   placeholder="Select offices"
-                  filteringType="auto"
                   tokenLimit={5}
+                  quickCreate={{
+                    label: '+ Add new office…',
+                    render: ({ visible, onClose, onCreated }) => (
+                      <OfficeQuickCreate
+                        visible={visible}
+                        onClose={onClose}
+                        onCreated={onCreated}
+                      />
+                    ),
+                  }}
                 />
               </FormField>
 

@@ -24,6 +24,12 @@ import {
   ticketTemplates as templatesApi,
 } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
+import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
+import {
+  OfficeQuickCreate,
+  ManagerQuickCreate,
+  TicketCategoryQuickCreate,
+} from '@/components/common/QuickCreateForms';
 import type { Office, TicketCategory, Manager, TicketTemplate } from '@/types';
 
 type SelectOption = { label: string; value: string };
@@ -333,28 +339,38 @@ const MaintenanceTicketFormPage: React.FC = () => {
             </SpaceBetween>
 
             <FormField label="Category" constraintText="Required">
-              <Select
+              <EntityQuickCreateSelect
                 selectedOption={selectedCategory}
-                onChange={({ detail }) =>
-                  setSelectedCategory(detail.selectedOption as SelectOption)
-                }
+                onChange={(opt) => setSelectedCategory(opt)}
                 options={categoryOptions}
                 placeholder="Select category"
-                filteringType="auto"
                 disabled={saving}
+                quickCreate={{
+                  label: '+ Add new category…',
+                  render: ({ visible, onClose, onCreated }) => (
+                    <TicketCategoryQuickCreate
+                      visible={visible}
+                      onClose={onClose}
+                      onCreated={onCreated}
+                    />
+                  ),
+                }}
               />
             </FormField>
 
             <FormField label="Location" constraintText="Required">
-              <Select
+              <EntityQuickCreateSelect
                 selectedOption={selectedOffice}
-                onChange={({ detail }) =>
-                  setSelectedOffice(detail.selectedOption as SelectOption)
-                }
+                onChange={(opt) => setSelectedOffice(opt)}
                 options={officeOptions}
                 placeholder="Select office location"
-                filteringType="auto"
                 disabled={saving}
+                quickCreate={{
+                  label: '+ Add new office…',
+                  render: ({ visible, onClose, onCreated }) => (
+                    <OfficeQuickCreate visible={visible} onClose={onClose} onCreated={onCreated} />
+                  ),
+                }}
               />
             </FormField>
 
@@ -378,15 +394,18 @@ const MaintenanceTicketFormPage: React.FC = () => {
             </FormField>
 
             <FormField label="Assigned To">
-              <Select
+              <EntityQuickCreateSelect
                 selectedOption={selectedAssignedTo}
-                onChange={({ detail }) =>
-                  setSelectedAssignedTo(detail.selectedOption as SelectOption)
-                }
+                onChange={(opt) => setSelectedAssignedTo(opt)}
                 options={managerOptions}
                 placeholder="Select manager (optional)"
-                filteringType="auto"
                 disabled={saving}
+                quickCreate={{
+                  label: '+ Add new manager…',
+                  render: ({ visible, onClose, onCreated }) => (
+                    <ManagerQuickCreate visible={visible} onClose={onClose} onCreated={onCreated} />
+                  ),
+                }}
               />
             </FormField>
 

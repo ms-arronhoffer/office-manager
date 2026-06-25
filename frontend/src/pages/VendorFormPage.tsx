@@ -8,7 +8,6 @@ import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
 import Checkbox from '@cloudscape-design/components/checkbox';
 import Toggle from '@cloudscape-design/components/toggle';
-import Multiselect from '@cloudscape-design/components/multiselect';
 import Button from '@cloudscape-design/components/button';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Container from '@cloudscape-design/components/container';
@@ -19,6 +18,8 @@ import Box from '@cloudscape-design/components/box';
 import Icon from '@cloudscape-design/components/icon';
 import { vendors as vendorsApi, offices as officesApi, attachments as attachmentsApi, ticketCategories as categoriesApi } from '@/api';
 import AddressFields, { type StructuredAddress } from '@/components/common/AddressFields';
+import { EntityQuickCreateMultiselect } from '@/components/common/EntityQuickCreateSelect';
+import { OfficeQuickCreate } from '@/components/common/QuickCreateForms';
 import type { VendorCreate, Office, TicketCategory } from '@/types';
 
 type PendingAttachment = { file: File; description: string };
@@ -288,15 +289,18 @@ const VendorFormPage: React.FC = () => {
             </FormField>
 
             <FormField label="Assigned Offices">
-              <Multiselect
+              <EntityQuickCreateMultiselect
                 selectedOptions={selectedOffices}
-                onChange={({ detail }) =>
-                  setSelectedOffices(detail.selectedOptions as SelectOption[])
-                }
+                onChange={(opts) => setSelectedOffices(opts)}
                 options={officeOptions}
                 placeholder="Select offices"
-                filteringType="auto"
                 tokenLimit={5}
+                quickCreate={{
+                  label: '+ Add new office…',
+                  render: ({ visible, onClose, onCreated }) => (
+                    <OfficeQuickCreate visible={visible} onClose={onClose} onCreated={onCreated} />
+                  ),
+                }}
               />
             </FormField>
 

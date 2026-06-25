@@ -23,6 +23,8 @@ import {
   attachments as attachmentsApi,
 } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
+import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
+import { OfficeQuickCreate, ManagerQuickCreate } from '@/components/common/QuickCreateForms';
 import type { LeaseCreate, Office, Manager } from '@/types';
 
 type SelectOption = { label: string; value: string };
@@ -305,14 +307,17 @@ const LeaseFormPage: React.FC = () => {
             </FormField>
 
             <FormField label="Office" stretch>
-                <Select
+                <EntityQuickCreateSelect
                   selectedOption={selectedOffice}
-                  onChange={({ detail }) =>
-                    setSelectedOffice(detail.selectedOption as SelectOption)
-                  }
+                  onChange={(opt) => setSelectedOffice(opt)}
                   options={officeOptions}
                   placeholder="Select office"
-                  filteringType="auto"
+                  quickCreate={{
+                    label: '+ Add new office…',
+                    render: ({ visible, onClose, onCreated }) => (
+                      <OfficeQuickCreate visible={visible} onClose={onClose} onCreated={onCreated} />
+                    ),
+                  }}
                 />
               </FormField>
 
@@ -433,14 +438,17 @@ const LeaseFormPage: React.FC = () => {
             </SpaceBetween>
 
             <FormField label="Manager">
-              <Select
+              <EntityQuickCreateSelect
                 selectedOption={selectedManager}
-                onChange={({ detail }) =>
-                  setSelectedManager(detail.selectedOption as SelectOption)
-                }
+                onChange={(opt) => setSelectedManager(opt)}
                 options={managerOptions}
                 placeholder="Select manager"
-                filteringType="auto"
+                quickCreate={{
+                  label: '+ Add new manager…',
+                  render: ({ visible, onClose, onCreated }) => (
+                    <ManagerQuickCreate visible={visible} onClose={onClose} onCreated={onCreated} />
+                  ),
+                }}
               />
             </FormField>
 
