@@ -41,9 +41,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
   const onShowShortcuts = useCallback(() => setShortcutsOpen(true), []);
   useKeyboardShortcuts(onShowShortcuts);
 
-  const isAdmin = user?.role === 'admin';
   const isEditorOrAdmin = user?.role === 'admin' || user?.role === 'editor';
-  const isFinance = user?.role === 'admin' || user?.role === 'accountant';
   const pinnedOffices = getPinnedOffices();
 
   const navItems = useMemo(() => [
@@ -65,7 +63,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       : []),
     {
       type: 'section' as const,
-      text: 'Lease Portfolio',
+      text: 'Portfolio',
       items: [
         { type: 'link' as const, text: 'Offices', href: '/offices' },
         { type: 'link' as const, text: 'Leases', href: '/leases' },
@@ -74,56 +72,25 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       ],
     },
     {
-      type: 'section' as const,
+      type: 'link' as const,
       text: 'Finance',
-      items: [
-        { type: 'link' as const, text: 'Financial Dashboard', href: '/financial-dashboard' },
-        { type: 'link' as const, text: 'Rent Roll', href: '/rent-roll' },
-        { type: 'link' as const, text: 'Operating Expenses', href: '/operating-expenses' },
-        ...(isFinance ? [{ type: 'link' as const, text: 'General Ledger', href: '/general-ledger' }] : []),
-        { type: 'link' as const, text: 'Reports & Lease Accounting', href: '/reports' },
-        ...(isAdmin ? [{ type: 'link' as const, text: 'Billing', href: '/billing' }] : []),
-      ],
+      href: '/finance',
     },
     {
       type: 'section' as const,
-      text: 'Facilities & Operations',
+      text: 'Operations',
       items: [
         { type: 'link' as const, text: 'Maintenance Tickets', href: '/maintenance-tickets' },
-        { type: 'link' as const, text: 'SLA Dashboard', href: '/sla-dashboard' },
         { type: 'link' as const, text: 'Vendors', href: '/vendors' },
         { type: 'link' as const, text: 'Transitions', href: '/transitions' },
-        { type: 'link' as const, text: 'HVAC Systems', href: '/hq-hvac' },
-        { type: 'link' as const, text: 'HVAC Contracts', href: '/hvac-contracts' },
-      ],
-    },
-    {
-      type: 'section' as const,
-      text: 'Analytics & Compliance',
-      items: [
-        { type: 'link' as const, text: 'Analytics', href: '/analytics' },
-        { type: 'link' as const, text: 'Insurance Certificates', href: '/insurance-certificates' },
+        { type: 'link' as const, text: 'HVAC', href: '/hvac' },
+        ...(isEditorOrAdmin ? [{ type: 'link' as const, text: 'Insurance Certificates', href: '/insurance-certificates' }] : []),
       ],
     },
     ...(isEditorOrAdmin ? [{
-      type: 'section' as const,
+      type: 'link' as const,
       text: 'Administration',
-      items: [
-        ...(isAdmin ? [{ type: 'link' as const, text: 'Managers', href: '/managers' }] : []),
-        ...(isAdmin ? [{ type: 'link' as const, text: 'Users', href: '/users' }] : []),
-        ...(isAdmin ? [{ type: 'link' as const, text: 'Ticket Categories', href: '/ticket-categories' }] : []),
-        { type: 'link' as const, text: 'Ticket Templates', href: '/ticket-templates' },
-        { type: 'link' as const, text: 'Recurring Tickets', href: '/recurring-ticket-rules' },
-        ...(isAdmin ? [{ type: 'link' as const, text: 'Email Rules', href: '/email-rules' }] : []),
-        ...(isAdmin ? [{ type: 'link' as const, text: 'Wizard Configs', href: '/wizard-configs' }] : []),
-        ...(isAdmin ? [{ type: 'link' as const, text: 'Flow Authoring Guide', href: '/wizard-docs' }] : []),
-        ...(isAdmin ? [{ type: 'link' as const, text: 'Audit Log', href: '/activity-log' }] : []),
-        ...(isAdmin ? [{ type: 'link' as const, text: 'Data Dictionary', href: '/data-dictionary' }] : []),
-        ...(isAdmin ? [{ type: 'link' as const, text: 'Site Settings', href: '/admin/site-settings' }] : []),
-        ...(isAdmin ? [{ type: 'link' as const, text: 'API Keys', href: '/api-keys' }] : []),
-        ...(isAdmin ? [{ type: 'link' as const, text: 'Webhooks', href: '/webhooks' }] : []),
-        ...(isAdmin ? [{ type: 'link' as const, text: 'Trash', href: '/trash' }] : []),
-      ],
+      href: '/administration',
     }] : []),
     {
       type: 'link' as const,
@@ -135,7 +102,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       text: 'Settings',
       href: '/settings',
     },
-  ], [isAdmin, isEditorOrAdmin, isFinance, pinnedOffices]);
+  ], [isEditorOrAdmin, pinnedOffices]);
 
   return (
     <>

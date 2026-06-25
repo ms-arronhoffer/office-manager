@@ -20,7 +20,6 @@ const OnboardingPage = lazy(() => import('@/pages/OnboardingPage'));
 const BillingPage = lazy(() => import('@/pages/BillingPage'));
 const ApiKeysPage = lazy(() => import('@/pages/ApiKeysPage'));
 const WebhooksPage = lazy(() => import('@/pages/WebhooksPage'));
-const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const OfficesPage = lazy(() => import('@/pages/OfficesPage'));
 const OfficeDetailPage = lazy(() => import('@/pages/OfficeDetailPage'));
 const OfficeFormPage = lazy(() => import('@/pages/OfficeFormPage'));
@@ -33,11 +32,8 @@ const LandlordFormPage = lazy(() => import('@/pages/LandlordFormPage'));
 const TransitionsPage = lazy(() => import('@/pages/TransitionsPage'));
 const TransitionDetailPage = lazy(() => import('@/pages/TransitionDetailPage'));
 const TransitionFormPage = lazy(() => import('@/pages/TransitionFormPage'));
-const HqHvacPage = lazy(() => import('@/pages/HqHvacPage'));
-const HvacContractsPage = lazy(() => import('@/pages/HvacContractsPage'));
 const HvacContractDetailPage = lazy(() => import('@/pages/HvacContractDetailPage'));
 const HvacContractFormPage = lazy(() => import('@/pages/HvacContractFormPage'));
-const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
 const ManagersPage = lazy(() => import('@/pages/ManagersPage'));
 const TicketCategoriesPage = lazy(() => import('@/pages/TicketCategoriesPage'));
 const MaintenanceTicketsPage = lazy(() => import('@/pages/MaintenanceTicketsPage'));
@@ -57,18 +53,16 @@ const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 const ActivityLogPage = lazy(() => import('@/pages/ActivityLogPage'));
 const TrashPage = lazy(() => import('@/pages/TrashPage'));
 const SiteSettingsPage = lazy(() => import('@/pages/SiteSettingsPage'));
-const AnalyticsPage = lazy(() => import('@/pages/AnalyticsPage'));
 const LeaseCalendarPage = lazy(() => import('@/pages/LeaseCalendarPage'));
 const TicketTemplatesPage = lazy(() => import('@/pages/TicketTemplatesPage'));
-const SlaDashboardPage = lazy(() => import('@/pages/SlaDashboardPage'));
 const RecurringTicketsPage = lazy(() => import('@/pages/RecurringTicketsPage'));
-const RentRollPage = lazy(() => import('@/pages/RentRollPage'));
-const OperatingExpensesPage = lazy(() => import('@/pages/OperatingExpensesPage'));
 const VendorPortalPage = lazy(() => import('@/pages/VendorPortalPage'));
 const InsuranceCertificatesPage = lazy(() => import('@/pages/InsuranceCertificatesPage'));
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
-const FinancialDashboardPage = lazy(() => import('@/pages/FinancialDashboardPage'));
-const GeneralLedgerPage = lazy(() => import('@/pages/GeneralLedgerPage'));
+const DashboardHubPage = lazy(() => import('@/pages/DashboardHubPage'));
+const FinancePage = lazy(() => import('@/pages/FinancePage'));
+const HvacPage = lazy(() => import('@/pages/HvacPage'));
+const AdministrationPage = lazy(() => import('@/pages/AdministrationPage'));
 
 const PageLoader = () => (
   <Box textAlign="center" padding={{ top: 'xxxl' }}>
@@ -114,16 +108,20 @@ const App: React.FC = () => {
                 <AppNavigation>
                     <Suspense fallback={<PageLoader />}>
                       <Routes>
-                        <Route index element={<DashboardPage />} />
+                        <Route index element={<DashboardHubPage />} />
+                        <Route path="dashboard/financial" element={<DashboardHubPage />} />
+                        <Route path="dashboard/analytics" element={<DashboardHubPage />} />
+                        <Route path="dashboard/reports" element={<DashboardHubPage />} />
+                        <Route path="dashboard/sla" element={<DashboardHubPage />} />
                         <Route path="offices" element={<OfficesPage />} />
                         <Route path="offices/new" element={<OfficeFormPage />} />
                         <Route path="offices/:id" element={<OfficeDetailPage />} />
                         <Route path="offices/:id/edit" element={<OfficeFormPage />} />
                         <Route path="leases" element={<LeasesPage />} />
                         <Route path="leases/calendar" element={<LeaseCalendarPage />} />
-                        <Route path="rent-roll" element={<RentRollPage />} />
-                        <Route path="leases/rent-roll" element={<Navigate to="/rent-roll" replace />} />
-                        <Route path="financial-dashboard" element={<FinancialDashboardPage />} />
+                        <Route path="finance" element={<FinancePage />} />
+                        <Route path="finance/operating-expenses" element={<RoleGuard allowedRoles={['admin', 'editor']}><FinancePage /></RoleGuard>} />
+                        <Route path="finance/general-ledger" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="leases/new" element={<LeaseFormPage />} />
                         <Route path="leases/:id" element={<LeaseDetailPage />} />
                         <Route path="leases/:id/edit" element={<LeaseFormPage />} />
@@ -139,13 +137,15 @@ const App: React.FC = () => {
                         <Route path="transitions/new" element={<TransitionFormPage />} />
                         <Route path="transitions/:id" element={<TransitionDetailPage />} />
                         <Route path="transitions/:id/edit" element={<TransitionFormPage />} />
-                        <Route path="hq-hvac" element={<HqHvacPage />} />
-                        <Route path="hvac-contracts" element={<HvacContractsPage />} />
+                        <Route path="hvac" element={<HvacPage />} />
+                        <Route path="hvac/contracts" element={<HvacPage />} />
                         <Route path="hvac-contracts/new" element={<HvacContractFormPage />} />
                         <Route path="hvac-contracts/:id" element={<HvacContractDetailPage />} />
                         <Route path="hvac-contracts/:id/edit" element={<HvacContractFormPage />} />
-                        <Route path="reports" element={<ReportsPage />} />
-                        <Route path="analytics" element={<AnalyticsPage />} />
+                        <Route path="administration" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
+                        <Route path="administration/automation" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
+                        <Route path="administration/integrations" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
+                        <Route path="administration/system" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
                         <Route path="managers" element={<RoleGuard allowedRoles={['admin']}><ManagersPage /></RoleGuard>} />
                         <Route path="ticket-categories" element={<RoleGuard allowedRoles={['admin']}><TicketCategoriesPage /></RoleGuard>} />
                         <Route path="maintenance-tickets" element={<MaintenanceTicketsPage />} />
@@ -165,12 +165,20 @@ const App: React.FC = () => {
                         <Route path="api-keys" element={<RoleGuard allowedRoles={['admin']}><ApiKeysPage /></RoleGuard>} />
                         <Route path="webhooks" element={<RoleGuard allowedRoles={['admin']}><WebhooksPage /></RoleGuard>} />
                         <Route path="ticket-templates" element={<RoleGuard allowedRoles={['admin', 'editor']}><TicketTemplatesPage /></RoleGuard>} />
-                        <Route path="sla-dashboard" element={<SlaDashboardPage />} />
                         <Route path="recurring-ticket-rules" element={<RoleGuard allowedRoles={['admin', 'editor']}><RecurringTicketsPage /></RoleGuard>} />
-                        <Route path="operating-expenses" element={<RoleGuard allowedRoles={['admin', 'editor']}><OperatingExpensesPage /></RoleGuard>} />
-                        <Route path="general-ledger" element={<RoleGuard allowedRoles={['admin', 'accountant']}><GeneralLedgerPage /></RoleGuard>} />
                         <Route path="insurance-certificates" element={<RoleGuard allowedRoles={['admin', 'editor']}><InsuranceCertificatesPage /></RoleGuard>} />
                         <Route path="space" element={<SpacePage />} />
+                        {/* Backwards-compatible redirects from the pre-consolidation URLs */}
+                        <Route path="financial-dashboard" element={<Navigate to="/dashboard/financial" replace />} />
+                        <Route path="analytics" element={<Navigate to="/dashboard/analytics" replace />} />
+                        <Route path="reports" element={<Navigate to="/dashboard/reports" replace />} />
+                        <Route path="sla-dashboard" element={<Navigate to="/dashboard/sla" replace />} />
+                        <Route path="rent-roll" element={<Navigate to="/finance" replace />} />
+                        <Route path="leases/rent-roll" element={<Navigate to="/finance" replace />} />
+                        <Route path="operating-expenses" element={<Navigate to="/finance/operating-expenses" replace />} />
+                        <Route path="general-ledger" element={<Navigate to="/finance/general-ledger" replace />} />
+                        <Route path="hq-hvac" element={<Navigate to="/hvac" replace />} />
+                        <Route path="hvac-contracts" element={<Navigate to="/hvac/contracts" replace />} />
                         <Route path="*" element={<NotFoundPage />} />
                       </Routes>
                     </Suspense>
