@@ -1,0 +1,50 @@
+---
+const quotes = [
+  {
+    quote: "We were running a 47-location portfolio out of Excel. After six months on Office Manager, our whole team is self-sufficient and we haven't missed a single deadline.",
+    name: "Sarah L.",
+    role: "VP Corporate Real Estate, Financial Services",
+    initials: "SL",
+  },
+  {
+    quote: "The maintenance ticket system alone paid for the subscription in the first month. Our SLA compliance went from 71% to 96% in 90 days.",
+    name: "Marcus K.",
+    role: "Facilities Director, Technology Company",
+    initials: "MK",
+  },
+  {
+    quote: "Setup took less than two hours. We imported our lease data from CSV and were operational the same afternoon. The alert system is exactly what we needed.",
+    name: "Jennifer P.",
+    role: "Real Estate Manager, Healthcare Organization",
+    initials: "JP",
+  },
+];
+---
+<section class="py-24 bg-slate-50">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center max-w-2xl mx-auto mb-16">
+      <p class="text-sm font-semibold text-blue-600 uppercase tracking-widest mb-3">Customer Stories</p>
+      <h2 class="text-4xl lg:text-5xl font-extrabold text-slate-900">What facilities teams are saying</h2>
+    </div>
+
+    <div class="grid lg:grid-cols-3 gap-8">
+      {quotes.map(q => (
+        <div class="bg-white rounded-2xl p-8 border border-slate-200 shadow-sm flex flex-col">
+          <div class="text-amber-400 text-xl mb-4">★★★★★</div>
+          <blockquote class="text-slate-600 leading-relaxed flex-1">
+            "{q.quote}"
+          </blockquote>
+          <div class="mt-6 flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+              {q.initials}
+            </div>
+            <div>
+              <div class="font-semibold text-slate-900 text-sm">{q.name}</div>
+              <div class="text-xs text-slate-400 mt-0.5">{q.role}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

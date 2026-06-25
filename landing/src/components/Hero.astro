@@ -1,0 +1,109 @@
+---
+---
+<section class="relative pt-20 pb-24 lg:pt-32 lg:pb-36 overflow-hidden">
+
+  <!-- Soft grid background -->
+  <div class="absolute inset-0 -z-10" aria-hidden="true">
+    <div class="absolute inset-0 bg-[linear-gradient(to_right,#f1f5f9_1px,transparent_1px),linear-gradient(to_bottom,#f1f5f9_1px,transparent_1px)] bg-[size:48px_48px]"></div>
+    <div class="absolute top-0 left-0 right-0 h-72 bg-gradient-to-b from-white to-transparent"></div>
+    <div class="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-white to-transparent"></div>
+  </div>
+
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+
+    <!-- Badge -->
+    <div class="inline-flex items-center gap-2 bg-blue-50 border border-blue-100 text-blue-700 text-sm font-medium px-4 py-1.5 rounded-full mb-8">
+      <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd"/>
+      </svg>
+      Corporate Real Estate &amp; Facilities Management
+    </div>
+
+    <!-- Heading -->
+    <h1 class="text-5xl lg:text-7xl font-extrabold text-slate-900 leading-[1.05] tracking-tight max-w-4xl mx-auto">
+      Every office.<br/>
+      Every lease.<br/>
+      <span class="text-blue-600">Every deadline.</span>
+    </h1>
+
+    <p class="mt-8 text-lg lg:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed">
+      Stop juggling spreadsheets and email chains. Office Manager gives your team a single platform
+      to track leases, manage maintenance, handle vendors, and never miss a critical date.
+    </p>
+
+    <!-- CTAs -->
+    <div class="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
+      <a href="#" data-href="SIGNUP_URL" class="bg-slate-900 text-white font-semibold text-base px-8 py-3.5 rounded-xl hover:bg-slate-700 transition-colors shadow-lg shadow-slate-900/10">
+        Start Free Trial — Free 14 days
+      </a>
+      <a href="#" data-demo-email class="bg-white text-slate-800 font-semibold text-base px-8 py-3.5 rounded-xl border-2 border-slate-200 hover:border-slate-400 transition-colors">
+        Request a Demo →
+      </a>
+    </div>
+
+    <p class="mt-5 text-sm text-slate-400">No credit card required &nbsp;·&nbsp; Setup in under an hour &nbsp;·&nbsp; Cancel anytime</p>
+
+    <!-- Dashboard mockup -->
+    <div class="mt-16 relative max-w-5xl mx-auto">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl shadow-slate-900/10 overflow-hidden">
+        <!-- Browser chrome -->
+        <div class="bg-slate-100 px-4 py-3 flex items-center gap-2 border-b border-slate-200">
+          <div class="flex gap-1.5">
+            <div class="w-3 h-3 rounded-full bg-red-400"></div>
+            <div class="w-3 h-3 rounded-full bg-yellow-400"></div>
+            <div class="w-3 h-3 rounded-full bg-green-400"></div>
+          </div>
+          <div class="flex-1 mx-4 bg-white rounded-md px-3 py-1 text-xs text-slate-400 text-center border border-slate-200">
+            app.officemanager.io/dashboard
+          </div>
+        </div>
+        <!-- App content -->
+        <div class="flex" style="min-height:320px">
+          <!-- Sidebar -->
+          <div class="hidden sm:flex flex-col w-48 border-r border-slate-100 bg-slate-50 p-4 gap-1 flex-shrink-0">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wide px-2 mb-2">Navigation</div>
+            <div class="flex items-center gap-2 bg-blue-600 text-white rounded-lg px-3 py-2 text-sm font-medium">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" stroke-width="2"/><rect x="14" y="3" width="7" height="7" rx="1" stroke-width="2"/><rect x="3" y="14" width="7" height="7" rx="1" stroke-width="2"/><rect x="14" y="14" width="7" height="7" rx="1" stroke-width="2"/></svg>
+              Dashboard
+            </div>
+            {['Leases', 'Tickets', 'Vendors', 'HVAC', 'Reports'].map(item => (
+              <div class="flex items-center gap-2 text-slate-500 hover:text-slate-700 rounded-lg px-3 py-2 text-sm">
+                {item}
+              </div>
+            ))}
+          </div>
+          <!-- Main content -->
+          <div class="flex-1 p-5 overflow-hidden">
+            <div class="grid grid-cols-3 gap-3 mb-5">
+              {[
+                { label: 'Active Leases', val: '24', color: 'text-blue-600' },
+                { label: 'Expiring Soon', val: '7', pill: 'Action needed', pillColor: 'bg-amber-100 text-amber-700' },
+                { label: 'SLA Compliance', val: '98%', pill: 'On track', pillColor: 'bg-green-100 text-green-700' },
+              ].map(stat => (
+                <div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                  <div class={`text-2xl font-bold ${stat.color ?? 'text-slate-800'}`}>{stat.val}</div>
+                  <div class="text-xs text-slate-500 mt-0.5">{stat.label}</div>
+                  {stat.pill && <span class={`inline-block mt-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${stat.pillColor}`}>{stat.pill}</span>}
+                </div>
+              ))}
+            </div>
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Open Tickets</div>
+            {[
+              { prio: 'Urgent', label: 'HVAC failure — Chicago HQ, 3rd floor', color: 'bg-red-100 text-red-700' },
+              { prio: 'Medium', label: 'Elevator maintenance — NYC Office', color: 'bg-amber-100 text-amber-700' },
+              { prio: 'Low', label: 'Lobby lighting replacement — Austin', color: 'bg-slate-100 text-slate-600' },
+            ].map(t => (
+              <div class="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
+                <span class={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${t.color}`}>{t.prio}</span>
+                <span class="text-sm text-slate-600 truncate">{t.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <!-- Glow -->
+      <div class="absolute -inset-4 -z-10 bg-blue-100/40 rounded-3xl blur-3xl"></div>
+    </div>
+
+  </div>
+</section>

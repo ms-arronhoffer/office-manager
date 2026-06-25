@@ -1,0 +1,96 @@
+import uuid
+from datetime import datetime, timezone
+from sqlalchemy import String, Text, ForeignKey, Index, Integer, DateTime, Numeric
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from decimal import Decimal
+from app.models.base import Base, TimestampMixin
+from app.models.mixins import SoftDeleteMixin
+
+
+class TicketCategory(TimestampMixin, Base):
+    __tablename__ = "ticket_categories"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+
+    tickets: Mapped[list["MaintenanceTicket"]] = relationship(back_populates="category")
+
+
+class MaintenanceTicket(SoftDeleteMixin, TimestampMixin, Base):
+    __tablename__ = "maintenance_tickets"
+    __table_args__ = (
+        Index("idx_maint_ticket_status", "status"),
+        Index("idx_maint_ticket_priority", "priority"),
+        Index("idx_maint_ticket_category", "category_id"),
+        Index("idx_maint_ticket_office", "office_id"),
+        Index("idx_maint_ticket_created", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    priority: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
+    category_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ticket_categories.id"), nullable=False)
+    office_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("offices.id"), nullable=False)
+    location_hours: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    assigned_to_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("managers.id"), nullable=True)
+    vendor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vendors.id", ondelete="SET NULL"), nullable=True, index=True)
+    vendor_completion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    vendor_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Scheduling & labor tracking
+    scheduled_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    estimated_duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actual_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    actual_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    technician_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    category: Mapped["TicketCategory"] = relationship(back_populates="tickets")
+    office: Mapped["Office"] = relationship()
+    created_by: Mapped["User"] = relationship(foreign_keys=[created_by_id])
+    assigned_to: Mapped["Manager | None"] = relationship(foreign_keys=[assigned_to_id])
+    vendor: Mapped["Vendor | None"] = relationship(foreign_keys=[vendor_id])
+    notes: Mapped[list["TicketNote"]] = relationship(back_populates="ticket", cascade="all, delete-orphan")
+    cost_lines: Mapped[list["WorkOrderCostLine"]] = relationship(
+        back_populates="ticket", cascade="all, delete-orphan"
+    )
+
+
+class TicketNote(Base):
+    __tablename__ = "ticket_notes"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    ticket_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("maintenance_tickets.id", ondelete="CASCADE"), nullable=False)
+    note_text: Mapped[str] = mapped_column(Text, nullable=False)
+    note_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+    ticket: Mapped["MaintenanceTicket"] = relationship(back_populates="notes")
+    created_by: Mapped["User | None"] = relationship(foreign_keys=[created_by_id])
+
+
+class WorkOrderCostLine(TimestampMixin, Base):
+    """Tracks individual labor or materials cost lines on a work order."""
+    __tablename__ = "work_order_cost_lines"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    ticket_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("maintenance_tickets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    line_type: Mapped[str] = mapped_column(String(20), nullable=False)  # "labor" | "material"
+    description: Mapped[str] = mapped_column(String(500), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=1)
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+
+    ticket: Mapped["MaintenanceTicket"] = relationship(back_populates="cost_lines")
+
+
+# Avoid circular imports - resolved at runtime by SQLAlchemy
+from app.models.office import Office, Manager  # noqa: E402
+from app.models.user import User  # noqa: E402
+from app.models.vendor import Vendor  # noqa: E402

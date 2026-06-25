@@ -1,0 +1,38 @@
+---
+const steps = [
+  {
+    n: '01',
+    title: 'Import Your Portfolio',
+    desc: 'Upload your existing lease documents and office data. Our guided importer maps your spreadsheet columns to the right fields. Your entire portfolio is live in minutes, not months.',
+  },
+  {
+    n: '02',
+    title: 'Configure Alerts & Workflows',
+    desc: 'Set notification rules for lease expirations, maintenance SLAs, inspection due dates, and vendor insurance renewals. Email alerts go to the right people automatically — before deadlines, not after.',
+  },
+  {
+    n: '03',
+    title: 'Manage Everything in One Place',
+    desc: 'Your team works from a single dashboard. Submit tickets, track vendors, review lease terms, run compliance reports — all without switching tools. Everything is logged, searchable, and auditable.',
+  },
+];
+---
+<section id="how-it-works" class="py-24 bg-slate-50">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center max-w-2xl mx-auto mb-16">
+      <p class="text-sm font-semibold text-blue-600 uppercase tracking-widest mb-3">How it works</p>
+      <h2 class="text-4xl lg:text-5xl font-extrabold text-slate-900">Up and running in under an hour</h2>
+      <p class="mt-4 text-lg text-slate-500">No six-month implementation. No consultant required. Import your data, configure your settings, and your team is operational today.</p>
+    </div>
+
+    <div class="grid lg:grid-cols-3 gap-8">
+      {steps.map(s => (
+        <div class="relative bg-white rounded-2xl p-8 border border-slate-200 shadow-sm">
+          <div class="text-6xl font-black text-slate-100 leading-none mb-6 select-none">{s.n}</div>
+          <h3 class="text-xl font-bold text-slate-900 mb-3">{s.title}</h3>
+          <p class="text-slate-500 leading-relaxed">{s.desc}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

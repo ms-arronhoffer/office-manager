@@ -1,0 +1,54 @@
+from urllib.parse import quote_plus
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    # Database — built from components to handle special chars in password
+    POSTGRES_USER: str = "office_admin"
+    POSTGRES_PASSWORD: str
+    POSTGRES_HOST: str = "db"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "office_manager"
+    # These can still be set directly as env vars to override the computed URLs
+    DATABASE_URL: str = ""
+    DATABASE_URL_SYNC: str = ""
+
+    JWT_SECRET: str
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRY_HOURS: int = 8
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "noreply@officemanager.local"
+    FRONTEND_URL: str = "http://localhost:3000"
+    ADMIN_FRONTEND_URL: str = "http://localhost:4001"
+    DEFAULT_ADMIN_EMAIL: str = "admin@officemanager.local"
+    DEFAULT_ADMIN_PASSWORD: str
+
+    # File uploads
+    UPLOAD_DIR: str = "/app/uploads"
+    MAX_FILE_SIZE_MB: int = 25
+    ALLOWED_EXTENSIONS: str = ".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.tif,.tiff,.txt"
+
+    # Stripe billing
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_PRICE_ID_PRO: str = ""
+    STRIPE_PRICE_ID_ENTERPRISE: str = ""
+
+    model_config = {"env_file": ".env", "extra": "ignore"}
+
+    def model_post_init(self, __context) -> None:
+        pw = quote_plus(self.POSTGRES_PASSWORD)
+        user = quote_plus(self.POSTGRES_USER)
+        base = f"{user}:{pw}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        if not self.DATABASE_URL:
+            self.DATABASE_URL = f"postgresql+asyncpg://{base}"
+        if not self.DATABASE_URL_SYNC:
+            self.DATABASE_URL_SYNC = f"postgresql://{base}"
+
+
+settings = Settings()

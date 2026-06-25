@@ -1,0 +1,71 @@
+---
+---
+<footer class="bg-slate-900 border-t border-slate-800">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+    <div class="grid lg:grid-cols-4 gap-12">
+      <!-- Brand -->
+      <div class="lg:col-span-2">
+        <a href="#" class="flex items-center gap-2.5 font-bold text-white text-lg mb-4">
+          <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+              <rect x="3" y="3.5" width="12" height="1.8" rx="0.9" fill="white"/>
+              <rect x="3" y="8" width="8" height="1.8" rx="0.9" fill="white" opacity=".75"/>
+              <rect x="3" y="12.5" width="10" height="1.8" rx="0.9" fill="white" opacity=".5"/>
+            </svg>
+          </div>
+          <span data-company>Office Manager</span>
+        </a>
+        <p class="text-slate-400 text-sm leading-relaxed max-w-xs">
+          The all-in-one platform for corporate real estate and facilities teams.
+          Every office. Every lease. Every deadline.
+        </p>
+      </div>
+
+      <!-- Product -->
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-4">Product</div>
+        <ul class="space-y-3">
+          {[
+            { label: 'Features', href: '#features' },
+            { label: 'How it works', href: '#how-it-works' },
+            { label: 'Pricing', href: '#pricing' },
+          ].map(link => (
+            <li><a href={link.href} class="text-sm text-slate-400 hover:text-white transition-colors">{link.label}</a></li>
+          ))}
+          <li><a href="#" data-href="SIGNUP_URL" class="text-sm text-slate-400 hover:text-white transition-colors">Sign Up</a></li>
+          <li><a href="#" data-href="LOGIN_URL" class="text-sm text-slate-400 hover:text-white transition-colors">Sign In</a></li>
+        </ul>
+      </div>
+
+      <!-- Company -->
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-4">Company</div>
+        <ul class="space-y-3">
+          <li><a href="#" data-demo-email class="text-sm text-slate-400 hover:text-white transition-colors">Request Demo</a></li>
+          <li><a href="#" data-href="APP_URL" class="text-sm text-slate-400 hover:text-white transition-colors">Documentation</a></li>
+          <li>
+            <a href="#" id="footer-support" class="text-sm text-slate-400 hover:text-white transition-colors">Support</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="mt-16 pt-8 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <p class="text-sm text-slate-500">
+        &copy; <span id="footer-year"></span> <span data-company>Office Manager</span>. All rights reserved.
+      </p>
+      <div class="flex gap-6">
+        <a href="#" class="text-sm text-slate-500 hover:text-slate-300 transition-colors">Privacy Policy</a>
+        <a href="#" class="text-sm text-slate-500 hover:text-slate-300 transition-colors">Terms of Service</a>
+      </div>
+    </div>
+  </div>
+
+  <script is:inline>
+    document.getElementById('footer-year').textContent = new Date().getFullYear();
+    var s = document.getElementById('footer-support');
+    if (s && window.SITE_CONFIG && window.SITE_CONFIG.SUPPORT_EMAIL) {
+      s.href = 'mailto:' + window.SITE_CONFIG.SUPPORT_EMAIL;
+    }
+  </script>
+</footer>

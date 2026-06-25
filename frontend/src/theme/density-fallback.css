@@ -1,0 +1,13 @@
+/* Fallback compact density overrides for Cloudscape when applyDensity is unavailable */
+body.awsui-compact-mode {
+  --space-scaled-xxxs: 0px;
+  --space-scaled-xxs: 2px;
+  --space-scaled-xs: 4px;
+  --space-scaled-s: 8px;
+  --space-scaled-m: 12px;
+  --space-scaled-l: 16px;
+  --space-scaled-xl: 20px;
+  --space-scaled-xxl: 24px;
+  --space-container-header-vertical: 8px;
+  --space-container-content-top: 8px;
+}

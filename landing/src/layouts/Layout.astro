@@ -1,0 +1,52 @@
+---
+interface Props {
+  title?: string;
+  description?: string;
+}
+const {
+  title = "Office Manager — Every Office. Every Lease. Every Deadline.",
+  description = "The all-in-one platform for corporate real estate and facilities teams. Manage leases, maintenance, vendors, and compliance in one place.",
+} = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <title>{title}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400..900;1,14..32,400..900&display=swap" rel="stylesheet" />
+    <script is:inline src="/config.js"></script>
+  </head>
+  <body class="font-sans">
+    <slot />
+
+    <!-- Wire all [data-href] CTAs from SITE_CONFIG at runtime -->
+    <script is:inline>
+      (function () {
+        var cfg = window.SITE_CONFIG || {};
+        document.querySelectorAll('[data-href]').forEach(function (el) {
+          var url = cfg[el.getAttribute('data-href')];
+          if (!url) return;
+          if (el.tagName === 'A') {
+            el.href = url;
+          } else {
+            el.addEventListener('click', function () { window.location.href = url; });
+            el.style.cursor = 'pointer';
+          }
+        });
+        document.querySelectorAll('[data-demo-email]').forEach(function (el) {
+          var email = cfg.DEMO_EMAIL || '';
+          var subject = encodeURIComponent('Office Manager Demo Request');
+          var body = encodeURIComponent('Hi,\n\nI\'d like to schedule a demo of Office Manager.\n\nName:\nCompany:\nPhone:\n');
+          if (el.tagName === 'A') el.href = 'mailto:' + email + '?subject=' + subject + '&body=' + body;
+        });
+        document.querySelectorAll('[data-company]').forEach(function (el) {
+          el.textContent = cfg.COMPANY_NAME || 'Office Manager';
+        });
+      })();
+    </script>
+  </body>
+</html>

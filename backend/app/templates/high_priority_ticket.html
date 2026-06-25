@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head><style>
+body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+.container { max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.header { background: #d32f2f; color: white; padding: 20px; text-align: center; }
+.content { padding: 20px; }
+.alert { background: #ffebee; border-left: 4px solid #d32f2f; padding: 12px; margin: 12px 0; border-radius: 4px; }
+.info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+.label { font-weight: bold; color: #555; }
+.description { background: #f8f9fa; padding: 12px; border-radius: 4px; margin: 12px 0; white-space: pre-wrap; }
+.footer { background: #f8f9fa; padding: 12px 20px; font-size: 12px; color: #888; text-align: center; }
+</style></head>
+<body>
+<div class="container">
+    <div class="header"><h2>High Priority Ticket Created</h2></div>
+    <div class="content">
+        <div class="alert">
+            A new <strong>high priority</strong> maintenance ticket has been submitted and requires immediate attention.
+        </div>
+        <div class="info-row"><span class="label">Subject:</span><span>{{ subject }}</span></div>
+        <div class="info-row"><span class="label">Office:</span><span>{{ office_name }}</span></div>
+        <div class="info-row"><span class="label">Category:</span><span>{{ category }}</span></div>
+        <div class="info-row"><span class="label">Created By:</span><span>{{ created_by }}</span></div>
+        <div class="info-row"><span class="label">Created At:</span><span>{{ created_at }}</span></div>
+        <div class="info-row"><span class="label">Location Hours:</span><span>{{ location_hours }}</span></div>
+        <h4 style="margin: 16px 0 4px;">Description</h4>
+        <div class="description">{{ description }}</div>
+    </div>
+    <div class="footer">Office Manager Application - High Priority Alert</div>
+</div>
+</body>
+</html>

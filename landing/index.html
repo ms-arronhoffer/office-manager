@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Office Manager — the all-in-one platform for corporate real estate and facilities teams. Manage leases, maintenance, vendors, and compliance in one place." />
+  <title>Office Manager — Every Office. Every Lease. Every Deadline.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="config.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ══ 1. STICKY NAV ══════════════════════════════════════════════════════ -->
+<nav id="main-nav">
+  <div class="nav-inner">
+    <a class="nav-logo" href="#">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <rect width="28" height="28" rx="7" fill="#0972d3"/>
+        <rect x="6" y="7" width="16" height="2.5" rx="1.25" fill="#fff"/>
+        <rect x="6" y="12.5" width="10" height="2.5" rx="1.25" fill="#fff" opacity=".7"/>
+        <rect x="6" y="18" width="13" height="2.5" rx="1.25" fill="#fff" opacity=".5"/>
+      </svg>
+      <span data-company>Office Manager</span>
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how-it-works">How it works</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#" data-href="LOGIN_URL" class="nav-signin">Sign In</a>
+      <a href="#" data-href="SIGNUP_URL" class="btn btn-sm">Start Free Trial</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ══ 2. HERO ════════════════════════════════════════════════════════════ -->
+<section class="hero">
+  <div class="hero-grid">
+    <div class="hero-copy">
+      <div class="hero-eyebrow">Corporate Real Estate &amp; Facilities Management</div>
+      <h1 class="hero-headline">
+        Every office.<br/>
+        Every lease.<br/>
+        <span class="gradient-text">Every deadline.</span>
+      </h1>
+      <p class="hero-sub">Stop juggling spreadsheets, sticky notes, and email chains. Office Manager gives your facilities team a single platform to track leases, handle maintenance, manage vendors, and stay ahead of every critical date.</p>
+      <div class="hero-actions">
+        <a href="#" data-href="SIGNUP_URL" class="btn btn-lg">Start Free Trial</a>
+        <a href="#" data-demo-email class="btn btn-lg btn-outline">Request a Demo →</a>
+      </div>
+      <div class="hero-trust">
+        <span>No credit card required</span>
+        <span class="sep">·</span>
+        <span>14-day free trial</span>
+        <span class="sep">·</span>
+        <span>Setup in under an hour</span>
+      </div>
+    </div>
+
+    <div class="hero-visual">
+      <div class="mockup">
+        <div class="mockup-chrome">
+          <span class="dot red"></span>
+          <span class="dot yellow"></span>
+          <span class="dot green"></span>
+          <span class="mockup-title">Office Manager</span>
+        </div>
+        <div class="mockup-body">
+          <div class="mockup-sidebar">
+            <div class="sb-item active">Dashboard</div>
+            <div class="sb-item">Leases</div>
+            <div class="sb-item">Tickets</div>
+            <div class="sb-item">Vendors</div>
+            <div class="sb-item">Reports</div>
+          </div>
+          <div class="mockup-content">
+            <div class="mockup-stats">
+              <div class="mockup-stat">
+                <span class="stat-val">24</span>
+                <span class="stat-lbl">Active Leases</span>
+              </div>
+              <div class="mockup-stat">
+                <span class="stat-val">7</span>
+                <span class="stat-lbl">Expiring Soon</span>
+                <span class="mockup-pill-orange">Action needed</span>
+              </div>
+              <div class="mockup-stat">
+                <span class="stat-val">98%</span>
+                <span class="stat-lbl">SLA Compliance</span>
+                <span class="mockup-pill-green">On track</span>
+              </div>
+            </div>
+            <div class="mockup-section-label">Open Tickets</div>
+            <div class="mockup-row">
+              <span class="mockup-pill-red">Urgent</span>
+              <span class="mockup-row-text">HVAC failure — Chicago HQ, 3rd floor</span>
+            </div>
+            <div class="mockup-row">
+              <span class="mockup-pill-orange">Medium</span>
+              <span class="mockup-row-text">Elevator maintenance — NYC Office</span>
+            </div>
+            <div class="mockup-row">
+              <span class="mockup-pill-green">Low</span>
+              <span class="mockup-row-text">Lobby lighting replacement — Austin</span>
+            </div>
+            <div class="mockup-section-label">Upcoming Deadlines</div>
+            <div class="mockup-row">
+              <span class="mockup-badge">May 15</span>
+              <span class="mockup-row-text">Lease renewal notice — Boston</span>
+            </div>
+            <div class="mockup-row">
+              <span class="mockup-badge">Jun 1</span>
+              <span class="mockup-row-text">HVAC inspection due — Denver</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 3. SOCIAL PROOF / STATS ════════════════════════════════════════════ -->
+<section class="proof-bar reveal">
+  <div class="container">
+    <p class="proof-label">Trusted by facilities teams managing enterprise portfolios</p>
+    <div class="stats-row">
+      <div class="stat-block">
+        <span class="stat-number" data-target="2400" data-suffix="+">0+</span>
+        <span class="stat-desc">Offices Managed</span>
+      </div>
+      <div class="stat-block">
+        <span class="stat-number" data-target="98" data-suffix="%">0%</span>
+        <span class="stat-desc">SLA Compliance Rate</span>
+      </div>
+      <div class="stat-block">
+        <span class="stat-number" data-target="14" data-suffix=" hrs">0 hrs</span>
+        <span class="stat-desc">Saved Per Week, Per Team</span>
+      </div>
+      <div class="stat-block">
+        <span class="stat-number" data-target="4" data-prefix="$" data-suffix="M+">$0M+</span>
+        <span class="stat-desc">Lease Costs Tracked</span>
+      </div>
+    </div>
+    <div class="trust-icons">
+      <div class="trust-icon">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M10 2L12.4 7.6L18.5 8.2L14 12.3L15.3 18.3L10 15.3L4.7 18.3L6 12.3L1.5 8.2L7.6 7.6L10 2Z" fill="#0972d3" opacity=".7"/>
+        </svg>
+        SOC 2 Ready
+      </div>
+      <div class="trust-icon">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="3" y="9" width="14" height="9" rx="2" stroke="#0972d3" stroke-width="1.5" opacity=".7"/>
+          <path d="M7 9V7a3 3 0 016 0v2" stroke="#0972d3" stroke-width="1.5" stroke-linecap="round" opacity=".7"/>
+          <circle cx="10" cy="14" r="1.5" fill="#0972d3" opacity=".7"/>
+        </svg>
+        Bank-Grade Encryption
+      </div>
+      <div class="trust-icon">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <circle cx="10" cy="10" r="7.5" stroke="#0972d3" stroke-width="1.5" opacity=".7"/>
+          <path d="M7 10l2 2 4-4" stroke="#0972d3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".7"/>
+        </svg>
+        99.9% Uptime SLA
+      </div>
+      <div class="trust-icon">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M10 3v5l3 3" stroke="#0972d3" stroke-width="1.5" stroke-linecap="round" opacity=".7"/>
+          <circle cx="10" cy="10" r="7.5" stroke="#0972d3" stroke-width="1.5" opacity=".7"/>
+        </svg>
+        Real-Time Data
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 4. PROBLEM ═════════════════════════════════════════════════════════ -->
+<section class="problem" id="problem">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="eyebrow">The Problem</div>
+      <h2>Managing facilities shouldn't feel like herding cats</h2>
+      <p class="section-sub">Most facilities teams are running on duct tape and willpower — cobbling together spreadsheets, shared drives, and endless email threads just to stay afloat.</p>
+    </div>
+    <div class="problem-grid stagger-parent">
+      <div class="problem-card stagger-child">
+        <div class="problem-icon">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <rect x="4" y="4" width="24" height="24" rx="3" stroke="#dc3545" stroke-width="1.8"/>
+            <path d="M4 10h24M10 4v6M22 4v6" stroke="#dc3545" stroke-width="1.8" stroke-linecap="round"/>
+            <path d="M9 16h4M9 21h8" stroke="#dc3545" stroke-width="1.8" stroke-linecap="round" opacity=".5"/>
+            <path d="M20 17l4 4M24 17l-4 4" stroke="#dc3545" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3>Spreadsheet Chaos</h3>
+        <p>Lease dates, vendor contacts, and renewal options are scattered across a dozen spreadsheets. One wrong formula and you miss a critical notice period — costing you the right to renew.</p>
+        <ul class="problem-list">
+          <li>Version conflicts between team members</li>
+          <li>No alerts for approaching deadlines</li>
+          <li>Manual data entry prone to error</li>
+        </ul>
+      </div>
+      <div class="problem-card stagger-child">
+        <div class="problem-icon">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <circle cx="16" cy="16" r="11" stroke="#e67e22" stroke-width="1.8"/>
+            <path d="M16 10v7l4 2" stroke="#e67e22" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M6 6l20 20" stroke="#e67e22" stroke-width="1.8" stroke-linecap="round" opacity=".4"/>
+          </svg>
+        </div>
+        <h3>Missed Deadlines</h3>
+        <p>Lease expirations, HVAC inspection due dates, insurance renewals — these dates slip through the cracks. A missed 180-day notice clause can lock you into unfavorable lease terms for years.</p>
+        <ul class="problem-list">
+          <li>No proactive alerts or reminders</li>
+          <li>Compliance dates buried in PDF attachments</li>
+          <li>One person holds all the institutional knowledge</li>
+        </ul>
+      </div>
+      <div class="problem-card stagger-child">
+        <div class="problem-icon">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <path d="M8 12h16M8 17h10M8 22h6" stroke="#6c757d" stroke-width="1.8" stroke-linecap="round"/>
+            <rect x="4" y="6" width="24" height="22" rx="3" stroke="#6c757d" stroke-width="1.8"/>
+            <path d="M20 24l3 3 5-5" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Vendor Black Hole</h3>
+        <p>You submit a maintenance request and it disappears. Vendors don't update you. You don't know if the HVAC unit was actually fixed or if the contractor is even licensed. Nothing is tracked end-to-end.</p>
+        <ul class="problem-list">
+          <li>No visibility into work order status</li>
+          <li>Vendor documents stored in email attachments</li>
+          <li>No history of what was done and when</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 5. HOW IT WORKS ════════════════════════════════════════════════════ -->
+<section class="how-it-works" id="how-it-works">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="eyebrow">How It Works</div>
+      <h2>Up and running in under an hour</h2>
+      <p class="section-sub">No six-month implementation. No consultant required. Just import your data, configure your settings, and your team is operational today.</p>
+    </div>
+    <div class="steps reveal">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h3>Import Your Portfolio</h3>
+          <p>Upload your existing lease documents and office data. Our guided importer maps your spreadsheet columns to the right fields. Your entire portfolio is in the system in minutes, not months.</p>
+        </div>
+      </div>
+      <div class="step-connector" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M5 12h14M14 7l5 5-5 5" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h3>Configure Alerts &amp; Workflows</h3>
+          <p>Set notification rules for lease expirations, maintenance SLAs, inspection due dates, and vendor insurance renewals. Email alerts go to the right people automatically — before deadlines, not after.</p>
+        </div>
+      </div>
+      <div class="step-connector" aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M5 12h14M14 7l5 5-5 5" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h3>Manage Everything in One Place</h3>
+          <p>Your team works from a single dashboard. Submit tickets, track vendors, review lease terms, run compliance reports — all without switching tools. Everything is logged, searchable, and auditable.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 6. FEATURE GRID ════════════════════════════════════════════════════ -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="eyebrow">Features</div>
+      <h2>Everything your facilities team needs</h2>
+      <p class="section-sub">Built specifically for corporate real estate and facilities management — not a generic tool bent to fit.</p>
+    </div>
+    <div class="features-grid stagger-parent">
+
+      <div class="feature-card stagger-child">
+        <div class="feature-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" stroke="#0972d3" stroke-width="1.7" stroke-linecap="round"/>
+            <path d="M9 12l2 2 4-4" stroke="#0972d3" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Lease Management</h3>
+        <p>Track every lease term, option, rent escalation, and critical notice date. Proactive alerts ensure you never miss a deadline. Full document storage attached to each lease.</p>
+      </div>
+
+      <div class="feature-card stagger-child">
+        <div class="feature-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" stroke="#0972d3" stroke-width="1.7" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Maintenance Tickets</h3>
+        <p>Submit, assign, and track maintenance requests from open to resolved. SLA timers, vendor assignment, work order notes, and completion documentation — all in one thread.</p>
+      </div>
+
+      <div class="feature-card stagger-child">
+        <div class="feature-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="3" stroke="#0972d3" stroke-width="1.7"/>
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12" stroke="#0972d3" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3>HVAC &amp; Equipment</h3>
+        <p>Schedule preventive maintenance, track service contracts, and stay ahead of inspection requirements. Compliance status visible at a glance across your entire portfolio.</p>
+      </div>
+
+      <div class="feature-card stagger-child">
+        <div class="feature-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="#0972d3" stroke-width="1.7" stroke-linecap="round"/>
+            <circle cx="9" cy="7" r="4" stroke="#0972d3" stroke-width="1.7"/>
+            <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="#0972d3" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3>Vendor Management</h3>
+        <p>Centralize all vendor contacts, contracts, and insurance certificates. Know which vendors are active at each location. Track vendor performance and compliance documentation.</p>
+      </div>
+
+      <div class="feature-card stagger-child">
+        <div class="feature-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M18 20V10M12 20V4M6 20v-6" stroke="#0972d3" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Analytics &amp; Reporting</h3>
+        <p>Portfolio-level dashboards, SLA compliance reports, cost-per-square-foot trending, and maintenance backlog summaries. Export to PDF or CSV for executive review.</p>
+      </div>
+
+      <div class="feature-card stagger-child">
+        <div class="feature-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#0972d3" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Smart Notifications</h3>
+        <p>Rule-based email alerts for every critical event: lease deadlines, SLA breaches, HVAC inspection due dates, ticket escalations. The right person gets the right alert at the right time.</p>
+      </div>
+
+      <div class="feature-card stagger-child">
+        <div class="feature-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="4" width="18" height="18" rx="2" stroke="#0972d3" stroke-width="1.7"/>
+            <path d="M16 2v4M8 2v4M3 10h18" stroke="#0972d3" stroke-width="1.7" stroke-linecap="round"/>
+            <path d="M8 14h2M8 18h2M13 14h3M13 18h3" stroke="#0972d3" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h3>Transition Management</h3>
+        <p>Plan and track office moves, buildouts, and lease-end activities with milestone checklists, responsible owners, and status tracking from initiation to completion.</p>
+      </div>
+
+      <div class="feature-card stagger-child">
+        <div class="feature-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" stroke="#0972d3" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <h3>Audit Log &amp; Compliance</h3>
+        <p>Every action is logged with user, timestamp, and change detail. Full audit trail for every lease amendment, ticket update, and vendor change. Built for regulated environments.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ══ 7. FEATURE SPOTLIGHTS ══════════════════════════════════════════════ -->
+<section class="spotlights">
+  <div class="container">
+
+    <!-- Spotlight 1: Lease Timeline -->
+    <div class="spotlight reveal">
+      <div class="spotlight-grid">
+        <div class="spotlight-copy">
+          <div class="eyebrow">Lease Management</div>
+          <h2>Never miss a critical date again</h2>
+          <p>Every lease in your portfolio has a timeline of critical dates — notice periods, rent escalation triggers, renewal options, and expiration. Office Manager surfaces these automatically, with configurable alerts sent weeks or months in advance.</p>
+          <ul class="spotlight-list">
+            <li>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9l4 4 8-8" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Configurable lead-time alerts (30, 60, 90, 180 days)
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9l4 4 8-8" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Full lease document storage with version history
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9l4 4 8-8" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Portfolio-level expiration calendar view
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9l4 4 8-8" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Landlord and broker contact management
+            </li>
+          </ul>
+          <a href="#" data-href="SIGNUP_URL" class="btn">Get Started Free →</a>
+        </div>
+        <div class="spotlight-visual">
+          <div class="viz-wrap viz-timeline">
+            <div class="tl-header">
+              <span class="tl-title">Lease Timeline — 2025</span>
+              <span class="tl-legend">
+                <span class="tl-dot tl-green"></span>Active
+                <span class="tl-dot tl-yellow"></span>Expiring
+                <span class="tl-dot tl-red"></span>Past Due
+              </span>
+            </div>
+            <div class="tl-row">
+              <span class="tl-label">Chicago HQ</span>
+              <div class="tl-track"><div class="tl-bar tl-green" style="left:0%;width:82%"></div></div>
+              <span class="tl-date">Dec 2025</span>
+            </div>
+            <div class="tl-row">
+              <span class="tl-label">NYC Office</span>
+              <div class="tl-track"><div class="tl-bar tl-yellow" style="left:0%;width:45%"></div></div>
+              <span class="tl-date">Jun 2025</span>
+            </div>
+            <div class="tl-row">
+              <span class="tl-label">Boston Hub</span>
+              <div class="tl-track"><div class="tl-bar tl-red" style="left:0%;width:15%"></div></div>
+              <span class="tl-date">Feb 2025</span>
+            </div>
+            <div class="tl-row">
+              <span class="tl-label">Austin Tech</span>
+              <div class="tl-track"><div class="tl-bar tl-green" style="left:20%;width:70%"></div></div>
+              <span class="tl-date">Nov 2025</span>
+            </div>
+            <div class="tl-row">
+              <span class="tl-label">Denver Lab</span>
+              <div class="tl-track"><div class="tl-bar tl-green" style="left:35%;width:60%"></div></div>
+              <span class="tl-date">Oct 2025</span>
+            </div>
+            <div class="tl-alert">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1L1.5 11h11L7 1z" stroke="#e67e22" stroke-width="1.3" stroke-linejoin="round"/><path d="M7 6v3M7 10.5v.5" stroke="#e67e22" stroke-width="1.3" stroke-linecap="round"/></svg>
+              2 leases require action within 90 days
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Spotlight 2: Ticket Board (reversed) -->
+    <div class="spotlight spotlight-reverse reveal">
+      <div class="spotlight-grid">
+        <div class="spotlight-visual">
+          <div class="viz-wrap viz-kanban">
+            <div class="kanban-title">Maintenance Board</div>
+            <div class="kanban">
+              <div class="kan-col">
+                <div class="kan-col-head">Open <span class="kan-count">4</span></div>
+                <div class="kan-card">
+                  <div class="kan-prio prio-high">Urgent</div>
+                  <div class="kan-text">HVAC failure — Chicago 3F</div>
+                  <div class="kan-meta">Assigned: Brennan HVAC</div>
+                </div>
+                <div class="kan-card">
+                  <div class="kan-prio prio-med">Medium</div>
+                  <div class="kan-text">Roof leak — NYC Server Room</div>
+                  <div class="kan-meta">Assigned: Metro Roofing</div>
+                </div>
+                <div class="kan-card">
+                  <div class="kan-prio prio-low">Low</div>
+                  <div class="kan-text">Lobby lighting — Austin</div>
+                  <div class="kan-meta">Unassigned</div>
+                </div>
+              </div>
+              <div class="kan-col">
+                <div class="kan-col-head">In Progress <span class="kan-count">2</span></div>
+                <div class="kan-card">
+                  <div class="kan-prio prio-high">Urgent</div>
+                  <div class="kan-text">Generator test — Denver</div>
+                  <div class="kan-meta">Due: Today 5pm</div>
+                </div>
+                <div class="kan-card">
+                  <div class="kan-prio prio-med">Medium</div>
+                  <div class="kan-text">Elevator cert — Boston</div>
+                  <div class="kan-meta">Due: Fri</div>
+                </div>
+              </div>
+              <div class="kan-col">
+                <div class="kan-col-head">Resolved <span class="kan-count">8</span></div>
+                <div class="kan-card kan-done">
+                  <div class="kan-text">Fire suppression check</div>
+                  <div class="kan-meta">✓ Completed Apr 22</div>
+                </div>
+                <div class="kan-card kan-done">
+                  <div class="kan-text">Parking lot lighting</div>
+                  <div class="kan-meta">✓ Completed Apr 19</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="spotlight-copy">
+          <div class="eyebrow">Maintenance &amp; Work Orders</div>
+          <h2>Maintenance that doesn't fall through the cracks</h2>
+          <p>From the moment a ticket is submitted to the final sign-off, every maintenance request has a complete, auditable record. SLA timers keep your team accountable. Vendor assignments are tracked end-to-end.</p>
+          <ul class="spotlight-list">
+            <li>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9l4 4 8-8" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Configurable SLA rules by ticket priority and category
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9l4 4 8-8" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Automatic escalation alerts on SLA breach
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9l4 4 8-8" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Photo and document attachments on every work order
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9l4 4 8-8" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Full notes history and audit trail on each ticket
+            </li>
+          </ul>
+          <a href="#" data-href="SIGNUP_URL" class="btn">Start Free Trial →</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Spotlight 3: Analytics Chart -->
+    <div class="spotlight reveal">
+      <div class="spotlight-grid">
+        <div class="spotlight-copy">
+          <div class="eyebrow">Analytics &amp; Reporting</div>
+          <h2>Insights your CFO will actually use</h2>
+          <p>Stop spending hours pulling data together for leadership reviews. Office Manager's built-in analytics track SLA compliance, maintenance spend, and portfolio health in real time — with exportable reports ready for any audience.</p>
+          <ul class="spotlight-list">
+            <li>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9l4 4 8-8" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              SLA compliance rate by office, category, and vendor
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9l4 4 8-8" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Maintenance cost trending month-over-month
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9l4 4 8-8" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Portfolio health scores with drill-down
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 9l4 4 8-8" stroke="#0972d3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              One-click PDF and CSV export
+            </li>
+          </ul>
+          <a href="#" data-href="SIGNUP_URL" class="btn">Start Free Trial →</a>
+        </div>
+        <div class="spotlight-visual">
+          <div class="viz-wrap viz-chart">
+            <div class="chart-header">
+              <span class="chart-title">Maintenance Spend by Quarter</span>
+              <span class="chart-sub">All offices · USD</span>
+            </div>
+            <div class="bar-chart">
+              <div class="chart-bars">
+                <div class="chart-bar-group">
+                  <div class="chart-bar chart-blue" style="height:55%"></div>
+                  <div class="chart-bar chart-green" style="height:45%"></div>
+                  <div class="chart-label">Q1</div>
+                </div>
+                <div class="chart-bar-group">
+                  <div class="chart-bar chart-blue" style="height:70%"></div>
+                  <div class="chart-bar chart-green" style="height:60%"></div>
+                  <div class="chart-label">Q2</div>
+                </div>
+                <div class="chart-bar-group">
+                  <div class="chart-bar chart-blue" style="height:48%"></div>
+                  <div class="chart-bar chart-green" style="height:38%"></div>
+                  <div class="chart-label">Q3</div>
+                </div>
+                <div class="chart-bar-group">
+                  <div class="chart-bar chart-blue" style="height:82%"></div>
+                  <div class="chart-bar chart-purple" style="height:68%"></div>
+                  <div class="chart-label">Q4</div>
+                </div>
+              </div>
+              <div class="chart-legend">
+                <span><span class="legend-dot blue"></span>Actual</span>
+                <span><span class="legend-dot green"></span>Budget</span>
+                <span><span class="legend-dot purple"></span>Forecast</span>
+              </div>
+            </div>
+            <div class="chart-kpis">
+              <div class="chart-kpi">
+                <span class="kpi-val">$142K</span>
+                <span class="kpi-lbl">YTD Spend</span>
+              </div>
+              <div class="chart-kpi">
+                <span class="kpi-val green">−8%</span>
+                <span class="kpi-lbl">vs. Budget</span>
+              </div>
+              <div class="chart-kpi">
+                <span class="kpi-val">98%</span>
+                <span class="kpi-lbl">SLA Rate</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══ 8. PRICING ══════════════════════════════════════════════════════════ -->
+<section class="pricing" id="pricing">
+  <div class="container">
+    <div class="section-header reveal">
+      <div class="eyebrow">Pricing</div>
+      <h2>Simple, transparent pricing</h2>
+      <p class="section-sub">No per-seat nonsense. No hidden fees. One price covers your whole team.</p>
+      <div class="billing-toggle">
+        <span class="billing-label active">Monthly</span>
+        <label class="toggle-switch" aria-label="Toggle annual billing">
+          <input type="checkbox" id="billing-toggle" />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        </label>
+        <span class="billing-label">Annual <span class="save-badge">Save 20%</span></span>
+      </div>
+    </div>
+    <div class="plans-grid stagger-parent">
+
+      <div class="plan-card stagger-child">
+        <div class="plan-name">Starter</div>
+        <div class="plan-tagline">For teams managing up to 10 offices</div>
+        <div class="plan-price">
+          <div class="price-monthly">
+            <span class="price-amount">$99</span><span class="price-per">/month</span>
+          </div>
+          <div class="price-annual" style="display:none">
+            <span class="price-amount">$79</span><span class="price-per">/month</span>
+            <div class="price-note">billed annually</div>
+          </div>
+        </div>
+        <a href="#" data-href="SIGNUP_URL" class="btn btn-outline plan-btn">Start Free Trial</a>
+        <ul class="plan-features">
+          <li>Up to 10 offices</li>
+          <li>Unlimited users</li>
+          <li>Lease management &amp; alerts</li>
+          <li>Maintenance ticket tracking</li>
+          <li>Vendor management</li>
+          <li>Email notifications</li>
+          <li>Basic reporting &amp; CSV export</li>
+          <li>90-day audit log</li>
+          <li>Email support</li>
+        </ul>
+      </div>
+
+      <div class="plan-card featured stagger-child">
+        <div class="plan-badge">Most Popular</div>
+        <div class="plan-name">Pro</div>
+        <div class="plan-tagline">For growing portfolios up to 50 offices</div>
+        <div class="plan-price">
+          <div class="price-monthly">
+            <span class="price-amount">$299</span><span class="price-per">/month</span>
+          </div>
+          <div class="price-annual" style="display:none">
+            <span class="price-amount">$239</span><span class="price-per">/month</span>
+            <div class="price-note">billed annually</div>
+          </div>
+        </div>
+        <a href="#" data-href="SIGNUP_URL" class="btn plan-btn">Start Free Trial</a>
+        <ul class="plan-features">
+          <li>Up to 50 offices</li>
+          <li>Unlimited users</li>
+          <li>Everything in Starter, plus:</li>
+          <li>HVAC &amp; equipment tracking</li>
+          <li>Advanced SLA rules &amp; escalations</li>
+          <li>Transition project management</li>
+          <li>Advanced analytics dashboard</li>
+          <li>PDF report export</li>
+          <li>Full audit log (unlimited history)</li>
+          <li>Priority email &amp; chat support</li>
+        </ul>
+      </div>
+
+      <div class="plan-card stagger-child">
+        <div class="plan-name">Enterprise</div>
+        <div class="plan-tagline">For large portfolios and complex requirements</div>
+        <div class="plan-price">
+          <span class="price-amount price-contact">Custom</span>
+        </div>
+        <a href="#" data-demo-email class="btn btn-outline plan-btn">Contact Sales</a>
+        <ul class="plan-features">
+          <li>Unlimited offices</li>
+          <li>Unlimited users</li>
+          <li>Everything in Pro, plus:</li>
+          <li>SSO / SAML integration</li>
+          <li>API access &amp; webhooks</li>
+          <li>Custom fields &amp; workflows</li>
+          <li>Dedicated success manager</li>
+          <li>Custom data retention policies</li>
+          <li>SLA-backed uptime guarantee</li>
+          <li>Phone &amp; Slack support</li>
+        </ul>
+      </div>
+
+    </div>
+    <p class="pricing-note reveal">All plans include a 14-day free trial. No credit card required. Cancel anytime.</p>
+  </div>
+</section>
+
+<!-- ══ 9. TESTIMONIALS ════════════════════════════════════════════════════ -->
+<section class="testimonials reveal">
+  <div class="container">
+    <div class="section-header">
+      <div class="eyebrow">Customer Stories</div>
+      <h2>What facilities teams are saying</h2>
+    </div>
+    <div class="testi-grid stagger-parent">
+
+      <div class="testi-card stagger-child">
+        <div class="testi-stars">★★★★★</div>
+        <blockquote>"We were running a 47-location portfolio out of Excel. Our lease admin was the only person who knew where anything was. After six months on Office Manager, our whole team is self-sufficient and we haven't missed a single deadline."</blockquote>
+        <div class="testi-author">
+          <div class="testi-avatar" aria-hidden="true">SL</div>
+          <div>
+            <div class="testi-name">Sarah L.</div>
+            <div class="testi-title">VP Corporate Real Estate, Financial Services</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="testi-card stagger-child">
+        <div class="testi-stars">★★★★★</div>
+        <blockquote>"The maintenance ticket system alone paid for the subscription in the first month. We found three open work orders from six months ago that had just been forgotten. Our SLA compliance went from 71% to 96% in 90 days."</blockquote>
+        <div class="testi-author">
+          <div class="testi-avatar" aria-hidden="true">MK</div>
+          <div>
+            <div class="testi-name">Marcus K.</div>
+            <div class="testi-title">Facilities Director, Technology Company</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="testi-card stagger-child">
+        <div class="testi-stars">★★★★★</div>
+        <blockquote>"Setup took less than two hours. We imported our lease data from CSV and were operational the same afternoon. The alert system is exactly what we needed — our team gets reminders 90 days, 60 days, and 30 days before every critical date."</blockquote>
+        <div class="testi-author">
+          <div class="testi-avatar" aria-hidden="true">JP</div>
+          <div>
+            <div class="testi-name">Jennifer P.</div>
+            <div class="testi-title">Real Estate Manager, Healthcare Organization</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ══ 10. FINAL CTA + FOOTER ═════════════════════════════════════════════ -->
+<section class="cta-banner reveal">
+  <div class="container">
+    <h2>Ready to bring order to your portfolio?</h2>
+    <p>Join facilities teams who've replaced spreadsheet chaos with a platform built for the job. Start your free 14-day trial — no credit card, no commitment.</p>
+    <div class="cta-actions">
+      <a href="#" data-href="SIGNUP_URL" class="btn btn-lg btn-white">Start Free Trial</a>
+      <a href="#" data-demo-email class="btn btn-lg btn-outline-white">Request a Demo</a>
+    </div>
+    <p class="cta-sub">Questions? Email us at <a href="#" data-demo-email class="cta-email">demo@yourcompany.com</a></p>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <a class="nav-logo" href="#">
+        <svg width="22" height="22" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+          <rect width="28" height="28" rx="7" fill="#0972d3"/>
+          <rect x="6" y="7" width="16" height="2.5" rx="1.25" fill="#fff"/>
+          <rect x="6" y="12.5" width="10" height="2.5" rx="1.25" fill="#fff" opacity=".7"/>
+          <rect x="6" y="18" width="13" height="2.5" rx="1.25" fill="#fff" opacity=".5"/>
+        </svg>
+        <span data-company>Office Manager</span>
+      </a>
+      <p class="footer-tagline">Every office. Every lease. Every deadline.</p>
+    </div>
+    <div class="footer-links">
+      <div class="footer-col">
+        <div class="footer-col-title">Product</div>
+        <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#how-it-works">How It Works</a>
+        <a href="#" data-href="SIGNUP_URL">Sign Up</a>
+      </div>
+      <div class="footer-col">
+        <div class="footer-col-title">Account</div>
+        <a href="#" data-href="LOGIN_URL">Sign In</a>
+        <a href="#" data-href="SIGNUP_URL">Start Free Trial</a>
+        <a href="#" data-demo-email>Request Demo</a>
+      </div>
+      <div class="footer-col">
+        <div class="footer-col-title">Support</div>
+        <a href="#" data-href="APP_URL">Documentation</a>
+        <a href="mailto:#" id="support-link">Support</a>
+        <a href="#" data-href="APP_URL">Status</a>
+      </div>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <div class="container">
+      <span>&copy; <span id="copy-year"></span> <span data-company>Office Manager</span>. All rights reserved.</span>
+      <span class="footer-legal">
+        <a href="#">Privacy Policy</a>
+        <a href="#">Terms of Service</a>
+      </span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Set copyright year
+  document.getElementById('copy-year').textContent = new Date().getFullYear();
+  // Wire support email
+  const cfg = window.SITE_CONFIG || {};
+  const sl = document.getElementById('support-link');
+  if (sl && cfg.SUPPORT_EMAIL) sl.href = 'mailto:' + cfg.SUPPORT_EMAIL;
+</script>
+<script src="script.js"></script>
+</body>
+</html>

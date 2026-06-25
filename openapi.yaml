@@ -1,0 +1,2554 @@
+openapi: 3.0.3
+info:
+  title: Office Manager API
+  version: 1.0.0
+  description: |
+    Multi-tenant office management platform API. Handles offices, leases, maintenance tickets,
+    vendors, HVAC contracts, billing, and analytics.
+
+    ## Authentication
+    All protected endpoints require a JWT bearer token obtained from `/api/v1/auth/login`.
+    API keys (prefixed `om_`) may be used as an alternative bearer credential.
+
+servers:
+  - url: /api/v1
+    description: Primary API
+
+tags:
+  - name: Auth
+  - name: Organizations
+  - name: Users
+  - name: Offices
+  - name: Leases
+  - name: MaintenanceTickets
+  - name: Vendors
+  - name: Managers
+  - name: Landlords
+  - name: HvacContracts
+  - name: Dashboard
+  - name: Billing
+  - name: ApiKeys
+  - name: Notifications
+  - name: Search
+
+# ---------------------------------------------------------------------------
+# Security schemes
+# ---------------------------------------------------------------------------
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from /auth/login or an API key prefixed with `om_`
+
+  # -------------------------------------------------------------------------
+  # Reusable schemas
+  # -------------------------------------------------------------------------
+  schemas:
+
+    # --- Pagination ---------------------------------------------------------
+    PaginationMeta:
+      type: object
+      properties:
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+        pages: { type: integer }
+
+    # --- Error --------------------------------------------------------------
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }
+
+    # --- Enums --------------------------------------------------------------
+    Role:
+      type: string
+      enum: [viewer, editor, admin, ticketer]
+
+    Plan:
+      type: string
+      enum: [starter, pro, enterprise]
+
+    PaymentStatus:
+      type: string
+      enum: [active, past_due, canceled]
+
+    TicketStatus:
+      type: string
+      enum: [open, in_progress, closed]
+
+    TicketPriority:
+      type: string
+      enum: [low, medium, high]
+
+    PaymentFrequency:
+      type: string
+      enum: [monthly, quarterly, annually]
+
+    LeaseClassification:
+      type: string
+      enum: [operating, finance]
+
+    SortOrder:
+      type: string
+      enum: [asc, desc]
+
+    # --- User ---------------------------------------------------------------
+    UserResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        auth_provider: { type: string, enum: [internal, google] }
+        role: { $ref: '#/components/schemas/Role' }
+        is_super_admin: { type: boolean }
+        is_active: { type: boolean }
+        totp_enabled: { type: boolean }
+        last_login_at: { type: string, format: date-time, nullable: true }
+        preferences: { type: object, nullable: true, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    UserUpdate:
+      type: object
+      properties:
+        display_name: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        is_active: { type: boolean }
+
+    # --- Organization -------------------------------------------------------
+    OrganizationResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        plan: { $ref: '#/components/schemas/Plan' }
+        is_active: { type: boolean }
+        trial_ends_at: { type: string, format: date-time, nullable: true }
+        stripe_customer_id: { type: string, nullable: true }
+        stripe_subscription_id: { type: string, nullable: true }
+        max_seats: { type: integer, nullable: true }
+        payment_status: { $ref: '#/components/schemas/PaymentStatus' }
+        onboarding_complete: { type: boolean }
+        admin_notes: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    OrganizationUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        admin_notes: { type: string }
+        onboarding_complete: { type: boolean }
+
+    SignupRequest:
+      type: object
+      required: [org_name, email, display_name, password]
+      properties:
+        org_name: { type: string }
+        email: { type: string, format: email }
+        display_name: { type: string }
+        password: { type: string, format: password }
+
+    SignupResponse:
+      type: object
+      properties:
+        access_token: { type: string }
+        organization: { $ref: '#/components/schemas/OrganizationResponse' }
+
+    # --- Auth ---------------------------------------------------------------
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    LoginResponse:
+      type: object
+      properties:
+        access_token: { type: string, nullable: true }
+        token_type: { type: string, nullable: true }
+        mfa_required: { type: boolean, nullable: true }
+        mfa_setup_required: { type: boolean, nullable: true }
+        mfa_token: { type: string, nullable: true }
+
+    GoogleAuthRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, description: Google OAuth ID token }
+
+    RegisterRequest:
+      type: object
+      required: [email, display_name, password]
+      properties:
+        email: { type: string, format: email }
+        display_name: { type: string }
+        password: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+
+    MfaSetupRequest:
+      type: object
+      required: [mfa_token]
+      properties:
+        mfa_token: { type: string }
+
+    MfaSetupResponse:
+      type: object
+      properties:
+        secret: { type: string }
+        qr_uri: { type: string }
+
+    MfaEnableRequest:
+      type: object
+      required: [mfa_token, code]
+      properties:
+        mfa_token: { type: string }
+        code: { type: string }
+
+    MfaEnableResponse:
+      type: object
+      properties:
+        access_token: { type: string }
+        token_type: { type: string }
+        backup_codes:
+          type: array
+          items: { type: string }
+
+    MfaVerifyRequest:
+      type: object
+      required: [mfa_token, code]
+      properties:
+        mfa_token: { type: string }
+        code: { type: string }
+
+    MfaDisableRequest:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string }
+
+    PasswordChangeRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password: { type: string }
+        new_password: { type: string }
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, new_password]
+      properties:
+        token: { type: string }
+        new_password: { type: string }
+
+    # --- Manager ------------------------------------------------------------
+    ManagerResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email, nullable: true }
+        phone: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ManagerCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+
+    ManagerUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string }
+
+    # --- Office -------------------------------------------------------------
+    OfficeResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        office_number: { type: integer }
+        location_name: { type: string }
+        region_number: { type: integer, nullable: true }
+        manager_id: { type: string, format: uuid, nullable: true }
+        location_type: { type: string }
+        sector: { type: string }
+        address_line_1: { type: string, nullable: true }
+        city: { type: string }
+        state: { type: string }
+        zip_code: { type: string }
+        phone_number: { type: string, nullable: true }
+        email: { type: string, format: email, nullable: true }
+        fax: { type: string, nullable: true }
+        is_active: { type: boolean }
+        total_sqft: { type: number, nullable: true }
+        usable_sqft: { type: number, nullable: true }
+        headcount_capacity: { type: integer, nullable: true }
+        current_headcount: { type: integer, nullable: true }
+        mail_shipping: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        is_deleted: { type: boolean }
+        deleted_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    OfficeCreate:
+      type: object
+      required: [office_number, location_name, city, state, zip_code, location_type, sector]
+      properties:
+        office_number: { type: integer }
+        location_name: { type: string }
+        region_number: { type: integer }
+        manager_id: { type: string, format: uuid }
+        location_type: { type: string }
+        sector: { type: string }
+        address_line_1: { type: string }
+        city: { type: string }
+        state: { type: string }
+        zip_code: { type: string }
+        phone_number: { type: string }
+        email: { type: string, format: email }
+        fax: { type: string }
+        is_active: { type: boolean, default: true }
+        total_sqft: { type: number }
+        usable_sqft: { type: number }
+        headcount_capacity: { type: integer }
+        current_headcount: { type: integer }
+        mail_shipping: { type: string }
+        notes: { type: string }
+
+    OfficeUpdate:
+      allOf:
+        - $ref: '#/components/schemas/OfficeCreate'
+      description: All fields optional for partial update
+
+    PaginatedOffices:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/OfficeResponse' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+
+    # --- Lease --------------------------------------------------------------
+    LeaseResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        office_id: { type: string, format: uuid, nullable: true }
+        lease_name: { type: string }
+        lessor_name: { type: string }
+        lease_expiration: { type: string, format: date, nullable: true }
+        lease_notice_date: { type: string, format: date, nullable: true }
+        notice_given_date: { type: string, format: date, nullable: true }
+        notice_period: { type: string, nullable: true }
+        notice_period_days: { type: integer, nullable: true }
+        payment_amount: { type: number, nullable: true }
+        payment_frequency: { $ref: '#/components/schemas/PaymentFrequency' }
+        annual_escalation_rate: { type: number, nullable: true }
+        lease_classification: { $ref: '#/components/schemas/LeaseClassification' }
+        currency: { type: string, default: USD }
+        manager_id: { type: string, format: uuid, nullable: true }
+        expiration_year: { type: integer }
+        is_deleted: { type: boolean }
+        deleted_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    LeaseCreate:
+      type: object
+      required: [lease_name, lessor_name]
+      properties:
+        office_id: { type: string, format: uuid }
+        lease_name: { type: string }
+        lessor_name: { type: string }
+        lease_expiration: { type: string, format: date }
+        lease_notice_date: { type: string, format: date }
+        notice_period: { type: string }
+        notice_period_days: { type: integer }
+        payment_amount: { type: number }
+        payment_frequency: { $ref: '#/components/schemas/PaymentFrequency' }
+        annual_escalation_rate: { type: number }
+        lease_classification: { $ref: '#/components/schemas/LeaseClassification' }
+        currency: { type: string, default: USD }
+        manager_id: { type: string, format: uuid }
+
+    LeaseUpdate:
+      allOf:
+        - $ref: '#/components/schemas/LeaseCreate'
+
+    PaginatedLeases:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LeaseResponse' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+
+    LeaseNoteResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        lease_id: { type: string, format: uuid }
+        note_text: { type: string }
+        created_by_id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+
+    LeaseNoteCreate:
+      type: object
+      required: [note_text]
+      properties:
+        note_text: { type: string }
+
+    RentRollResponse:
+      type: object
+      properties:
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              lease_id: { type: string, format: uuid }
+              lease_name: { type: string }
+              office_name: { type: string, nullable: true }
+              lessor_name: { type: string }
+              payment_amount: { type: number, nullable: true }
+              payment_frequency: { $ref: '#/components/schemas/PaymentFrequency' }
+              monthly_equivalent: { type: number, nullable: true }
+              annual_equivalent: { type: number, nullable: true }
+              lease_expiration: { type: string, format: date, nullable: true }
+        total_monthly: { type: number }
+        total_annual: { type: number }
+        count: { type: integer }
+
+    LeaseRenewalCreate:
+      type: object
+      properties:
+        target_expiration: { type: string, format: date }
+        new_rent_amount: { type: number }
+        notes: { type: string }
+
+    LeaseOptionCreate:
+      type: object
+      required: [option_type]
+      properties:
+        option_type: { type: string }
+        exercise_window_start: { type: string, format: date }
+        exercise_window_end: { type: string, format: date }
+        notice_required_days: { type: integer }
+        new_term_months: { type: integer }
+        new_rent_amount: { type: number }
+        notes: { type: string }
+
+    # --- Maintenance Ticket -------------------------------------------------
+    MaintenanceTicketResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        subject: { type: string }
+        description: { type: string, nullable: true }
+        priority: { $ref: '#/components/schemas/TicketPriority' }
+        status: { $ref: '#/components/schemas/TicketStatus' }
+        category_id: { type: string, format: uuid, nullable: true }
+        office_id: { type: string, format: uuid, nullable: true }
+        created_by_id: { type: string, format: uuid }
+        assigned_to_id: { type: string, format: uuid, nullable: true }
+        closed_at: { type: string, format: date-time, nullable: true }
+        is_deleted: { type: boolean }
+        deleted_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    MaintenanceTicketCreate:
+      type: object
+      required: [subject]
+      properties:
+        subject: { type: string }
+        description: { type: string }
+        priority: { $ref: '#/components/schemas/TicketPriority' }
+        category_id: { type: string, format: uuid }
+        office_id: { type: string, format: uuid }
+        assigned_to_id: { type: string, format: uuid }
+
+    MaintenanceTicketUpdate:
+      type: object
+      properties:
+        subject: { type: string }
+        description: { type: string }
+        priority: { $ref: '#/components/schemas/TicketPriority' }
+        status: { $ref: '#/components/schemas/TicketStatus' }
+        category_id: { type: string, format: uuid }
+        office_id: { type: string, format: uuid }
+        assigned_to_id: { type: string, format: uuid }
+
+    TicketBulkUpdate:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/TicketStatus' }
+        assigned_to_id: { type: string, format: uuid }
+
+    PaginatedTickets:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/MaintenanceTicketResponse' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+
+    TicketNoteResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        ticket_id: { type: string, format: uuid }
+        note_text: { type: string }
+        created_by_id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+
+    TicketNoteCreate:
+      type: object
+      required: [note_text]
+      properties:
+        note_text: { type: string }
+
+    # --- Vendor -------------------------------------------------------------
+    VendorResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        company_name: { type: string }
+        contact_name: { type: string, nullable: true }
+        contact_email: { type: string, format: email, nullable: true }
+        contact_phone: { type: string, nullable: true }
+        services: { type: string }
+        address: { type: string, nullable: true }
+        is_preferred: { type: boolean }
+        office_ids:
+          type: array
+          items: { type: string, format: uuid }
+        is_deleted: { type: boolean }
+        deleted_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    VendorCreate:
+      type: object
+      required: [company_name, services]
+      properties:
+        company_name: { type: string }
+        contact_name: { type: string }
+        contact_email: { type: string, format: email }
+        contact_phone: { type: string }
+        services: { type: string }
+        address: { type: string }
+        is_preferred: { type: boolean, default: false }
+        office_ids:
+          type: array
+          items: { type: string, format: uuid }
+
+    VendorUpdate:
+      allOf:
+        - $ref: '#/components/schemas/VendorCreate'
+
+    PaginatedVendors:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/VendorResponse' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+
+    # --- Landlord -----------------------------------------------------------
+    LandlordResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        name: { type: string }
+        contact_name: { type: string, nullable: true }
+        contact_email: { type: string, format: email, nullable: true }
+        contact_phone: { type: string, nullable: true }
+        address: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        is_deleted: { type: boolean }
+        deleted_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    LandlordCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        contact_name: { type: string }
+        contact_email: { type: string, format: email }
+        contact_phone: { type: string }
+        address: { type: string }
+        notes: { type: string }
+
+    LandlordUpdate:
+      allOf:
+        - $ref: '#/components/schemas/LandlordCreate'
+
+    PaginatedLandlords:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LandlordResponse' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+
+    # --- HVAC Contract ------------------------------------------------------
+    HvacContractResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        office_id: { type: string, format: uuid, nullable: true }
+        vendor_id: { type: string, format: uuid, nullable: true }
+        contract_number: { type: string, nullable: true }
+        start_date: { type: string, format: date, nullable: true }
+        end_date: { type: string, format: date, nullable: true }
+        next_service_date: { type: string, format: date, nullable: true }
+        annual_cost: { type: number, nullable: true }
+        status: { type: string }
+        notes: { type: string, nullable: true }
+        is_deleted: { type: boolean }
+        deleted_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    HvacContractCreate:
+      type: object
+      properties:
+        office_id: { type: string, format: uuid }
+        vendor_id: { type: string, format: uuid }
+        contract_number: { type: string }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        next_service_date: { type: string, format: date }
+        annual_cost: { type: number }
+        status: { type: string }
+        notes: { type: string }
+
+    HvacContractUpdate:
+      allOf:
+        - $ref: '#/components/schemas/HvacContractCreate'
+
+    PaginatedHvacContracts:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/HvacContractResponse' }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+
+    # --- Notification -------------------------------------------------------
+    NotificationResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        kind: { type: string }
+        title: { type: string }
+        body: { type: string, nullable: true }
+        entity_type: { type: string, nullable: true }
+        entity_id: { type: string, format: uuid, nullable: true }
+        is_read: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    # --- API Key ------------------------------------------------------------
+    ApiKeyResponse:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        key_prefix: { type: string, description: First 8 characters of the key }
+        scopes:
+          type: array
+          items: { type: string }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true }
+        is_active: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    ApiKeyCreated:
+      allOf:
+        - $ref: '#/components/schemas/ApiKeyResponse'
+        - type: object
+          properties:
+            key:
+              type: string
+              description: Full API key value — returned only on creation
+
+    ApiKeyCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+        expires_in_days: { type: integer }
+
+    ApiKeyUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+        is_active: { type: boolean }
+
+    # --- Billing ------------------------------------------------------------
+    SubscriptionResponse:
+      type: object
+      properties:
+        plan: { $ref: '#/components/schemas/Plan' }
+        is_active: { type: boolean }
+        payment_status: { $ref: '#/components/schemas/PaymentStatus' }
+        stripe_customer_id: { type: string, nullable: true }
+        stripe_subscription_id: { type: string, nullable: true }
+        trial_ends_at: { type: string, format: date-time, nullable: true }
+        max_seats: { type: integer, nullable: true }
+        seat_count: { type: integer }
+        billing_configured: { type: boolean }
+
+    CheckoutRequest:
+      type: object
+      required: [plan]
+      properties:
+        plan:
+          type: string
+          enum: [pro, enterprise]
+
+    CheckoutResponse:
+      type: object
+      properties:
+        checkout_url: { type: string, format: uri }
+
+    PortalResponse:
+      type: object
+      properties:
+        portal_url: { type: string, format: uri }
+
+    # --- Dashboard ----------------------------------------------------------
+    DashboardSummary:
+      type: object
+      properties:
+        total_offices: { type: integer }
+        active_offices: { type: integer }
+        inactive_offices: { type: integer }
+        active_leases: { type: integer }
+        upcoming_expirations_90d: { type: integer }
+        overdue_notices: { type: integer }
+        high_priority_tickets: { type: integer }
+        overdue_tickets: { type: integer }
+
+    PortfolioHealth:
+      type: object
+      properties:
+        overall: { type: number, minimum: 0, maximum: 100 }
+        lease_health: { type: number }
+        ticket_health: { type: number }
+        hvac_health: { type: number }
+        sla_compliance_pct: { type: number }
+        open_high_pct: { type: number }
+        lease_expiry_risk_pct: { type: number }
+        hvac_overdue_pct: { type: number }
+
+    LeaseRiskBucket:
+      type: object
+      properties:
+        bucket:
+          type: string
+          enum: [expired, critical, warning, healthy]
+        count: { type: integer }
+
+    # --- Search -------------------------------------------------------------
+    SearchResult:
+      type: object
+      properties:
+        entity_type: { type: string }
+        entity_id: { type: string, format: uuid }
+        label: { type: string }
+        sublabel: { type: string, nullable: true }
+
+# ---------------------------------------------------------------------------
+# Global security default
+# ---------------------------------------------------------------------------
+security:
+  - BearerAuth: []
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+paths:
+
+  # ==========================================================================
+  # AUTH
+  # ==========================================================================
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Successful login (may require MFA)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/google:
+    post:
+      tags: [Auth]
+      summary: Login with Google OAuth token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GoogleAuthRequest' }
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new user (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /auth/mfa/setup:
+    post:
+      tags: [Auth]
+      summary: Initiate MFA setup — returns TOTP secret and QR URI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MfaSetupRequest' }
+      responses:
+        '200':
+          description: MFA setup data
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaSetupResponse' }
+
+  /auth/mfa/enable:
+    post:
+      tags: [Auth]
+      summary: Confirm TOTP code and enable MFA
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MfaEnableRequest' }
+      responses:
+        '200':
+          description: MFA enabled; returns tokens and backup codes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MfaEnableResponse' }
+
+  /auth/mfa/verify:
+    post:
+      tags: [Auth]
+      summary: Verify MFA code and complete login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MfaVerifyRequest' }
+      responses:
+        '200':
+          description: Verified
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+
+  /auth/mfa/disable:
+    post:
+      tags: [Auth]
+      summary: Disable MFA for current user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MfaDisableRequest' }
+      responses:
+        '204': { description: MFA disabled }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh JWT
+      responses:
+        '200':
+          description: New token issued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+
+  /auth/me/password:
+    patch:
+      tags: [Auth]
+      summary: Change password (internal auth only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordChangeRequest' }
+      responses:
+        '204': { description: Password changed }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request password reset email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ForgotPasswordRequest' }
+      responses:
+        '204': { description: Reset email sent (if address exists) }
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset password using email token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResetPasswordRequest' }
+      responses:
+        '204': { description: Password reset }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  # ==========================================================================
+  # ORGANIZATIONS
+  # ==========================================================================
+  /organizations/signup:
+    post:
+      tags: [Organizations]
+      summary: Self-service tenant signup
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignupRequest' }
+      responses:
+        '201':
+          description: Organization and admin user created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignupResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /organizations/me:
+    get:
+      tags: [Organizations]
+      summary: Get current user's organization
+      responses:
+        '200':
+          description: Organization
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationResponse' }
+
+  /organizations/{org_id}:
+    get:
+      tags: [Organizations]
+      summary: Get organization by ID
+      parameters:
+        - { name: org_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Organization
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Organizations]
+      summary: Update organization (admin or super-admin)
+      parameters:
+        - { name: org_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrganizationUpdate' }
+      responses:
+        '200':
+          description: Updated organization
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ==========================================================================
+  # USERS
+  # ==========================================================================
+  /users:
+    get:
+      tags: [Users]
+      summary: List users in organization (admin only)
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+      responses:
+        '200':
+          description: Paginated users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/UserResponse' } }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Users]
+      summary: Create user in organization (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Created user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+        '402': { description: Seat limit reached }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /users/{user_id}:
+    put:
+      tags: [Users]
+      summary: Update user (admin only)
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserUpdate' }
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Users]
+      summary: Deactivate user (admin only)
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: User deactivated }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /users/{user_id}/preferences:
+    get:
+      tags: [Users]
+      summary: Get user preferences
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Preferences object
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+    patch:
+      tags: [Users]
+      summary: Update user preferences
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+
+  # ==========================================================================
+  # MANAGERS
+  # ==========================================================================
+  /managers:
+    get:
+      tags: [Managers]
+      summary: List all managers
+      responses:
+        '200':
+          description: List of managers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ManagerResponse' }
+    post:
+      tags: [Managers]
+      summary: Create manager (admin/editor)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagerCreate' }
+      responses:
+        '201':
+          description: Created manager
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagerResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /managers/{manager_id}:
+    put:
+      tags: [Managers]
+      summary: Update manager (admin/editor)
+      parameters:
+        - { name: manager_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ManagerUpdate' }
+      responses:
+        '200':
+          description: Updated manager
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ManagerResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Managers]
+      summary: Delete manager (admin only)
+      parameters:
+        - { name: manager_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ==========================================================================
+  # OFFICES
+  # ==========================================================================
+  /offices:
+    get:
+      tags: [Offices]
+      summary: List offices
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { name: region_number, in: query, schema: { type: integer } }
+        - { name: manager_id, in: query, schema: { type: string, format: uuid } }
+        - { name: location_type, in: query, schema: { type: string } }
+        - { name: sector, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: is_active, in: query, schema: { type: boolean } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: sort_by, in: query, schema: { type: string } }
+        - { name: sort_order, in: query, schema: { $ref: '#/components/schemas/SortOrder' } }
+      responses:
+        '200':
+          description: Paginated offices
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedOffices' }
+    post:
+      tags: [Offices]
+      summary: Create office (admin/editor)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OfficeCreate' }
+      responses:
+        '201':
+          description: Created office
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfficeResponse' }
+        '402': { description: Office limit reached for current plan }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /offices/export:
+    get:
+      tags: [Offices]
+      summary: Export offices as CSV
+      parameters:
+        - { name: region_number, in: query, schema: { type: integer } }
+        - { name: manager_id, in: query, schema: { type: string, format: uuid } }
+        - { name: is_active, in: query, schema: { type: boolean } }
+        - { name: search, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: CSV file
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+
+  /offices/{office_id}:
+    get:
+      tags: [Offices]
+      summary: Get office by ID
+      parameters:
+        - { $ref: '#/components/parameters/OfficeId' }
+      responses:
+        '200':
+          description: Office
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfficeResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Offices]
+      summary: Update office (admin/editor)
+      parameters:
+        - { $ref: '#/components/parameters/OfficeId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OfficeUpdate' }
+      responses:
+        '200':
+          description: Updated office
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfficeResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Offices]
+      summary: Soft-delete office (admin only)
+      parameters:
+        - { $ref: '#/components/parameters/OfficeId' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /offices/{office_id}/restore:
+    patch:
+      tags: [Offices]
+      summary: Restore soft-deleted office (admin only)
+      parameters:
+        - { $ref: '#/components/parameters/OfficeId' }
+      responses:
+        '200':
+          description: Restored office
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OfficeResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /offices/{office_id}/vendors:
+    get:
+      tags: [Offices]
+      summary: Get vendors assigned to an office
+      parameters:
+        - { $ref: '#/components/parameters/OfficeId' }
+      responses:
+        '200':
+          description: Vendors
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/VendorResponse' }
+
+  /offices/{office_id}/hvac-contracts:
+    get:
+      tags: [Offices]
+      summary: Get HVAC contracts for an office
+      parameters:
+        - { $ref: '#/components/parameters/OfficeId' }
+      responses:
+        '200':
+          description: HVAC contracts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/HvacContractResponse' }
+
+  # ==========================================================================
+  # LEASES
+  # ==========================================================================
+  /leases:
+    get:
+      tags: [Leases]
+      summary: List leases
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { name: year, in: query, schema: { type: integer } }
+        - { name: manager_id, in: query, schema: { type: string, format: uuid } }
+        - { name: notice_status, in: query, schema: { type: string, enum: [given, not_given] } }
+        - { name: expiring_within_days, in: query, schema: { type: integer } }
+        - { name: sort_by, in: query, schema: { type: string } }
+        - { name: sort_order, in: query, schema: { $ref: '#/components/schemas/SortOrder' } }
+      responses:
+        '200':
+          description: Paginated leases
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedLeases' }
+    post:
+      tags: [Leases]
+      summary: Create lease (admin/editor)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseCreate' }
+      responses:
+        '201':
+          description: Created lease
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaseResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /leases/export:
+    get:
+      tags: [Leases]
+      summary: Export leases as CSV
+      responses:
+        '200':
+          description: CSV file
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+
+  /leases/export/ical:
+    get:
+      tags: [Leases]
+      summary: Export lease dates as iCalendar
+      responses:
+        '200':
+          description: ICS file
+          content:
+            text/calendar:
+              schema: { type: string }
+
+  /leases/upcoming:
+    get:
+      tags: [Leases]
+      summary: Leases expiring within N days
+      parameters:
+        - { name: days, in: query, schema: { type: integer, default: 90 } }
+      responses:
+        '200':
+          description: Upcoming leases
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LeaseResponse' }
+
+  /leases/notices-due:
+    get:
+      tags: [Leases]
+      summary: Leases with notice due within N days (not yet given)
+      parameters:
+        - { name: days, in: query, schema: { type: integer, default: 30 } }
+      responses:
+        '200':
+          description: Leases with notices due
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LeaseResponse' }
+
+  /leases/rent-roll:
+    get:
+      tags: [Leases]
+      summary: Rent roll with monthly and annual totals
+      parameters:
+        - { name: region_number, in: query, schema: { type: integer } }
+        - { name: sector, in: query, schema: { type: string } }
+        - { name: manager_id, in: query, schema: { type: string, format: uuid } }
+        - { name: expiring_within_days, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: Rent roll
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RentRollResponse' }
+
+  /leases/{lease_id}:
+    get:
+      tags: [Leases]
+      summary: Get lease by ID
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+      responses:
+        '200':
+          description: Lease
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaseResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Leases]
+      summary: Update lease (admin/editor)
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseUpdate' }
+      responses:
+        '200':
+          description: Updated lease
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaseResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Leases]
+      summary: Soft-delete lease (admin only)
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /leases/{lease_id}/restore:
+    patch:
+      tags: [Leases]
+      summary: Restore soft-deleted lease (admin only)
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+      responses:
+        '200':
+          description: Restored lease
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaseResponse' }
+
+  /leases/{lease_id}/clone:
+    post:
+      tags: [Leases]
+      summary: Clone lease as renewal (admin/editor)
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+      responses:
+        '201':
+          description: Cloned lease
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaseResponse' }
+
+  /leases/{lease_id}/accounting:
+    get:
+      tags: [Leases]
+      summary: ASC 842 / IFRS 16 accounting schedule
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+        - { name: include_journal_entries, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Accounting schedule
+          content:
+            application/json:
+              schema:
+                type: object
+                description: ROU asset, lease liability, and amortization schedule
+
+  /leases/{lease_id}/notes:
+    post:
+      tags: [Leases]
+      summary: Add note to lease (admin/editor)
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseNoteCreate' }
+      responses:
+        '201':
+          description: Created note
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaseNoteResponse' }
+
+  /leases/{lease_id}/notes/{note_id}:
+    delete:
+      tags: [Leases]
+      summary: Delete lease note (admin/editor)
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+        - { name: note_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+
+  /leases/{lease_id}/renewals:
+    get:
+      tags: [Leases]
+      summary: List renewals for a lease
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+      responses:
+        '200':
+          description: Renewals
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+    post:
+      tags: [Leases]
+      summary: Add renewal to lease (admin/editor)
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseRenewalCreate' }
+      responses:
+        '201':
+          description: Created renewal
+          content:
+            application/json:
+              schema: { type: object }
+
+  /leases/{lease_id}/renewals/{renewal_id}:
+    put:
+      tags: [Leases]
+      summary: Update renewal (admin/editor)
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+        - { name: renewal_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseRenewalCreate' }
+      responses:
+        '200':
+          description: Updated renewal
+          content:
+            application/json:
+              schema: { type: object }
+    delete:
+      tags: [Leases]
+      summary: Delete renewal (admin only)
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+        - { name: renewal_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+
+  /leases/{lease_id}/options:
+    get:
+      tags: [Leases]
+      summary: List options for a lease
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+      responses:
+        '200':
+          description: Options
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+    post:
+      tags: [Leases]
+      summary: Add option to lease (admin/editor)
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseOptionCreate' }
+      responses:
+        '201':
+          description: Created option
+          content:
+            application/json:
+              schema: { type: object }
+
+  /leases/{lease_id}/options/{option_id}:
+    put:
+      tags: [Leases]
+      summary: Update option (admin/editor)
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+        - { name: option_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaseOptionCreate' }
+      responses:
+        '200':
+          description: Updated option
+          content:
+            application/json:
+              schema: { type: object }
+    delete:
+      tags: [Leases]
+      summary: Delete option (admin/editor)
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+        - { name: option_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+
+  # ==========================================================================
+  # MAINTENANCE TICKETS
+  # ==========================================================================
+  /maintenance-tickets:
+    get:
+      tags: [MaintenanceTickets]
+      summary: List maintenance tickets
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/TicketStatus' } }
+        - { name: priority, in: query, schema: { $ref: '#/components/schemas/TicketPriority' } }
+        - { name: category_id, in: query, schema: { type: string, format: uuid } }
+        - { name: office_id, in: query, schema: { type: string, format: uuid } }
+        - { name: assigned_to_id, in: query, schema: { type: string, format: uuid } }
+        - { name: sort_by, in: query, schema: { type: string } }
+        - { name: sort_order, in: query, schema: { $ref: '#/components/schemas/SortOrder' } }
+      responses:
+        '200':
+          description: Paginated tickets
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedTickets' }
+    post:
+      tags: [MaintenanceTickets]
+      summary: Create ticket (admin/editor/ticketer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MaintenanceTicketCreate' }
+      responses:
+        '201':
+          description: Created ticket
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaintenanceTicketResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /maintenance-tickets/export:
+    get:
+      tags: [MaintenanceTickets]
+      summary: Export tickets as CSV
+      responses:
+        '200':
+          description: CSV file
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+
+  /maintenance-tickets/bulk:
+    patch:
+      tags: [MaintenanceTickets]
+      summary: Bulk update ticket status/assignment (admin/editor)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TicketBulkUpdate' }
+      responses:
+        '200':
+          description: Updated tickets
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MaintenanceTicketResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /maintenance-tickets/{ticket_id}:
+    get:
+      tags: [MaintenanceTickets]
+      summary: Get ticket by ID
+      parameters:
+        - { $ref: '#/components/parameters/TicketId' }
+      responses:
+        '200':
+          description: Ticket
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaintenanceTicketResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [MaintenanceTickets]
+      summary: Update ticket (admin/editor)
+      parameters:
+        - { $ref: '#/components/parameters/TicketId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MaintenanceTicketUpdate' }
+      responses:
+        '200':
+          description: Updated ticket
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaintenanceTicketResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [MaintenanceTickets]
+      summary: Soft-delete ticket (admin only)
+      parameters:
+        - { $ref: '#/components/parameters/TicketId' }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /maintenance-tickets/{ticket_id}/restore:
+    patch:
+      tags: [MaintenanceTickets]
+      summary: Restore soft-deleted ticket (admin only)
+      parameters:
+        - { $ref: '#/components/parameters/TicketId' }
+      responses:
+        '200':
+          description: Restored ticket
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MaintenanceTicketResponse' }
+
+  /maintenance-tickets/{ticket_id}/notes:
+    post:
+      tags: [MaintenanceTickets]
+      summary: Add note to ticket (admin/editor); supports @mention notifications
+      parameters:
+        - { $ref: '#/components/parameters/TicketId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TicketNoteCreate' }
+      responses:
+        '201':
+          description: Created note
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TicketNoteResponse' }
+
+  /maintenance-tickets/{ticket_id}/notes/{note_id}:
+    delete:
+      tags: [MaintenanceTickets]
+      summary: Delete ticket note (admin/editor)
+      parameters:
+        - { $ref: '#/components/parameters/TicketId' }
+        - { name: note_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+
+  # ==========================================================================
+  # VENDORS
+  # ==========================================================================
+  /vendors:
+    get:
+      tags: [Vendors]
+      summary: List vendors
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: office_id, in: query, schema: { type: string, format: uuid } }
+        - { name: sort_by, in: query, schema: { type: string } }
+        - { name: sort_order, in: query, schema: { $ref: '#/components/schemas/SortOrder' } }
+      responses:
+        '200':
+          description: Paginated vendors
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedVendors' }
+    post:
+      tags: [Vendors]
+      summary: Create vendor (admin/editor)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VendorCreate' }
+      responses:
+        '201':
+          description: Created vendor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VendorResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /vendors/export:
+    get:
+      tags: [Vendors]
+      summary: Export vendors as CSV
+      responses:
+        '200':
+          description: CSV file
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+
+  /vendors/{vendor_id}:
+    get:
+      tags: [Vendors]
+      summary: Get vendor by ID
+      parameters:
+        - { name: vendor_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Vendor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VendorResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Vendors]
+      summary: Update vendor (admin/editor)
+      parameters:
+        - { name: vendor_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VendorUpdate' }
+      responses:
+        '200':
+          description: Updated vendor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VendorResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Vendors]
+      summary: Soft-delete vendor (admin only)
+      parameters:
+        - { name: vendor_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /vendors/{vendor_id}/restore:
+    patch:
+      tags: [Vendors]
+      summary: Restore soft-deleted vendor (admin only)
+      parameters:
+        - { name: vendor_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Restored vendor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VendorResponse' }
+
+  # ==========================================================================
+  # LANDLORDS
+  # ==========================================================================
+  /landlords:
+    get:
+      tags: [Landlords]
+      summary: List landlords
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: sort_by, in: query, schema: { type: string } }
+        - { name: sort_order, in: query, schema: { $ref: '#/components/schemas/SortOrder' } }
+      responses:
+        '200':
+          description: Paginated landlords
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedLandlords' }
+    post:
+      tags: [Landlords]
+      summary: Create landlord (admin/editor)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LandlordCreate' }
+      responses:
+        '201':
+          description: Created landlord
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LandlordResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /landlords/{landlord_id}:
+    put:
+      tags: [Landlords]
+      summary: Update landlord (admin/editor)
+      parameters:
+        - { name: landlord_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LandlordUpdate' }
+      responses:
+        '200':
+          description: Updated landlord
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LandlordResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Landlords]
+      summary: Soft-delete landlord (admin only)
+      parameters:
+        - { name: landlord_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+
+  /landlords/{landlord_id}/restore:
+    patch:
+      tags: [Landlords]
+      summary: Restore soft-deleted landlord (admin only)
+      parameters:
+        - { name: landlord_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Restored landlord
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LandlordResponse' }
+
+  # ==========================================================================
+  # HVAC CONTRACTS
+  # ==========================================================================
+  /hvac-contracts:
+    get:
+      tags: [HvacContracts]
+      summary: List HVAC contracts
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/PageSize' }
+        - { name: office_id, in: query, schema: { type: string, format: uuid } }
+        - { name: manager_id, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Paginated HVAC contracts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedHvacContracts' }
+    post:
+      tags: [HvacContracts]
+      summary: Create HVAC contract (admin/editor)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HvacContractCreate' }
+      responses:
+        '201':
+          description: Created contract
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HvacContractResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /hvac-contracts/{contract_id}:
+    put:
+      tags: [HvacContracts]
+      summary: Update HVAC contract (admin/editor)
+      parameters:
+        - { name: contract_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HvacContractUpdate' }
+      responses:
+        '200':
+          description: Updated contract
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HvacContractResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [HvacContracts]
+      summary: Soft-delete HVAC contract (admin only)
+      parameters:
+        - { name: contract_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+
+  /hvac-contracts/{contract_id}/restore:
+    patch:
+      tags: [HvacContracts]
+      summary: Restore soft-deleted HVAC contract (admin only)
+      parameters:
+        - { name: contract_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Restored contract
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HvacContractResponse' }
+
+  # ==========================================================================
+  # DASHBOARD
+  # ==========================================================================
+  /dashboard/summary:
+    get:
+      tags: [Dashboard]
+      summary: Portfolio summary counts
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardSummary' }
+
+  /dashboard/lease-expirations:
+    get:
+      tags: [Dashboard]
+      summary: Lease expiration counts by year
+      responses:
+        '200':
+          description: Expiration histogram
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    year: { type: integer }
+                    count: { type: integer }
+
+  /dashboard/hvac-due:
+    get:
+      tags: [Dashboard]
+      summary: HVAC contracts with service due within N days
+      parameters:
+        - { name: days, in: query, schema: { type: integer, default: 30 } }
+      responses:
+        '200':
+          description: HVAC due items
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+
+  /dashboard/active-transitions:
+    get:
+      tags: [Dashboard]
+      summary: Active office transitions
+      responses:
+        '200':
+          description: Active transitions
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+
+  /dashboard/upcoming-reminders:
+    get:
+      tags: [Dashboard]
+      summary: Combined upcoming reminders (leases, notices, HVAC)
+      responses:
+        '200':
+          description: Reminders
+          content:
+            application/json:
+              schema: { type: array, items: { type: object } }
+
+  /dashboard/ticket-volume-trend:
+    get:
+      tags: [Dashboard]
+      summary: Monthly ticket volume trend
+      parameters:
+        - { name: months, in: query, schema: { type: integer, default: 12 } }
+      responses:
+        '200':
+          description: Ticket volume trend
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    year: { type: integer }
+                    month: { type: integer }
+                    label: { type: string }
+                    open: { type: integer }
+                    closed: { type: integer }
+                    total: { type: integer }
+
+  /dashboard/top-offices-by-tickets:
+    get:
+      tags: [Dashboard]
+      summary: Top offices by ticket count
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 10 } }
+      responses:
+        '200':
+          description: Top offices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    office_id: { type: string, format: uuid }
+                    office_name: { type: string }
+                    office_number: { type: integer }
+                    ticket_count: { type: integer }
+
+  /dashboard/lease-risk:
+    get:
+      tags: [Dashboard]
+      summary: Lease risk distribution by bucket
+      responses:
+        '200':
+          description: Risk buckets
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LeaseRiskBucket' }
+
+  /dashboard/portfolio-health:
+    get:
+      tags: [Dashboard]
+      summary: Overall portfolio health score (0–100)
+      responses:
+        '200':
+          description: Portfolio health
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioHealth' }
+
+  /dashboard/cost-per-sqft:
+    get:
+      tags: [Dashboard]
+      summary: Cost per square foot by office
+      responses:
+        '200':
+          description: Cost per sqft
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    office_id: { type: string, format: uuid }
+                    office_name: { type: string }
+                    total_sqft: { type: number }
+                    annual_rent: { type: number }
+                    opex_actual: { type: number }
+                    total_annual_cost: { type: number }
+                    cost_per_sqft: { type: number }
+                    opex_by_category: { type: object, additionalProperties: true }
+
+  /dashboard/maintenance-spend:
+    get:
+      tags: [Dashboard]
+      summary: Monthly maintenance spend trend
+      parameters:
+        - { name: months, in: query, schema: { type: integer, default: 12 } }
+      responses:
+        '200':
+          description: Maintenance spend
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    year: { type: integer }
+                    month: { type: integer }
+                    label: { type: string }
+                    labor_total: { type: number }
+                    materials_total: { type: number }
+                    grand_total: { type: number }
+
+  /dashboard/space-utilization:
+    get:
+      tags: [Dashboard]
+      summary: Space utilization by office
+      responses:
+        '200':
+          description: Space utilization
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    office_id: { type: string, format: uuid }
+                    office_name: { type: string }
+                    total_sqft: { type: number }
+                    usable_sqft: { type: number }
+                    headcount_capacity: { type: integer }
+                    current_headcount: { type: integer }
+                    occupancy_pct: { type: number }
+                    sqft_per_person: { type: number }
+
+  # ==========================================================================
+  # BILLING
+  # ==========================================================================
+  /billing/subscription:
+    get:
+      tags: [Billing]
+      summary: Get current subscription details
+      responses:
+        '200':
+          description: Subscription
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionResponse' }
+
+  /billing/checkout:
+    post:
+      tags: [Billing]
+      summary: Create Stripe Checkout session (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CheckoutRequest' }
+      responses:
+        '200':
+          description: Checkout URL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckoutResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /billing/portal:
+    post:
+      tags: [Billing]
+      summary: Create Stripe Customer Portal session (admin only)
+      responses:
+        '200':
+          description: Portal URL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortalResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /billing/webhooks:
+    post:
+      tags: [Billing]
+      summary: Stripe webhook receiver (HMAC verified, public)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received: { type: boolean }
+
+  # ==========================================================================
+  # API KEYS
+  # ==========================================================================
+  /api-keys:
+    get:
+      tags: [ApiKeys]
+      summary: List API keys (admin only)
+      responses:
+        '200':
+          description: API keys
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ApiKeyResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [ApiKeys]
+      summary: Create API key (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApiKeyCreate' }
+      responses:
+        '201':
+          description: Created key (full key value returned only once)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiKeyCreated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api-keys/{key_id}:
+    patch:
+      tags: [ApiKeys]
+      summary: Update API key (admin only)
+      parameters:
+        - { name: key_id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApiKeyUpdate' }
+      responses:
+        '200':
+          description: Updated key
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiKeyResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [ApiKeys]
+      summary: Delete API key (admin only)
+      parameters:
+        - { name: key_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ==========================================================================
+  # NOTIFICATIONS
+  # ==========================================================================
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: List latest 50 notifications for current user
+      responses:
+        '200':
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/NotificationResponse' }
+
+  /notifications/count:
+    get:
+      tags: [Notifications]
+      summary: Unread notification count
+      responses:
+        '200':
+          description: Count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unread: { type: integer }
+
+  /notifications/read-all:
+    patch:
+      tags: [Notifications]
+      summary: Mark all notifications as read
+      responses:
+        '204': { description: Marked read }
+
+  /notifications/{notification_id}/read:
+    patch:
+      tags: [Notifications]
+      summary: Mark a notification as read
+      parameters:
+        - { name: notification_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Marked read }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /notifications/{notification_id}:
+    delete:
+      tags: [Notifications]
+      summary: Delete a notification
+      parameters:
+        - { name: notification_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ==========================================================================
+  # SEARCH
+  # ==========================================================================
+  /search:
+    get:
+      tags: [Search]
+      summary: Full-text search across offices, leases, tickets, and landlords
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 100 }
+          description: Search query
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SearchResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  # -------------------------------------------------------------------------
+  # Reusable response bodies & parameters
+  # -------------------------------------------------------------------------
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorDetail' }
+    Unauthorized:
+      description: Missing or invalid authentication
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorDetail' }
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorDetail' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorDetail' }
+    Conflict:
+      description: Conflict (duplicate resource)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorDetail' }
+    RateLimited:
+      description: Rate limit exceeded (200 req/min)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorDetail' }
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, default: 1, minimum: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+    OfficeId:
+      name: office_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    LeaseId:
+      name: lease_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TicketId:
+      name: ticket_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }

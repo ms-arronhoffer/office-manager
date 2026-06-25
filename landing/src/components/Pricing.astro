@@ -1,0 +1,121 @@
+---
+const plans = [
+  {
+    name: 'Starter',
+    price: '$99',
+    annualPrice: '$79',
+    per: '/mo',
+    tagline: 'For teams managing up to 10 offices',
+    cta: 'Start Free Trial',
+    ctaHref: 'SIGNUP_URL',
+    featured: false,
+    features: [
+      'Up to 10 offices',
+      'Unlimited users',
+      'Lease management & alerts',
+      'Maintenance ticket tracking',
+      'Vendor management',
+      'Email notifications',
+      'Basic reporting & CSV export',
+      '90-day audit log',
+    ],
+  },
+  {
+    name: 'Pro',
+    price: '$299',
+    annualPrice: '$239',
+    per: '/mo',
+    tagline: 'For growing portfolios up to 50 offices',
+    cta: 'Start Free Trial',
+    ctaHref: 'SIGNUP_URL',
+    featured: true,
+    features: [
+      'Up to 50 offices',
+      'Unlimited users',
+      'Everything in Starter, plus:',
+      'HVAC & equipment tracking',
+      'Advanced SLA rules & escalations',
+      'Transition project management',
+      'Advanced analytics dashboard',
+      'PDF report export',
+      'Full audit log (unlimited)',
+      'Priority support',
+    ],
+  },
+  {
+    name: 'Enterprise',
+    price: 'Custom',
+    annualPrice: 'Custom',
+    per: '',
+    tagline: 'For large portfolios & complex requirements',
+    cta: 'Contact Sales',
+    ctaHref: null,
+    demoEmail: true,
+    featured: false,
+    features: [
+      'Unlimited offices',
+      'Unlimited users',
+      'Everything in Pro, plus:',
+      'SSO / SAML integration',
+      'API access & webhooks',
+      'Custom fields & workflows',
+      'Dedicated success manager',
+      'Custom data retention policies',
+      'SLA-backed uptime guarantee',
+      'Phone & Slack support',
+    ],
+  },
+];
+---
+<section id="pricing" class="py-24">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center max-w-2xl mx-auto mb-4">
+      <p class="text-sm font-semibold text-blue-600 uppercase tracking-widest mb-3">Pricing</p>
+      <h2 class="text-4xl lg:text-5xl font-extrabold text-slate-900">Simple, transparent pricing</h2>
+      <p class="mt-4 text-lg text-slate-500">No per-seat nonsense. No hidden fees. One price covers your whole team.</p>
+    </div>
+
+    <p class="text-center text-sm text-slate-400 mb-12">All plans include a 14-day free trial. No credit card required.</p>
+
+    <div class="grid lg:grid-cols-3 gap-8 items-start">
+      {plans.map(plan => (
+        <div class={`relative rounded-2xl p-8 border ${plan.featured ? 'bg-slate-900 border-slate-700 shadow-2xl shadow-slate-900/20' : 'bg-white border-slate-200 shadow-sm'}`}>
+          {plan.featured && (
+            <div class="absolute -top-4 left-1/2 -translate-x-1/2">
+              <span class="bg-blue-600 text-white text-xs font-bold px-4 py-1.5 rounded-full shadow">Most Popular</span>
+            </div>
+          )}
+          <div class={`text-sm font-semibold mb-1 ${plan.featured ? 'text-blue-400' : 'text-slate-500'}`}>{plan.name}</div>
+          <div class={`text-sm mb-4 ${plan.featured ? 'text-slate-400' : 'text-slate-400'}`}>{plan.tagline}</div>
+          <div class="mb-6">
+            <span class={`text-4xl font-black ${plan.featured ? 'text-white' : 'text-slate-900'}`}>{plan.price}</span>
+            {plan.per && <span class={`text-sm ${plan.featured ? 'text-slate-400' : 'text-slate-500'}`}>{plan.per}</span>}
+          </div>
+
+          {plan.demoEmail ? (
+            <a href="#" data-demo-email class={`block text-center font-semibold py-3 px-6 rounded-xl transition-colors mb-8 ${plan.featured ? 'bg-white text-slate-900 hover:bg-slate-100' : 'bg-slate-900 text-white hover:bg-slate-700'}`}>
+              {plan.cta}
+            </a>
+          ) : (
+            <a href="#" data-href={plan.ctaHref} class={`block text-center font-semibold py-3 px-6 rounded-xl transition-colors mb-8 ${plan.featured ? 'bg-blue-600 text-white hover:bg-blue-500' : 'bg-slate-900 text-white hover:bg-slate-700'}`}>
+              {plan.cta}
+            </a>
+          )}
+
+          <ul class="space-y-3">
+            {plan.features.map((f, i) => (
+              <li class={`flex items-start gap-3 text-sm ${i === 2 && plan.name !== 'Starter' ? (plan.featured ? 'text-slate-400 font-medium pt-2 border-t border-slate-700' : 'text-slate-400 font-medium pt-2 border-t border-slate-100') : (plan.featured ? 'text-slate-300' : 'text-slate-600')}`}>
+                {!(i === 2 && plan.name !== 'Starter') && (
+                  <svg class={`w-4 h-4 mt-0.5 flex-shrink-0 ${plan.featured ? 'text-blue-400' : 'text-blue-600'}`} fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                  </svg>
+                )}
+                {f}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

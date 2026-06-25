@@ -1,0 +1,22 @@
+---
+---
+<section class="py-16 border-y border-slate-100 bg-slate-50">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <p class="text-center text-sm font-semibold text-slate-400 uppercase tracking-widest mb-10">
+      Trusted by facilities teams managing enterprise portfolios
+    </p>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-8">
+      {[
+        { value: '2,400+', label: 'Offices Managed' },
+        { value: '98%',    label: 'SLA Compliance Rate' },
+        { value: '14 hrs', label: 'Saved Per Team Per Week' },
+        { value: '$4M+',   label: 'Lease Costs Tracked' },
+      ].map(stat => (
+        <div class="text-center">
+          <div class="text-3xl lg:text-4xl font-extrabold text-slate-900">{stat.value}</div>
+          <div class="mt-1 text-sm text-slate-500">{stat.label}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

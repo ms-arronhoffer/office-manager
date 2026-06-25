@@ -1,0 +1,69 @@
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.dependencies import get_current_user, require_role
+from app.database import get_db
+from app.models.office import Manager
+from app.models.user import User
+from app.schemas.office import ManagerCreate, ManagerResponse, ManagerUpdate
+
+router = APIRouter()
+
+
+@router.get("", response_model=list[ManagerResponse])
+async def list_managers(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    result = await db.execute(select(Manager).order_by(Manager.name))
+    return result.scalars().all()
+
+
+@router.post("", response_model=ManagerResponse, status_code=status.HTTP_201_CREATED)
+async def create_manager(
+    payload: ManagerCreate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role("admin", "editor")),
+):
+    manager = Manager(**payload.model_dump())
+    db.add(manager)
+    await db.commit()
+    await db.refresh(manager)
+    return ManagerResponse.model_validate(manager, from_attributes=True)
+
+
+@router.put("/{manager_id}", response_model=ManagerResponse)
+async def update_manager(
+    manager_id: uuid.UUID,
+    payload: ManagerUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role("admin", "editor")),
+):
+    result = await db.execute(select(Manager).where(Manager.id == manager_id))
+    manager = result.scalar_one_or_none()
+    if not manager:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manager not found")
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(manager, field, value)
+
+    await db.commit()
+    await db.refresh(manager)
+    return ManagerResponse.model_validate(manager, from_attributes=True)
+
+
+@router.delete("/{manager_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_manager(
+    manager_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+):
+    result = await db.execute(select(Manager).where(Manager.id == manager_id))
+    manager = result.scalar_one_or_none()
+    if not manager:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manager not found")
+    await db.delete(manager)
+    await db.commit()

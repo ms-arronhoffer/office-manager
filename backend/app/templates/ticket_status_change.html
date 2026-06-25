@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head><style>
+body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+.container { max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.header { background: #1565c0; color: white; padding: 20px; text-align: center; }
+.content { padding: 20px; }
+.info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+.label { font-weight: bold; color: #555; }
+.badge { padding: 2px 10px; border-radius: 12px; font-size: 13px; }
+.footer { background: #f8f9fa; padding: 12px 20px; font-size: 12px; color: #888; text-align: center; }
+</style></head>
+<body>
+<div class="container">
+    <div class="header"><h2>Ticket Status Updated</h2></div>
+    <div class="content">
+        <p>The status of a maintenance ticket has been updated.</p>
+        <div class="info-row"><span class="label">Subject:</span><span>{{ subject }}</span></div>
+        <div class="info-row"><span class="label">Office:</span><span>{{ office_name }}</span></div>
+        <div class="info-row"><span class="label">Previous Status:</span><span>{{ old_status }}</span></div>
+        <div class="info-row"><span class="label">New Status:</span><span><strong>{{ new_status }}</strong></span></div>
+        {% if assigned_to %}
+        <div class="info-row"><span class="label">Assigned To:</span><span>{{ assigned_to }}</span></div>
+        {% endif %}
+        <div class="info-row"><span class="label">Updated By:</span><span>{{ updated_by }}</span></div>
+    </div>
+    <div class="footer">Office Manager Application - Ticket Notification</div>
+</div>
+</body>
+</html>

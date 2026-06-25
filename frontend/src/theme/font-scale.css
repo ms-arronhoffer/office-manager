@@ -1,0 +1,8 @@
+/* Global font-size scaling for the app */
+:root {
+  --app-font-scale: 1;
+}
+
+body {
+  font-size: calc(var(--app-font-scale, 1) * 14px);
+}
