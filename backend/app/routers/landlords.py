@@ -156,6 +156,7 @@ async def create_landlord(
     data = payload.model_dump(exclude={"office_ids"})
     landlord = Landlord(**data, organization_id=current_user.organization_id)
     db.add(landlord)
+    # Flush to assign landlord.id before syncing the office associations.
     await db.flush()
 
     if payload.office_ids:
