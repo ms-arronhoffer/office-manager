@@ -65,7 +65,7 @@ components:
     # --- Enums --------------------------------------------------------------
     Role:
       type: string
-      enum: [viewer, editor, admin, ticketer]
+      enum: [viewer, editor, admin, ticketer, accountant]
 
     Plan:
       type: string
