@@ -35,6 +35,7 @@ from app.models.cam_reconciliation import (
     CamReconciliation, CamReconciliationLine,
 )
 from app.models.lease_lifecycle import LeaseLifecycleEvent
+from app.models.lease_abstract import LeaseAbstractClause
 from app.models.vendor_bill import (
     VendorBill, VendorBillLine, VendorPayment,
 )
@@ -66,5 +67,6 @@ __all__ = [
     "GLAccount", "AccountingPeriod", "JournalEntry", "JournalEntryLine",
     "CamReconciliation", "CamReconciliationLine",
     "LeaseLifecycleEvent",
+    "LeaseAbstractClause",
     "VendorBill", "VendorBillLine", "VendorPayment",
 ]
