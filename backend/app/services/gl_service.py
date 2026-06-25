@@ -53,6 +53,9 @@ DEFAULT_ACCOUNTS: list[tuple[str, str, str]] = [
     ("2000", "Lease Liability", "liability"),
     ("3000", "Retained Earnings", "equity"),
     ("4000", "Rental Income", "revenue"),
+    ("4100", "CAM Recovery Income", "revenue"),
+    ("1200", "CAM Receivable", "asset"),
+    ("2100", "CAM Refund Payable", "liability"),
     ("6000", "Operating Lease Cost", "expense"),
     ("6100", "Interest Expense", "expense"),
     ("6200", "Depreciation Expense", "expense"),
@@ -98,6 +101,44 @@ async def get_account_map(
         )
     ).scalars().all()
     return {a.name: a for a in accounts}
+
+
+async def ensure_accounts(
+    db: AsyncSession,
+    organization_id: uuid.UUID | None,
+    accounts: list[tuple[str, str, str]],
+    *,
+    commit: bool = True,
+) -> None:
+    """Create any of the given ``(code, name, type)`` accounts that are missing.
+
+    Unlike :func:`seed_default_accounts`, this adds individual accounts even when
+    the org already has a chart of accounts, so feature-specific accounts (e.g.
+    CAM recovery) can be guaranteed present before posting.
+    """
+    existing = (
+        await db.execute(
+            select(GLAccount).where(GLAccount.organization_id == organization_id)
+        )
+    ).scalars().all()
+    existing_codes = {a.code for a in existing}
+    existing_names = {a.name for a in existing}
+    created = False
+    for code, name, type_ in accounts:
+        if code in existing_codes or name in existing_names:
+            continue
+        db.add(
+            GLAccount(
+                organization_id=organization_id, code=code, name=name, type=type_
+            )
+        )
+        existing_codes.add(code)
+        existing_names.add(name)
+        created = True
+    if created and commit:
+        await db.commit()
+    elif created:
+        await db.flush()
 
 
 def validate_account_type(type_: str) -> None:
@@ -282,6 +323,37 @@ async def create_journal_entry(
     else:
         await db.flush()
     return entry
+
+
+async def delete_entries_by_source(
+    db: AsyncSession,
+    organization_id: uuid.UUID | None,
+    *,
+    source: str,
+    source_ref: str,
+    commit: bool = True,
+) -> int:
+    """Delete journal entries matching a (source, source_ref) pair.
+
+    Used to make re-posting of generated entries idempotent. Returns the number
+    of entries removed.
+    """
+    existing = (
+        await db.execute(
+            select(JournalEntry).where(
+                JournalEntry.organization_id == organization_id,
+                JournalEntry.source == source,
+                JournalEntry.source_ref == source_ref,
+            )
+        )
+    ).scalars().all()
+    for entry in existing:
+        await db.delete(entry)
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
+    return len(existing)
 
 
 # ---------------------------------------------------------------------------

@@ -31,6 +31,9 @@ from app.models.space_history import SpaceHistory
 from app.models.general_ledger import (
     GLAccount, AccountingPeriod, JournalEntry, JournalEntryLine,
 )
+from app.models.cam_reconciliation import (
+    CamReconciliation, CamReconciliationLine,
+)
 
 __all__ = [
     "Base", "Organization", "User", "Manager", "Office",
@@ -57,4 +60,5 @@ __all__ = [
     "InsuranceCertificate",
     "SpaceHistory",
     "GLAccount", "AccountingPeriod", "JournalEntry", "JournalEntryLine",
+    "CamReconciliation", "CamReconciliationLine",
 ]
