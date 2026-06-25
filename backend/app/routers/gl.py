@@ -6,6 +6,7 @@ roles so finance data is only visible to finance staff.
 
 from __future__ import annotations
 
+import calendar
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -300,7 +301,7 @@ async def list_journal_entries(
     if year is not None and month is not None:
         stmt = stmt.where(
             JournalEntry.entry_date >= date(year, month, 1),
-            JournalEntry.entry_date <= date(year, month, 28),
+            JournalEntry.entry_date <= date(year, month, calendar.monthrange(year, month)[1]),
         )
     result = await db.execute(stmt)
     return [_entry_to_response(e) for e in result.scalars().unique().all()]

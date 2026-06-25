@@ -12,6 +12,7 @@ Encapsulates the double-entry rules so routers stay thin:
 
 from __future__ import annotations
 
+import calendar
 import csv
 import io
 import uuid
@@ -400,7 +401,7 @@ async def trial_balance(
         .options(selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account))
     )
     if year is not None and month is not None:
-        cutoff = date(year, month, 28)
+        cutoff = date(year, month, calendar.monthrange(year, month)[1])
         stmt = stmt.where(JournalEntry.entry_date <= cutoff)
     elif year is not None:
         stmt = stmt.where(JournalEntry.entry_date <= date(year, 12, 31))
@@ -469,7 +470,7 @@ async def export_journal_csv(
     if year is not None and month is not None:
         stmt = stmt.where(
             JournalEntry.entry_date >= date(year, month, 1),
-            JournalEntry.entry_date <= date(year, month, 28),
+            JournalEntry.entry_date <= date(year, month, calendar.monthrange(year, month)[1]),
         )
     elif year is not None:
         stmt = stmt.where(
