@@ -59,6 +59,9 @@ class Office(SoftDeleteMixin, TimestampMixin, Base):
     manager: Mapped["Manager | None"] = relationship(back_populates="offices")
     leases: Mapped[list["Lease"]] = relationship(back_populates="office")
     landlords: Mapped[list["Landlord"]] = relationship(back_populates="office")
+    owner_landlords: Mapped[list["Landlord"]] = relationship(
+        secondary="landlord_offices", back_populates="owned_offices"
+    )
     transitions: Mapped[list["OfficeTransition"]] = relationship(back_populates="office")
     hvac_contracts: Mapped[list["HvacContract"]] = relationship(back_populates="office")
     vendors: Mapped[list["Vendor"]] = relationship(

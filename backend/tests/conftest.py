@@ -44,6 +44,13 @@ async def setup_database():
     async with _test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+        # The full-text search_vector columns are added by Alembic migrations
+        # (not reflected in the ORM models), but several create/update endpoints
+        # write to them. Add them here so those code paths work under create_all.
+        for _table in ("offices", "leases", "landlords", "maintenance_tickets"):
+            await conn.execute(
+                text(f'ALTER TABLE {_table} ADD COLUMN IF NOT EXISTS search_vector tsvector')
+            )
     yield
     async with _test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)

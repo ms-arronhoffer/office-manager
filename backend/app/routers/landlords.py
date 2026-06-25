@@ -5,14 +5,14 @@ import io
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.auth.dependencies import get_current_user, require_role
 from app.database import get_db
 from app.models.base import _utcnow
-from app.models.landlord import Landlord, LandlordAdditionalName, LandlordContact
+from app.models.landlord import Landlord, LandlordAdditionalName, LandlordContact, landlord_offices
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.landlord import (
@@ -28,6 +28,13 @@ from app.utils.search_vectors import update_search_vector
 from app.utils.sorting import apply_sorting
 
 router = APIRouter()
+
+
+async def _sync_offices(db: AsyncSession, landlord_id: uuid.UUID, office_ids: list[uuid.UUID]) -> None:
+    """Replace the set of offices owned by a landlord."""
+    await db.execute(delete(landlord_offices).where(landlord_offices.c.landlord_id == landlord_id))
+    for oid in office_ids:
+        await db.execute(landlord_offices.insert().values(landlord_id=landlord_id, office_id=oid))
 
 
 @router.get("/export")
@@ -60,13 +67,31 @@ async def list_landlords(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=1000),
     search: str | None = Query(default=None),
+    office_id: uuid.UUID | None = Query(default=None),
     sort_by: str | None = Query(default=None),
     sort_order: str = Query(default="asc", pattern="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    base = select(Landlord).options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts)).where(Landlord.is_deleted.is_(False))
+    base = select(Landlord).options(
+        joinedload(Landlord.additional_names),
+        joinedload(Landlord.contacts),
+        joinedload(Landlord.owned_offices),
+    ).where(Landlord.is_deleted.is_(False))
     base = base.where(Landlord.organization_id == current_user.organization_id)
+
+    if office_id is not None:
+        # Match landlords linked to the office either via the legacy single
+        # office_id column or via the many-to-many owned-offices association.
+        owned_subq = select(landlord_offices.c.landlord_id).where(
+            landlord_offices.c.office_id == office_id
+        )
+        base = base.where(
+            or_(
+                Landlord.office_id == office_id,
+                Landlord.id.in_(owned_subq),
+            )
+        )
 
     if search:
         term = f"%{search}%"
@@ -113,7 +138,7 @@ async def get_landlord(
 ):
     result = await db.execute(
         select(Landlord)
-        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts))
+        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices))
         .where(Landlord.id == landlord_id, Landlord.is_deleted.is_(False), Landlord.organization_id == current_user.organization_id)
     )
     landlord = result.unique().scalar_one_or_none()
@@ -128,8 +153,14 @@ async def create_landlord(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
-    landlord = Landlord(**payload.model_dump(), organization_id=current_user.organization_id)
+    data = payload.model_dump(exclude={"office_ids"})
+    landlord = Landlord(**data, organization_id=current_user.organization_id)
     db.add(landlord)
+    await db.flush()
+
+    if payload.office_ids:
+        await _sync_offices(db, landlord.id, payload.office_ids)
+
     await db.commit()
     await db.refresh(landlord)
     await log_activity(db, user=current_user, action="created", entity_type="landlord", entity_id=landlord.id, entity_label=landlord.landlord_company or landlord.contact_name or "Landlord")
@@ -140,7 +171,7 @@ async def create_landlord(
 
     result = await db.execute(
         select(Landlord)
-        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts))
+        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices))
         .where(Landlord.id == landlord.id)
     )
     return LandlordResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
@@ -158,10 +189,13 @@ async def update_landlord(
     if not landlord:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Landlord not found")
 
-    update_data = payload.model_dump(exclude_unset=True)
+    update_data = payload.model_dump(exclude_unset=True, exclude={"office_ids"})
     old_values = {k: getattr(landlord, k) for k in update_data}
     for field, value in update_data.items():
         setattr(landlord, field, value)
+
+    if payload.office_ids is not None:
+        await _sync_offices(db, landlord_id, payload.office_ids)
 
     await db.commit()
     changes = compute_changes(old_values, update_data)
@@ -173,7 +207,7 @@ async def update_landlord(
 
     result = await db.execute(
         select(Landlord)
-        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts))
+        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices))
         .where(Landlord.id == landlord_id, Landlord.is_deleted.is_(False))
     )
     return LandlordResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
@@ -213,7 +247,7 @@ async def restore_landlord(
     await log_activity(db, user=current_user, action="updated", entity_type="landlord", entity_id=landlord_id, entity_label=label)
     result = await db.execute(
         select(Landlord)
-        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts))
+        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices))
         .where(Landlord.id == landlord_id, Landlord.is_deleted.is_(False))
     )
     return LandlordResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
