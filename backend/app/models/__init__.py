@@ -6,6 +6,8 @@ from app.models.lease import Lease, LeaseNote
 from app.models.lease_renewal import LeaseRenewal
 from app.models.lease_option import LeaseOption
 from app.models.landlord import Landlord, LandlordAdditionalName, LandlordContact
+from app.models.management_company import ManagementCompany
+from app.models.entity_contact import EntityContact
 from app.models.transition import OfficeTransition, TransitionChecklistItem
 from app.models.hq_hvac import (
     HqHeatPump, HqHeatPumpServiceLog, HqHvacIssue,
@@ -44,6 +46,8 @@ __all__ = [
     "Base", "Organization", "User", "Manager", "Office",
     "Lease", "LeaseNote", "LeaseRenewal", "LeaseOption",
     "Landlord", "LandlordAdditionalName", "LandlordContact",
+    "ManagementCompany",
+    "EntityContact",
     "OfficeTransition", "TransitionChecklistItem",
     "HqHeatPump", "HqHeatPumpServiceLog", "HqHvacIssue",
     "HqPmTask", "HqPmLog", "HqMaintenanceContract", "HqMaintenanceVisit",

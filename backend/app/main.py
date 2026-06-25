@@ -59,7 +59,7 @@ from app.routers import (  # noqa: E402
     ticket_templates, recurring_ticket_rules, notifications, organizations, billing, api_keys,
     webhooks, operating_expenses, vendor_portal, insurance_certificates, ws, work_order_costs,
     space, gl, cam, lifecycle, ap,
-    lease_abstract,
+    lease_abstract, management_companies, contacts,
 )
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit  # noqa: E402
 
@@ -69,6 +69,8 @@ app.include_router(offices.router, prefix="/api/v1/offices", tags=["Offices"])
 app.include_router(leases.router, prefix="/api/v1/leases", tags=["Leases"])
 app.include_router(lease_abstract.router, prefix="/api/v1/leases", tags=["Lease Abstract"])
 app.include_router(landlords.router, prefix="/api/v1/landlords", tags=["Landlords"])
+app.include_router(management_companies.router, prefix="/api/v1/management-companies", tags=["Management Companies"])
+app.include_router(contacts.router, prefix="/api/v1/contacts", tags=["Contacts"])
 app.include_router(transitions.router, prefix="/api/v1/transitions", tags=["Transitions"])
 app.include_router(hq_hvac.router, prefix="/api/v1/hq-hvac", tags=["HQ HVAC"])
 app.include_router(hvac_contracts.router, prefix="/api/v1/hvac-contracts", tags=["HVAC Contracts"])

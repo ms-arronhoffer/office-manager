@@ -77,6 +77,7 @@ async def list_landlords(
         joinedload(Landlord.additional_names),
         joinedload(Landlord.contacts),
         joinedload(Landlord.owned_offices),
+        joinedload(Landlord.management_company_ref),
     ).where(Landlord.is_deleted.is_(False))
     base = base.where(Landlord.organization_id == current_user.organization_id)
 
@@ -138,7 +139,7 @@ async def get_landlord(
 ):
     result = await db.execute(
         select(Landlord)
-        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices))
+        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices), joinedload(Landlord.management_company_ref))
         .where(Landlord.id == landlord_id, Landlord.is_deleted.is_(False), Landlord.organization_id == current_user.organization_id)
     )
     landlord = result.unique().scalar_one_or_none()
@@ -172,7 +173,7 @@ async def create_landlord(
 
     result = await db.execute(
         select(Landlord)
-        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices))
+        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices), joinedload(Landlord.management_company_ref))
         .where(Landlord.id == landlord.id)
     )
     return LandlordResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
@@ -208,7 +209,7 @@ async def update_landlord(
 
     result = await db.execute(
         select(Landlord)
-        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices))
+        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices), joinedload(Landlord.management_company_ref))
         .where(Landlord.id == landlord_id, Landlord.is_deleted.is_(False))
     )
     return LandlordResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
@@ -248,7 +249,7 @@ async def restore_landlord(
     await log_activity(db, user=current_user, action="updated", entity_type="landlord", entity_id=landlord_id, entity_label=label)
     result = await db.execute(
         select(Landlord)
-        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices))
+        .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices), joinedload(Landlord.management_company_ref))
         .where(Landlord.id == landlord_id, Landlord.is_deleted.is_(False))
     )
     return LandlordResponse.model_validate(result.unique().scalar_one(), from_attributes=True)

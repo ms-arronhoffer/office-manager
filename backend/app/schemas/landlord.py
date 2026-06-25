@@ -2,6 +2,8 @@ import uuid
 from datetime import datetime
 from pydantic import BaseModel
 
+from app.schemas.management_company import ManagementCompanyRef
+
 
 class LandlordAdditionalNameResponse(BaseModel):
     id: uuid.UUID
@@ -90,6 +92,7 @@ class LandlordCreate(BaseModel):
     entity_type: str | None = None
     tax_id: str | None = None
     management_company: str | None = None
+    management_company_id: uuid.UUID | None = None
     preferred_payment_method: str | None = None
     payment_terms: str | None = None
     vendor_id: str | None = None
@@ -130,6 +133,8 @@ class LandlordResponse(BaseModel):
     entity_type: str | None = None
     tax_id: str | None = None
     management_company: str | None = None
+    management_company_id: uuid.UUID | None = None
+    management_company_ref: ManagementCompanyRef | None = None
     preferred_payment_method: str | None = None
     payment_terms: str | None = None
     vendor_id: str | None
