@@ -1,4 +1,4 @@
-name: Build Image and Notify Portainer
+name: CI/CD Deploy to Portainer
 
 on:
   push:
@@ -6,24 +6,27 @@ on:
       - main
 
 jobs:
-  build-and-redeploy:
-    # Forces the job to execute exclusively on your local self-hosted runner
-    runs-on: self-hosted 
+  build-and-deploy:
+    runs-on: self-hosted  # Runs on your local ubuntu-server-2 runner
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Build Docker Image Locally
-        run: |
-          # Build the new image layer locally. 
-          # Build the updated images locally
-          docker compose build
-          
-          # Spin up or update the existing containers seamlessly
-          docker compose up -d --remove-orphans
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Post Webhook to Portainer
+      # 1. Build the updated image layers into the local Docker daemon
+      - name: Build Local Docker Images
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          tags: office-manager:latest # Match the image tag used in your compose file
+          push: false                 # Keep it local on the daemon
+          load: true                  # Loads it directly into the local host cache
+
+      # 2. Notify Portainer to safely redeploy the stack using its UI-defined env vars
+      - name: Trigger Portainer Webhook
         run: |
-          # Ping Portainer to notify it that a fresh image layer is ready
           curl -X POST "${{ secrets.PORTAINER_WEBHOOK_URL }}"
