@@ -128,6 +128,22 @@ async def viewer_user(db_session: AsyncSession) -> User:
     return user
 
 
+@pytest_asyncio.fixture
+async def accountant_user(db_session: AsyncSession) -> User:
+    user = User(
+        email="accountant@test.com",
+        display_name="Test Accountant",
+        password_hash=hash_password("acct123"),
+        auth_provider="internal",
+        role="accountant",
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
 def auth_headers(user: User) -> dict[str, str]:
     """Generate Authorization header for a user."""
     token = create_access_token({"sub": str(user.id), "role": user.role})
