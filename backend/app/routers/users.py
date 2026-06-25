@@ -12,6 +12,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.user import RegisterRequest, UserResponse, UserUpdateRequest
+from app.services import entitlements as ent
 
 router = APIRouter()
 
@@ -55,10 +56,11 @@ async def create_user(
 ):
     org_id = current_user.organization_id
 
-    # Enforce seat limit if the org has one configured
+    # Enforce seat limit if the org has one configured (effective = override → legacy → plan)
     org_result = await db.execute(select(Organization).where(Organization.id == org_id))
     org = org_result.scalar_one_or_none()
-    if org and org.max_seats is not None:
+    seat_limit = ent.get_limit(org, "max_seats") if org else None
+    if seat_limit is not None:
         seat_count = (
             await db.execute(
                 select(func.count()).select_from(User).where(
@@ -67,10 +69,10 @@ async def create_user(
                 )
             )
         ).scalar_one()
-        if seat_count >= org.max_seats:
+        if seat_count >= seat_limit:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=f"Seat limit reached ({org.max_seats} seats on {org.plan} plan). "
+                detail=f"Seat limit reached ({seat_limit} seats on {org.plan} plan). "
                        "Upgrade your plan to add more users.",
             )
 

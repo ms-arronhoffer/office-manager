@@ -96,3 +96,65 @@ def require_super_admin():
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super-admin access required")
         return user
     return checker
+
+
+async def enforce_org_access(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Block access when the user's organization is suspended or unpaid.
+
+    Super-admins and users without an organization bypass this check. Orgs that
+    are inactive, canceled, or past-due beyond the grace period get a 403 with
+    an explanatory message. Past-due orgs still within grace are allowed through.
+    """
+    from app.services import entitlements as ent  # local import avoids cycle
+
+    if user.is_super_admin or user.organization_id is None:
+        return user
+
+    result = await db.execute(select(Organization).where(Organization.id == user.organization_id))
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    state = ent.org_access_state(org)
+    if ent.is_access_blocked(state):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ent.access_denied_message(state),
+        )
+    return user
+
+
+def require_feature(feature: str):
+    """Require the current user's organization to be entitled to ``feature``.
+
+    Super-admins bypass the check. Org-less users are rejected. Orgs lacking the
+    feature receive a 402 (payment required) with an upgrade message.
+    """
+    async def checker(
+        user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        from app.services import entitlements as ent  # local import avoids cycle
+
+        if user.is_super_admin:
+            return user
+        if user.organization_id is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User has no organization")
+
+        result = await db.execute(select(Organization).where(Organization.id == user.organization_id))
+        org = result.scalar_one_or_none()
+        if not org:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+        if not ent.has_feature(org, feature):
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"The '{feature}' feature is not included in your {org.plan} plan. "
+                       "Upgrade your plan to enable it.",
+            )
+        return user
+
+    return checker

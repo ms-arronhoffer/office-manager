@@ -1,6 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Any
 from sqlalchemy import String, Boolean, Integer, DateTime, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 
@@ -19,4 +21,12 @@ class Organization(TimestampMixin, Base):
     max_seats: Mapped[int | None] = mapped_column(Integer, nullable=True)
     onboarding_complete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     payment_status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+    # Timestamp when the org most recently entered the 'past_due' state. Used to
+    # enforce a grace period (see app.services.entitlements.PAST_DUE_GRACE_DAYS).
+    past_due_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     admin_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Per-org entitlement overrides; keys are validated against the entitlements
+    # catalog (app.services.entitlements). Override values win over plan defaults.
+    entitlement_overrides: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, nullable=False, server_default="{}"
+    )

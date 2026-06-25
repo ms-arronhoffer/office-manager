@@ -2,7 +2,7 @@ import csv
 import io
 import math
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -12,11 +12,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user, require_role
 from app.database import get_db
 from app.models.activity_log import ActivityLog
+from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.activity_log import ActivityLogResponse
 from app.schemas.common import PaginatedResponse
+from app.services import entitlements as ent
 
 router = APIRouter()
+
+
+async def _retention_cutoff(db: AsyncSession, current_user: User) -> datetime | None:
+    """Earliest visible audit timestamp for the user's org, per plan retention.
+
+    Returns ``None`` when retention is unlimited (or no org / super-admin).
+    """
+    if current_user.organization_id is None:
+        return None
+    org = (
+        await db.execute(select(Organization).where(Organization.id == current_user.organization_id))
+    ).scalar_one_or_none()
+    if org is None:
+        return None
+    days = ent.get_limit(org, "audit_retention_days")
+    if days is None:
+        return None
+    return datetime.now(timezone.utc) - timedelta(days=days)
 
 
 def _apply_report_filters(
@@ -66,7 +86,11 @@ async def get_recent_activity(
         .order_by(ActivityLog.created_at.desc())
         .limit(limit)
     )
-    return [ActivityLogResponse.model_validate(r, from_attributes=True) for r in result.scalars().all()]
+    rows = result.scalars().all()
+    cutoff = await _retention_cutoff(db, current_user)
+    if cutoff is not None:
+        rows = [r for r in rows if r.created_at and r.created_at >= cutoff]
+    return [ActivityLogResponse.model_validate(r, from_attributes=True) for r in rows]
 
 
 @router.get("", response_model=list[ActivityLogResponse])
@@ -84,6 +108,9 @@ async def list_activity(
         stmt = stmt.where(ActivityLog.entity_type == entity_type)
     if entity_id:
         stmt = stmt.where(ActivityLog.entity_id == entity_id)
+    cutoff = await _retention_cutoff(db, current_user)
+    if cutoff is not None:
+        stmt = stmt.where(ActivityLog.created_at >= cutoff)
     stmt = stmt.order_by(ActivityLog.created_at.desc()).limit(limit)
 
     result = await db.execute(stmt)
@@ -120,6 +147,10 @@ async def report_activity(
         date_to=date_to,
         search=search,
     )
+
+    cutoff = await _retention_cutoff(db, current_user)
+    if cutoff is not None:
+        base = base.where(ActivityLog.created_at >= cutoff)
 
     count_stmt = select(func.count()).select_from(base.with_only_columns(ActivityLog.id).subquery())
     total = (await db.execute(count_stmt)).scalar_one()
@@ -163,6 +194,9 @@ async def export_activity_report(
         date_to=date_to,
         search=search,
     )
+    cutoff = await _retention_cutoff(db, current_user)
+    if cutoff is not None:
+        base = base.where(ActivityLog.created_at >= cutoff)
     stmt = base.order_by(ActivityLog.created_at.desc()).limit(50_000)
     result = await db.execute(stmt)
     rows = result.scalars().all()

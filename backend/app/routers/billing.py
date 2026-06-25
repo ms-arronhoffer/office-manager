@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -13,6 +15,21 @@ from app.models.organization import Organization
 from app.models.user import User
 
 router = APIRouter()
+
+
+def _mark_active(org: Organization) -> None:
+    """Transition an org to active and clear past-due grace tracking."""
+    org.payment_status = "active"
+    org.is_active = True
+    org.past_due_since = None
+
+
+def _mark_past_due(org: Organization) -> None:
+    """Transition an org to past_due, stamping the grace-period start once."""
+    org.payment_status = "past_due"
+    org.is_active = True
+    if org.past_due_since is None:
+        org.past_due_since = datetime.now(timezone.utc)
 
 # Stripe subscription statuses that mean the org is fully active
 _ACTIVE_STATUSES = {"active", "trialing"}
@@ -182,6 +199,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                     org.plan = _plan_from_price(price_id)
                 org.payment_status = "active"
                 org.is_active = True
+                org.past_due_since = None
                 await db.commit()
 
     elif event_type == "customer.subscription.updated":
@@ -197,16 +215,15 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 org.plan = _plan_from_price(price_id)
                 sub_status = obj.get("status", "active")
                 if sub_status in _ACTIVE_STATUSES:
-                    org.payment_status = "active"
-                    org.is_active = True
+                    _mark_active(org)
                 elif sub_status in _PAST_DUE_STATUSES:
-                    # Past due: keep org active but flag for dunning banner
-                    org.payment_status = "past_due"
-                    org.is_active = True
+                    # Past due: keep org active but start the grace-period clock
+                    _mark_past_due(org)
                 elif sub_status in _TERMINAL_STATUSES:
                     # Canceled or unpaid after all retries: deactivate org
                     org.payment_status = "canceled"
                     org.is_active = False
+                    org.past_due_since = None
                 await db.commit()
 
     elif event_type == "customer.subscription.deleted":
@@ -222,6 +239,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 org.stripe_subscription_id = None
                 org.payment_status = "canceled"
                 org.is_active = False
+                org.past_due_since = None
                 await db.commit()
 
     elif event_type == "invoice.payment_failed":
@@ -233,7 +251,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             )
             org = result.scalar_one_or_none()
             if org and org.payment_status == "active":
-                org.payment_status = "past_due"
+                _mark_past_due(org)
                 await db.commit()
 
     elif event_type == "invoice.payment_succeeded":
@@ -245,8 +263,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             )
             org = result.scalar_one_or_none()
             if org and org.payment_status in ("past_due",):
-                org.payment_status = "active"
-                org.is_active = True
+                _mark_active(org)
                 await db.commit()
 
     return {"received": True}

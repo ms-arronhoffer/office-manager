@@ -16,9 +16,11 @@ from app.auth.dependencies import require_super_admin
 from app.config import settings
 from app.database import get_db
 from app.models.maintenance_ticket import MaintenanceTicket
+from app.models.office import Office
 from app.models.organization import Organization
 from app.models.user import User
 from app.services.activity_service import log_activity
+from app.services import entitlements as ent
 
 router = APIRouter()
 
@@ -47,6 +49,10 @@ class OrgDetail(OrgListItem):
     onboarding_complete: bool
     open_ticket_count: int
     admin_notes: str | None
+    office_count: int
+    entitlement_overrides: dict
+    plan_defaults: dict
+    effective_entitlements: dict
 
 
 class OrgPatch(BaseModel):
@@ -57,6 +63,7 @@ class OrgPatch(BaseModel):
     trial_ends_at: datetime | None = None
     onboarding_complete: bool | None = None
     admin_notes: str | None = None
+    entitlement_overrides: dict | None = None
 
 
 class ImpersonateResponse(BaseModel):
@@ -107,14 +114,49 @@ async def _org_stats(
     for r in ticket_rows.all():
         tickets[r[0]] = {"total": r[1], "open": r[2]}
 
+    office_rows = await db.execute(
+        select(Office.organization_id, func.count(Office.id).label("cnt"))
+        .where(Office.organization_id.in_(org_ids), Office.is_deleted.is_(False))
+        .group_by(Office.organization_id)
+    )
+    offices = {r[0]: r[1] for r in office_rows.all()}
+
     result: dict[uuid.UUID, dict] = {}
     for oid in org_ids:
         result[oid] = {
             "seat_count": seats.get(oid, 0),
             "ticket_count": tickets.get(oid, {}).get("total", 0),
             "open_ticket_count": tickets.get(oid, {}).get("open", 0),
+            "office_count": offices.get(oid, 0),
         }
     return result
+
+
+def _build_detail(org: Organization, stats: dict) -> "OrgDetail":
+    """Assemble an OrgDetail including resolved entitlements."""
+    s = stats.get(org.id, {})
+    return OrgDetail(
+        id=org.id,
+        name=org.name,
+        slug=org.slug,
+        plan=org.plan,
+        is_active=org.is_active,
+        payment_status=org.payment_status,
+        max_seats=org.max_seats,
+        seat_count=s.get("seat_count", 0),
+        ticket_count=s.get("ticket_count", 0),
+        open_ticket_count=s.get("open_ticket_count", 0),
+        office_count=s.get("office_count", 0),
+        stripe_customer_id=org.stripe_customer_id,
+        stripe_subscription_id=org.stripe_subscription_id,
+        trial_ends_at=org.trial_ends_at,
+        onboarding_complete=org.onboarding_complete,
+        admin_notes=org.admin_notes,
+        created_at=org.created_at,
+        entitlement_overrides=ent.normalize_overrides(org.entitlement_overrides),
+        plan_defaults=ent.plan_entitlements(org.plan),
+        effective_entitlements=ent.effective_entitlements(org),
+    )
 
 
 def _risk_label(org: Organization, stats: dict) -> str:
@@ -246,26 +288,7 @@ async def get_org(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
 
     stats = await _org_stats(db, [org_id])
-    s = stats.get(org_id, {})
-
-    return OrgDetail(
-        id=org.id,
-        name=org.name,
-        slug=org.slug,
-        plan=org.plan,
-        is_active=org.is_active,
-        payment_status=org.payment_status,
-        max_seats=org.max_seats,
-        seat_count=s.get("seat_count", 0),
-        ticket_count=s.get("ticket_count", 0),
-        open_ticket_count=s.get("open_ticket_count", 0),
-        stripe_customer_id=org.stripe_customer_id,
-        stripe_subscription_id=org.stripe_subscription_id,
-        trial_ends_at=org.trial_ends_at,
-        onboarding_complete=org.onboarding_complete,
-        admin_notes=org.admin_notes,
-        created_at=org.created_at,
-    )
+    return _build_detail(org, stats)
 
 
 @router.patch("/{org_id}", response_model=OrgDetail)
@@ -279,7 +302,17 @@ async def patch_org(
     if not org:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    if "plan" in data and data["plan"] not in ent.PLAN_CATALOG:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown plan '{data['plan']}'. Valid plans: {', '.join(ent.PLAN_CATALOG)}",
+        )
+    if "entitlement_overrides" in data:
+        # Drop unknown/invalid keys so only catalog-recognised overrides persist.
+        data["entitlement_overrides"] = ent.normalize_overrides(data["entitlement_overrides"])
+
+    for field, value in data.items():
         setattr(org, field, value)
 
     await db.commit()
@@ -290,30 +323,25 @@ async def patch_org(
         entity_type="organization",
         entity_id=org_id,
         entity_label=org.name,
-        changes=payload.model_dump(exclude_unset=True),
+        changes=data,
     )
 
     stats = await _org_stats(db, [org_id])
-    s = stats.get(org_id, {})
+    return _build_detail(org, stats)
 
-    return OrgDetail(
-        id=org.id,
-        name=org.name,
-        slug=org.slug,
-        plan=org.plan,
-        is_active=org.is_active,
-        payment_status=org.payment_status,
-        max_seats=org.max_seats,
-        seat_count=s.get("seat_count", 0),
-        ticket_count=s.get("ticket_count", 0),
-        open_ticket_count=s.get("open_ticket_count", 0),
-        stripe_customer_id=org.stripe_customer_id,
-        stripe_subscription_id=org.stripe_subscription_id,
-        trial_ends_at=org.trial_ends_at,
-        onboarding_complete=org.onboarding_complete,
-        admin_notes=org.admin_notes,
-        created_at=org.created_at,
-    )
+
+@router.get("/{org_id}/catalog")
+async def get_catalog(
+    org_id: uuid.UUID,
+    _: User = Depends(require_super_admin()),
+):
+    """Return the entitlements catalog metadata used to render override controls."""
+    return {
+        "plans": list(ent.PLAN_CATALOG.keys()),
+        "limit_keys": list(ent.LIMIT_KEYS),
+        "feature_keys": list(ent.FEATURE_KEYS),
+        "catalog": ent.PLAN_CATALOG,
+    }
 
 
 @router.post("/{org_id}/impersonate", response_model=ImpersonateResponse)
