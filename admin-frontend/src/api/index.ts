@@ -94,6 +94,11 @@ export async function getOrg(orgId: string): Promise<AdminOrgDetail> {
   return res.data;
 }
 
+export async function getOrgCatalog(orgId: string): Promise<import("../types").EntitlementsCatalog> {
+  const res = await api.get<import("../types").EntitlementsCatalog>(`/admin/v1/orgs/${orgId}/catalog`);
+  return res.data;
+}
+
 export async function patchOrg(orgId: string, patch: OrgPatch): Promise<AdminOrgDetail> {
   const res = await api.patch<AdminOrgDetail>(`/admin/v1/orgs/${orgId}`, patch);
   return res.data;
