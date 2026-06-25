@@ -34,6 +34,10 @@ from app.models.general_ledger import (
 from app.models.cam_reconciliation import (
     CamReconciliation, CamReconciliationLine,
 )
+from app.models.lease_lifecycle import LeaseLifecycleEvent
+from app.models.vendor_bill import (
+    VendorBill, VendorBillLine, VendorPayment,
+)
 
 __all__ = [
     "Base", "Organization", "User", "Manager", "Office",
@@ -61,4 +65,6 @@ __all__ = [
     "SpaceHistory",
     "GLAccount", "AccountingPeriod", "JournalEntry", "JournalEntryLine",
     "CamReconciliation", "CamReconciliationLine",
+    "LeaseLifecycleEvent",
+    "VendorBill", "VendorBillLine", "VendorPayment",
 ]
