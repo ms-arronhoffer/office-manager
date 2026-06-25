@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-and-deploy:
-    runs-on: self-hosted  # Runs on your local ubuntu-server-2 runner
+    runs-on: self-hosted
 
     steps:
       - name: Checkout Code
@@ -16,17 +16,46 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 1. Build the updated image layers into the local Docker daemon
-      - name: Build Local Docker Images
+      # 1. Build backend
+      - name: Build Backend Image
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: ./Dockerfile
-          tags: office-manager:latest # Match the image tag used in your compose file
-          push: false                 # Keep it local on the daemon
-          load: true                  # Loads it directly into the local host cache
+          context: ./backend
+          tags: office-manager-backend:latest
+          push: false
+          load: true
 
-      # 2. Notify Portainer to safely redeploy the stack using its UI-defined env vars
+      # 2. Build frontend (passing environment variables as build-args if required)
+      - name: Build Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          tags: office-manager-frontend:latest
+          push: false
+          load: true
+          build-args: |
+            VITE_API_BASE_URL=/api/v1
+            VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+
+      # 3. Build Admin Frontend
+      - name: Build Admin Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin-frontend
+          tags: office-manager-admin-frontend:latest
+          push: false
+          load: true
+
+      # 4. Build Landing
+      - name: Build Landing Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./landing
+          tags: office-manager-landing:latest
+          push: false
+          load: true
+
+      # 5. Notify Portainer to pull together the stack with its UI-defined env vars
       - name: Trigger Portainer Webhook
         run: |
           curl -X POST "${{ secrets.PORTAINER_WEBHOOK_URL }}"
