@@ -100,6 +100,12 @@ import type {
   SpaceUtilizationRow,
   SpaceSnapshot,
   SpaceSnapshotCreate,
+  GLAccount,
+  GLAccountCreate,
+  AccountingPeriod,
+  JournalEntry,
+  JournalEntryCreate,
+  TrialBalanceRow,
 } from '@/types';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -913,4 +919,38 @@ export const insuranceCertificates = {
 
   delete: (id: string) =>
     client.delete(`/insurance-certificates/${id}`),
+};
+
+// ─── General Ledger ──────────────────────────────────────────────────────────
+export const gl = {
+  listAccounts: () => client.get<GLAccount[]>('/gl/accounts'),
+
+  createAccount: (data: GLAccountCreate) =>
+    client.post<GLAccount>('/gl/accounts', data),
+
+  updateAccount: (id: string, data: Partial<GLAccountCreate> & { is_active?: boolean }) =>
+    client.patch<GLAccount>(`/gl/accounts/${id}`, data),
+
+  listPeriods: () => client.get<AccountingPeriod[]>('/gl/periods'),
+
+  closePeriod: (year: number, month: number) =>
+    client.post<AccountingPeriod>(`/gl/periods/${year}/${month}/close`),
+
+  reopenPeriod: (year: number, month: number) =>
+    client.post<AccountingPeriod>(`/gl/periods/${year}/${month}/reopen`),
+
+  listEntries: (params?: { source?: string; year?: number; month?: number }) =>
+    client.get<JournalEntry[]>('/gl/journal-entries', { params }),
+
+  createEntry: (data: JournalEntryCreate) =>
+    client.post<JournalEntry>('/gl/journal-entries', data),
+
+  postLease: (leaseId: string) =>
+    client.post<JournalEntry[]>(`/gl/journal-entries/post-lease/${leaseId}`),
+
+  trialBalance: (params?: { year?: number; month?: number }) =>
+    client.get<TrialBalanceRow[]>('/gl/trial-balance', { params }),
+
+  exportCsv: (params?: { year?: number; month?: number }) =>
+    client.get('/gl/export', { params, responseType: 'blob' }),
 };

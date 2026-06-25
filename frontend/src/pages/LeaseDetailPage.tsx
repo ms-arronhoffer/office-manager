@@ -28,6 +28,8 @@ import ActivityTimeline from '@/components/common/ActivityTimeline';
 import ConfirmDeleteModal from '@/components/common/ConfirmDeleteModal';
 import type { Lease, LeaseNote, LeaseAccountingResponse, LeaseRenewal, LeaseOption } from '@/types';
 
+const ACCOUNTING_EXPANDED_KEY = 'leaseDetail.accountingExpanded';
+
 const ValuePair: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <div>
     <Box variant="awsui-key-label">{label}</Box>
@@ -73,7 +75,13 @@ const LeaseDetailPage: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
 
   // Lease accounting
-  const [accountingExpanded, setAccountingExpanded] = useState(false);
+  const [accountingExpanded, setAccountingExpanded] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(ACCOUNTING_EXPANDED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [accounting, setAccounting] = useState<LeaseAccountingResponse | null>(null);
   const [accountingLoading, setAccountingLoading] = useState(false);
   const [accountingError, setAccountingError] = useState<string | null>(null);
@@ -248,8 +256,8 @@ const LeaseDetailPage: React.FC = () => {
     }
   };
 
-  const handleAccountingExpand = async (expanded: boolean) => {    setAccountingExpanded(expanded);
-    if (expanded && !accounting && !accountingLoading && id) {
+  const loadAccounting = useCallback(async () => {
+    if (!accounting && !accountingLoading && id) {
       setAccountingLoading(true);
       setAccountingError(null);
       try {
@@ -260,6 +268,18 @@ const LeaseDetailPage: React.FC = () => {
       } finally {
         setAccountingLoading(false);
       }
+    }
+  }, [accounting, accountingLoading, id]);
+
+  const handleAccountingExpand = (expanded: boolean) => {
+    setAccountingExpanded(expanded);
+    try {
+      localStorage.setItem(ACCOUNTING_EXPANDED_KEY, String(expanded));
+    } catch {
+      // ignore storage errors (e.g., private mode)
+    }
+    if (expanded) {
+      loadAccounting();
     }
   };
 
@@ -279,6 +299,13 @@ const LeaseDetailPage: React.FC = () => {
   useEffect(() => {
     fetchLease();
   }, [fetchLease]);
+
+  // Auto-load accounting data when the section was restored in the expanded state.
+  useEffect(() => {
+    if (accountingExpanded && lease?.accounting_standard && id) {
+      loadAccounting();
+    }
+  }, [accountingExpanded, lease?.accounting_standard, id, loadAccounting]);
 
   const handleRenew = async () => {
     if (!id) return;

@@ -660,7 +660,7 @@ docker compose exec db psql -U office_admin -d office_manager
 ## Application Features
 
 ### Core Office Management
-- **Dashboard** — summary stats, lease expiration chart, upcoming HVAC services, active transitions, real-time push updates via WebSocket
+- **Dashboard** — summary stats, financial KPI widgets (annual rent, ROU asset, lease liability, CAM over budget), lease expiration chart, upcoming HVAC services, active transitions, real-time push updates via WebSocket
 - **Offices** — full CRUD with property filtering by region, type, sector, state; occupancy and capacity tracking
 - **Leases** — tracking with notice period alerts, color-coded urgency indicators, ASC 842 / IFRS 16 schedule generation
 - **Landlords** — contact management with vendor ID tracking
@@ -682,9 +682,18 @@ docker compose exec db psql -U office_admin -d office_manager
 - **Real-Time Updates** — WebSocket connection pushes ticket changes, notifications, and dashboard metrics live
 
 ### Reporting & Analytics
-- **Reports** — generate PDF and CSV exports for any dataset with custom column selection and scheduled delivery
+- **Finance hub** — a dedicated **Finance** navigation section consolidating the **Financial Dashboard**, Rent Roll, Operating Expenses, Reports & Lease Accounting, and Billing
+- **Financial Dashboard** — executive overview composing rent-roll obligations, ASC 842 / IFRS 16 ROU asset & lease liability, weighted-average IBR/term, CAM over-budget, and lease-expiration risk, with drill-through links
+- **Reports** — generate PDF and CSV exports for any dataset with custom column selection and scheduled delivery; one-click **Quick Export** for rent roll and portfolio maturity
 - **Analytics** — portfolio health, cost-per-square-foot trending, lease expiration heatmap, maintenance spend
 - **Audit Log** — every mutation tracked with user, timestamp, and before/after state
+
+### Accounting & General Ledger
+- **General Ledger** — audit-grade double-entry GL with an org-scoped chart of accounts, balanced journal entries, and a trial balance; lease ASC 842 / IFRS 16 schedules post directly into the ledger
+- **Period Close** — fiscal-month accounting periods that can be closed to lock reported financials; postings into a closed period are rejected
+- **Journal Export** — QuickBooks-compatible general-journal CSV export for hand-off to external accounting packages
+- **CAM Reconciliation** — US-commercial operating-expense recovery reconciliation per lease-year: gross-up to an occupancy standard, tenant pro-rata share, base-year/expense-stop offsets, and controllable-expense caps (cumulative, compounded, or non-cumulative). Statements seed from recorded operating expenses, can be finalized to an immutable record, and post the resulting true-up (tenant owes) or credit (tenant is owed) to the GL
+- **Finance access** — General Ledger and CAM endpoints are restricted to the **admin** and **accountant** roles
 
 ### Developer & Integration
 - **API Keys** — `om_`-prefixed tokens with bcrypt-hashed storage, scope system (`read:*`, `write:tickets`, etc.), and management UI
@@ -693,7 +702,7 @@ docker compose exec db psql -U office_admin -d office_manager
 
 ### Security & Access
 - **TOTP Two-Factor Authentication** — RFC 6238 TOTP (Google Authenticator, Authy, 1Password); mandatory for super-admins, optional for org users; 8 single-use backup codes per enrollment; see [docs/MFA_SETUP.md](docs/MFA_SETUP.md)
-- **Role-Based Access Control** — viewer / editor / admin / super-admin with org-scoped enforcement
+- **Role-Based Access Control** — viewer / editor / accountant / admin / super-admin with org-scoped enforcement
 - **Multi-Tenancy** — complete data isolation between organizations; `organization_id` scoped on all entities
 - **Rate Limiting** — 200 req/min global; per-user brute-force lockout on login (5 attempts)
 
@@ -712,7 +721,10 @@ docker compose exec db psql -U office_admin -d office_manager
 |-------------|------|-------------|--------|--------------|----------------|
 | Viewer      | Yes  | No          | No     | No           | No             |
 | Editor      | Yes  | Yes         | No     | No           | No             |
+| Accountant  | Yes  | Yes         | No     | No           | No             |
 | Admin       | Yes  | Yes         | Yes    | Yes          | No             |
 | Super Admin | Yes  | Yes         | Yes    | Yes          | Yes            |
+
+The **accountant** role additionally unlocks the finance-only **General Ledger** and **CAM Reconciliation** endpoints, which are otherwise restricted to admins.
 
 Super-admin accounts require TOTP two-factor authentication — enrollment is enforced on first login. See [docs/MFA_SETUP.md](docs/MFA_SETUP.md).

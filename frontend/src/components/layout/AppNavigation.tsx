@@ -43,6 +43,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
 
   const isAdmin = user?.role === 'admin';
   const isEditorOrAdmin = user?.role === 'admin' || user?.role === 'editor';
+  const isFinance = user?.role === 'admin' || user?.role === 'accountant';
   const pinnedOffices = getPinnedOffices();
 
   const navItems = useMemo(() => [
@@ -68,9 +69,20 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       items: [
         { type: 'link' as const, text: 'Offices', href: '/offices' },
         { type: 'link' as const, text: 'Leases', href: '/leases' },
-        { type: 'link' as const, text: 'Rent Roll', href: '/leases/rent-roll' },
         { type: 'link' as const, text: 'Landlords', href: '/landlords' },
         { type: 'link' as const, text: 'Space Management', href: '/space' },
+      ],
+    },
+    {
+      type: 'section' as const,
+      text: 'Finance',
+      items: [
+        { type: 'link' as const, text: 'Financial Dashboard', href: '/financial-dashboard' },
+        { type: 'link' as const, text: 'Rent Roll', href: '/rent-roll' },
+        { type: 'link' as const, text: 'Operating Expenses', href: '/operating-expenses' },
+        ...(isFinance ? [{ type: 'link' as const, text: 'General Ledger', href: '/general-ledger' }] : []),
+        { type: 'link' as const, text: 'Reports & Lease Accounting', href: '/reports' },
+        ...(isAdmin ? [{ type: 'link' as const, text: 'Billing', href: '/billing' }] : []),
       ],
     },
     {
@@ -87,11 +99,9 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
     },
     {
       type: 'section' as const,
-      text: 'Finance & Reporting',
+      text: 'Analytics & Compliance',
       items: [
-        { type: 'link' as const, text: 'Reports', href: '/reports' },
         { type: 'link' as const, text: 'Analytics', href: '/analytics' },
-        { type: 'link' as const, text: 'Operating Expenses', href: '/operating-expenses' },
         { type: 'link' as const, text: 'Insurance Certificates', href: '/insurance-certificates' },
       ],
     },
@@ -110,7 +120,6 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
         ...(isAdmin ? [{ type: 'link' as const, text: 'Audit Log', href: '/activity-log' }] : []),
         ...(isAdmin ? [{ type: 'link' as const, text: 'Data Dictionary', href: '/data-dictionary' }] : []),
         ...(isAdmin ? [{ type: 'link' as const, text: 'Site Settings', href: '/admin/site-settings' }] : []),
-        ...(isAdmin ? [{ type: 'link' as const, text: 'Billing', href: '/billing' }] : []),
         ...(isAdmin ? [{ type: 'link' as const, text: 'API Keys', href: '/api-keys' }] : []),
         ...(isAdmin ? [{ type: 'link' as const, text: 'Webhooks', href: '/webhooks' }] : []),
         ...(isAdmin ? [{ type: 'link' as const, text: 'Trash', href: '/trash' }] : []),
@@ -126,7 +135,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       text: 'Settings',
       href: '/settings',
     },
-  ], [isAdmin, isEditorOrAdmin, pinnedOffices]);
+  ], [isAdmin, isEditorOrAdmin, isFinance, pinnedOffices]);
 
   return (
     <>

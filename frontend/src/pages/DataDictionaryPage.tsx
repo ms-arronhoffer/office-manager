@@ -513,7 +513,7 @@ const entities: Record<string, EntityDef[]> = {
         { name: 'password_hash', type: 'String(255)', required: false, description: 'Hashed password (internal auth)' },
         { name: 'auth_provider', type: 'String(20)', required: true, description: 'Auth provider: internal, google (default: internal)' },
         { name: 'google_sub', type: 'String(255)', required: false, description: 'Google OAuth subject ID (unique)' },
-        { name: 'role', type: 'String(20)', required: true, description: 'Role: admin, editor, viewer, ticketer (default: viewer)' },
+        { name: 'role', type: 'String(20)', required: true, description: 'Role: admin, editor, viewer, ticketer, accountant (default: viewer)' },
         { name: 'is_active', type: 'Boolean', required: true, description: 'Whether the user account is active (default: true)' },
         { name: 'last_login_at', type: 'DateTime', required: false, description: 'Last login timestamp' },
         { name: 'preferences', type: 'JSONB', required: false, description: 'User preferences (key-value)' },

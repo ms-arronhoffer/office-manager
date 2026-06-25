@@ -17,8 +17,8 @@ import Modal from '@cloudscape-design/components/modal';
 import TokenGroup from '@cloudscape-design/components/token-group';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import StatusIndicator from '@cloudscape-design/components/status-indicator';
-import { reports } from '@/api';
-import type { ReportTemplate, FilterConfig, LeasePortfolioResponse } from '@/types';
+import { reports, leases as leasesApi } from '@/api';
+import type { ReportTemplate, FilterConfig, LeasePortfolioResponse, RentRollRow } from '@/types';
 
 type Format = 'pdf' | 'csv' | 'xlsx';
 
@@ -83,6 +83,7 @@ const ReportsPage: React.FC = () => {
   const [selectedAmortizationLease, setSelectedAmortizationLease] = useState<SelectOption | null>(null);
   const [exportingAmortization, setExportingAmortization] = useState(false);
   const [exportingMaturity, setExportingMaturity] = useState(false);
+  const [exportingRentRoll, setExportingRentRoll] = useState(false);
   const [accountingExportError, setAccountingExportError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -364,6 +365,43 @@ const ReportsPage: React.FC = () => {
     }
   };
 
+  const handleExportRentRoll = async () => {
+    setExportingRentRoll(true);
+    setAccountingExportError(null);
+    try {
+      const res = await leasesApi.rentRoll();
+      const { rows, total_monthly, total_annual } = res.data;
+      const headers = ['Lease Name', 'Office', 'Lessor', 'Monthly Rent', 'Annual Rent', 'Escalation %', 'Expiration', 'Days Remaining', 'Classification', 'Currency', 'Manager'];
+      const csvRows = rows.map((r: RentRollRow) => [
+        r.lease_name,
+        r.office_name ?? '',
+        r.lessor_name ?? '',
+        r.monthly_rent,
+        r.annual_rent,
+        r.annual_escalation_rate != null ? `${(r.annual_escalation_rate * 100).toFixed(2)}%` : '',
+        r.lease_expiration ?? '',
+        r.days_to_expiration ?? '',
+        r.lease_classification ?? '',
+        r.currency,
+        r.manager_name ?? '',
+      ]);
+      csvRows.push(['TOTALS', '', '', total_monthly, total_annual, '', '', '', '', '', '']);
+      const content = [headers, ...csvRows]
+        .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+      const url = URL.createObjectURL(new Blob([content], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rent_roll_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setAccountingExportError('Failed to export rent roll.');
+    } finally {
+      setExportingRentRoll(false);
+    }
+  };
+
   const setFilter = (key: string, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
   };
@@ -441,6 +479,34 @@ const ReportsPage: React.FC = () => {
             {templateError || error}
           </Alert>
         )}
+
+        {/* Quick Export */}
+        <Container
+          header={
+            <Header variant="h2" description="One-click downloads of the most common financial exports.">
+              Quick Export
+            </Header>
+          }
+        >
+          <SpaceBetween direction="horizontal" size="s">
+            <Button iconName="download" loading={exportingRentRoll} onClick={handleExportRentRoll}>
+              Rent Roll (CSV)
+            </Button>
+            <Button
+              iconName="download"
+              loading={exportingMaturity}
+              disabled={portfolioLoading || (portfolio?.leases.length ?? 0) === 0}
+              onClick={handleExportMaturity}
+            >
+              Portfolio Maturity (CSV)
+            </Button>
+          </SpaceBetween>
+          {accountingExportError && (
+            <Box padding={{ top: 's' }}>
+              <Alert type="error">{accountingExportError}</Alert>
+            </Box>
+          )}
+        </Container>
 
         {/* Configuration */}
         <Container header={<Header variant="h2">Report Configuration</Header>}>

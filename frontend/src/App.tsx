@@ -1,5 +1,5 @@
 import React, { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Spinner from '@cloudscape-design/components/spinner';
 import Box from '@cloudscape-design/components/box';
 import { AuthProvider } from '@/auth/AuthContext';
@@ -67,6 +67,8 @@ const OperatingExpensesPage = lazy(() => import('@/pages/OperatingExpensesPage')
 const VendorPortalPage = lazy(() => import('@/pages/VendorPortalPage'));
 const InsuranceCertificatesPage = lazy(() => import('@/pages/InsuranceCertificatesPage'));
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
+const FinancialDashboardPage = lazy(() => import('@/pages/FinancialDashboardPage'));
+const GeneralLedgerPage = lazy(() => import('@/pages/GeneralLedgerPage'));
 
 const PageLoader = () => (
   <Box textAlign="center" padding={{ top: 'xxxl' }}>
@@ -119,7 +121,9 @@ const App: React.FC = () => {
                         <Route path="offices/:id/edit" element={<OfficeFormPage />} />
                         <Route path="leases" element={<LeasesPage />} />
                         <Route path="leases/calendar" element={<LeaseCalendarPage />} />
-                        <Route path="leases/rent-roll" element={<RentRollPage />} />
+                        <Route path="rent-roll" element={<RentRollPage />} />
+                        <Route path="leases/rent-roll" element={<Navigate to="/rent-roll" replace />} />
+                        <Route path="financial-dashboard" element={<FinancialDashboardPage />} />
                         <Route path="leases/new" element={<LeaseFormPage />} />
                         <Route path="leases/:id" element={<LeaseDetailPage />} />
                         <Route path="leases/:id/edit" element={<LeaseFormPage />} />
@@ -164,6 +168,7 @@ const App: React.FC = () => {
                         <Route path="sla-dashboard" element={<SlaDashboardPage />} />
                         <Route path="recurring-ticket-rules" element={<RoleGuard allowedRoles={['admin', 'editor']}><RecurringTicketsPage /></RoleGuard>} />
                         <Route path="operating-expenses" element={<RoleGuard allowedRoles={['admin', 'editor']}><OperatingExpensesPage /></RoleGuard>} />
+                        <Route path="general-ledger" element={<RoleGuard allowedRoles={['admin', 'accountant']}><GeneralLedgerPage /></RoleGuard>} />
                         <Route path="insurance-certificates" element={<RoleGuard allowedRoles={['admin', 'editor']}><InsuranceCertificatesPage /></RoleGuard>} />
                         <Route path="space" element={<SpacePage />} />
                         <Route path="*" element={<NotFoundPage />} />

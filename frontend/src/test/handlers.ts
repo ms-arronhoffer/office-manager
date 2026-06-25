@@ -143,6 +143,79 @@ export const handlers = [
     return HttpResponse.json([]);
   }),
 
+  // Rent roll
+  http.get(`${API}/leases/rent-roll`, () => {
+    return HttpResponse.json({
+      rows: [
+        {
+          lease_id: '40000000-0000-0000-0000-000000000001',
+          lease_name: 'Downtown HQ',
+          office_id: '10000000-0000-0000-0000-000000000001',
+          office_name: 'Main Office',
+          lessor_name: 'Acme Holdings',
+          lease_expiration: '2027-06-30',
+          days_to_expiration: 400,
+          payment_amount: 10000,
+          payment_frequency: 'monthly',
+          monthly_rent: 10000,
+          annual_rent: 120000,
+          annual_escalation_rate: 0.03,
+          lease_classification: 'operating',
+          currency: 'USD',
+          manager_name: 'Jane Doe',
+        },
+      ],
+      total_monthly: 10000,
+      total_annual: 120000,
+      count: 1,
+    });
+  }),
+
+  // Lease accounting portfolio
+  http.get(`${API}/reports/lease-accounting-portfolio`, () => {
+    return HttpResponse.json({
+      leases: [
+        {
+          lease_id: '40000000-0000-0000-0000-000000000001',
+          lease_name: 'Downtown HQ',
+          office_name: 'Main Office',
+          accounting_standard: 'ASC842',
+          lease_classification: 'operating',
+          initial_rou_asset: 500000,
+          initial_lease_liability: 500000,
+          remaining_rou: 450000,
+          remaining_liability: 460000,
+          ibr_annual: 0.05,
+          remaining_months: 54,
+          currency: 'USD',
+        },
+      ],
+      total_rou: 450000,
+      total_current_liability: 100000,
+      total_noncurrent_liability: 360000,
+      weighted_avg_ibr: 0.05,
+      weighted_avg_remaining_months: 54,
+    });
+  }),
+
+  // Operating expense variance
+  http.get(`${API}/operating-expenses/variance`, () => {
+    return HttpResponse.json([
+      { year: 2025, category: 'CAM', budgeted: 50000, actual: 55000, variance: 5000 },
+      { year: 2025, category: 'Taxes', budgeted: 30000, actual: 28000, variance: -2000 },
+    ]);
+  }),
+
+  // Lease risk buckets
+  http.get(`${API}/dashboard/lease-risk`, () => {
+    return HttpResponse.json([
+      { bucket: 'expired', count: 0 },
+      { bucket: 'critical', count: 1 },
+      { bucket: 'warning', count: 2 },
+      { bucket: 'healthy', count: 5 },
+    ]);
+  }),
+
   // Users
   http.get(`${API}/users`, () => {
     return HttpResponse.json({ items: [], total: 0, page: 1, page_size: 50, total_pages: 0 });
