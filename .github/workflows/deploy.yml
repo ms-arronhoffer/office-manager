@@ -17,8 +17,11 @@ jobs:
       - name: Build Docker Image Locally
         run: |
           # Build the new image layer locally. 
-          # Ensure the image tag matches exactly what Portainer is configured to look for.
-          docker build -t office-manager:latest .
+          # Build the updated images locally
+          docker compose build
+          
+          # Spin up or update the existing containers seamlessly
+          docker compose up -d --remove-orphans
 
       - name: Post Webhook to Portainer
         run: |
