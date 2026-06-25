@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Tabs from '@cloudscape-design/components/tabs';
 
@@ -31,20 +31,23 @@ const TabbedPage: React.FC<TabbedPageProps> = ({ tabs, ariaLabel }) => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  if (tabs.length === 0) {
-    return null;
-  }
-
   // Pick the tab whose href most specifically matches the current pathname.
   // Longer hrefs win so e.g. `/finance/rent-roll` beats `/finance`.
-  const active =
-    [...tabs]
-      .sort((a, b) => b.href.length - a.href.length)
-      .find(
-        (t) =>
-          location.pathname === t.href ||
-          location.pathname.startsWith(`${t.href}/`),
-      ) ?? tabs[0];
+  const active = useMemo(
+    () =>
+      [...tabs]
+        .sort((a, b) => b.href.length - a.href.length)
+        .find(
+          (t) =>
+            location.pathname === t.href ||
+            location.pathname.startsWith(`${t.href}/`),
+        ) ?? tabs[0],
+    [tabs, location.pathname],
+  );
+
+  if (tabs.length === 0 || !active) {
+    return null;
+  }
 
   return (
     <Tabs

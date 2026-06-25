@@ -109,15 +109,17 @@ const AdministrationPage: React.FC = () => {
   const { user } = useAuth();
   const role = user?.role;
 
-  const tabs: TabbedPageTab[] = GROUPS.map((group) => {
-    const visible = group.links.filter((l) => role && (l.roles as string[]).includes(role));
-    return {
+  const tabs: TabbedPageTab[] = GROUPS.map((group) => ({
+    group,
+    visible: group.links.filter((l) => role && (l.roles as string[]).includes(role)),
+  }))
+    .filter(({ visible }) => visible.length > 0)
+    .map(({ group, visible }) => ({
       id: group.id,
       label: group.label,
       href: group.href,
       content: <AdminLinkCards links={visible} />,
-    };
-  }).filter((tab) => (tab.content as React.ReactElement).props.links.length > 0);
+    }));
 
   return <TabbedPage ariaLabel="Administration" tabs={tabs} />;
 };
