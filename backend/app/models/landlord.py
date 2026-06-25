@@ -1,9 +1,20 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Text, ForeignKey, Index
+from sqlalchemy import String, Text, Boolean, ForeignKey, Index, Table, Column
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 from app.models.mixins import SoftDeleteMixin
+
+
+# Association table for the many-to-many relationship between a landlord and the
+# offices they own. A landlord may own one or many offices, and an office may be
+# owned by one or many landlords.
+landlord_offices = Table(
+    "landlord_offices",
+    Base.metadata,
+    Column("landlord_id", ForeignKey("landlords.id", ondelete="CASCADE"), primary_key=True),
+    Column("office_id", ForeignKey("offices.id", ondelete="CASCADE"), primary_key=True),
+)
 
 
 class Landlord(SoftDeleteMixin, TimestampMixin, Base):
@@ -38,11 +49,26 @@ class Landlord(SoftDeleteMixin, TimestampMixin, Base):
     title: Mapped[str | None] = mapped_column(String(100), nullable=True)
     contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contact_phone: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Additional contact channels.
+    secondary_phone: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fax: Mapped[str | None] = mapped_column(Text, nullable=True)
+    website: Mapped[str | None] = mapped_column(String(255), nullable=True)
     online_sign_in: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Business / legal entity details.
+    entity_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    tax_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    management_company: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Billing / payment details.
+    preferred_payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    payment_terms: Mapped[str | None] = mapped_column(String(100), nullable=True)
     vendor_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     office: Mapped["Office | None"] = relationship(back_populates="landlords")
+    # Offices owned by this landlord (one or many).
+    owned_offices: Mapped[list["Office"]] = relationship(
+        secondary=landlord_offices, back_populates="owner_landlords"
+    )
     additional_names: Mapped[list["LandlordAdditionalName"]] = relationship(
         back_populates="landlord", cascade="all, delete-orphan"
     )
@@ -77,6 +103,8 @@ class LandlordContact(TimestampMixin, Base):
     )
     contact_name: Mapped[str] = mapped_column(String(255), nullable=False)
     title: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    contact_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -110,12 +110,19 @@ function useDeleteConfirm() {
 
 // ─── Heat Pumps tab ───────────────────────────────────────────────────────────
 
+const STATUS_OPTIONS: SelectOption[] = [
+  { label: 'Active', value: 'active' },
+  { label: 'Needs Repair', value: 'needs_repair' },
+  { label: 'Needs Replacement', value: 'needs_replacement' },
+  { label: 'Retired', value: 'retired' },
+];
+
 const HeatPumpsTab: React.FC<{
   state: TabState<HeatPump>;
   onRefresh: () => void;
   officeOptions: SelectOption[];
 }> = ({ state, onRefresh, officeOptions }) => {
-  const modal = useCrudModal({ unit_id: '', location_desc: '', make: '', model: '', serial_number: '', install_year: '', notes: '' });
+  const modal = useCrudModal({ unit_id: '', location_desc: '', make: '', model: '', serial_number: '', install_year: '', refrigerant_type: '', tonnage: '', seer_rating: '', filter_size: '', warranty_expiration: '', last_service_date: '', next_service_date: '', status: 'active', notes: '' });
   const del = useDeleteConfirm();
   const [tabError, setTabError] = useState<string | null>(null);
 
@@ -130,6 +137,14 @@ const HeatPumpsTab: React.FC<{
         model: modal.form.model || undefined,
         serial_number: modal.form.serial_number || undefined,
         install_year: modal.form.install_year ? Number(modal.form.install_year) : undefined,
+        refrigerant_type: modal.form.refrigerant_type || undefined,
+        tonnage: modal.form.tonnage ? Number(modal.form.tonnage) : undefined,
+        seer_rating: modal.form.seer_rating ? Number(modal.form.seer_rating) : undefined,
+        filter_size: modal.form.filter_size || undefined,
+        warranty_expiration: modal.form.warranty_expiration || undefined,
+        last_service_date: modal.form.last_service_date || undefined,
+        next_service_date: modal.form.next_service_date || undefined,
+        status: modal.form.status || undefined,
         notes: modal.form.notes || undefined,
       };
       if (modal.editingId) {
@@ -185,12 +200,16 @@ const HeatPumpsTab: React.FC<{
           { id: 'model', header: 'Model', cell: (r) => r.model ?? '—', width: 130 },
           { id: 'serial', header: 'Serial #', cell: (r) => r.serial_number ?? '—', width: 140 },
           { id: 'year', header: 'Install Year', cell: (r) => r.install_year ?? '—', width: 110 },
+          { id: 'tonnage', header: 'Tonnage', cell: (r) => r.tonnage ?? '—', width: 100 },
+          { id: 'refrigerant', header: 'Refrigerant', cell: (r) => r.refrigerant_type ?? '—', width: 120 },
+          { id: 'next_service', header: 'Next Service', cell: (r) => formatDate(r.next_service_date), width: 120 },
+          { id: 'status', header: 'Status', cell: (r) => r.status ?? '—', width: 110 },
           {
             id: 'actions', header: '', width: 120,
             cell: (r: HeatPump) => (
               <SpaceBetween direction="horizontal" size="xs">
                 <Button variant="inline-icon" iconName="edit" ariaLabel="Edit"
-                  onClick={() => modal.openEdit(r.id, { unit_id: r.unit_id, location_desc: r.location_desc ?? '', make: r.make ?? '', model: r.model ?? '', serial_number: r.serial_number ?? '', install_year: r.install_year?.toString() ?? '', notes: r.notes ?? '' })} />
+                  onClick={() => modal.openEdit(r.id, { unit_id: r.unit_id, location_desc: r.location_desc ?? '', make: r.make ?? '', model: r.model ?? '', serial_number: r.serial_number ?? '', install_year: r.install_year?.toString() ?? '', refrigerant_type: r.refrigerant_type ?? '', tonnage: r.tonnage?.toString() ?? '', seer_rating: r.seer_rating?.toString() ?? '', filter_size: r.filter_size ?? '', warranty_expiration: r.warranty_expiration ?? '', last_service_date: r.last_service_date ?? '', next_service_date: r.next_service_date ?? '', status: r.status ?? 'active', notes: r.notes ?? '' })} />
                 <Button variant="inline-icon" iconName="remove" ariaLabel="Delete" onClick={() => del.open(r.id)} />
               </SpaceBetween>
             ),
@@ -239,6 +258,20 @@ const HeatPumpsTab: React.FC<{
           <FormField label="Model"><Input value={modal.form.model} onChange={({ detail }) => modal.updateField('model', detail.value)} /></FormField>
           <FormField label="Serial Number"><Input value={modal.form.serial_number} onChange={({ detail }) => modal.updateField('serial_number', detail.value)} /></FormField>
           <FormField label="Install Year"><Input value={modal.form.install_year} onChange={({ detail }) => modal.updateField('install_year', detail.value)} type="number" /></FormField>
+          <FormField label="Refrigerant Type"><Input value={modal.form.refrigerant_type} onChange={({ detail }) => modal.updateField('refrigerant_type', detail.value)} placeholder="e.g., R-410A, R-22" /></FormField>
+          <FormField label="Tonnage" description="Cooling capacity in tons"><Input value={modal.form.tonnage} onChange={({ detail }) => modal.updateField('tonnage', detail.value)} type="number" /></FormField>
+          <FormField label="SEER Rating" description="Seasonal energy efficiency ratio"><Input value={modal.form.seer_rating} onChange={({ detail }) => modal.updateField('seer_rating', detail.value)} type="number" /></FormField>
+          <FormField label="Filter Size"><Input value={modal.form.filter_size} onChange={({ detail }) => modal.updateField('filter_size', detail.value)} placeholder="e.g., 20x25x1" /></FormField>
+          <FormField label="Warranty Expiration"><Input value={modal.form.warranty_expiration} onChange={({ detail }) => modal.updateField('warranty_expiration', detail.value)} type="date" /></FormField>
+          <FormField label="Last Service Date"><Input value={modal.form.last_service_date} onChange={({ detail }) => modal.updateField('last_service_date', detail.value)} type="date" /></FormField>
+          <FormField label="Next Service Date"><Input value={modal.form.next_service_date} onChange={({ detail }) => modal.updateField('next_service_date', detail.value)} type="date" /></FormField>
+          <FormField label="Status">
+            <Select
+              selectedOption={STATUS_OPTIONS.find((o) => o.value === modal.form.status) ?? null}
+              onChange={({ detail }) => modal.updateField('status', detail.selectedOption?.value ?? 'active')}
+              options={STATUS_OPTIONS}
+            />
+          </FormField>
           <FormField label="Notes"><Textarea value={modal.form.notes} onChange={({ detail }) => modal.updateField('notes', detail.value)} rows={2} /></FormField>
         </SpaceBetween>
       </Modal>

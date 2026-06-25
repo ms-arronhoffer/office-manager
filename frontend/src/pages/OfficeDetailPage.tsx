@@ -19,13 +19,13 @@ import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
 import Link from '@cloudscape-design/components/link';
-import { offices as officesApi, leases as leasesApi, hvacContracts as hvacContractsApi, maintenanceTickets as ticketsApi, transitions as transitionsApi, space as spaceApi } from '@/api';
+import { offices as officesApi, leases as leasesApi, landlords as landlordsApi, hvacContracts as hvacContractsApi, maintenanceTickets as ticketsApi, transitions as transitionsApi, space as spaceApi } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
 import { useFlashbar } from '@/context/FlashbarContext';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import { formatAddress } from '@/components/common/AddressFields';
 import ActivityTimeline from '@/components/common/ActivityTimeline';
-import type { Office, Lease, HvacContract, MaintenanceTicket, Transition, SpaceSnapshot } from '@/types';
+import type { Office, Lease, Landlord, LandlordContact, HvacContract, MaintenanceTicket, Transition, SpaceSnapshot } from '@/types';
 
 const ValuePair: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <div>
@@ -42,6 +42,8 @@ const OfficeDetailPage: React.FC = () => {
 
   const [office, setOffice] = useState<Office | null>(null);
   const [leases, setLeases] = useState<Lease[]>([]);
+  const [officeLandlords, setOfficeLandlords] = useState<Landlord[]>([]);
+  const [landlordsLoading, setLandlordsLoading] = useState(false);
   const [hvacContracts, setHvacContracts] = useState<HvacContract[]>([]);
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
   const [officeTransitions, setOfficeTransitions] = useState<Transition[]>([]);
@@ -82,6 +84,19 @@ const OfficeDetailPage: React.FC = () => {
       // non-critical — tab will show empty state
     } finally {
       setLeasesLoading(false);
+    }
+  }, [id]);
+
+  const fetchLandlords = useCallback(async () => {
+    if (!id) return;
+    setLandlordsLoading(true);
+    try {
+      const res = await landlordsApi.list({ office_id: id, page_size: 1000 });
+      setOfficeLandlords(res.data.items);
+    } catch {
+      // non-critical — tab will fall back to lease-derived landlord
+    } finally {
+      setLandlordsLoading(false);
     }
   }, [id]);
 
@@ -175,11 +190,12 @@ const OfficeDetailPage: React.FC = () => {
   useEffect(() => {
     fetchOffice();
     fetchLeases();
+    fetchLandlords();
     fetchHvacContracts();
     fetchTickets();
     fetchTransitions();
     fetchSpaceHistory();
-  }, [fetchOffice, fetchLeases, fetchHvacContracts, fetchTickets, fetchTransitions, fetchSpaceHistory]);
+  }, [fetchOffice, fetchLeases, fetchLandlords, fetchHvacContracts, fetchTickets, fetchTransitions, fetchSpaceHistory]);
 
   const handleDelete = async () => {
     if (!id || !office) return;
@@ -430,10 +446,128 @@ const OfficeDetailPage: React.FC = () => {
               },
               {
                 id: 'landlord',
-                label: `Landlord`,
+                label: `Landlord${officeLandlords.length ? ` (${officeLandlords.length})` : ''}`,
                 content: (
                   <Box padding={{ top: 'm' }}>
-                    {primaryLandlord ? (
+                    {officeLandlords.length > 0 ? (
+                      <SpaceBetween size="l">
+                        {officeLandlords.map((ll) => (
+                          <Container
+                            key={ll.id}
+                            header={
+                              <Header
+                                variant="h3"
+                                actions={
+                                  <Button onClick={() => navigate(`/landlords/${ll.id}`)}>
+                                    View full record
+                                  </Button>
+                                }
+                              >
+                                {ll.landlord_company || ll.contact_name || 'Landlord'}
+                              </Header>
+                            }
+                          >
+                            <SpaceBetween size="m">
+                              <ColumnLayout columns={3} variant="text-grid">
+                                <ValuePair label="Contact Name" value={ll.contact_name} />
+                                <ValuePair label="Company" value={ll.landlord_company} />
+                                <ValuePair label="Management Company" value={ll.management_company} />
+                                <ValuePair label="Entity Type" value={ll.entity_type} />
+                                <ValuePair label="Email" value={ll.contact_email} />
+                                <ValuePair label="Phone" value={ll.contact_phone} />
+                                <ValuePair label="Secondary Phone" value={ll.secondary_phone} />
+                                <ValuePair label="Fax" value={ll.fax} />
+                                <ValuePair
+                                  label="Website"
+                                  value={
+                                    ll.website ? (
+                                      <Link external href={ll.website}>
+                                        {ll.website}
+                                      </Link>
+                                    ) : undefined
+                                  }
+                                />
+                                <ValuePair
+                                  label="Preferred Payment"
+                                  value={ll.preferred_payment_method}
+                                />
+                                <ValuePair label="Payment Terms" value={ll.payment_terms} />
+                                <ValuePair
+                                  label="Property Address"
+                                  value={
+                                    <span style={{ whiteSpace: 'pre-line' }}>
+                                      {formatAddress(
+                                        {
+                                          address_line_1: ll.address_line_1,
+                                          address_line_2: ll.address_line_2,
+                                          city: ll.city,
+                                          state: ll.state,
+                                          zip_code: ll.zip_code,
+                                        },
+                                        ll.address,
+                                      ) || '—'}
+                                    </span>
+                                  }
+                                />
+                                <ValuePair
+                                  label="Mailing Address"
+                                  value={
+                                    <span style={{ whiteSpace: 'pre-line' }}>
+                                      {formatAddress(
+                                        {
+                                          address_line_1: ll.mailing_address_line_1,
+                                          address_line_2: ll.mailing_address_line_2,
+                                          city: ll.mailing_city,
+                                          state: ll.mailing_state,
+                                          zip_code: ll.mailing_zip_code,
+                                        },
+                                        ll.contact_mailing_address,
+                                      ) || '—'}
+                                    </span>
+                                  }
+                                />
+                              </ColumnLayout>
+                              {(ll.contacts ?? []).length > 0 && (
+                                <Table<LandlordContact>
+                                  variant="embedded"
+                                  header={
+                                    <Header variant="h3" counter={`(${(ll.contacts ?? []).length})`}>
+                                      Additional Contacts
+                                    </Header>
+                                  }
+                                  columnDefinitions={[
+                                    { id: 'name', header: 'Name', cell: (c) => c.contact_name },
+                                    {
+                                      id: 'type',
+                                      header: 'Type',
+                                      cell: (c) =>
+                                        c.contact_type
+                                          ? c.contact_type
+                                              .replace(/_/g, ' ')
+                                              .replace(/\b\w/g, (ch) => ch.toUpperCase())
+                                          : '—',
+                                    },
+                                    {
+                                      id: 'primary',
+                                      header: 'Primary',
+                                      cell: (c) =>
+                                        c.is_primary ? (
+                                          <StatusIndicator type="success">Primary</StatusIndicator>
+                                        ) : (
+                                          '—'
+                                        ),
+                                    },
+                                    { id: 'email', header: 'Email', cell: (c) => c.email || '—' },
+                                    { id: 'phone', header: 'Phone', cell: (c) => c.phone || '—' },
+                                  ]}
+                                  items={ll.contacts ?? []}
+                                />
+                              )}
+                            </SpaceBetween>
+                          </Container>
+                        ))}
+                      </SpaceBetween>
+                    ) : primaryLandlord ? (
                       <Container>
                         <SpaceBetween size="m">
                           <ColumnLayout columns={2} variant="text-grid">
@@ -481,6 +615,10 @@ const OfficeDetailPage: React.FC = () => {
                           </Link>
                         </SpaceBetween>
                       </Container>
+                    ) : landlordsLoading ? (
+                      <Box textAlign="center" color="text-body-secondary" padding="l">
+                        Loading landlord information…
+                      </Box>
                     ) : (
                       <Box textAlign="center" color="text-body-secondary" padding="l">
                         No landlord information available for this office.{' '}

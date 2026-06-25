@@ -16,6 +16,14 @@ class HqHeatPump(TimestampMixin, Base):
     model: Mapped[str | None] = mapped_column(String(150), nullable=True)
     serial_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     install_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    refrigerant_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    tonnage: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    seer_rating: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    filter_size: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    warranty_expiration: Mapped[date | None] = mapped_column(Date, nullable=True)
+    last_service_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    next_service_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="active", nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     service_logs: Mapped[list["HqHeatPumpServiceLog"]] = relationship(

@@ -7,22 +7,53 @@ import Container from '@cloudscape-design/components/container';
 import Form from '@cloudscape-design/components/form';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
+import Select from '@cloudscape-design/components/select';
+import Multiselect from '@cloudscape-design/components/multiselect';
 import Textarea from '@cloudscape-design/components/textarea';
 import Button from '@cloudscape-design/components/button';
 import Box from '@cloudscape-design/components/box';
 import Spinner from '@cloudscape-design/components/spinner';
 import Alert from '@cloudscape-design/components/alert';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
-import { landlords as landlordsApi, attachments as attachmentsApi } from '@/api';
+import { landlords as landlordsApi, offices as officesApi, attachments as attachmentsApi } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
 import AddressFields, { type StructuredAddress } from '@/components/common/AddressFields';
-import type { LandlordCreate } from '@/types';
+import type { LandlordCreate, Office } from '@/types';
+
+interface SelectOption {
+  label: string;
+  value: string;
+}
+
+const ENTITY_TYPE_OPTIONS: SelectOption[] = [
+  { label: 'Individual', value: 'Individual' },
+  { label: 'Sole Proprietorship', value: 'Sole Proprietorship' },
+  { label: 'LLC', value: 'LLC' },
+  { label: 'Corporation', value: 'Corporation' },
+  { label: 'Partnership', value: 'Partnership' },
+  { label: 'Trust', value: 'Trust' },
+  { label: 'Other', value: 'Other' },
+];
+
+const PAYMENT_METHOD_OPTIONS: SelectOption[] = [
+  { label: 'Check', value: 'Check' },
+  { label: 'ACH', value: 'ACH' },
+  { label: 'Wire', value: 'Wire' },
+  { label: 'Credit Card', value: 'Credit Card' },
+  { label: 'Online Portal', value: 'Online Portal' },
+];
 
 interface FormValues {
   contact_name: string;
   landlord_company: string;
   contact_email: string;
   contact_phone: string;
+  secondary_phone: string;
+  fax: string;
+  website: string;
+  management_company: string;
+  tax_id: string;
+  payment_terms: string;
   notes: string;
 }
 
@@ -31,6 +62,12 @@ const emptyForm: FormValues = {
   landlord_company: '',
   contact_email: '',
   contact_phone: '',
+  secondary_phone: '',
+  fax: '',
+  website: '',
+  management_company: '',
+  tax_id: '',
+  payment_terms: '',
   notes: '',
 };
 
@@ -40,6 +77,10 @@ const LandlordFormPage: React.FC = () => {
   const isEdit = Boolean(id);
 
   const [formValues, setFormValues] = useState<FormValues>(emptyForm);
+  const [entityType, setEntityType] = useState<SelectOption | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<SelectOption | null>(null);
+  const [officeOptions, setOfficeOptions] = useState<SelectOption[]>([]);
+  const [selectedOffices, setSelectedOffices] = useState<SelectOption[]>([]);
   const [propertyAddress, setPropertyAddress] = useState<StructuredAddress>({});
   const [mailingAddress, setMailingAddress] = useState<StructuredAddress>({});
   // Legacy free-form values from existing records, kept so we don't wipe them on save.
@@ -53,6 +94,20 @@ const LandlordFormPage: React.FC = () => {
   const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
 
   useEffect(() => {
+    const loadOffices = async () => {
+      try {
+        const res = await officesApi.list({ page_size: 1000 });
+        setOfficeOptions(
+          res.data.items.map((o: Office) => ({ label: o.location_name, value: String(o.id) })),
+        );
+      } catch {
+        // non-critical
+      }
+    };
+    loadOffices();
+  }, []);
+
+  useEffect(() => {
     if (!isEdit || !id) return;
     const fetchLandlord = async () => {
       try {
@@ -63,8 +118,23 @@ const LandlordFormPage: React.FC = () => {
           landlord_company: l.landlord_company ?? '',
           contact_email: l.contact_email ?? '',
           contact_phone: l.contact_phone ?? '',
+          secondary_phone: l.secondary_phone ?? '',
+          fax: l.fax ?? '',
+          website: l.website ?? '',
+          management_company: l.management_company ?? '',
+          tax_id: l.tax_id ?? '',
+          payment_terms: l.payment_terms ?? '',
           notes: l.notes ?? '',
         });
+        setEntityType(l.entity_type ? { label: l.entity_type, value: l.entity_type } : null);
+        setPaymentMethod(
+          l.preferred_payment_method
+            ? { label: l.preferred_payment_method, value: l.preferred_payment_method }
+            : null,
+        );
+        setSelectedOffices(
+          (l.owned_offices ?? []).map((o) => ({ label: o.location_name, value: String(o.id) })),
+        );
         setPropertyAddress({
           address_line_1: l.address_line_1,
           address_line_2: l.address_line_2,
@@ -114,6 +184,16 @@ const LandlordFormPage: React.FC = () => {
       landlord_company: formValues.landlord_company.trim() || undefined,
       contact_email: formValues.contact_email.trim() || undefined,
       contact_phone: formValues.contact_phone.trim() || undefined,
+      secondary_phone: formValues.secondary_phone.trim() || undefined,
+      fax: formValues.fax.trim() || undefined,
+      website: formValues.website.trim() || undefined,
+      management_company: formValues.management_company.trim() || undefined,
+      entity_type: entityType?.value || undefined,
+      tax_id: formValues.tax_id.trim() || undefined,
+      preferred_payment_method: paymentMethod?.value || undefined,
+      payment_terms: formValues.payment_terms.trim() || undefined,
+      // Offices owned by this landlord (one or many).
+      office_ids: selectedOffices.map((o) => o.value),
       // Structured property address.
       address_line_1: propertyAddress.address_line_1?.trim() || undefined,
       address_line_2: propertyAddress.address_line_2?.trim() || undefined,
@@ -243,6 +323,93 @@ const LandlordFormPage: React.FC = () => {
                   onChange={({ detail }) => setField('contact_phone', detail.value)}
                   type="tel"
                   placeholder="Enter phone number"
+                />
+              </FormField>
+
+              <FormField label="Secondary Phone">
+                <Input
+                  value={formValues.secondary_phone}
+                  onChange={({ detail }) => setField('secondary_phone', detail.value)}
+                  placeholder="Enter a secondary phone number"
+                />
+              </FormField>
+
+              <FormField label="Fax">
+                <Input
+                  value={formValues.fax}
+                  onChange={({ detail }) => setField('fax', detail.value)}
+                  placeholder="Enter fax number"
+                />
+              </FormField>
+
+              <FormField label="Website">
+                <Input
+                  value={formValues.website}
+                  onChange={({ detail }) => setField('website', detail.value)}
+                  type="url"
+                  placeholder="https://example.com"
+                />
+              </FormField>
+
+              <Header variant="h3">Business Details</Header>
+
+              <FormField label="Entity Type">
+                <Select
+                  selectedOption={entityType}
+                  onChange={({ detail }) => setEntityType(detail.selectedOption as SelectOption)}
+                  options={ENTITY_TYPE_OPTIONS}
+                  placeholder="Select entity type"
+                />
+              </FormField>
+
+              <FormField label="Management Company">
+                <Input
+                  value={formValues.management_company}
+                  onChange={({ detail }) => setField('management_company', detail.value)}
+                  placeholder="Enter property management company"
+                />
+              </FormField>
+
+              <FormField label="Tax ID / EIN">
+                <Input
+                  value={formValues.tax_id}
+                  onChange={({ detail }) => setField('tax_id', detail.value)}
+                  placeholder="Enter Tax ID or EIN"
+                />
+              </FormField>
+
+              <FormField
+                label="Owned Offices"
+                description="Offices owned by this landlord (one or many)."
+              >
+                <Multiselect
+                  selectedOptions={selectedOffices}
+                  onChange={({ detail }) =>
+                    setSelectedOffices(detail.selectedOptions as SelectOption[])
+                  }
+                  options={officeOptions}
+                  placeholder="Select offices"
+                  filteringType="auto"
+                  tokenLimit={5}
+                />
+              </FormField>
+
+              <Header variant="h3">Billing</Header>
+
+              <FormField label="Preferred Payment Method">
+                <Select
+                  selectedOption={paymentMethod}
+                  onChange={({ detail }) => setPaymentMethod(detail.selectedOption as SelectOption)}
+                  options={PAYMENT_METHOD_OPTIONS}
+                  placeholder="Select payment method"
+                />
+              </FormField>
+
+              <FormField label="Payment Terms">
+                <Input
+                  value={formValues.payment_terms}
+                  onChange={({ detail }) => setField('payment_terms', detail.value)}
+                  placeholder="e.g., Net 30"
                 />
               </FormField>
 

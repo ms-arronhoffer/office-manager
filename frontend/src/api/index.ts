@@ -278,7 +278,7 @@ export const landlords = {
 
   restore: (id: string) => client.patch<Landlord>(`/landlords/${id}/restore`),
 
-  addContact: (landlordId: string, data: { contact_name: string; title?: string; email?: string; phone?: string; notes?: string }) =>
+  addContact: (landlordId: string, data: { contact_name: string; title?: string; contact_type?: string; is_primary?: boolean; email?: string; phone?: string; notes?: string }) =>
     client.post<LandlordContact>(`/landlords/${landlordId}/contacts`, data),
 
   updateContact: (landlordId: string, contactId: string, data: Partial<LandlordContact>) =>
