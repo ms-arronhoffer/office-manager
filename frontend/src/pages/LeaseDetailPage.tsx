@@ -26,6 +26,7 @@ import { useFlashbar } from '@/context/FlashbarContext';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import ActivityTimeline from '@/components/common/ActivityTimeline';
 import ConfirmDeleteModal from '@/components/common/ConfirmDeleteModal';
+import LeaseAbstractSection from '@/components/common/LeaseAbstractSection';
 import type { Lease, LeaseNote, LeaseAccountingResponse, LeaseRenewal, LeaseOption } from '@/types';
 
 const ACCOUNTING_EXPANDED_KEY = 'leaseDetail.accountingExpanded';
@@ -688,6 +689,9 @@ const LeaseDetailPage: React.FC = () => {
               <ValuePair label="Last Updated" value={formatDate(lease.updated_at)} />
             </ColumnLayout>
           </Container>
+
+          {/* Lease Abstract */}
+          {id && <LeaseAbstractSection leaseId={id} canEdit={canEdit} />}
 
           {/* Lease Notes */}
           <Container
