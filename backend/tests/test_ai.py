@@ -169,3 +169,98 @@ async def test_lease_parse_rejects_legacy_doc(client, db_session, monkeypatch):
     resp = await client.post("/api/v1/ai/leases/parse", headers=headers, files=files)
     assert resp.status_code == 400, resp.text
     assert ".docx" in resp.json()["detail"].lower() or "convert" in resp.json()["detail"].lower()
+
+
+async def _create_lease(client, headers) -> str:
+    """Create a lease via the API and return its id."""
+    resp = await client.post(
+        "/api/v1/leases",
+        headers=headers,
+        json={"lease_name": "Abstract Source Lease", "expiration_year": 2030},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_abstract_suggest_extracts_text_for_txt(client, db_session, monkeypatch):
+    """A .txt upload must be turned into text before the model is called.
+
+    Regression: the abstract-suggest endpoint previously sent raw bytes inline
+    for Word/text documents (which Gemini cannot read), so the lease abstract
+    was never prefilled even though field-level parsing worked.
+    """
+    headers = await _make_org_user(db_session, "pro", "abs-txt@test.com")
+    lease_id = await _create_lease(client, headers)
+
+    captured: dict[str, object] = {}
+
+    async def fake_suggest(content, mime_type, categories, *, text_content=None):
+        captured["text_content"] = text_content
+        return {"square_footage": {"summary": "Approx 5,000 RSF.", "notes": ""}}
+
+    monkeypatch.setattr(ai_service, "suggest_abstract_clauses", fake_suggest)
+
+    files = {"file": ("lease.txt", io.BytesIO(b"Rentable Area: 5,000 SF."), "text/plain")}
+    resp = await client.post(
+        f"/api/v1/ai/leases/{lease_id}/abstract/suggest", headers=headers, files=files
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["suggested"]["square_footage"]["summary"] == "Approx 5,000 RSF."
+    # The model received extracted text, not raw inline bytes.
+    assert captured["text_content"] is not None
+    assert "5,000 SF" in captured["text_content"]
+
+
+@pytest.mark.asyncio
+async def test_abstract_suggest_accepts_docx_and_extracts_text(client, db_session, monkeypatch):
+    """A .docx upload must be converted to text for abstract suggestions too."""
+    headers = await _make_org_user(db_session, "pro", "abs-docx@test.com")
+    lease_id = await _create_lease(client, headers)
+
+    captured: dict[str, object] = {}
+
+    async def fake_suggest(content, mime_type, categories, *, text_content=None):
+        captured["text_content"] = text_content
+        return {"rent_expiration": {"summary": "Base rent $5,000/mo.", "notes": ""}}
+
+    monkeypatch.setattr(ai_service, "suggest_abstract_clauses", fake_suggest)
+
+    docx_bytes = _make_docx_bytes("Base Rent: $5,000 per month. Term expires 2030.")
+    files = {
+        "file": (
+            "lease.docx",
+            io.BytesIO(docx_bytes),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+    }
+    resp = await client.post(
+        f"/api/v1/ai/leases/{lease_id}/abstract/suggest", headers=headers, files=files
+    )
+    assert resp.status_code == 200, resp.text
+    assert captured["text_content"] is not None
+    assert "5,000" in captured["text_content"]
+
+
+@pytest.mark.asyncio
+async def test_abstract_suggest_sends_pdf_bytes_inline(client, db_session, monkeypatch):
+    """PDFs/images are still sent inline (no text extraction)."""
+    headers = await _make_org_user(db_session, "pro", "abs-pdf@test.com")
+    lease_id = await _create_lease(client, headers)
+
+    captured: dict[str, object] = {}
+
+    async def fake_suggest(content, mime_type, categories, *, text_content=None):
+        captured["text_content"] = text_content
+        captured["mime_type"] = mime_type
+        return {}
+
+    monkeypatch.setattr(ai_service, "suggest_abstract_clauses", fake_suggest)
+
+    files = {"file": ("lease.pdf", io.BytesIO(b"%PDF-1.4 fake pdf bytes"), "application/pdf")}
+    resp = await client.post(
+        f"/api/v1/ai/leases/{lease_id}/abstract/suggest", headers=headers, files=files
+    )
+    assert resp.status_code == 200, resp.text
+    assert captured["text_content"] is None
+    assert captured["mime_type"] == "application/pdf"
