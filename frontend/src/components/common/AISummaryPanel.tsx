@@ -131,7 +131,16 @@ const AISummaryPanel: React.FC = () => {
               // narrative_html is server-rendered Markdown; sanitize defensively
               // against any HTML the model may have emitted before injecting it.
               dangerouslySetInnerHTML={{
-                __html: DOMPurify.sanitize(result.narrative_html || ''),
+                __html: DOMPurify.sanitize(result.narrative_html || '', {
+                  ALLOWED_TAGS: [
+                    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                    'p', 'br', 'hr',
+                    'ul', 'ol', 'li',
+                    'strong', 'em', 'b', 'i', 'code', 'pre', 'blockquote',
+                    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+                  ],
+                  ALLOWED_ATTR: [],
+                }),
               }}
             />
             <SpaceBetween direction="horizontal" size="xs">
