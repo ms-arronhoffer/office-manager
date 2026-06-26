@@ -261,7 +261,7 @@ const LeaseDocumentSearch: React.FC<Props> = ({ leaseId, canEdit }) => {
                   const isSelected = i === selectedIndex;
                   return (
                     <div
-                      key={`${m.attachment_id ?? 'na'}-${m.chunk_index ?? i}`}
+                      key={`${m.attachment_id ?? 'na'}-${m.chunk_index ?? 'x'}-${i}`}
                       role="button"
                       tabIndex={0}
                       onClick={() => setSelectedIndex(i)}
