@@ -44,6 +44,16 @@ def compute_document_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def normalize_email(email: str | None) -> str:
+    """Normalize an email for case-insensitive comparison and de-duplication.
+
+    Lowercases and trims surrounding whitespace. Used both when persisting a
+    waiver recipient and when checking for an existing pending waiver so that
+    ``Foo@Example.com`` and ``foo@example.com `` collide.
+    """
+    return (email or "").strip().lower()
+
+
 def build_merge_context(*, recipient_name: str | None, organization_name: str | None) -> dict[str, str]:
     name = recipient_name or "Recipient"
     return {

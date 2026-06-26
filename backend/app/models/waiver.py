@@ -32,6 +32,12 @@ WAIVER_RECIPIENT_TYPES = ("contact", "visitor")
 # Lifecycle statuses for a waiver request.
 WAIVER_STATUSES = ("sent", "viewed", "signed", "declined", "expired")
 
+# Statuses that count as an *open* waiver still awaiting the recipient's action.
+# Used to enforce "no duplicate pending waiver per (template, email)": a new send
+# is blocked when one of these already exists, while signed/declined/expired ones
+# do not block re-sending.
+WAIVER_PENDING_STATUSES = ("sent", "viewed")
+
 # Signature capture methods.
 WAIVER_SIGNATURE_TYPES = ("typed", "drawn")
 
