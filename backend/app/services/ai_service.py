@@ -256,34 +256,66 @@ async def parse_lease_document(
 
 ABSTRACT_SUGGEST_SYSTEM = (
     "You are a commercial lease abstraction assistant. For each requested clause "
-    "category, summarise the relevant lease provisions concisely and factually. "
+    "category, extract the relevant lease provisions into the category's "
+    "structured fields, and also summarise them concisely and factually. "
     "Respond ONLY with a JSON object keyed by category_key; each value is an "
-    "object with a 'summary' string and an optional 'notes' string. Use an empty "
-    "string when the document does not address a category. Never invent terms."
+    "object whose keys are the field keys listed for that category. Populate "
+    "every field you can from the document, putting discrete values in their "
+    "dedicated fields (e.g. a 60-day notice period belongs in the notice-days "
+    "field, not only the summary). Match each field's type: 'number'/'currency'/"
+    "'percent' as JSON numbers (digits only, no units or symbols), 'boolean' as "
+    "true/false, 'date' as 'YYYY-MM-DD', 'select' as one of the provided options, "
+    "and 'text'/'textarea' as strings. Always include a 'summary' field "
+    "summarising the category and a 'notes' field for any extra narrative. Omit "
+    "fields the document does not address (or use an empty string). Never invent "
+    "terms or values that are not in the document."
 )
+
+
+def _format_category_fields(category: dict[str, Any]) -> str:
+    """Render a category's field schema as a prompt bullet list."""
+    lines: list[str] = []
+    for field in category.get("fields", []):
+        ftype = field.get("type", "text")
+        descriptor = f"    - {field['key']} ({ftype}): {field['label']}"
+        options = field.get("options")
+        if options:
+            descriptor += f" [one of: {', '.join(options)}]"
+        lines.append(descriptor)
+    return "\n".join(lines)
 
 
 async def suggest_abstract_clauses(
     content: bytes,
     mime_type: str,
-    categories: list[dict[str, str]],
+    categories: list[dict[str, Any]],
     *,
     text_content: str | None = None,
 ) -> dict[str, Any]:
     """Propose lease-abstract clause content per category.
 
-    ``categories`` is a list of ``{"key": ..., "name": ...}`` dicts taken from
-    the lease-abstract catalog. Returns a dict keyed by category key.
+    ``categories`` is a list of ``{"key": ..., "name": ..., "fields": [...]}``
+    dicts taken from the lease-abstract catalog, where each field is a
+    ``{"key", "label", "type", "options"?}`` schema. Returns a dict keyed by
+    category key whose values map field keys to extracted values.
 
     For PDFs and images the raw bytes are sent inline (Gemini reads them
     natively). For formats Gemini cannot parse directly (e.g. Word/text
     documents), the caller extracts plain text first and passes it as
     ``text_content``; that text is sent in place of the inline document.
     """
-    cat_spec = "\n".join(f"- {c['key']}: {c['name']}" for c in categories)
+    cat_blocks: list[str] = []
+    for c in categories:
+        block = f"- {c['key']}: {c['name']}"
+        fields = _format_category_fields(c)
+        if fields:
+            block += "\n  fields:\n" + fields
+        cat_blocks.append(block)
+    cat_spec = "\n".join(cat_blocks)
     prompt = (
-        "Summarise the lease for each of these clause categories "
-        "(category_key: human name):\n"
+        "Abstract the lease into structured fields for each of these clause "
+        "categories. Each category lists its field keys, types, and labels; "
+        "return a JSON object per category keyed by those field keys:\n"
         f"{cat_spec}\n"
     )
     if text_content is not None:

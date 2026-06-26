@@ -183,6 +183,70 @@ async def _create_lease(client, headers) -> str:
 
 
 @pytest.mark.asyncio
+async def test_abstract_suggest_passes_field_schema_to_model(client, db_session, monkeypatch):
+    """The router must forward each category's field schema so the model can
+    populate discrete fields (e.g. a relocation notice-days field) rather than
+    only summary/notes."""
+    headers = await _make_org_user(db_session, "pro", "abs-fields@test.com")
+    lease_id = await _create_lease(client, headers)
+
+    captured: dict[str, object] = {}
+
+    async def fake_suggest(content, mime_type, categories, *, text_content=None):
+        captured["categories"] = categories
+        return {"relocation_right": {"relocation_notice_days": 60, "summary": "Yes."}}
+
+    monkeypatch.setattr(ai_service, "suggest_abstract_clauses", fake_suggest)
+
+    files = {"file": ("lease.txt", io.BytesIO(b"Landlord may relocate on 60 days notice."), "text/plain")}
+    resp = await client.post(
+        f"/api/v1/ai/leases/{lease_id}/abstract/suggest", headers=headers, files=files
+    )
+    assert resp.status_code == 200, resp.text
+
+    categories = captured["categories"]
+    by_key = {c["key"]: c for c in categories}
+    assert "relocation_right" in by_key
+    # Each category carries its full field schema (key/label/type), not just a name.
+    field_keys = {f["key"] for f in by_key["relocation_right"]["fields"]}
+    assert "relocation_notice_days" in field_keys
+
+
+@pytest.mark.asyncio
+async def test_suggest_abstract_prompt_includes_field_schema(monkeypatch):
+    """The prompt sent to the model must enumerate each category's field keys
+    and types so values land in the right fields."""
+    captured: dict[str, object] = {}
+
+    async def fake_generate(parts, **kwargs):
+        captured["parts"] = parts
+        return "{}"
+
+    monkeypatch.setattr(ai_service, "_generate", fake_generate)
+
+    categories = [
+        {
+            "key": "relocation_right",
+            "name": "Relocation Right",
+            "fields": [
+                {"key": "relocation_notice_days", "label": "Relocation Notice (days)", "type": "number"},
+                {"key": "summary", "label": "Summary", "type": "textarea"},
+                {"key": "notes", "label": "Notes", "type": "textarea"},
+            ],
+        }
+    ]
+    await ai_service.suggest_abstract_clauses(
+        b"", "text/plain", categories, text_content="Relocate on 60 days notice."
+    )
+
+    prompt_text = " ".join(
+        p["text"] for p in captured["parts"] if isinstance(p, dict) and "text" in p
+    )
+    assert "relocation_notice_days" in prompt_text
+    assert "number" in prompt_text
+
+
+@pytest.mark.asyncio
 async def test_abstract_suggest_extracts_text_for_txt(client, db_session, monkeypatch):
     """A .txt upload must be turned into text before the model is called.
 

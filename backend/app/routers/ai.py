@@ -205,7 +205,10 @@ async def suggest_abstract(
 
     content, mime_type = await _read_document(file)
     text_content = _maybe_extract_text(file.filename, content)
-    categories = [{"key": c["key"], "name": c["name"]} for c in CLAUSE_CATEGORIES]
+    categories = [
+        {"key": c["key"], "name": c["name"], "fields": c["fields"]}
+        for c in CLAUSE_CATEGORIES
+    ]
     try:
         suggested = await ai_service.suggest_abstract_clauses(
             content, mime_type, categories, text_content=text_content

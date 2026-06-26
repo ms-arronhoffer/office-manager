@@ -27,7 +27,7 @@ import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueFi
 import AILeasePrefill from '@/components/common/AILeasePrefill';
 import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
 import { OfficeQuickCreate, ManagerQuickCreate } from '@/components/common/QuickCreateForms';
-import type { LeaseCreate, Office, Manager } from '@/types';
+import type { LeaseCreate, Office, Manager, AbstractFieldSchema } from '@/types';
 
 type SelectOption = { label: string; value: string };
 
@@ -92,6 +92,68 @@ function capLength(value: string | undefined, maxLength: number): string | undef
   if (value === undefined) return undefined;
   return value.slice(0, maxLength);
 }
+
+/**
+ * Map an AI-suggested clause object onto a lease-abstract category's typed
+ * fields. Discrete values land in their dedicated fields (coerced to the field
+ * type), narrative falls back to the free-text `notes` column. Returns `null`
+ * when nothing could be mapped so the caller can skip the update.
+ */
+function buildClauseUpdate(
+  fields: AbstractFieldSchema[],
+  suggested: Record<string, unknown>,
+): { content: Record<string, unknown>; notes: string | null } | null {
+  const content: Record<string, unknown> = {};
+  let notes: string | null = null;
+
+  for (const field of fields) {
+    const raw = suggested[field.key];
+    if (raw === null || raw === undefined) continue;
+
+    if (field.key === 'notes') {
+      const text = String(raw).trim();
+      if (text) notes = text;
+      continue;
+    }
+
+    switch (field.type) {
+      case 'number':
+      case 'currency':
+      case 'percent': {
+        const n =
+          typeof raw === 'number'
+            ? raw
+            : Number(String(raw).replace(/[^0-9.\-]/g, ''));
+        if (String(raw).trim() !== '' && Number.isFinite(n)) content[field.key] = n;
+        break;
+      }
+      case 'boolean': {
+        if (typeof raw === 'boolean') {
+          content[field.key] = raw;
+        } else {
+          const s = String(raw).trim().toLowerCase();
+          if (['true', 'yes', 'y'].includes(s)) content[field.key] = true;
+          else if (['false', 'no', 'n'].includes(s)) content[field.key] = false;
+        }
+        break;
+      }
+      case 'select': {
+        const s = String(raw).trim();
+        if (s && (field.options ?? []).includes(s)) content[field.key] = s;
+        break;
+      }
+      default: {
+        const s = String(raw).trim();
+        if (s) content[field.key] = s;
+        break;
+      }
+    }
+  }
+
+  if (Object.keys(content).length === 0 && notes === null) return null;
+  return { content, notes };
+}
+
 
 const ACCOUNTING_STD_OPTIONS: SelectOption[] = [
   { label: 'ASC 842 (US GAAP)', value: 'asc842' },
@@ -267,17 +329,40 @@ const LeaseFormPage: React.FC = () => {
       try {
         const res = await aiApi.suggestAbstract(newId, aiDocument);
         const suggested = res.data.suggested || {};
+
+        // Load the catalog so suggested values can be mapped onto each
+        // category's typed fields (and unknown field keys dropped).
+        const fieldsByCategory = new Map<string, AbstractFieldSchema[]>();
+        try {
+          const abstractRes = await leasesApi.getAbstract(newId);
+          for (const clause of abstractRes.data.clauses ?? []) {
+            fieldsByCategory.set(clause.category_key, clause.fields ?? []);
+          }
+        } catch {
+          // Catalog unavailable: fall back to notes-only below.
+        }
+
         const results = await Promise.allSettled(
           Object.entries(suggested).map(([categoryKey, value]) => {
-            const v = (value ?? {}) as { summary?: unknown; notes?: unknown };
-            const parts = [v.summary, v.notes]
-              .map((p) => (p === null || p === undefined ? '' : String(p).trim()))
-              .filter((p) => p.length > 0);
-            const text = parts.join('\n\n');
-            if (!text) return Promise.resolve(false);
+            const obj = (value ?? {}) as Record<string, unknown>;
+            const fields = fieldsByCategory.get(categoryKey);
+
+            let update: { content?: Record<string, unknown> | null; notes?: string | null } | null =
+              null;
+            if (fields && fields.length > 0) {
+              update = buildClauseUpdate(fields, obj);
+            } else {
+              // No schema available — preserve the legacy summary+notes text.
+              const parts = [obj.summary, obj.notes]
+                .map((p) => (p === null || p === undefined ? '' : String(p).trim()))
+                .filter((p) => p.length > 0);
+              const text = parts.join('\n\n');
+              if (text) update = { notes: text };
+            }
+            if (!update) return Promise.resolve(false);
             // Resolve to true on success; swallow unknown-category / transient errors.
             return leasesApi
-              .updateAbstractClause(newId, categoryKey, { notes: text })
+              .updateAbstractClause(newId, categoryKey, update)
               .then(() => true)
               .catch(() => false);
           }),
