@@ -100,6 +100,8 @@ jobs:
           APP_PORT: ${{ secrets.APP_PORT }}
           ADMIN_PORT: ${{ secrets.ADMIN_PORT }}
           LANDING_PORT: ${{ secrets.LANDING_PORT }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}	
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
         run: |
           # Recreate every service (backend, frontend, admin-frontend, landing, db)
           # using the freshly built :latest images. Using the same compose project
