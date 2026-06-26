@@ -676,6 +676,8 @@ docker compose exec db psql -U office_admin -d office_manager
 - **Attachments** — file upload on any entity; extension whitelist enforced; server-generated storage filenames
 
 ### Communication & Automation
+- **AI Automation (Google Gemini)** — configurable Gemini model (`GEMINI_MODEL`, `GEMINI_API_KEY`, `GEMINI_API_BASE`) powers lease-document ingestion (extract key terms to pre-fill the lease form — available on all tiers), AI lease-abstract suggestions, and narrative weekly/monthly briefings of upcoming notice periods, expirations, and maintenance. Richer AI beyond basic ingestion is gated to **Pro** and above (`ai_assist`); the service degrades gracefully when no API key is configured
+- **Digital Waivers & e-Signatures** — send pre-built or custom waiver templates to any contact, or to a **Visitor** email address where the recipient enters their own details. Captures signer attribution, consent-to-do-business-electronically, IP/user-agent, a tamper-evident document hash, and an immutable audit trail aligned with ESIGN/UETA e-signature standards; a completed PDF is generated on signing. Pro tier and above (`digital_waivers`)
 - **Email Reminders** — automated daily notifications for lease expirations, notice deadlines, and HVAC service dates
 - **Webhooks** — configurable outbound HTTP events (`ticket.created`, `lease.expiring`, `sla.breached`, etc.) with HMAC-SHA256 signatures and retry logic
 - **Notifications** — in-app notification center with per-rule email configuration
