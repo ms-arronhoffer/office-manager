@@ -72,7 +72,7 @@ const AILeasePrefill: React.FC<AILeasePrefillProps> = ({ onSuggested, onFileExtr
             setDone(false);
           }}
           value={files}
-          accept=".pdf,.txt,.png,.jpg,.jpeg,.tif,.tiff"
+          accept=".pdf,.txt,.docx,.png,.jpg,.jpeg,.tif,.tiff"
           i18nStrings={{
             uploadButtonText: () => 'Choose document',
             dropzoneText: () => 'Drop a lease document here',
