@@ -187,7 +187,7 @@ async def generate_invite(
     result = await db.execute(
         select(ClientPortalAccount).where(
             ClientPortalAccount.entity_type == payload.entity_type,
-            ClientPortalAccount.entity_id == payload.entity_id,
+            ClientPortalAccount.entity_id == entity.id,
             ClientPortalAccount.organization_id == current_user.organization_id,
         )
     )
@@ -196,7 +196,7 @@ async def generate_invite(
         account = ClientPortalAccount(
             organization_id=current_user.organization_id,
             entity_type=payload.entity_type,
-            entity_id=payload.entity_id,
+            entity_id=entity.id,
         )
         db.add(account)
 
@@ -382,7 +382,11 @@ async def portal_upload_document(
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No filename provided")
 
+    # Path(...).name already strips directory components; reject anything that
+    # still looks like a traversal attempt or is empty after sanitization.
     safe_name = _UNSAFE_FILENAME_CHARS.sub("", Path(file.filename).name)
+    if not safe_name or safe_name in (".", "..") or "/" in safe_name or "\\" in safe_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename")
     ext = Path(safe_name).suffix.lower()
     if ext not in _allowed_extensions():
         raise HTTPException(
