@@ -1056,3 +1056,76 @@ export const gl = {
   exportCsv: (params?: { year?: number; month?: number }) =>
     client.get('/gl/export', { params, responseType: 'blob' }),
 };
+
+// ─── AI assist (Google Gemini) ───────────────────────────────────────────────
+import type {
+  AIStatus,
+  LeaseParseResult,
+  AbstractSuggestResult,
+  AISummaryResult,
+  WaiverTemplate as WaiverTemplateType,
+  WaiverTemplateCreate,
+  WaiverTemplateUpdate,
+  WaiverRequestItem,
+  SendWaiverRequest as SendWaiverRequestType,
+  PublicWaiverView,
+  WaiverSignSubmission,
+} from '@/types';
+
+export const ai = {
+  status: () => client.get<AIStatus>('/ai/status'),
+
+  parseLease: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post<LeaseParseResult>('/ai/leases/parse', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  suggestAbstract: (leaseId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post<AbstractSuggestResult>(`/ai/leases/${leaseId}/abstract/suggest`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  summary: (period: 'weekly' | 'monthly') =>
+    client.post<AISummaryResult>('/ai/reports/summary', { period }),
+};
+
+// ─── Digital Waivers (internal, gated) ───────────────────────────────────────
+export const waivers = {
+  listTemplates: () => client.get<WaiverTemplateType[]>('/waivers/templates'),
+
+  createTemplate: (data: WaiverTemplateCreate) =>
+    client.post<WaiverTemplateType>('/waivers/templates', data),
+
+  updateTemplate: (id: string, data: WaiverTemplateUpdate) =>
+    client.put<WaiverTemplateType>(`/waivers/templates/${id}`, data),
+
+  deleteTemplate: (id: string) => client.delete(`/waivers/templates/${id}`),
+
+  send: (data: SendWaiverRequestType) =>
+    client.post<WaiverRequestItem>('/waivers/send', data),
+
+  listRequests: () => client.get<WaiverRequestItem[]>('/waivers/requests'),
+
+  downloadPdf: (id: string) =>
+    client.get(`/waivers/requests/${id}/pdf`, { responseType: 'blob' }),
+};
+
+// ─── Digital Waivers (public, token-based signing) ───────────────────────────
+const _waiverBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+export const waiverPublic = {
+  view: (token: string) =>
+    axios.create({ baseURL: _waiverBase }).get<PublicWaiverView>(`/waivers/sign/${token}`),
+
+  sign: (token: string, data: WaiverSignSubmission) =>
+    axios.create({ baseURL: _waiverBase }).post<PublicWaiverView>(`/waivers/sign/${token}`, data),
+
+  decline: (token: string) =>
+    axios.create({ baseURL: _waiverBase }).post<PublicWaiverView>(`/waivers/decline/${token}`),
+};

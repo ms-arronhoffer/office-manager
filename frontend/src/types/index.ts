@@ -1628,3 +1628,102 @@ export interface NotificationItem {
   is_read: boolean;
   created_at: string;
 }
+
+// ─── AI assist (Google Gemini) ───────────────────────────────────────────────
+export interface AIStatus {
+  configured: boolean;
+  model: string;
+}
+
+export interface LeaseParseResult {
+  suggested: Record<string, unknown>;
+  model: string;
+}
+
+export interface AbstractSuggestResult {
+  suggested: Record<string, unknown>;
+  model: string;
+}
+
+export interface AISummaryResult {
+  period: string;
+  period_label: string;
+  narrative: string;
+  data: Record<string, unknown>;
+  model: string;
+}
+
+// ─── Digital Waivers ──────────────────────────────────────────────────────────
+export type WaiverRecipientType = 'contact' | 'visitor';
+export type WaiverStatus = 'sent' | 'viewed' | 'signed' | 'declined' | 'expired';
+
+export interface WaiverTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  body: string;
+  is_prebuilt: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WaiverTemplateCreate {
+  name: string;
+  description?: string | null;
+  body: string;
+}
+
+export interface WaiverTemplateUpdate {
+  name?: string;
+  description?: string | null;
+  body?: string;
+  is_active?: boolean;
+}
+
+export interface WaiverRequestItem {
+  id: string;
+  template_id: string | null;
+  recipient_type: WaiverRecipientType;
+  recipient_name: string | null;
+  recipient_email: string;
+  entity_contact_id: string | null;
+  title: string;
+  status: WaiverStatus;
+  document_hash: string;
+  sign_url: string | null;
+  expires_at: string | null;
+  sent_at: string | null;
+  viewed_at: string | null;
+  signed_at: string | null;
+  declined_at: string | null;
+  created_at: string;
+}
+
+export interface SendWaiverRequest {
+  template_id: string;
+  recipient_type: WaiverRecipientType;
+  recipient_email: string;
+  recipient_name?: string | null;
+  entity_contact_id?: string | null;
+}
+
+export interface PublicWaiverView {
+  title: string;
+  body: string;
+  status: WaiverStatus;
+  recipient_name: string | null;
+  recipient_type: WaiverRecipientType;
+  organization_name: string | null;
+  consent_text: string;
+  expired: boolean;
+}
+
+export interface WaiverSignSubmission {
+  signer_name: string;
+  signer_email?: string | null;
+  signature_type: 'typed' | 'drawn';
+  signature_data: string;
+  consent_agreed: boolean;
+  visitor_details?: { label: string; value: string }[] | null;
+}
