@@ -97,6 +97,61 @@ async def send_high_priority_ticket_emails(db: AsyncSession, ticket: Maintenance
     )
 
 
+async def send_ticket_created_emails(db: AsyncSession, ticket: MaintenanceTicket) -> None:
+    """Notify the office manager and the assigned vendor that a ticket was created.
+
+    Sends to the office's manager email (if configured) and the assigned
+    vendor's contact email (if a vendor is assigned and has an email). All
+    failures are logged but never propagated — ticket creation has already
+    succeeded by the time this is called.
+    """
+    recipients: list[str] = []
+
+    manager = ticket.office.manager if ticket.office else None
+    if manager and manager.email:
+        recipients.append(manager.email)
+
+    vendor = ticket.vendor
+    vendor_name = vendor.company_name if vendor else None
+    if vendor and vendor.contact_email and vendor.contact_email not in recipients:
+        recipients.append(vendor.contact_email)
+
+    if not recipients:
+        return
+
+    try:
+        template = template_env.get_template("ticket_created.html")
+    except Exception:
+        logger.exception("Failed to load ticket_created.html template")
+        return
+
+    office_name = ticket.office.location_name if ticket.office else "N/A"
+    created_by_name = ticket.created_by.display_name if ticket.created_by else "N/A"
+    category_name = ticket.category.name if ticket.category else "N/A"
+
+    for recipient in recipients:
+        try:
+            html = template.render(
+                subject=ticket.subject,
+                office_name=office_name,
+                category=category_name,
+                priority=ticket.priority.title() if ticket.priority else "N/A",
+                status=ticket.status.replace("_", " ").title() if ticket.status else "N/A",
+                description=ticket.description or "",
+                created_by=created_by_name,
+                location_hours=ticket.location_hours or "",
+                vendor_name=vendor_name,
+            )
+            email_subject = f"New Maintenance Ticket: {ticket.subject} - {office_name}"
+            await send_email(recipient, email_subject, html)
+        except Exception:
+            logger.exception(
+                "Failed to send ticket_created email to %s for ticket %s",
+                recipient,
+                ticket.id,
+            )
+
+
 async def send_ticket_status_email(
     db: AsyncSession,
     ticket: MaintenanceTicket,

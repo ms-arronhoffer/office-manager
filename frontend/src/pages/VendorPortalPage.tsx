@@ -18,7 +18,7 @@ import Spinner from '@cloudscape-design/components/spinner';
 import Flashbar from '@cloudscape-design/components/flashbar';
 import Tabs from '@cloudscape-design/components/tabs';
 import { vendorPortal } from '@/api';
-import type { PortalTicket, VendorPortalProfile } from '@/types';
+import type { PortalTicket, VendorPortalProfile, EntityContact, EntityContactCreate } from '@/types';
 
 const priorityColor = (p: string) =>
   p === 'high' ? 'red' : p === 'medium' ? 'blue' : 'grey';
@@ -36,6 +36,7 @@ const VendorPortalPage: React.FC = () => {
 
   const [profile, setProfile] = useState<VendorPortalProfile | null>(null);
   const [tickets, setTickets] = useState<PortalTicket[]>([]);
+  const [contacts, setContacts] = useState<EntityContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(false);
   const [flash, setFlash] = useState<{ type: 'success' | 'error'; content: string } | null>(null);
@@ -44,6 +45,36 @@ const VendorPortalPage: React.FC = () => {
   const [completeTicket, setCompleteTicket] = useState<PortalTicket | null>(null);
   const [completionNotes, setCompletionNotes] = useState('');
   const [completing, setCompleting] = useState(false);
+
+  // Ticket details edit modal
+  const [editTicket, setEditTicket] = useState<PortalTicket | null>(null);
+  const [ticketForm, setTicketForm] = useState<{
+    description: string;
+    location_hours: string;
+    technician_name: string;
+    scheduled_date: string;
+    estimated_duration_minutes: string;
+  }>({
+    description: '',
+    location_hours: '',
+    technician_name: '',
+    scheduled_date: '',
+    estimated_duration_minutes: '',
+  });
+  const [savingTicket, setSavingTicket] = useState(false);
+
+  // Contact modal
+  const [contactModalOpen, setContactModalOpen] = useState(false);
+  const [editingContact, setEditingContact] = useState<EntityContact | null>(null);
+  const [contactForm, setContactForm] = useState<{
+    contact_name: string;
+    title: string;
+    email: string;
+    phone: string;
+    mobile: string;
+    notes: string;
+  }>({ contact_name: '', title: '', email: '', phone: '', mobile: '', notes: '' });
+  const [savingContact, setSavingContact] = useState(false);
 
   // Profile edit
   const [editingProfile, setEditingProfile] = useState(false);
@@ -57,12 +88,14 @@ const VendorPortalPage: React.FC = () => {
       return;
     }
     try {
-      const [profileRes, ticketsRes] = await Promise.all([
+      const [profileRes, ticketsRes, contactsRes] = await Promise.all([
         vendorPortal.getProfile(token),
         vendorPortal.listTickets(token),
+        vendorPortal.listContacts(token),
       ]);
       setProfile(profileRes.data);
       setTickets(ticketsRes.data);
+      setContacts(contactsRes.data);
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status;
       if (status === 401) {
@@ -92,6 +125,104 @@ const VendorPortalPage: React.FC = () => {
       setFlash({ type: 'error', content: 'Failed to submit completion.' });
     } finally {
       setCompleting(false);
+    }
+  };
+
+  const openEditTicket = (t: PortalTicket) => {
+    setEditTicket(t);
+    setTicketForm({
+      description: t.description ?? '',
+      location_hours: t.location_hours ?? '',
+      technician_name: t.technician_name ?? '',
+      scheduled_date: t.scheduled_date ? t.scheduled_date.slice(0, 16) : '',
+      estimated_duration_minutes:
+        t.estimated_duration_minutes != null ? String(t.estimated_duration_minutes) : '',
+    });
+  };
+
+  const handleSaveTicket = async () => {
+    if (!editTicket) return;
+    setSavingTicket(true);
+    try {
+      await vendorPortal.updateTicket(token, editTicket.id, {
+        description: ticketForm.description,
+        location_hours: ticketForm.location_hours || undefined,
+        technician_name: ticketForm.technician_name || undefined,
+        scheduled_date: ticketForm.scheduled_date
+          ? new Date(ticketForm.scheduled_date).toISOString()
+          : null,
+        estimated_duration_minutes: ticketForm.estimated_duration_minutes
+          ? parseInt(ticketForm.estimated_duration_minutes, 10)
+          : null,
+      });
+      setFlash({ type: 'success', content: 'Work order details updated.' });
+      setEditTicket(null);
+      await load();
+    } catch {
+      setFlash({ type: 'error', content: 'Failed to update work order.' });
+    } finally {
+      setSavingTicket(false);
+    }
+  };
+
+  const openCreateContact = () => {
+    setEditingContact(null);
+    setContactForm({ contact_name: '', title: '', email: '', phone: '', mobile: '', notes: '' });
+    setContactModalOpen(true);
+  };
+
+  const openEditContact = (c: EntityContact) => {
+    setEditingContact(c);
+    setContactForm({
+      contact_name: c.contact_name ?? '',
+      title: c.title ?? '',
+      email: c.email ?? '',
+      phone: c.phone ?? '',
+      mobile: c.mobile ?? '',
+      notes: c.notes ?? '',
+    });
+    setContactModalOpen(true);
+  };
+
+  const handleSaveContact = async () => {
+    if (!contactForm.contact_name.trim()) return;
+    setSavingContact(true);
+    try {
+      const payload = {
+        contact_name: contactForm.contact_name.trim(),
+        title: contactForm.title || undefined,
+        email: contactForm.email || undefined,
+        phone: contactForm.phone || undefined,
+        mobile: contactForm.mobile || undefined,
+        notes: contactForm.notes || undefined,
+      };
+      if (editingContact) {
+        await vendorPortal.updateContact(token, editingContact.id, payload);
+      } else {
+        // entity_type/entity_id are enforced server-side from the token.
+        await vendorPortal.createContact(token, {
+          entity_type: 'vendor',
+          entity_id: profile?.id ?? '',
+          ...payload,
+        } as EntityContactCreate);
+      }
+      setFlash({ type: 'success', content: 'Contact saved.' });
+      setContactModalOpen(false);
+      await load();
+    } catch {
+      setFlash({ type: 'error', content: 'Failed to save contact.' });
+    } finally {
+      setSavingContact(false);
+    }
+  };
+
+  const handleDeleteContact = async (c: EntityContact) => {
+    try {
+      await vendorPortal.deleteContact(token, c.id);
+      setFlash({ type: 'success', content: 'Contact removed.' });
+      await load();
+    } catch {
+      setFlash({ type: 'error', content: 'Failed to remove contact.' });
     }
   };
 
@@ -204,18 +335,22 @@ const VendorPortalPage: React.FC = () => {
                     {
                       id: 'actions',
                       header: '',
-                      cell: (t: PortalTicket) =>
-                        !t.vendor_completed_at ? (
-                          <Button
-                            variant="primary"
-                            onClick={() => { setCompleteTicket(t); setCompletionNotes(''); }}
-                          >
-                            Mark complete
-                          </Button>
-                        ) : (
-                          <Box color="text-status-success">Completed</Box>
-                        ),
-                      width: 160,
+                      cell: (t: PortalTicket) => (
+                        <SpaceBetween direction="horizontal" size="xs">
+                          <Button onClick={() => openEditTicket(t)}>Edit details</Button>
+                          {!t.vendor_completed_at ? (
+                            <Button
+                              variant="primary"
+                              onClick={() => { setCompleteTicket(t); setCompletionNotes(''); }}
+                            >
+                              Mark complete
+                            </Button>
+                          ) : (
+                            <Box color="text-status-success">Completed</Box>
+                          )}
+                        </SpaceBetween>
+                      ),
+                      width: 280,
                     },
                   ]}
                   empty={
@@ -227,6 +362,63 @@ const VendorPortalPage: React.FC = () => {
                     </Box>
                   }
                   header={<Header>Assigned Work Orders</Header>}
+                />
+              ),
+            },
+            {
+              id: 'contacts',
+              label: `Contacts (${contacts.length})`,
+              content: (
+                <Table
+                  items={contacts}
+                  columnDefinitions={[
+                    {
+                      id: 'name',
+                      header: 'Name',
+                      cell: (c: EntityContact) => c.contact_name,
+                    },
+                    {
+                      id: 'title',
+                      header: 'Title',
+                      cell: (c: EntityContact) => c.title ?? '—',
+                    },
+                    {
+                      id: 'email',
+                      header: 'Email',
+                      cell: (c: EntityContact) => c.email ?? '—',
+                    },
+                    {
+                      id: 'phone',
+                      header: 'Phone',
+                      cell: (c: EntityContact) => c.phone ?? c.mobile ?? '—',
+                    },
+                    {
+                      id: 'actions',
+                      header: '',
+                      cell: (c: EntityContact) => (
+                        <SpaceBetween direction="horizontal" size="xs">
+                          <Button onClick={() => openEditContact(c)}>Edit</Button>
+                          <Button onClick={() => handleDeleteContact(c)}>Remove</Button>
+                        </SpaceBetween>
+                      ),
+                      width: 180,
+                    },
+                  ]}
+                  empty={
+                    <Box textAlign="center" padding="l">
+                      <b>No additional contacts</b>
+                      <Box color="text-body-secondary" padding={{ bottom: 's' }}>
+                        Add the people your client should reach for this work.
+                      </Box>
+                    </Box>
+                  }
+                  header={
+                    <Header
+                      actions={<Button onClick={openCreateContact}>Add contact</Button>}
+                    >
+                      Additional Contacts
+                    </Header>
+                  }
                 />
               ),
             },
@@ -298,6 +490,136 @@ const VendorPortalPage: React.FC = () => {
               onChange={({ detail }) => setCompletionNotes(detail.value)}
               placeholder="Describe the work completed..."
               rows={5}
+            />
+          </FormField>
+        </SpaceBetween>
+      </Modal>
+
+      {/* ── Edit Ticket Details Modal ── */}
+      <Modal
+        visible={!!editTicket}
+        onDismiss={() => setEditTicket(null)}
+        header="Edit work order details"
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => setEditTicket(null)}>Cancel</Button>
+              <Button variant="primary" loading={savingTicket} onClick={handleSaveTicket}>Save</Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="m">
+          <Box>
+            <Box variant="awsui-key-label">Work order</Box>
+            <Box>{editTicket?.subject}</Box>
+          </Box>
+          <FormField label="Description">
+            <Textarea
+              value={ticketForm.description}
+              onChange={({ detail }) => setTicketForm((f) => ({ ...f, description: detail.value }))}
+              rows={5}
+            />
+          </FormField>
+          <FormField label="Location hours / schedule">
+            <Input
+              value={ticketForm.location_hours}
+              onChange={({ detail }) => setTicketForm((f) => ({ ...f, location_hours: detail.value }))}
+              placeholder="e.g., Mon-Fri 8am-5pm"
+            />
+          </FormField>
+          <FormField label="Technician name">
+            <Input
+              value={ticketForm.technician_name}
+              onChange={({ detail }) => setTicketForm((f) => ({ ...f, technician_name: detail.value }))}
+            />
+          </FormField>
+          <SpaceBetween direction="horizontal" size="m">
+            <FormField label="Scheduled date">
+              <Input
+                type="datetime-local"
+                value={ticketForm.scheduled_date}
+                onChange={({ detail }) => setTicketForm((f) => ({ ...f, scheduled_date: detail.value }))}
+              />
+            </FormField>
+            <FormField label="Estimated duration (minutes)">
+              <Input
+                type="number"
+                value={ticketForm.estimated_duration_minutes}
+                onChange={({ detail }) =>
+                  setTicketForm((f) => ({ ...f, estimated_duration_minutes: detail.value }))
+                }
+                placeholder="e.g. 120"
+              />
+            </FormField>
+          </SpaceBetween>
+        </SpaceBetween>
+      </Modal>
+
+      {/* ── Contact Modal ── */}
+      <Modal
+        visible={contactModalOpen}
+        onDismiss={() => setContactModalOpen(false)}
+        header={editingContact ? 'Edit contact' : 'Add contact'}
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => setContactModalOpen(false)}>Cancel</Button>
+              <Button
+                variant="primary"
+                loading={savingContact}
+                disabled={!contactForm.contact_name.trim()}
+                onClick={handleSaveContact}
+              >
+                Save
+              </Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="m">
+          <SpaceBetween direction="horizontal" size="m">
+            <FormField label="Name">
+              <Input
+                value={contactForm.contact_name}
+                onChange={({ detail }) => setContactForm((f) => ({ ...f, contact_name: detail.value }))}
+              />
+            </FormField>
+            <FormField label="Title">
+              <Input
+                value={contactForm.title}
+                onChange={({ detail }) => setContactForm((f) => ({ ...f, title: detail.value }))}
+              />
+            </FormField>
+          </SpaceBetween>
+          <FormField label="Email">
+            <Input
+              type="email"
+              value={contactForm.email}
+              onChange={({ detail }) => setContactForm((f) => ({ ...f, email: detail.value }))}
+            />
+          </FormField>
+          <SpaceBetween direction="horizontal" size="m">
+            <FormField label="Phone">
+              <Input
+                type="tel"
+                value={contactForm.phone}
+                onChange={({ detail }) => setContactForm((f) => ({ ...f, phone: detail.value }))}
+              />
+            </FormField>
+            <FormField label="Mobile">
+              <Input
+                type="tel"
+                value={contactForm.mobile}
+                onChange={({ detail }) => setContactForm((f) => ({ ...f, mobile: detail.value }))}
+              />
+            </FormField>
+          </SpaceBetween>
+          <FormField label="Notes">
+            <Textarea
+              value={contactForm.notes}
+              onChange={({ detail }) => setContactForm((f) => ({ ...f, notes: detail.value }))}
+              rows={3}
             />
           </FormField>
         </SpaceBetween>
