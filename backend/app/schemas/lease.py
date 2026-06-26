@@ -29,6 +29,35 @@ class LeaseNoteResponse(BaseModel):
 
 # --- Shared accounting fields mixin ---
 
+# Accepted code values for the short, length-bounded enum-style columns. Free
+# text (e.g. AI-extracted "ASC 842 / IFRS 16") that does not match is coerced to
+# None rather than allowed to overflow the column and 500 the request.
+_ACCOUNTING_STANDARDS = {"asc842", "ifrs16", "both"}
+_LEASE_CLASSIFICATIONS = {"operating", "finance"}
+_PAYMENT_FREQUENCIES = {"monthly", "quarterly", "annually"}
+
+
+def _coerce_enum(value: object, allowed: set[str]) -> str | None:
+    """Lower-case and validate against ``allowed``; return None when invalid."""
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    return normalized if normalized in allowed else None
+
+
+def _cap_length(value: object, max_length: int) -> str | None:
+    """Trim a free-text value to ``max_length`` chars so it fits its column.
+
+    AI-extracted or free-text values can exceed the underlying varchar limit and
+    cause a database StringDataRightTruncation (HTTP 500). Capping keeps the
+    lease create/update path resilient while preserving the leading content.
+    """
+    if value is None:
+        return None
+    text = str(value)
+    return text[:max_length]
+
+
 class _LeaseAccountingFields(BaseModel):
     lease_commencement_date: date | None = None
     accounting_standard: str | None = None          # 'asc842' | 'ifrs16' | 'both'
@@ -55,8 +84,42 @@ class _LeaseAccountingFields(BaseModel):
             return None
         return normalize_currency_code(str(value))
 
+    @field_validator("accounting_standard", mode="before")
+    @classmethod
+    def _normalize_accounting_standard(cls, value: object) -> str | None:
+        return _coerce_enum(value, _ACCOUNTING_STANDARDS)
 
-class LeaseCreate(_LeaseAccountingFields):
+    @field_validator("lease_classification", mode="before")
+    @classmethod
+    def _normalize_lease_classification(cls, value: object) -> str | None:
+        return _coerce_enum(value, _LEASE_CLASSIFICATIONS)
+
+    @field_validator("payment_frequency", mode="before")
+    @classmethod
+    def _normalize_payment_frequency(cls, value: object) -> str | None:
+        return _coerce_enum(value, _PAYMENT_FREQUENCIES)
+
+
+class _LeaseBoundedTextMixin(BaseModel):
+    """Caps free-text fields backed by length-bounded varchar columns.
+
+    AI-extracted values (e.g. a full notice clause pasted into ``notice_period``)
+    can exceed the column limit and raise a database StringDataRightTruncation
+    (HTTP 500) on create/update. Capping keeps the request resilient.
+    """
+
+    @field_validator("lease_name", mode="before", check_fields=False)
+    @classmethod
+    def _cap_lease_name(cls, value: object) -> object:
+        return _cap_length(value, 255)
+
+    @field_validator("notice_period", mode="before", check_fields=False)
+    @classmethod
+    def _cap_notice_period(cls, value: object) -> object:
+        return _cap_length(value, 255)
+
+
+class LeaseCreate(_LeaseAccountingFields, _LeaseBoundedTextMixin):
     office_id: uuid.UUID | None = None
     lease_name: str
     manager_id: uuid.UUID | None = None
@@ -71,7 +134,7 @@ class LeaseCreate(_LeaseAccountingFields):
     expiration_year: int
 
 
-class LeaseUpdate(_LeaseAccountingFields):
+class LeaseUpdate(_LeaseAccountingFields, _LeaseBoundedTextMixin):
     office_id: uuid.UUID | None = None
     lease_name: str | None = None
     manager_id: uuid.UUID | None = None

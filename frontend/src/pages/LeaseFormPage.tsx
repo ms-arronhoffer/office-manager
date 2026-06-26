@@ -85,6 +85,14 @@ function normalizeCurrencyCode(value: string | undefined): string | undefined {
   return letters ? letters.slice(0, 3) : undefined;
 }
 
+// Trim a free-text / AI-extracted value to the backend column limit so it can
+// never overflow the varchar column and 500 the lease create/update request
+// (mirrors backend _cap_length in app/schemas/lease.py).
+function capLength(value: string | undefined, maxLength: number): string | undefined {
+  if (value === undefined) return undefined;
+  return value.slice(0, maxLength);
+}
+
 const ACCOUNTING_STD_OPTIONS: SelectOption[] = [
   { label: 'ASC 842 (US GAAP)', value: 'asc842' },
   { label: 'IFRS 16', value: 'ifrs16' },
@@ -401,10 +409,10 @@ const LeaseFormPage: React.FC = () => {
 
     setForm((f) => ({
       ...f,
-      lease_name: str(suggested.lease_name) ?? f.lease_name,
+      lease_name: capLength(str(suggested.lease_name), 255) ?? f.lease_name,
       lessor_name: str(suggested.lessor_name) ?? f.lessor_name,
       lease_expiration: str(suggested.lease_expiration) ?? f.lease_expiration,
-      notice_period: str(suggested.notice_period) ?? f.notice_period,
+      notice_period: capLength(str(suggested.notice_period), 255) ?? f.notice_period,
       notice_period_days: num(suggested.notice_period_days) ?? f.notice_period_days,
       lease_notice_date: str(suggested.lease_notice_date) ?? f.lease_notice_date,
       expiration_year: num(suggested.expiration_year) ?? f.expiration_year,
