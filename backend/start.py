@@ -105,11 +105,24 @@ def _initialize_schema() -> None:
 
 
 def _ensure_default_admin() -> None:
-    """Create the default admin user on first boot so the app is immediately usable."""
+    """Create the default admin user on first boot so the app is immediately usable.
+
+    The default admin is a platform super-admin (matching ``seed/run_seed.py``).
+    On a fresh database the schema is built via ``create_all`` and Alembic is
+    stamped at head, so migration 036 (which promotes ``role='admin'`` accounts
+    to super-admin) never actually runs — therefore the super-admin flag must be
+    set here explicitly. An existing default admin that predates this is healed
+    to super-admin so restarting the container is enough to recover access.
+    """
     with Session(sync_engine) as session:
         existing = session.query(User).filter_by(email=settings.DEFAULT_ADMIN_EMAIL).first()
         if existing:
-            print(f"[start] Admin user already exists: {settings.DEFAULT_ADMIN_EMAIL}")
+            if not existing.is_super_admin:
+                existing.is_super_admin = True
+                session.commit()
+                print(f"[start] Promoted existing default admin to super-admin: {settings.DEFAULT_ADMIN_EMAIL}")
+            else:
+                print(f"[start] Admin user already exists: {settings.DEFAULT_ADMIN_EMAIL}")
             return
         admin = User(
             email=settings.DEFAULT_ADMIN_EMAIL,
@@ -118,11 +131,12 @@ def _ensure_default_admin() -> None:
             auth_provider="internal",
             role="admin",
             is_active=True,
+            is_super_admin=True,
             organization_id=DEFAULT_ORG_ID,
         )
         session.add(admin)
         session.commit()
-        print(f"[start] Created default admin user: {settings.DEFAULT_ADMIN_EMAIL}")
+        print(f"[start] Created default super-admin user: {settings.DEFAULT_ADMIN_EMAIL}")
 
 
 def _ensure_default_org() -> None:
