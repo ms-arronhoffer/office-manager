@@ -1064,6 +1064,7 @@ import type {
   AbstractSuggestResult,
   AISummaryResult,
   LeaseDocumentSearchResult,
+  LeaseIndexedDocumentsResult,
   LeaseDocumentTextResult,
   WaiverTemplateCreate,
   WaiverTemplateUpdate,
@@ -1104,11 +1105,20 @@ export const ai = {
       { responseType: 'blob' },
     ),
 
-  searchLeaseDocuments: (leaseId: string, query: string, limit = 10) =>
+  searchLeaseDocuments: (
+    leaseId: string,
+    query: string,
+    limit = 10,
+    attachmentId?: string | null,
+  ) =>
     client.post<LeaseDocumentSearchResult>(`/leases/${leaseId}/document-search`, {
       query,
       limit,
+      attachment_id: attachmentId ?? null,
     }),
+
+  listLeaseDocuments: (leaseId: string) =>
+    client.get<LeaseIndexedDocumentsResult>(`/leases/${leaseId}/documents`),
 
   searchAllLeaseDocuments: (query: string, limit = 10) =>
     client.post<LeaseDocumentSearchResult>('/leases/document-search', { query, limit }),

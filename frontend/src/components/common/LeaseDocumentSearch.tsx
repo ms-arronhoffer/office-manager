@@ -4,13 +4,19 @@ import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Button from '@cloudscape-design/components/button';
 import Input from '@cloudscape-design/components/input';
+import Select from '@cloudscape-design/components/select';
+import type { SelectProps } from '@cloudscape-design/components/select';
 import Box from '@cloudscape-design/components/box';
 import Alert from '@cloudscape-design/components/alert';
 import Badge from '@cloudscape-design/components/badge';
 import Grid from '@cloudscape-design/components/grid';
 import Spinner from '@cloudscape-design/components/spinner';
 import { ai } from '@/api';
-import type { LeaseDocumentSearchMatch, LeaseDocumentTextResult } from '@/types';
+import type {
+  LeaseDocumentSearchMatch,
+  LeaseDocumentTextResult,
+  LeaseIndexedDocument,
+} from '@/types';
 
 interface Props {
   leaseId: string;
@@ -101,6 +107,12 @@ const LeaseDocumentSearch: React.FC<Props> = ({ leaseId, canEdit }) => {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
+  // Which uploaded document to search within. The 'all' sentinel searches every
+  // indexed document in the lease.
+  const ALL_DOCUMENTS = 'all';
+  const [documents, setDocuments] = useState<LeaseIndexedDocument[]>([]);
+  const [scope, setScope] = useState<string>(ALL_DOCUMENTS);
+
   const [preview, setPreview] = useState<LeaseDocumentTextResult | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -113,6 +125,44 @@ const LeaseDocumentSearch: React.FC<Props> = ({ leaseId, canEdit }) => {
 
   const terms = useMemo(() => queryTerms(submittedQuery), [submittedQuery]);
 
+  // Load the list of searchable (indexed) documents so the user can pick which
+  // one to search. Refreshed after a reindex so newly indexed files appear.
+  const loadDocuments = useCallback(async () => {
+    try {
+      const res = await ai.listLeaseDocuments(leaseId);
+      setDocuments(res.data.documents);
+      // If the previously selected document is gone, fall back to "all".
+      setScope((prev) =>
+        prev === ALL_DOCUMENTS ||
+        res.data.documents.some((d) => d.attachment_id === prev)
+          ? prev
+          : ALL_DOCUMENTS,
+      );
+    } catch {
+      setDocuments([]);
+    }
+  }, [leaseId]);
+
+  useEffect(() => {
+    loadDocuments();
+  }, [loadDocuments]);
+
+  const documentOptions: SelectProps.Option[] = useMemo(
+    () => [
+      { value: ALL_DOCUMENTS, label: 'All documents' },
+      ...documents
+        .filter((d) => d.attachment_id)
+        .map((d) => ({
+          value: d.attachment_id as string,
+          label: d.source_filename,
+        })),
+    ],
+    [documents],
+  );
+
+  const selectedScopeOption =
+    documentOptions.find((o) => o.value === scope) ?? documentOptions[0];
+
   const runSearch = async () => {
     const trimmed = query.trim();
     if (!trimmed) return;
@@ -122,7 +172,8 @@ const LeaseDocumentSearch: React.FC<Props> = ({ leaseId, canEdit }) => {
     setPreview(null);
     setPreviewError(null);
     try {
-      const res = await ai.searchLeaseDocuments(leaseId, trimmed);
+      const attachmentId = scope === ALL_DOCUMENTS ? null : scope;
+      const res = await ai.searchLeaseDocuments(leaseId, trimmed, 10, attachmentId);
       setMatches(res.data.matches);
       setSubmittedQuery(trimmed);
       setSelectedIndex(res.data.matches.length > 0 ? 0 : null);
@@ -140,6 +191,7 @@ const LeaseDocumentSearch: React.FC<Props> = ({ leaseId, canEdit }) => {
     try {
       const res = await ai.reindexLeaseDocuments(leaseId);
       setInfo(`Indexed ${res.data.chunks_indexed} text chunk(s) from this lease's documents.`);
+      await loadDocuments();
     } catch {
       setError('Failed to rebuild the document index.');
     } finally {
@@ -220,6 +272,13 @@ const LeaseDocumentSearch: React.FC<Props> = ({ leaseId, canEdit }) => {
     >
       <SpaceBetween size="m">
         <SpaceBetween direction="horizontal" size="xs">
+          <Select
+            selectedOption={selectedScopeOption}
+            onChange={({ detail }) => setScope(detail.selectedOption.value ?? ALL_DOCUMENTS)}
+            options={documentOptions}
+            disabled={documents.length === 0}
+            ariaLabel="Document to search"
+          />
           <Input
             value={query}
             onChange={({ detail }) => setQuery(detail.value)}

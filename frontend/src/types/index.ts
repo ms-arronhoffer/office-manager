@@ -1670,6 +1670,17 @@ export interface LeaseDocumentSearchResult {
   matches: LeaseDocumentSearchMatch[];
 }
 
+export interface LeaseIndexedDocument {
+  attachment_id: string | null;
+  source_filename: string;
+  chunk_count: number;
+}
+
+export interface LeaseIndexedDocumentsResult {
+  lease_id: string;
+  documents: LeaseIndexedDocument[];
+}
+
 export interface LeaseDocumentTextResult {
   attachment_id: string;
   source_filename: string;

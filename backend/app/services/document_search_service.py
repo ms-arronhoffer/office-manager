@@ -20,7 +20,7 @@ import math
 import re
 import uuid
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.attachment import Attachment
@@ -186,6 +186,7 @@ async def search_documents(
     organization_id: uuid.UUID | None,
     query: str,
     lease_id: uuid.UUID | None = None,
+    attachment_id: uuid.UUID | None = None,
     limit: int = 10,
     collapse_per_lease: bool | None = None,
 ) -> list[dict]:
@@ -193,6 +194,10 @@ async def search_documents(
 
     Uses semantic (embedding) ranking when AI is configured and embedded chunks
     exist; otherwise falls back to a keyword ``ILIKE`` scan.
+
+    When ``attachment_id`` is supplied the search is restricted to that single
+    uploaded document, so the caller can pick which document to search when a
+    lease has several attached.
 
     By default results are grouped so at most one (best) match per lease is
     returned. When ``collapse_per_lease`` is ``False`` — which is the implicit
@@ -205,9 +210,9 @@ async def search_documents(
         return []
 
     if collapse_per_lease is None:
-        # A single-lease search shows every hit; portfolio search collapses to
-        # one best match per lease.
-        collapse_per_lease = lease_id is None
+        # A single-lease (or single-document) search shows every hit; portfolio
+        # search collapses to one best match per lease.
+        collapse_per_lease = lease_id is None and attachment_id is None
 
     query_embedding: list[float] | None = None
     if ai_service.is_configured():
@@ -225,6 +230,7 @@ async def search_documents(
             query=query,
             query_embedding=query_embedding,
             lease_id=lease_id,
+            attachment_id=attachment_id,
             limit=limit,
             collapse_per_lease=collapse_per_lease,
         )
@@ -237,6 +243,7 @@ async def search_documents(
         organization_id=organization_id,
         query=query,
         lease_id=lease_id,
+        attachment_id=attachment_id,
         limit=limit,
         collapse_per_lease=collapse_per_lease,
     )
@@ -249,6 +256,7 @@ async def _semantic_rank(
     query: str,
     query_embedding: list[float],
     lease_id: uuid.UUID | None,
+    attachment_id: uuid.UUID | None,
     limit: int,
     collapse_per_lease: bool,
 ) -> list[dict]:
@@ -259,6 +267,8 @@ async def _semantic_rank(
         stmt = stmt.where(LeaseDocumentChunk.organization_id == organization_id)
     if lease_id is not None:
         stmt = stmt.where(LeaseDocumentChunk.lease_id == lease_id)
+    if attachment_id is not None:
+        stmt = stmt.where(LeaseDocumentChunk.attachment_id == attachment_id)
     chunks = (await db.execute(stmt)).scalars().all()
     if not chunks:
         return []
@@ -279,6 +289,7 @@ async def _keyword_rank(
     organization_id: uuid.UUID | None,
     query: str,
     lease_id: uuid.UUID | None,
+    attachment_id: uuid.UUID | None,
     limit: int,
     collapse_per_lease: bool,
 ) -> list[dict]:
@@ -295,6 +306,8 @@ async def _keyword_rank(
         stmt = stmt.where(LeaseDocumentChunk.organization_id == organization_id)
     if lease_id is not None:
         stmt = stmt.where(LeaseDocumentChunk.lease_id == lease_id)
+    if attachment_id is not None:
+        stmt = stmt.where(LeaseDocumentChunk.attachment_id == attachment_id)
     stmt = stmt.limit(limit * 10)
     chunks = (await db.execute(stmt)).scalars().all()
 
@@ -415,6 +428,45 @@ async def get_document_text(
         return {**base, "text": None, "extractable": False}
 
     return {**base, "text": text, "extractable": True}
+
+
+async def list_indexed_documents(
+    db: AsyncSession,
+    *,
+    lease_id: uuid.UUID,
+    organization_id: uuid.UUID | None,
+) -> list[dict]:
+    """Return the distinct documents that have been indexed for ``lease_id``.
+
+    Powers the "search in" document picker: only documents with searchable
+    indexed text are listed, each with its attachment id, filename and the
+    number of indexed chunks. Documents whose text could not be extracted (and
+    so were never indexed) are intentionally omitted because they are not
+    searchable.
+    """
+    stmt = (
+        select(
+            LeaseDocumentChunk.attachment_id,
+            func.min(LeaseDocumentChunk.source_filename).label("source_filename"),
+            func.count(LeaseDocumentChunk.id).label("chunk_count"),
+        )
+        .where(LeaseDocumentChunk.lease_id == lease_id)
+        .group_by(LeaseDocumentChunk.attachment_id)
+    )
+    if organization_id is not None:
+        stmt = stmt.where(LeaseDocumentChunk.organization_id == organization_id)
+
+    rows = (await db.execute(stmt)).all()
+    documents = [
+        {
+            "attachment_id": str(attachment_id) if attachment_id else None,
+            "source_filename": source_filename,
+            "chunk_count": int(chunk_count),
+        }
+        for attachment_id, source_filename, chunk_count in rows
+    ]
+    documents.sort(key=lambda d: (d["source_filename"] or "").lower())
+    return documents
 
 
 async def reindex_lease_documents(db: AsyncSession, lease: Lease) -> int:
