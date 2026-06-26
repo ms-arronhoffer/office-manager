@@ -27,7 +27,7 @@ from app.database import get_db
 from app.models.lease import Lease
 from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.user import User
-from app.services import ai_service
+from app.services import ai_service, document_extraction
 from app.services.lease_abstract_catalog import CLAUSE_CATEGORIES
 
 router = APIRouter()
@@ -134,8 +134,27 @@ async def parse_lease(
     intentionally **not** gated behind ``ai_assist``.
     """
     content, mime_type = await _read_document(file)
+    ext = Path(file.filename or "").suffix.lower()
+
+    text_content: str | None = None
+    if ext in _TEXT_EXTRACT_EXTS:
+        # Gemini cannot read Word/text bytes inline; extract plain text first.
+        try:
+            text_content = document_extraction.extract_text(content, file.filename or "")
+        except document_extraction.UnsupportedDocumentError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        except document_extraction.DocumentExtractionError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        if not text_content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The document did not contain any readable text.",
+            )
+
     try:
-        suggested = await ai_service.parse_lease_document(content, mime_type)
+        suggested = await ai_service.parse_lease_document(
+            content, mime_type, text_content=text_content
+        )
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
     return LeaseParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)

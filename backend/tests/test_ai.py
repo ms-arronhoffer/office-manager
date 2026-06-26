@@ -55,7 +55,7 @@ async def test_basic_lease_parse_allowed_on_starter(client, db_session, monkeypa
     """Basic lease ingestion must work on every tier (not gated by ai_assist)."""
     headers = await _make_org_user(db_session, "starter", "starter@test.com")
 
-    async def fake_parse(content, mime_type):
+    async def fake_parse(content, mime_type, *, text_content=None):
         return {"lessor_name": "Acme", "lease_commencement": "2024-01-01"}
 
     monkeypatch.setattr(ai_service, "parse_lease_document", fake_parse)
@@ -69,7 +69,7 @@ async def test_basic_lease_parse_allowed_on_starter(client, db_session, monkeypa
 async def test_basic_lease_parse_degrades_when_unconfigured(client, db_session, monkeypatch):
     headers = await _make_org_user(db_session, "starter", "starter2@test.com")
 
-    async def fake_parse(content, mime_type):
+    async def fake_parse(content, mime_type, *, text_content=None):
         raise ai_service.AIUnavailableError("AI assist is not configured")
 
     monkeypatch.setattr(ai_service, "parse_lease_document", fake_parse)
@@ -113,3 +113,59 @@ async def test_abstract_suggest_gated_for_starter(client, db_session):
         files={"file": _doc()},
     )
     assert resp.status_code == 402, resp.text
+
+
+def _make_docx_bytes(text: str) -> bytes:
+    import docx
+
+    document = docx.Document()
+    document.add_paragraph(text)
+    buf = io.BytesIO()
+    document.save(buf)
+    return buf.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_lease_parse_accepts_docx_and_extracts_text(client, db_session, monkeypatch):
+    """A .docx upload must be turned into text and passed to the model."""
+    headers = await _make_org_user(db_session, "starter", "docx@test.com")
+
+    captured: dict[str, object] = {}
+
+    async def fake_parse(content, mime_type, *, text_content=None):
+        captured["mime_type"] = mime_type
+        captured["text_content"] = text_content
+        return {"lessor_name": "Acme Properties"}
+
+    monkeypatch.setattr(ai_service, "parse_lease_document", fake_parse)
+
+    docx_bytes = _make_docx_bytes("Lessor: Acme Properties. Base Rent: $5,000/mo.")
+    files = {
+        "file": (
+            "lease.docx",
+            io.BytesIO(docx_bytes),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+    }
+    resp = await client.post("/api/v1/ai/leases/parse", headers=headers, files=files)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["suggested"]["lessor_name"] == "Acme Properties"
+    # The model received extracted text, not raw bytes.
+    assert captured["text_content"] is not None
+    assert "Acme Properties" in captured["text_content"]
+
+
+@pytest.mark.asyncio
+async def test_lease_parse_rejects_legacy_doc(client, db_session, monkeypatch):
+    """Legacy .doc cannot be extracted in-process; expect a clear 400."""
+    headers = await _make_org_user(db_session, "starter", "legacydoc@test.com")
+
+    async def fake_parse(content, mime_type, *, text_content=None):  # pragma: no cover
+        raise AssertionError("parse should not be reached for .doc")
+
+    monkeypatch.setattr(ai_service, "parse_lease_document", fake_parse)
+
+    files = {"file": ("lease.doc", io.BytesIO(b"\xd0\xcf\x11\xe0 legacy"), "application/msword")}
+    resp = await client.post("/api/v1/ai/leases/parse", headers=headers, files=files)
+    assert resp.status_code == 400, resp.text
+    assert ".docx" in resp.json()["detail"].lower() or "convert" in resp.json()["detail"].lower()
