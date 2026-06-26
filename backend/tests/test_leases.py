@@ -413,9 +413,9 @@ async def test_create_lease_succeeds_when_search_vector_column_missing(
             yield session
 
     app.dependency_overrides[get_db] = _fresh_db
-    async with _test_engine.begin() as conn:
-        await conn.execute(text("ALTER TABLE leases DROP COLUMN IF EXISTS search_vector"))
     try:
+        async with _test_engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE leases DROP COLUMN IF EXISTS search_vector"))
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             resp = await ac.post(
