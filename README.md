@@ -135,6 +135,15 @@ Open `http://localhost:3000` and log in with the default admin credentials:
 
 > **Important**: Change the default admin password immediately after first login.
 
+The default admin (`admin@officemanager.local`) is a platform **super-admin**. To provision an additional dedicated super-admin, run:
+
+```bash
+docker compose exec backend python create_superadmin.py \
+  --email ops@example.com --password "<strong-password>" --name "Ops Admin"
+```
+
+The command creates a new super-admin or, if the email already exists, promotes that account (and resets its password when `--password` is supplied).
+
 The super-admin management interface is available at `http://localhost:4001`. Super-admin accounts require TOTP two-factor authentication — see [docs/MFA_SETUP.md](docs/MFA_SETUP.md).
 
 ### 5. Verify
