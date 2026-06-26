@@ -15,6 +15,7 @@ import Input from '@cloudscape-design/components/input';
 import { vendors as vendorsApi, vendorPortalInternal } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
 import { useFlashbar } from '@/context/FlashbarContext';
+import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import ContactsPanel from '@/components/common/ContactsPanel';
 import { formatAddress } from '@/components/common/AddressFields';
@@ -33,6 +34,7 @@ const VendorDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { addFlash } = useFlashbar();
+  const { confirmDelete, modal: deleteModal } = useConfirmDelete();
   const canEdit = user?.role === 'admin' || user?.role === 'editor';
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
@@ -112,7 +114,9 @@ const VendorDetailPage: React.FC = () => {
   }
 
   return (
-    <ContentLayout
+    <>
+      {deleteModal}
+      <ContentLayout
       header={
         <SpaceBetween size="m">
           <BreadcrumbGroup
@@ -131,7 +135,7 @@ const VendorDetailPage: React.FC = () => {
               canEdit ? (
                 <SpaceBetween direction="horizontal" size="xs">
                   <Button onClick={() => navigate(`/vendors/${id}/edit`)}>Edit</Button>
-                  <Button variant="normal" onClick={handleDelete}>Delete</Button>
+                  <Button variant="normal" onClick={() => confirmDelete({ itemName: vendor.company_name, onConfirm: handleDelete })}>Delete</Button>
                 </SpaceBetween>
               ) : undefined
             }
@@ -259,6 +263,7 @@ const VendorDetailPage: React.FC = () => {
         )}
       </SpaceBetween>
     </ContentLayout>
+    </>
   );
 };
 

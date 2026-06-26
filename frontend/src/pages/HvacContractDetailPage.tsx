@@ -14,6 +14,7 @@ import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
 import { hvacContracts as hvacContractsApi } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
 import { useFlashbar } from '@/context/FlashbarContext';
+import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import type { HvacContract } from '@/types';
 
@@ -38,6 +39,7 @@ const HvacContractDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { addFlash } = useFlashbar();
+  const { confirmDelete, modal: deleteModal } = useConfirmDelete();
   const [contract, setContract] = useState<HvacContract | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +100,7 @@ const HvacContractDetailPage: React.FC = () => {
 
   return (
     <>
+      {deleteModal}
       <ContentLayout
         header={
           <SpaceBetween size="m">
@@ -120,7 +123,7 @@ const HvacContractDetailPage: React.FC = () => {
               actions={
                 <SpaceBetween direction="horizontal" size="xs">
                   <Button onClick={() => navigate(`/hvac-contracts/${id}/edit`)}>Edit</Button>
-                  <Button onClick={handleDelete}>Delete</Button>
+                  <Button onClick={() => confirmDelete({ itemName: contract.hvac_company || 'HVAC Contract', onConfirm: handleDelete })}>Delete</Button>
                 </SpaceBetween>
               }
             >

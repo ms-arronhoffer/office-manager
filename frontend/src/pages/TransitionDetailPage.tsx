@@ -17,6 +17,7 @@ import Input from '@cloudscape-design/components/input';
 import { transitions as transitionsApi } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
 import { useFlashbar } from '@/context/FlashbarContext';
+import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import type { Transition } from '@/types';
 
@@ -52,6 +53,7 @@ const TransitionDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { addFlash } = useFlashbar();
+  const { confirmDelete, modal: deleteModal } = useConfirmDelete();
 
   const [transition, setTransition] = useState<Transition | null>(null);
   const [loading, setLoading] = useState(true);
@@ -193,6 +195,7 @@ const TransitionDetailPage: React.FC = () => {
 
   return (
     <>
+      {deleteModal}
       <ContentLayout
         header={
           <SpaceBetween size="m">
@@ -214,7 +217,7 @@ const TransitionDetailPage: React.FC = () => {
                   <Button onClick={fetchTransition} iconName="refresh" />
                   <Button
                     variant="normal"
-                    onClick={handleDelete}
+                    onClick={() => confirmDelete({ itemName: pageTitle, onConfirm: handleDelete })}
                   >
                     Delete
                   </Button>
