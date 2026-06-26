@@ -51,6 +51,12 @@ def _ensure_search_vector_columns() -> None:
     """
     with sync_engine.begin() as conn:
         for table, source in _SEARCH_VECTOR_SOURCES.items():
+            # Guard the interpolated identifiers against an unexpected key. These
+            # come from module-level constants, but validating against the
+            # registered ORM tables documents intent and prevents a typo here
+            # from emitting unintended DDL.
+            if table not in Base.metadata.tables:
+                raise RuntimeError(f"[start] Unknown table for search_vector setup: {table}")
             conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS search_vector tsvector"))
             conn.execute(text(f"UPDATE {table} SET search_vector = to_tsvector('english', {source})"))
             index = _SEARCH_VECTOR_INDEXES[table]

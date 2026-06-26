@@ -439,6 +439,13 @@ async def test_create_lease_succeeds_when_search_vector_column_missing(
             await conn.execute(
                 text("ALTER TABLE leases ADD COLUMN IF NOT EXISTS search_vector tsvector")
             )
+            # Restore migration 018's GIN index dropped with the column.
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_leases_fts ON leases "
+                    "USING GIN(search_vector) WHERE search_vector IS NOT NULL"
+                )
+            )
         app.dependency_overrides.pop(get_db, None)
 
 
@@ -487,5 +494,12 @@ async def test_update_lease_succeeds_when_search_vector_column_missing(
         async with _test_engine.begin() as conn:
             await conn.execute(
                 text("ALTER TABLE leases ADD COLUMN IF NOT EXISTS search_vector tsvector")
+            )
+            # Restore migration 018's GIN index dropped with the column.
+            await conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS idx_leases_fts ON leases "
+                    "USING GIN(search_vector) WHERE search_vector IS NOT NULL"
+                )
             )
         app.dependency_overrides.pop(get_db, None)
