@@ -55,6 +55,19 @@ class Office(SoftDeleteMixin, TimestampMixin, Base):
     headcount_capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     current_headcount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     space_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Property Owner — the legal owner of the property, which may differ from the
+    # landlord. When ``owner_same_as_landlord`` is true the owner details mirror
+    # the landlord and the client is expected to populate them accordingly.
+    owner_same_as_landlord: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    owner_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    owner_company: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    owner_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    owner_phone: Mapped[str | None] = mapped_column(Text, nullable=True)
+    owner_address_line_1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    owner_address_line_2: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    owner_city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    owner_state: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    owner_zip_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
     manager: Mapped["Manager | None"] = relationship(back_populates="offices")
     leases: Mapped[list["Lease"]] = relationship(back_populates="office")

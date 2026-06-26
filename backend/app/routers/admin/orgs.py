@@ -56,6 +56,7 @@ class OrgDetail(OrgListItem):
 
 
 class OrgPatch(BaseModel):
+    name: str | None = None
     plan: str | None = None
     is_active: bool | None = None
     max_seats: int | None = None
@@ -303,6 +304,14 @@ async def patch_org(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
 
     data = payload.model_dump(exclude_unset=True)
+    if "name" in data:
+        new_name = (data["name"] or "").strip()
+        if not new_name:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Organization name cannot be empty.",
+            )
+        data["name"] = new_name
     if "plan" in data and data["plan"] not in ent.PLAN_CATALOG:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

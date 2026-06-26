@@ -21,6 +21,7 @@ import {
   offices as officesApi,
   managers as managersApi,
   attachments as attachmentsApi,
+  ai as aiApi,
 } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
 import AILeasePrefill from '@/components/common/AILeasePrefill';
@@ -96,6 +97,9 @@ const LeaseFormPage: React.FC = () => {
   const [selectedOffice, setSelectedOffice] = useState<SelectOption | null>(null);
   const [selectedManager, setSelectedManager] = useState<SelectOption | null>(null);
   const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
+  // The document the user ran AI extraction on; reused to pre-fill the lease
+  // abstract after the lease is created (best-effort, Pro+ only).
+  const [aiDocument, setAiDocument] = useState<File | null>(null);
 
   // Accounting / Financial Terms
   const [accountingStandard, setAccountingStandard] = useState<SelectOption | null>(null);
@@ -180,6 +184,66 @@ const LeaseFormPage: React.FC = () => {
     fetchLease();
   }, [id, isEditing]);
 
+  /**
+   * Best-effort work that runs *after* a lease has been successfully created:
+   * upload any queued documents and, when the same document was AI-analysed,
+   * pre-fill the lease abstract from it. Returns human-readable warnings for any
+   * non-fatal failures so the caller can show them without implying the lease
+   * itself failed to save.
+   */
+  const finalizeLeaseCreation = async (newId: string): Promise<string[]> => {
+    const warnings: string[] = [];
+
+    const failed: string[] = [];
+    for (const qf of queuedFiles) {
+      try {
+        await attachmentsApi.upload('lease', newId, qf.file);
+      } catch {
+        failed.push(qf.file.name);
+      }
+    }
+    if (failed.length > 0) {
+      warnings.push(
+        `${failed.length} attachment(s) failed to upload (${failed.join(', ')}); re-upload them from the lease page.`,
+      );
+    }
+
+    // Pre-fill the lease abstract from the AI-analysed document. This requires
+    // the AI assist entitlement (Pro+) and a configured provider, so any
+    // failure here is silently tolerated and never blocks lease creation.
+    if (aiDocument) {
+      try {
+        const res = await aiApi.suggestAbstract(newId, aiDocument);
+        const suggested = res.data.suggested || {};
+        const results = await Promise.allSettled(
+          Object.entries(suggested).map(([categoryKey, value]) => {
+            const v = (value ?? {}) as { summary?: unknown; notes?: unknown };
+            const parts = [v.summary, v.notes]
+              .map((p) => (p === null || p === undefined ? '' : String(p).trim()))
+              .filter((p) => p.length > 0);
+            const text = parts.join('\n\n');
+            if (!text) return Promise.resolve(false);
+            // Resolve to true on success; swallow unknown-category / transient errors.
+            return leasesApi
+              .updateAbstractClause(newId, categoryKey, { notes: text })
+              .then(() => true)
+              .catch(() => false);
+          }),
+        );
+        const applied = results.filter(
+          (r) => r.status === 'fulfilled' && r.value === true,
+        ).length;
+        if (applied === 0) {
+          warnings.push('No abstract clauses could be pre-filled from the document.');
+        }
+      } catch {
+        // Not entitled / not configured / provider error: leave the abstract empty.
+      }
+    }
+
+    return warnings;
+  };
+
   const handleSubmit = async () => {
     if (!form.lease_name.trim()) {
       setError('Lease Name is required.');
@@ -225,20 +289,18 @@ const LeaseFormPage: React.FC = () => {
         await leasesApi.update(id, payload);
         navigate(`/leases/${id}`);
       } else {
+        // The lease itself must be created first. A failure *here* is the only
+        // thing that should surface as "Failed to create lease".
         const res = await leasesApi.create(payload);
         const newId = String(res.data.id);
-        const failed: string[] = [];
-        for (const qf of queuedFiles) {
-          try {
-            await attachmentsApi.upload('lease', newId, qf.file);
-          } catch {
-            failed.push(qf.file.name);
-          }
-        }
-        if (failed.length > 0) {
-          setError(
-            `Lease created, but ${failed.length} attachment(s) failed: ${failed.join(', ')}. Re-upload from the lease page.`,
-          );
+
+        // Everything below is best-effort post-creation work: attaching the
+        // uploaded document(s) and pre-filling the abstract. None of it should
+        // make a successfully-created lease look like a failure, so we collect
+        // warnings instead of throwing.
+        const warnings = await finalizeLeaseCreation(newId);
+        if (warnings.length > 0) {
+          setError(`Lease created. ${warnings.join(' ')}`);
         }
         navigate(`/leases/${newId}`);
       }
@@ -261,6 +323,9 @@ const LeaseFormPage: React.FC = () => {
   }
 
   const queueExtractedFile = (file: File) => {
+    // Remember the AI-analysed document so we can also pre-fill the lease
+    // abstract from it once the lease exists.
+    setAiDocument(file);
     setQueuedFiles((prev) => {
       // Avoid duplicating the same document if the user re-runs the extraction.
       if (prev.some((qf) => qf.file.name === file.name && qf.file.size === file.size)) {
@@ -273,18 +338,88 @@ const LeaseFormPage: React.FC = () => {
   const applyAISuggestions = (suggested: Record<string, unknown>) => {
     const str = (v: unknown): string | undefined =>
       v === null || v === undefined ? undefined : String(v);
+    // Normalise a money-ish value to a bare numeric string (strip symbols/commas).
+    const num = (v: unknown): string | undefined => {
+      const s = str(v);
+      if (s === undefined) return undefined;
+      const cleaned = s.replace(/[^0-9.-]/g, '');
+      return cleaned === '' ? undefined : cleaned;
+    };
+    // The AI returns rates as decimal fractions (0.03); the form edits percent.
+    const pct = (v: unknown): string | undefined => {
+      const cleaned = num(v);
+      if (cleaned === undefined) return undefined;
+      const n = parseFloat(cleaned);
+      if (Number.isNaN(n)) return undefined;
+      // Round to a sensible precision to avoid float noise (e.g. 0.045 -> 4.5).
+      return String(Math.round(n * 100 * 1e6) / 1e6);
+    };
+
     setForm((f) => ({
       ...f,
       lease_name: str(suggested.lease_name) ?? f.lease_name,
       lessor_name: str(suggested.lessor_name) ?? f.lessor_name,
       lease_expiration: str(suggested.lease_expiration) ?? f.lease_expiration,
       notice_period: str(suggested.notice_period) ?? f.notice_period,
+      notice_period_days: num(suggested.notice_period_days) ?? f.notice_period_days,
       lease_notice_date: str(suggested.lease_notice_date) ?? f.lease_notice_date,
+      expiration_year: num(suggested.expiration_year) ?? f.expiration_year,
     }));
-    const commencement = str(suggested.lease_commencement) ?? str(suggested.commencement_date);
+
+    const commencement =
+      str(suggested.lease_commencement_date) ??
+      str(suggested.lease_commencement) ??
+      str(suggested.commencement_date);
     if (commencement) setCommencementDate(commencement);
-    const rent = str(suggested.monthly_rent) ?? str(suggested.base_rent) ?? str(suggested.rent);
-    if (rent) setPaymentAmount(rent.replace(/[^0-9.]/g, ''));
+
+    // ── Financial / accounting terms ──────────────────────────────────────────
+    const rent =
+      num(suggested.payment_amount) ??
+      num(suggested.monthly_rent) ??
+      num(suggested.base_rent) ??
+      num(suggested.rent);
+    if (rent !== undefined) setPaymentAmount(rent);
+
+    const freq = str(suggested.payment_frequency)?.toLowerCase();
+    const freqOption = FREQUENCY_OPTIONS.find((o) => o.value === freq);
+    if (freqOption) setPaymentFrequency(freqOption);
+
+    const escalation = pct(suggested.annual_escalation_rate);
+    if (escalation !== undefined) setAnnualEscalationRate(escalation);
+
+    const borrowing = pct(suggested.incremental_borrowing_rate);
+    if (borrowing !== undefined) setIncrementalBorrowingRate(borrowing);
+
+    const idc = num(suggested.initial_direct_costs);
+    if (idc !== undefined) setInitialDirectCosts(idc);
+
+    const incentives = num(suggested.lease_incentives);
+    if (incentives !== undefined) setLeaseIncentives(incentives);
+
+    const prepaid = num(suggested.prepaid_rent);
+    if (prepaid !== undefined) setPrepaidRent(prepaid);
+
+    const residual = num(suggested.residual_value_guarantee);
+    if (residual !== undefined) setResidualValueGuarantee(residual);
+
+    const standard = str(suggested.accounting_standard)?.toLowerCase();
+    const standardOption = ACCOUNTING_STD_OPTIONS.find((o) => o.value === standard);
+    if (standardOption) setAccountingStandard(standardOption);
+
+    const classification = str(suggested.lease_classification)?.toLowerCase();
+    if (classification === 'operating' || classification === 'finance') {
+      setLeaseClassification(classification);
+    }
+
+    const cur = str(suggested.currency);
+    if (cur) setCurrency(cur.toUpperCase());
+
+    if (typeof suggested.is_short_term_lease === 'boolean') {
+      setIsShortTermLease(suggested.is_short_term_lease);
+    }
+    if (typeof suggested.is_low_value_lease === 'boolean') {
+      setIsLowValueLease(suggested.is_low_value_lease);
+    }
   };
 
   return (

@@ -72,6 +72,7 @@ export default function OrgDetailPage() {
   const [copied, setCopied] = useState(false)
 
   // Form state
+  const [name, setName] = useState("")
   const [plan, setPlan] = useState("")
   const [paymentStatus, setPaymentStatus] = useState("")
   const [maxSeats, setMaxSeats] = useState<number | null>(0)
@@ -85,6 +86,7 @@ export default function OrgDetailPage() {
       try {
         const orgData = await getOrg(orgId)
         setOrg(orgData)
+        setName(orgData.name)
         setPlan(orgData.plan)
         setPaymentStatus(orgData.payment_status)
         setMaxSeats(orgData.max_seats)
@@ -117,7 +119,14 @@ export default function OrgDetailPage() {
     if (!org) return
     setSaving(true)
     try {
+      const trimmedName = name.trim()
+      if (!trimmedName) {
+        setError("Organization name cannot be empty")
+        setSaving(false)
+        return
+      }
       const updated = await patchOrg(org.id, {
+        name: trimmedName,
         plan,
         payment_status: paymentStatus,
         max_seats: maxSeats,
@@ -125,6 +134,7 @@ export default function OrgDetailPage() {
         entitlement_overrides: overrides,
       })
       setOrg(updated)
+      setName(updated.name)
       setOverrides({ ...(updated.entitlement_overrides || {}) })
       setError("")
     } catch {
@@ -223,6 +233,16 @@ export default function OrgDetailPage() {
               </div>
 
               <div className="border-t pt-6 space-y-4">
+                <div>
+                  <Label htmlFor="org-name">Name</Label>
+                  <Input
+                    id="org-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="mt-2"
+                  />
+                </div>
+
                 <div>
                   <Label htmlFor="plan">Plan</Label>
                   <Select value={plan} onValueChange={setPlan}>

@@ -37,6 +37,7 @@ export interface AdminOrgDetail extends AdminOrg {
 }
 
 export interface OrgPatch {
+  name?: string;
   plan?: string;
   is_active?: boolean;
   max_seats?: number | null;
