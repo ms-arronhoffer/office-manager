@@ -140,7 +140,7 @@ def _aware(dt: datetime | None) -> datetime | None:
 
 
 def _sign_url(token: str) -> str:
-    return f"{settings.FRONTEND_URL.rstrip('/')}/waivers/sign/{token}"
+    return f"{settings.FRONTEND_URL.rstrip('/')}/sign/{token}"
 
 
 def _request_response(req: WaiverRequest, *, include_url: bool = False) -> WaiverRequestResponse:
