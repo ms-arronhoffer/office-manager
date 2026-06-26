@@ -165,7 +165,10 @@ async def create_landlord(
 
     await db.commit()
     await db.refresh(landlord)
-    await log_activity(db, user=current_user, action="created", entity_type="landlord", entity_id=landlord.id, entity_label=landlord.landlord_company or landlord.contact_name or "Landlord")
+    try:
+        await log_activity(db, user=current_user, action="created", entity_type="landlord", entity_id=landlord.id, entity_label=landlord.landlord_company or landlord.contact_name or "Landlord")
+    except Exception:
+        pass
     try:
         await update_search_vector(db, "landlords", landlord.id)
     except Exception:
@@ -201,7 +204,10 @@ async def update_landlord(
 
     await db.commit()
     changes = compute_changes(old_values, update_data)
-    await log_activity(db, user=current_user, action="updated", entity_type="landlord", entity_id=landlord.id, entity_label=landlord.landlord_company or landlord.contact_name or "Landlord", changes=changes)
+    try:
+        await log_activity(db, user=current_user, action="updated", entity_type="landlord", entity_id=landlord.id, entity_label=landlord.landlord_company or landlord.contact_name or "Landlord", changes=changes)
+    except Exception:
+        pass
     try:
         await update_search_vector(db, "landlords", landlord.id)
     except Exception:
@@ -229,7 +235,10 @@ async def delete_landlord(
     landlord.is_deleted = True
     landlord.deleted_at = _utcnow()
     await db.commit()
-    await log_activity(db, user=current_user, action="deleted", entity_type="landlord", entity_id=landlord_id, entity_label=label)
+    try:
+        await log_activity(db, user=current_user, action="deleted", entity_type="landlord", entity_id=landlord_id, entity_label=label)
+    except Exception:
+        pass
 
 
 @router.patch("/{landlord_id}/restore", response_model=LandlordResponse)
@@ -246,7 +255,10 @@ async def restore_landlord(
     landlord.deleted_at = None
     await db.commit()
     label = landlord.landlord_company or landlord.contact_name or "Landlord"
-    await log_activity(db, user=current_user, action="updated", entity_type="landlord", entity_id=landlord_id, entity_label=label)
+    try:
+        await log_activity(db, user=current_user, action="updated", entity_type="landlord", entity_id=landlord_id, entity_label=label)
+    except Exception:
+        pass
     result = await db.execute(
         select(Landlord)
         .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices), joinedload(Landlord.management_company_ref))

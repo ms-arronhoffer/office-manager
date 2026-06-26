@@ -18,6 +18,7 @@ import { useFlashbar } from '@/context/FlashbarContext';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import ContactsPanel from '@/components/common/ContactsPanel';
 import { formatAddress } from '@/components/common/AddressFields';
+import { copyToClipboard } from '@/utils/clipboard';
 import type { Vendor } from '@/types';
 
 const ValuePair: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
@@ -227,7 +228,15 @@ const VendorDetailPage: React.FC = () => {
                   <Button
                     iconName="copy"
                     variant="normal"
-                    onClick={() => navigator.clipboard.writeText(portalLink)}
+                    onClick={async () => {
+                      const ok = await copyToClipboard(portalLink);
+                      addFlash({
+                        type: ok ? 'success' : 'error',
+                        content: ok
+                          ? 'Portal link copied to clipboard.'
+                          : 'Could not copy automatically. Select the link and copy it manually.',
+                      });
+                    }}
                   >
                     Copy
                   </Button>
