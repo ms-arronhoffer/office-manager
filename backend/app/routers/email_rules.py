@@ -60,7 +60,7 @@ class EmailLogResponse(BaseModel):
 
 # ── Rule Types ────────────────────────────────────────────────────────
 
-VALID_RULE_TYPES = ["lease_expiration", "lease_notice_date", "hvac_service", "hq_pm", "high_priority_ticket"]
+VALID_RULE_TYPES = ["lease_expiration", "lease_notice_date", "hvac_service", "hq_pm", "high_priority_ticket", "ai_briefing"]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────

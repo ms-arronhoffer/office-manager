@@ -16,8 +16,8 @@ import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +27,7 @@ from app.database import get_db
 from app.models.lease import Lease
 from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.user import User
-from app.services import ai_service, document_extraction
+from app.services import ai_service, document_extraction, report_export
 from app.services.lease_abstract_catalog import CLAUSE_CATEGORIES
 
 router = APIRouter()
@@ -58,8 +58,15 @@ class SummaryResponse(BaseModel):
     period: str
     period_label: str
     narrative: str
+    narrative_html: str
     data: dict
     model: str
+
+
+class SummaryExportRequest(BaseModel):
+    narrative: str = Field(min_length=1)
+    period_label: str = "Operations Briefing"
+    format: str = "pdf"  # 'pdf' | 'docx'
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -315,6 +322,46 @@ async def summary_report(
         period=period,
         period_label=period_label,
         narrative=narrative,
+        narrative_html=report_export.markdown_to_html(narrative),
         data=data,
         model=settings.GEMINI_MODEL,
+    )
+
+
+@router.post(
+    "/reports/summary/export",
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def export_summary_report(
+    payload: SummaryExportRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Render a briefing's Markdown to a downloadable PDF or DOCX file."""
+    fmt = payload.format.lower()
+    if fmt not in report_export.EXPORT_FORMATS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported format '{payload.format}'. Use one of: "
+            f"{', '.join(report_export.EXPORT_FORMATS)}.",
+        )
+
+    safe_label = "".join(
+        c if c.isalnum() or c in ("-", "_") else "_" for c in payload.period_label
+    ).strip("_") or "briefing"
+
+    if fmt == "pdf":
+        content = report_export.markdown_to_pdf(payload.narrative, title=payload.period_label)
+        media_type = "application/pdf"
+        filename = f"{safe_label}.pdf"
+    else:
+        content = report_export.markdown_to_docx(payload.narrative, title=payload.period_label)
+        media_type = (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        filename = f"{safe_label}.docx"
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
