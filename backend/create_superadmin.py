@@ -38,8 +38,11 @@ def create_superadmin(email: str, password: str | None, display_name: str) -> No
             return
 
         if not password:
-            sys.exit("A new account requires --password.")
+            sys.exit("Error: --password is required when creating a new account.")
 
+        # Platform super-admins are intentionally not tied to an organization;
+        # they bypass org-scoped checks (see app/auth/dependencies.py). Leaving
+        # organization_id null keeps the account org-agnostic.
         user = User(
             email=email,
             display_name=display_name,
