@@ -1,4 +1,5 @@
 import pytest
+from decimal import Decimal
 from tests.conftest import auth_headers
 
 
@@ -283,3 +284,102 @@ async def test_update_lease_caps_long_notice_period(client, admin_user, sample_o
     )
     assert resp.status_code == 200, resp.text
     assert len(resp.json()["notice_period"]) == 255
+
+
+@pytest.mark.asyncio
+async def test_create_lease_drops_out_of_range_numeric_fields(
+    client, admin_user, sample_office
+):
+    """Out-of-range AI-extracted numbers must not overflow the NUMERIC columns.
+
+    Rates are ``Numeric(8, 6)`` (max 2 integer digits) and monetary amounts are
+    ``Numeric(15, 2)``. A rate >= 100 or an absurdly large amount previously
+    raised a database NumericValueOutOfRange error, surfacing as a 500 on POST
+    /leases and silently blocking the document attachment and abstract pre-fill
+    that run only after a successful create. Such values are coerced to None.
+    """
+    resp = await client.post(
+        "/api/v1/leases",
+        headers=auth_headers(admin_user),
+        json={
+            "lease_name": "Overflow Lease",
+            "office_id": str(sample_office.id),
+            "expiration_year": 2039,
+            "annual_escalation_rate": 100,
+            "incremental_borrowing_rate": 250,
+            "payment_amount": 99999999999999999,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["annual_escalation_rate"] is None
+    assert data["incremental_borrowing_rate"] is None
+    assert data["payment_amount"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_lease_parses_freetext_numeric_fields(
+    client, admin_user, sample_office
+):
+    """Free-text numbers ("$1,250.50") must parse, and junk must coerce to None."""
+    resp = await client.post(
+        "/api/v1/leases",
+        headers=auth_headers(admin_user),
+        json={
+            "lease_name": "Freetext Numeric Lease",
+            "office_id": str(sample_office.id),
+            "expiration_year": 2040,
+            "payment_amount": "$1,250.50",
+            "initial_direct_costs": "N/A",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert Decimal(data["payment_amount"]) == Decimal("1250.50")
+    assert data["initial_direct_costs"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_lease_preserves_valid_numeric_fields(
+    client, admin_user, sample_office
+):
+    resp = await client.post(
+        "/api/v1/leases",
+        headers=auth_headers(admin_user),
+        json={
+            "lease_name": "Valid Numeric Lease",
+            "office_id": str(sample_office.id),
+            "expiration_year": 2041,
+            "annual_escalation_rate": 0.03,
+            "incremental_borrowing_rate": 0.045,
+            "payment_amount": 12500.50,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert Decimal(data["annual_escalation_rate"]) == Decimal("0.030000")
+    assert Decimal(data["incremental_borrowing_rate"]) == Decimal("0.045000")
+    assert Decimal(data["payment_amount"]) == Decimal("12500.50")
+
+
+@pytest.mark.asyncio
+async def test_update_lease_drops_out_of_range_rate(client, admin_user, sample_office):
+    create = await client.post(
+        "/api/v1/leases",
+        headers=auth_headers(admin_user),
+        json={
+            "lease_name": "Update Numeric Lease",
+            "office_id": str(sample_office.id),
+            "expiration_year": 2042,
+        },
+    )
+    assert create.status_code == 201, create.text
+    lease_id = create.json()["id"]
+
+    resp = await client.put(
+        f"/api/v1/leases/{lease_id}",
+        headers=auth_headers(admin_user),
+        json={"annual_escalation_rate": 100},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["annual_escalation_rate"] is None

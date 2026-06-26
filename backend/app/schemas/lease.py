@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pydantic import BaseModel, field_validator
 from app.schemas.office import ManagerResponse
 from app.utils.currency import normalize_currency_code
@@ -58,6 +58,53 @@ def _cap_length(value: object, max_length: int) -> str | None:
     return text[:max_length]
 
 
+def _coerce_decimal(value: object, integer_digits: int, scale: int) -> Decimal | None:
+    """Parse a free-text / AI-extracted number and drop out-of-range values.
+
+    Lease financial columns are length-bounded ``NUMERIC`` types (e.g.
+    ``Numeric(8, 6)`` for rates, ``Numeric(15, 2)`` for money). AI-extracted or
+    free-text values can be non-numeric (``"$1,200"``, ``"3%"``) or exceed the
+    column's representable magnitude, which raises a database
+    ``NumericValueOutOfRange`` (HTTP 500) on the lease create/update INSERT and
+    silently blocks the document attachment and abstract pre-fill that run only
+    after a successful create. Returning ``None`` for unparseable or
+    out-of-range input keeps the request resilient, consistent with the
+    free-text capping and enum coercion above.
+
+    ``integer_digits`` is the number of digits allowed before the decimal point
+    (``precision - scale``); a value whose absolute magnitude rounds to
+    ``>= 10 ** integer_digits`` cannot be stored and is dropped.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        # bool is an int subclass; never treat it as a numeric amount.
+        return None
+    if isinstance(value, str):
+        cleaned = value.strip().replace(",", "").replace("$", "").replace("%", "").strip()
+        if not cleaned:
+            return None
+        candidate: object = cleaned
+    else:
+        candidate = value
+    try:
+        result = Decimal(str(candidate))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+    if not result.is_finite():
+        return None
+    # Quantize to the column scale so the integer-digit check matches what
+    # Postgres would store after rounding (e.g. 99.9999995 -> 100.000000).
+    quantizer = Decimal(1).scaleb(-scale)
+    try:
+        rounded = result.quantize(quantizer)
+    except InvalidOperation:
+        return None
+    if rounded.copy_abs() >= Decimal(10) ** integer_digits:
+        return None
+    return rounded
+
+
 class _LeaseAccountingFields(BaseModel):
     lease_commencement_date: date | None = None
     accounting_standard: str | None = None          # 'asc842' | 'ifrs16' | 'both'
@@ -98,6 +145,29 @@ class _LeaseAccountingFields(BaseModel):
     @classmethod
     def _normalize_payment_frequency(cls, value: object) -> str | None:
         return _coerce_enum(value, _PAYMENT_FREQUENCIES)
+
+    # Rates are stored as Numeric(8, 6): max 2 integer digits, 6 decimal places.
+    @field_validator(
+        "annual_escalation_rate",
+        "incremental_borrowing_rate",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_rate(cls, value: object) -> Decimal | None:
+        return _coerce_decimal(value, integer_digits=2, scale=6)
+
+    # Monetary amounts are stored as Numeric(15, 2): max 13 integer digits.
+    @field_validator(
+        "payment_amount",
+        "initial_direct_costs",
+        "lease_incentives",
+        "prepaid_rent",
+        "residual_value_guarantee",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_money(cls, value: object) -> Decimal | None:
+        return _coerce_decimal(value, integer_digits=13, scale=2)
 
 
 class _LeaseBoundedTextMixin(BaseModel):
