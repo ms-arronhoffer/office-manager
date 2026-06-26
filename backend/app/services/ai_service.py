@@ -176,7 +176,8 @@ LEASE_PARSE_SYSTEM = (
     "(YYYY-MM-DD). Do not invent values."
 )
 
-# The fields we ask Gemini to populate map directly onto LeaseCreate.
+# The fields we ask Gemini to populate map directly onto LeaseCreate (including
+# the ASC 842 / IFRS 16 accounting & financial terms).
 LEASE_PARSE_FIELDS = {
     "lease_name": "Short human name for the lease, e.g. tenant or suite",
     "lessor_name": "The landlord / lessor legal name",
@@ -185,25 +186,55 @@ LEASE_PARSE_FIELDS = {
     "lease_notice_date": "Date by which renewal/termination notice must be given (YYYY-MM-DD)",
     "notice_period": "Notice period as written, e.g. '90 days'",
     "notice_period_days": "Notice period in whole days (integer)",
+    "expiration_year": "Year the lease expires (integer)",
+    # ── Accounting & financial terms (ASC 842 / IFRS 16) ──────────────────────
     "payment_amount": "Base rent amount per payment period (number)",
     "payment_frequency": "One of monthly, quarterly, annually",
     "annual_escalation_rate": "Annual rent escalation as a decimal fraction, e.g. 0.03",
-    "expiration_year": "Year the lease expires (integer)",
+    "accounting_standard": "Accounting standard if stated: one of asc842, ifrs16, both",
+    "lease_classification": "Lease classification if determinable: operating or finance",
+    "incremental_borrowing_rate": "Incremental borrowing / discount rate as a decimal fraction, e.g. 0.045",
+    "initial_direct_costs": "Initial direct costs capitalised at commencement (number)",
+    "lease_incentives": "Lease incentives received from the lessor (number)",
+    "prepaid_rent": "Prepaid rent paid at or before commencement (number)",
+    "residual_value_guarantee": "Residual value guaranteed by the lessee (number)",
+    "is_short_term_lease": "True if the lease term is 12 months or less (boolean)",
+    "is_low_value_lease": "True if the underlying asset is low-value (boolean)",
+    "currency": "ISO 4217 currency code of the payments, e.g. USD",
 }
 
 
-async def parse_lease_document(content: bytes, mime_type: str) -> dict[str, Any]:
-    """Extract structured lease fields from a document (PDF/image/text).
+async def parse_lease_document(
+    content: bytes,
+    mime_type: str,
+    *,
+    text_content: str | None = None,
+) -> dict[str, Any]:
+    """Extract structured lease fields from a document.
+
+    For PDFs and images the raw bytes are sent inline (Gemini reads them
+    natively). For formats Gemini cannot parse directly (e.g. Word documents),
+    the caller extracts plain text first and passes it as ``text_content``; that
+    text is then sent in place of the inline document.
 
     Returns a dict whose keys are a subset of :class:`LeaseCreate` fields.
     """
     field_spec = "\n".join(f"- {k}: {v}" for k, v in LEASE_PARSE_FIELDS.items())
     prompt = (
-        "Extract the following fields from the attached lease document and "
+        "Extract the following fields from the lease document and "
         "return a single JSON object with exactly these keys:\n"
         f"{field_spec}\n"
     )
-    parts = [{"text": prompt}, _document_part(content, mime_type)]
+    if text_content is not None:
+        document = text_content[:MAX_TEXT_CHARS].strip()
+        if not document:
+            raise AIRequestError("The document did not contain any readable text.")
+        parts = [
+            {"text": prompt},
+            {"text": "\n\nLEASE DOCUMENT TEXT:\n" + document},
+        ]
+    else:
+        parts = [{"text": prompt}, _document_part(content, mime_type)]
     text = await _generate(
         parts, system_instruction=LEASE_PARSE_SYSTEM, json_response=True
     )

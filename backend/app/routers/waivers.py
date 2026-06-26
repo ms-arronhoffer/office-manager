@@ -13,6 +13,7 @@ Two routers are exported:
 """
 from __future__ import annotations
 
+import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -26,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user, require_role
 from app.config import settings
 from app.database import get_db
+from app.models.email import EmailLog
 from app.models.organization import Organization
 from app.models.entity_contact import EntityContact
 from app.models.user import User
@@ -39,6 +41,8 @@ from app.models.waiver import (
 from app.seeds.waiver_seed import seed_prebuilt_templates_for_org
 from app.services import waiver_service
 from app.utils.email_client import send_email
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 public_router = APIRouter()
@@ -430,7 +434,14 @@ async def send_waiver(
     await db.commit()
     await db.refresh(req)
 
-    # Best-effort email; failure to send must not roll back the created request.
+    # Email delivery is best-effort: a send failure must not roll back the
+    # created waiver request. But the outcome must be observable — silently
+    # swallowing errors is why "waiver email isn't working" was undiagnosable —
+    # so we capture send_email's result, log it, and record an EmailLog row
+    # (mirroring the weekly-summary email flow) for the in-app email log viewer.
+    email_subject = f"Signature requested: {tpl.name}"
+    sent = False
+    error_detail: str | None = None
     try:
         sign_url = _sign_url(token)
         html = (
@@ -440,9 +451,40 @@ async def send_waiver(
             f"<p><a href=\"{sign_url}\">Review and sign the document</a></p>"
             f"<p>This link expires on {req.expires_at:%B %d, %Y}.</p>"
         )
-        await send_email(normalized_email, f"Signature requested: {tpl.name}", html)
-    except Exception:  # pragma: no cover - email best-effort
-        pass
+        sent = bool(await send_email(normalized_email, email_subject, html))
+        if not sent:
+            error_detail = (
+                "send_email returned False — SMTP is not configured "
+                "(SMTP_HOST unset) or the provider rejected the message."
+            )
+            logger.warning(
+                "Waiver email not delivered to %s for request %s: %s",
+                normalized_email,
+                req.id,
+                error_detail,
+            )
+    except Exception as exc:  # pragma: no cover - email best-effort
+        error_detail = str(exc)
+        logger.exception(
+            "Waiver email send raised for %s (request %s)", normalized_email, req.id
+        )
+
+    # Persist an audit row. Wrapped defensively so a logging failure can never
+    # poison the session or mask the successfully created waiver request.
+    try:
+        db.add(
+            EmailLog(
+                rule_id=None,
+                sent_to=normalized_email,
+                subject=email_subject,
+                body=error_detail,
+                status="sent" if sent else "failed",
+            )
+        )
+        await db.commit()
+    except Exception:
+        logger.exception("Failed to write waiver EmailLog for request %s", req.id)
+        await db.rollback()
 
     return _request_response(req, include_url=True)
 

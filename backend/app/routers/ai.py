@@ -99,7 +99,12 @@ _MIME_BY_EXT = {
     ".jpeg": "image/jpeg",
     ".tif": "image/tiff",
     ".tiff": "image/tiff",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+
+# Extensions whose bytes Gemini cannot read inline — we extract text first.
+_TEXT_EXTRACT_EXTS = {".docx", ".doc", ".txt"}
 
 
 def _ai_error_response(exc: ai_service.AIError) -> HTTPException:

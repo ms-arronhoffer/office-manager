@@ -306,3 +306,45 @@ async def test_recipient_search(client, db_session, monkeypatch):
     assert res.status_code == 200, res.text
     emails = [r["email"] for r in res.json()]
     assert "marie.curie@example.com" in emails
+
+
+@pytest.mark.asyncio
+async def test_waiver_send_records_email_log(client, db_session, monkeypatch):
+    """A waiver send must record an EmailLog row so delivery is observable."""
+    import app.routers.waivers as waivers_router
+
+    sent_calls = []
+
+    async def fake_send_email(to, subject, html):
+        sent_calls.append((to, subject))
+        return True  # simulate a successful delivery
+
+    monkeypatch.setattr(waivers_router, "send_email", fake_send_email)
+
+    headers = await _make_org_user(db_session, "pro", "emaillog@w.com")
+    template_id = await _create_template(client, headers)
+
+    resp = await client.post(
+        "/api/v1/waivers/send",
+        headers=headers,
+        json={
+            "template_id": template_id,
+            "recipient_type": "visitor",
+            "recipient_email": "Logged.Person@Example.com",
+            "recipient_name": "Logged Person",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    # send_email was invoked with the normalized address.
+    assert sent_calls and sent_calls[0][0] == "logged.person@example.com"
+
+    from sqlalchemy import select
+    from app.models.email import EmailLog
+
+    logs = (
+        await db_session.execute(
+            select(EmailLog).where(EmailLog.sent_to == "logged.person@example.com")
+        )
+    ).scalars().all()
+    assert len(logs) == 1
+    assert logs[0].status == "sent"
