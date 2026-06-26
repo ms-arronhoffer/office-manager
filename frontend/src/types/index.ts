@@ -1649,8 +1649,24 @@ export interface AISummaryResult {
   period: string;
   period_label: string;
   narrative: string;
+  narrative_html: string;
   data: Record<string, unknown>;
   model: string;
+}
+
+export interface LeaseDocumentSearchMatch {
+  lease_id: string;
+  lease_name: string | null;
+  attachment_id: string | null;
+  source_filename: string;
+  snippet: string;
+  score: number;
+  match_type: string;
+}
+
+export interface LeaseDocumentSearchResult {
+  query: string;
+  matches: LeaseDocumentSearchMatch[];
 }
 
 // ─── Digital Waivers ──────────────────────────────────────────────────────────

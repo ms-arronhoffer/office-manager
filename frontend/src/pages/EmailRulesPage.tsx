@@ -205,7 +205,11 @@ const EmailRulesPage: React.FC = () => {
       id: 'days_before',
       header: 'Days Before',
       cell: (item: EmailReminderRule) =>
-        item.rule_type === 'high_priority_ticket' ? 'Immediately' : item.days_before,
+        item.rule_type === 'high_priority_ticket'
+          ? 'Immediately'
+          : item.rule_type === 'ai_briefing'
+            ? 'Weekly'
+            : item.days_before,
       sortingField: 'days_before',
     },
     {
@@ -409,6 +413,10 @@ const EmailRulesPage: React.FC = () => {
             {formData.rule_type === 'high_priority_ticket' ? (
               <FormField label="Timing">
                 <Box variant="p"><StatusIndicator type="info">Emails are sent immediately when a high-priority ticket is created.</StatusIndicator></Box>
+              </FormField>
+            ) : formData.rule_type === 'ai_briefing' ? (
+              <FormField label="Timing">
+                <Box variant="p"><StatusIndicator type="info">An AI operations briefing is emailed weekly (Monday morning) with PDF attached.</StatusIndicator></Box>
               </FormField>
             ) : (
               <FormField label="Days Before" description="How many days before the event to send the reminder.">

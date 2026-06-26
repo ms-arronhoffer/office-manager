@@ -85,6 +85,7 @@ async def list_rule_types(
         {"value": "hvac_service", "label": "HVAC Service Due"},
         {"value": "hq_pm", "label": "HQ PM Task Due"},
         {"value": "high_priority_ticket", "label": "High Priority Ticket Created"},
+        {"value": "ai_briefing", "label": "AI Operations Briefing (scheduled)"},
     ]
 
 

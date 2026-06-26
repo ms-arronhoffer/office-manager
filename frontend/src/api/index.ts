@@ -1063,6 +1063,7 @@ import type {
   LeaseParseResult,
   AbstractSuggestResult,
   AISummaryResult,
+  LeaseDocumentSearchResult,
   WaiverTemplate as WaiverTemplateType,
   WaiverTemplateCreate,
   WaiverTemplateUpdate,
@@ -1095,6 +1096,27 @@ export const ai = {
 
   summary: (period: 'weekly' | 'monthly') =>
     client.post<AISummaryResult>('/ai/reports/summary', { period }),
+
+  exportSummary: (narrative: string, periodLabel: string, format: 'pdf' | 'docx') =>
+    client.post<Blob>(
+      '/ai/reports/summary/export',
+      { narrative, period_label: periodLabel, format },
+      { responseType: 'blob' },
+    ),
+
+  searchLeaseDocuments: (leaseId: string, query: string, limit = 10) =>
+    client.post<LeaseDocumentSearchResult>(`/leases/${leaseId}/document-search`, {
+      query,
+      limit,
+    }),
+
+  searchAllLeaseDocuments: (query: string, limit = 10) =>
+    client.post<LeaseDocumentSearchResult>('/leases/document-search', { query, limit }),
+
+  reindexLeaseDocuments: (leaseId: string) =>
+    client.post<{ lease_id: string; chunks_indexed: number }>(
+      `/leases/${leaseId}/reindex-documents`,
+    ),
 };
 
 // ─── Digital Waivers (internal, gated) ───────────────────────────────────────
