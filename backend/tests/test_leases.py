@@ -157,3 +157,34 @@ async def test_update_lease_normalizes_long_currency(client, admin_user, sample_
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["currency"] == "EUR"
+
+
+@pytest.mark.asyncio
+async def test_update_lease_preserves_currency_when_not_provided(
+    client, admin_user, sample_office
+):
+    """Updating other fields must not reset the stored currency.
+
+    The currency schema field defaults to "USD", so the update path must rely on
+    exclude_unset to leave an existing currency untouched when it isn't sent.
+    """
+    create = await client.post(
+        "/api/v1/leases",
+        headers=auth_headers(admin_user),
+        json={
+            "lease_name": "Keep Currency Lease",
+            "office_id": str(sample_office.id),
+            "expiration_year": 2034,
+            "currency": "EUR",
+        },
+    )
+    assert create.status_code == 201, create.text
+    lease_id = create.json()["id"]
+
+    resp = await client.put(
+        f"/api/v1/leases/{lease_id}",
+        headers=auth_headers(admin_user),
+        json={"lease_name": "Keep Currency Lease (renamed)"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["currency"] == "EUR"

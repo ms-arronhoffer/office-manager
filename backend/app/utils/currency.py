@@ -1,4 +1,4 @@
-"""Normalisation helpers for currency codes.
+"""Normalization helpers for currency codes.
 
 AI lease ingestion (and free-text entry) can yield currency values such as
 ``"US Dollars"`` or ``"USD ($)"`` that do not fit the 3-character ``currency``
@@ -10,7 +10,9 @@ lease-create/update path from raising a database ``StringDataRightTruncation``
 import re
 
 # Common currency names / aliases mapped to their ISO 4217 code. Keys are
-# upper-cased and whitespace-collapsed before lookup.
+# upper-cased and whitespace-collapsed before lookup. A bare "DOLLAR"/"DOLLARS"
+# is assumed to mean USD (this is a US-centric app); callers that need CAD/AUD
+# should supply the explicit code or qualified name (e.g. "Canadian Dollar").
 _CURRENCY_NAME_MAP: dict[str, str] = {
     "US DOLLAR": "USD",
     "US DOLLARS": "USD",

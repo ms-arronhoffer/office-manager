@@ -41,7 +41,9 @@ function subtractDays(dateStr: string, days: number): string {
   return `${yr}-${mo}-${dy}`;
 }
 
-// Common currency names/aliases → ISO 4217 code (keys upper-cased).
+// Common currency names/aliases → ISO 4217 code (keys upper-cased). A bare
+// "DOLLAR"/"DOLLARS" is assumed to mean USD (US-centric app); CAD/AUD callers
+// should supply an explicit code or qualified name (mirrors backend).
 const CURRENCY_NAME_MAP: Record<string, string> = {
   'US DOLLAR': 'USD',
   'US DOLLARS': 'USD',
