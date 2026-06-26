@@ -15,6 +15,59 @@ from app.auth.password import hash_password
 
 DEFAULT_ORG_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
+# Full-text search artifacts that live in Alembic migration 018 but are NOT
+# represented on the ORM models, so ``Base.metadata.create_all`` never builds
+# them. The ``to_tsvector`` columns below are required by several create/update
+# endpoints (e.g. update_search_vector). On a fresh database we create the
+# schema via ``create_all`` and then ``alembic stamp head`` — which marks 018 as
+# applied without running it — so these must be created explicitly first, or
+# the columns are silently absent and writes that touch them 500. Keyed by
+# table, each value is the ``to_tsvector`` body used to populate the column.
+_SEARCH_VECTOR_SOURCES = {
+    "offices": "coalesce(location_name,'') || ' ' || coalesce(city,'') || ' ' || coalesce(notes,'')",
+    "leases": "coalesce(lease_name,'') || ' ' || coalesce(lessor_name,'')",
+    "maintenance_tickets": "coalesce(subject,'') || ' ' || coalesce(description,'')",
+    "landlords": "coalesce(landlord_company,'') || ' ' || coalesce(contact_name,'')",
+}
+
+# GIN index names mirror migration 018 so a later ``alembic upgrade`` is a no-op.
+_SEARCH_VECTOR_INDEXES = {
+    "offices": "idx_offices_fts",
+    "leases": "idx_leases_fts",
+    "maintenance_tickets": "idx_tickets_fts",
+    "landlords": "idx_landlords_fts",
+}
+
+
+def _ensure_search_vector_columns() -> None:
+    """Create the full-text ``search_vector`` columns/indexes idempotently.
+
+    Mirrors Alembic migration 018. Called on the fresh-database path after
+    ``create_all`` and before ``alembic stamp head`` so the migration-only
+    columns the ORM models do not declare are present; otherwise endpoints that
+    maintain them (offices/leases/landlords/maintenance create & update) raise a
+    database error *after* the row has already been committed, surfacing as a
+    spurious 500 (e.g. "Failed to create lease") even though the record persists.
+    """
+    with sync_engine.begin() as conn:
+        for table, source in _SEARCH_VECTOR_SOURCES.items():
+            # Guard the interpolated identifiers against an unexpected key. These
+            # come from module-level constants, but validating against the
+            # registered ORM tables documents intent and prevents a typo here
+            # from emitting unintended DDL.
+            if table not in Base.metadata.tables:
+                raise RuntimeError(f"[start] Unknown table for search_vector setup: {table}")
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS search_vector tsvector"))
+            conn.execute(text(f"UPDATE {table} SET search_vector = to_tsvector('english', {source})"))
+            index = _SEARCH_VECTOR_INDEXES[table]
+            conn.execute(
+                text(
+                    f"CREATE INDEX IF NOT EXISTS {index} ON {table} "
+                    "USING GIN(search_vector) WHERE search_vector IS NOT NULL"
+                )
+            )
+    print("[start] Ensured full-text search_vector columns/indexes exist.")
+
 
 def _run_alembic(*args: str) -> None:
     """Invoke the Alembic CLI from the backend root, passing the live DB URL."""
@@ -80,6 +133,11 @@ def _initialize_schema() -> None:
             sys.exit(f"[start] create_all did not create these tables: {sorted(missing)}")
 
         print("[start] Tables created. Stamping alembic at head...")
+        # ``create_all`` builds tables from the ORM models, which do not declare
+        # the migration-only full-text ``search_vector`` columns/indexes. Create
+        # them before stamping so endpoints that maintain them don't fail after a
+        # commit (a spurious 500 despite the row persisting).
+        _ensure_search_vector_columns()
         _run_alembic("stamp", "head")
         return
 
