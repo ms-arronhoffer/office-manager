@@ -11,17 +11,18 @@ import Button from '@cloudscape-design/components/button';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Container from '@cloudscape-design/components/container';
 import Toggle from '@cloudscape-design/components/toggle';
+import Checkbox from '@cloudscape-design/components/checkbox';
 import Spinner from '@cloudscape-design/components/spinner';
 import Alert from '@cloudscape-design/components/alert';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
 import Box from '@cloudscape-design/components/box';
 import Modal from '@cloudscape-design/components/modal';
-import { offices as officesApi, managers as managersApi, attachments as attachmentsApi, organizations as organizationsApi } from '@/api';
+import { offices as officesApi, managers as managersApi, attachments as attachmentsApi, organizations as organizationsApi, landlords as landlordsApi } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
 import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
 import { ManagerQuickCreate } from '@/components/common/QuickCreateForms';
 import AddressFields, { type StructuredAddress } from '@/components/common/AddressFields';
-import type { OfficeCreate, Manager } from '@/types';
+import type { OfficeCreate, Manager, Landlord } from '@/types';
 
 const OFFICE_TYPE_OPTIONS = [
   { label: 'Branch', value: 'Branch' },
@@ -64,6 +65,16 @@ const emptyForm = (): OfficeFormState => ({
   headcount_capacity: '',
   current_headcount: '',
   space_type: '',
+  owner_same_as_landlord: false,
+  owner_name: '',
+  owner_company: '',
+  owner_email: '',
+  owner_phone: '',
+  owner_address_line_1: '',
+  owner_address_line_2: '',
+  owner_city: '',
+  owner_state: '',
+  owner_zip_code: '',
 });
 
 type FieldErrors = Partial<Record<keyof OfficeFormState, string>>;
@@ -80,6 +91,7 @@ const OfficeFormPage: React.FC = () => {
   const [managers, setManagers] = useState<{ label: string; value: string }[]>([]);
   const [form, setForm] = useState<OfficeFormState>(emptyForm);
   const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
+  const [officeLandlord, setOfficeLandlord] = useState<Landlord | null>(null);
   const [planLimitModal, setPlanLimitModal] = useState(false);
   const [orgPlan, setOrgPlan] = useState<string>('starter');
   const [officeCount, setOfficeCount] = useState(0);
@@ -142,6 +154,16 @@ const OfficeFormPage: React.FC = () => {
           headcount_capacity: o.headcount_capacity != null ? String(o.headcount_capacity) : '',
           current_headcount: o.current_headcount != null ? String(o.current_headcount) : '',
           space_type: o.space_type ?? '',
+          owner_same_as_landlord: o.owner_same_as_landlord ?? false,
+          owner_name: o.owner_name ?? '',
+          owner_company: o.owner_company ?? '',
+          owner_email: o.owner_email ?? '',
+          owner_phone: o.owner_phone ?? '',
+          owner_address_line_1: o.owner_address_line_1 ?? '',
+          owner_address_line_2: o.owner_address_line_2 ?? '',
+          owner_city: o.owner_city ?? '',
+          owner_state: o.owner_state ?? '',
+          owner_zip_code: o.owner_zip_code ?? '',
         });
       } catch {
         setError('Failed to load office data.');
@@ -151,6 +173,37 @@ const OfficeFormPage: React.FC = () => {
     };
     fetchOffice();
   }, [id, isEdit]);
+
+  // Load the office's primary landlord so the "same as landlord" checkbox can mirror its details.
+  useEffect(() => {
+    if (!isEdit || !id) return;
+    landlordsApi
+      .list({ office_id: id, page_size: 1 })
+      .then((res) => setOfficeLandlord(res.data.items?.[0] ?? null))
+      .catch(() => setOfficeLandlord(null));
+  }, [id, isEdit]);
+
+  // Map a landlord's contact/address details onto the owner form fields.
+  const ownerFieldsFromLandlord = (l: Landlord) => ({
+    owner_name: l.contact_name ?? '',
+    owner_company: l.landlord_company ?? l.office_name ?? '',
+    owner_email: l.contact_email ?? '',
+    owner_phone: l.contact_phone ?? '',
+    owner_address_line_1: l.address_line_1 ?? '',
+    owner_address_line_2: l.address_line_2 ?? '',
+    owner_city: l.city ?? '',
+    owner_state: l.state ?? '',
+    owner_zip_code: l.zip_code ?? '',
+  });
+
+  const handleSameAsLandlordToggle = (checked: boolean) => {
+    setForm((prev) => {
+      if (checked && officeLandlord) {
+        return { ...prev, owner_same_as_landlord: true, ...ownerFieldsFromLandlord(officeLandlord) };
+      }
+      return { ...prev, owner_same_as_landlord: checked };
+    });
+  };
 
   const setField = <K extends keyof OfficeFormState>(key: K, value: OfficeFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -204,6 +257,16 @@ const OfficeFormPage: React.FC = () => {
         headcount_capacity: form.headcount_capacity?.trim() ? parseInt(form.headcount_capacity, 10) : undefined,
         current_headcount: form.current_headcount?.trim() ? parseInt(form.current_headcount, 10) : undefined,
         space_type: form.space_type?.trim() || undefined,
+        owner_same_as_landlord: form.owner_same_as_landlord ?? false,
+        owner_name: form.owner_name?.trim() || undefined,
+        owner_company: form.owner_company?.trim() || undefined,
+        owner_email: form.owner_email?.trim() || undefined,
+        owner_phone: form.owner_phone?.trim() || undefined,
+        owner_address_line_1: form.owner_address_line_1?.trim() || undefined,
+        owner_address_line_2: form.owner_address_line_2?.trim() || undefined,
+        owner_city: form.owner_city?.trim() || undefined,
+        owner_state: form.owner_state?.trim() || undefined,
+        owner_zip_code: form.owner_zip_code?.trim() || undefined,
       };
 
       if (isEdit && id) {
@@ -515,6 +578,88 @@ const OfficeFormPage: React.FC = () => {
                     placeholder="Select space type"
                   />
                 </FormField>
+              </SpaceBetween>
+            </Container>
+
+            {/* ── Owners (the legal property owner may differ from the landlord) ── */}
+            <Container
+              header={
+                <Header
+                  variant="h2"
+                  description="The property owner may be a different party than the landlord."
+                >
+                  Owners
+                </Header>
+              }
+            >
+              <SpaceBetween size="m">
+                <Checkbox
+                  checked={form.owner_same_as_landlord ?? false}
+                  onChange={({ detail }) => handleSameAsLandlordToggle(detail.checked)}
+                  description={
+                    isEdit
+                      ? officeLandlord
+                        ? 'Populates the owner fields from this office\u2019s landlord.'
+                        : 'No landlord is associated with this office yet.'
+                      : 'Associate a landlord with the office first to copy their details.'
+                  }
+                  disabled={isEdit && !officeLandlord}
+                >
+                  Landlord is same as owner
+                </Checkbox>
+                <SpaceBetween direction="horizontal" size="l">
+                  <FormField label="Owner Name">
+                    <Input
+                      value={form.owner_name ?? ''}
+                      onChange={({ detail }) => setField('owner_name', detail.value)}
+                      disabled={form.owner_same_as_landlord}
+                    />
+                  </FormField>
+                  <FormField label="Owner Company">
+                    <Input
+                      value={form.owner_company ?? ''}
+                      onChange={({ detail }) => setField('owner_company', detail.value)}
+                      disabled={form.owner_same_as_landlord}
+                    />
+                  </FormField>
+                </SpaceBetween>
+                <SpaceBetween direction="horizontal" size="l">
+                  <FormField label="Owner Email">
+                    <Input
+                      type="email"
+                      value={form.owner_email ?? ''}
+                      onChange={({ detail }) => setField('owner_email', detail.value)}
+                      disabled={form.owner_same_as_landlord}
+                    />
+                  </FormField>
+                  <FormField label="Owner Phone">
+                    <Input
+                      value={form.owner_phone ?? ''}
+                      onChange={({ detail }) => setField('owner_phone', detail.value)}
+                      disabled={form.owner_same_as_landlord}
+                    />
+                  </FormField>
+                </SpaceBetween>
+                <AddressFields
+                  value={{
+                    address_line_1: form.owner_address_line_1 ?? '',
+                    address_line_2: form.owner_address_line_2 ?? '',
+                    city: form.owner_city ?? '',
+                    state: form.owner_state ?? '',
+                    zip_code: form.owner_zip_code ?? '',
+                  }}
+                  onChange={(addr: StructuredAddress) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      owner_address_line_1: addr.address_line_1,
+                      owner_address_line_2: addr.address_line_2,
+                      owner_city: addr.city,
+                      owner_state: addr.state,
+                      owner_zip_code: addr.zip_code,
+                    }))
+                  }
+                  disabled={form.owner_same_as_landlord}
+                />
               </SpaceBetween>
             </Container>
 

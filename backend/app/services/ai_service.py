@@ -201,7 +201,7 @@ LEASE_PARSE_FIELDS = {
     "notice_period_days": "Notice period in whole days (integer)",
     "expiration_year": "Year the lease expires (integer)",
     # ── Accounting & financial terms (ASC 842 / IFRS 16) ──────────────────────
-    "payment_amount": "Base rent for a SINGLE payment period as a plain number (no symbols/commas). Convert annual rent to the per-period amount that matches payment_frequency",
+    "payment_amount": "Base rent for a SINGLE payment period as a plain number (no symbols/commas), matching payment_frequency",
     "payment_frequency": "Billing cadence of the base rent: one of monthly, quarterly, annually",
     "annual_escalation_rate": "Annual rent escalation as a decimal fraction, e.g. 0.03 for 3%",
     "accounting_standard": "Accounting standard if stated: one of asc842, ifrs16, both",

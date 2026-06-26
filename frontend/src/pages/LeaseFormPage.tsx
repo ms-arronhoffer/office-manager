@@ -215,21 +215,24 @@ const LeaseFormPage: React.FC = () => {
       try {
         const res = await aiApi.suggestAbstract(newId, aiDocument);
         const suggested = res.data.suggested || {};
-        let applied = 0;
-        for (const [categoryKey, value] of Object.entries(suggested)) {
-          const v = (value ?? {}) as { summary?: unknown; notes?: unknown };
-          const parts = [v.summary, v.notes]
-            .map((p) => (p === null || p === undefined ? '' : String(p).trim()))
-            .filter((p) => p.length > 0);
-          const text = parts.join('\n\n');
-          if (!text) continue;
-          try {
-            await leasesApi.updateAbstractClause(newId, categoryKey, { notes: text });
-            applied += 1;
-          } catch {
-            // Unknown category key or transient error — skip this clause.
-          }
-        }
+        const results = await Promise.allSettled(
+          Object.entries(suggested).map(([categoryKey, value]) => {
+            const v = (value ?? {}) as { summary?: unknown; notes?: unknown };
+            const parts = [v.summary, v.notes]
+              .map((p) => (p === null || p === undefined ? '' : String(p).trim()))
+              .filter((p) => p.length > 0);
+            const text = parts.join('\n\n');
+            if (!text) return Promise.resolve(false);
+            // Resolve to true on success; swallow unknown-category / transient errors.
+            return leasesApi
+              .updateAbstractClause(newId, categoryKey, { notes: text })
+              .then(() => true)
+              .catch(() => false);
+          }),
+        );
+        const applied = results.filter(
+          (r) => r.status === 'fulfilled' && r.value === true,
+        ).length;
         if (applied === 0) {
           warnings.push('No abstract clauses could be pre-filled from the document.');
         }

@@ -52,6 +52,17 @@ class OfficeCreate(BaseModel):
     headcount_capacity: int | None = None
     current_headcount: int | None = None
     space_type: str | None = None
+    # Property owner (may differ from landlord)
+    owner_same_as_landlord: bool = False
+    owner_name: str | None = None
+    owner_company: str | None = None
+    owner_email: str | None = None
+    owner_phone: str | None = None
+    owner_address_line_1: str | None = None
+    owner_address_line_2: str | None = None
+    owner_city: str | None = None
+    owner_state: str | None = None
+    owner_zip_code: str | None = None
 
 
 class OfficeUpdate(BaseModel):
@@ -81,6 +92,17 @@ class OfficeUpdate(BaseModel):
     headcount_capacity: int | None = None
     current_headcount: int | None = None
     space_type: str | None = None
+    # Property owner (may differ from landlord)
+    owner_same_as_landlord: bool | None = None
+    owner_name: str | None = None
+    owner_company: str | None = None
+    owner_email: str | None = None
+    owner_phone: str | None = None
+    owner_address_line_1: str | None = None
+    owner_address_line_2: str | None = None
+    owner_city: str | None = None
+    owner_state: str | None = None
+    owner_zip_code: str | None = None
 
 
 class OfficeResponse(BaseModel):
@@ -111,6 +133,17 @@ class OfficeResponse(BaseModel):
     headcount_capacity: int | None
     current_headcount: int | None
     space_type: str | None
+    # Property owner (may differ from landlord)
+    owner_same_as_landlord: bool = False
+    owner_name: str | None = None
+    owner_company: str | None = None
+    owner_email: str | None = None
+    owner_phone: str | None = None
+    owner_address_line_1: str | None = None
+    owner_address_line_2: str | None = None
+    owner_city: str | None = None
+    owner_state: str | None = None
+    owner_zip_code: str | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -174,6 +174,16 @@ export interface Office {
   headcount_capacity?: number;
   current_headcount?: number;
   space_type?: string;
+  owner_same_as_landlord?: boolean;
+  owner_name?: string;
+  owner_company?: string;
+  owner_email?: string;
+  owner_phone?: string;
+  owner_address_line_1?: string;
+  owner_address_line_2?: string;
+  owner_city?: string;
+  owner_state?: string;
+  owner_zip_code?: string;
   created_at: string;
   updated_at: string;
 }
@@ -202,6 +212,16 @@ export interface OfficeCreate {
   headcount_capacity?: number;
   current_headcount?: number;
   space_type?: string;
+  owner_same_as_landlord?: boolean;
+  owner_name?: string;
+  owner_company?: string;
+  owner_email?: string;
+  owner_phone?: string;
+  owner_address_line_1?: string;
+  owner_address_line_2?: string;
+  owner_city?: string;
+  owner_state?: string;
+  owner_zip_code?: string;
 }
 
 export interface OfficeUpdate extends Partial<OfficeCreate> {}
