@@ -330,6 +330,19 @@ async def create_lease(
     db.add(lease)
     await db.commit()
     await db.refresh(lease)
+
+    # Build the response while the session is still healthy and BEFORE the
+    # best-effort side effects below. A failure in log_activity/update_search_vector
+    # leaves the async session poisoned (even after rollback, subsequent IO raises
+    # MissingGreenlet), so querying afterwards would turn a successfully-committed
+    # lease into a spurious 500 ("Failed to create lease").
+    result = await db.execute(
+        select(Lease)
+        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes))
+        .where(Lease.id == lease.id)
+    )
+    response = LeaseResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
+
     try:
         await log_activity(db, user=current_user, action="created", entity_type="lease", entity_id=lease.id, entity_label=lease.lease_name)
     except Exception:
@@ -339,12 +352,7 @@ async def create_lease(
     except Exception:
         pass
 
-    result = await db.execute(
-        select(Lease)
-        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes))
-        .where(Lease.id == lease.id)
-    )
-    return LeaseResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
+    return response
 
 
 @router.put("/{lease_id}", response_model=LeaseResponse)
@@ -359,35 +367,38 @@ async def update_lease(
     if not lease:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
 
-    try:
-        update_data = payload.model_dump(exclude_unset=True)
-        old_values = {k: getattr(lease, k, None) for k in update_data}
-        for field, value in update_data.items():
-            if hasattr(lease, field):
-                setattr(lease, field, value)
+    update_data = payload.model_dump(exclude_unset=True)
+    old_values = {k: getattr(lease, k, None) for k in update_data}
+    for field, value in update_data.items():
+        if hasattr(lease, field):
+            setattr(lease, field, value)
 
-        await db.commit()
-        changes = compute_changes(old_values, update_data)
-        try:
-            await log_activity(db, user=current_user, action="updated", entity_type="lease", entity_id=lease.id, entity_label=lease.lease_name, changes=changes)
-        except Exception:
-            pass
-        try:
-            await update_search_vector(db, "leases", lease.id)
-        except Exception:
-            pass
+    await db.commit()
+    await db.refresh(lease)
+
+    # Build the response before the best-effort side effects below. A failure in
+    # log_activity/update_search_vector poisons the async session (subsequent IO
+    # raises MissingGreenlet even after rollback), so querying afterwards would
+    # turn a successfully-committed update into a spurious 500 ("Failed to update
+    # lease") even though the row persisted.
+    result = await db.execute(
+        select(Lease)
+        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes))
+        .where(Lease.id == lease_id, Lease.is_deleted.is_(False))
+    )
+    response = LeaseResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
+
+    changes = compute_changes(old_values, update_data)
+    try:
+        await log_activity(db, user=current_user, action="updated", entity_type="lease", entity_id=lease.id, entity_label=lease.lease_name, changes=changes)
+    except Exception:
+        pass
+    try:
+        await update_search_vector(db, "leases", lease.id)
     except Exception:
         pass
 
-    try:
-        result = await db.execute(
-            select(Lease)
-            .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes))
-            .where(Lease.id == lease_id, Lease.is_deleted.is_(False))
-        )
-        return LeaseResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
-    except Exception:
-        return LeaseResponse.model_validate(lease, from_attributes=True)
+    return response
 
 
 @router.delete("/{lease_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -459,17 +470,21 @@ async def clone_lease(
     db.add(new_lease)
     await db.commit()
     await db.refresh(new_lease)
-    try:
-        await log_activity(db, user=current_user, action="created", entity_type="lease", entity_id=new_lease.id, entity_label=new_lease.lease_name)
-    except Exception:
-        pass
 
+    # Build the response before the best-effort activity log (see create_lease).
     result = await db.execute(
         select(Lease)
         .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes))
         .where(Lease.id == new_lease.id)
     )
-    return LeaseResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
+    response = LeaseResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
+
+    try:
+        await log_activity(db, user=current_user, action="created", entity_type="lease", entity_id=new_lease.id, entity_label=new_lease.lease_name)
+    except Exception:
+        pass
+
+    return response
 
 
 @router.post("/{lease_id}/notes", response_model=LeaseNoteResponse, status_code=status.HTTP_201_CREATED)

@@ -383,3 +383,109 @@ async def test_update_lease_drops_out_of_range_rate(client, admin_user, sample_o
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["annual_escalation_rate"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_lease_succeeds_when_search_vector_column_missing(
+    admin_user,
+):
+    """A missing full-text ``search_vector`` column must not 500 the create.
+
+    On a fresh database the schema is built by ``create_all`` + ``alembic stamp
+    head``, which historically left migration 018's ORM-invisible
+    ``leases.search_vector`` column absent. ``update_search_vector`` then raised
+    a database error *after* the lease was committed and poisoned the async
+    session, so the post-commit response query failed and surfaced as "Failed to
+    create lease" even though the row persisted. The response is now built before
+    that best-effort side effect, so the create succeeds regardless.
+
+    Uses a per-request session (like production) rather than the test-shared one,
+    so the failed best-effort update does not poison fixtures/teardown.
+    """
+    from httpx import ASGITransport, AsyncClient
+    from sqlalchemy import text
+    from app.main import app
+    from app.database import get_db
+    from tests.conftest import _test_engine, _test_session
+
+    async def _fresh_db():
+        async with _test_session() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _fresh_db
+    async with _test_engine.begin() as conn:
+        await conn.execute(text("ALTER TABLE leases DROP COLUMN IF EXISTS search_vector"))
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            resp = await ac.post(
+                "/api/v1/leases",
+                headers=auth_headers(admin_user),
+                json={"lease_name": "Bare Required Lease", "expiration_year": 2050},
+            )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["lease_name"] == "Bare Required Lease"
+
+        # The lease must actually persist despite the failed search-vector update.
+        async with _test_engine.connect() as conn:
+            count = (
+                await conn.execute(
+                    text("SELECT count(*) FROM leases WHERE lease_name = 'Bare Required Lease'")
+                )
+            ).scalar()
+        assert count == 1
+    finally:
+        async with _test_engine.begin() as conn:
+            await conn.execute(
+                text("ALTER TABLE leases ADD COLUMN IF NOT EXISTS search_vector tsvector")
+            )
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_update_lease_succeeds_when_search_vector_column_missing(
+    admin_user, sample_office
+):
+    """A missing ``search_vector`` column must not 500 the update either."""
+    from httpx import ASGITransport, AsyncClient
+    from sqlalchemy import text
+    from app.main import app
+    from app.database import get_db
+    from tests.conftest import _test_engine, _test_session
+
+    async def _fresh_db():
+        async with _test_session() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _fresh_db
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            create = await ac.post(
+                "/api/v1/leases",
+                headers=auth_headers(admin_user),
+                json={
+                    "lease_name": "Update Vectorless Lease",
+                    "office_id": str(sample_office.id),
+                    "expiration_year": 2051,
+                },
+            )
+            assert create.status_code == 201, create.text
+            lease_id = create.json()["id"]
+
+            async with _test_engine.begin() as conn:
+                await conn.execute(text("ALTER TABLE leases DROP COLUMN IF EXISTS search_vector"))
+
+            resp = await ac.put(
+                f"/api/v1/leases/{lease_id}",
+                headers=auth_headers(admin_user),
+                json={"lessor_name": "New Lessor"},
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["lessor_name"] == "New Lessor"
+    finally:
+        async with _test_engine.begin() as conn:
+            await conn.execute(
+                text("ALTER TABLE leases ADD COLUMN IF NOT EXISTS search_vector tsvector")
+            )
+        app.dependency_overrides.pop(get_db, None)
