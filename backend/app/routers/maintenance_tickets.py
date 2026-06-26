@@ -31,6 +31,7 @@ from app.utils.search_vectors import update_search_vector
 from app.utils.sorting import apply_sorting
 from app.tasks.ticket_email import (
     send_high_priority_ticket_emails,
+    send_ticket_created_emails,
     send_ticket_status_email,
     send_ticket_closed_email,
     send_ticket_assigned_email,
@@ -44,6 +45,7 @@ _LOAD_OPTIONS = [
     joinedload(MaintenanceTicket.office).joinedload(Office.manager),
     joinedload(MaintenanceTicket.created_by),
     joinedload(MaintenanceTicket.assigned_to),
+    joinedload(MaintenanceTicket.vendor),
     joinedload(MaintenanceTicket.notes),
 ]
 
@@ -260,11 +262,22 @@ async def create_ticket(
     except Exception:
         pass
 
-    # ---- 4. High-priority email notification (best-effort). ----
+    # ---- 4. Email notifications (best-effort). ----
+    # Notify the office manager and assigned vendor that a ticket was created.
+    created_id = created.id
+    try:
+        await send_ticket_created_emails(db, created)
+    except Exception as exc:
+        log.exception("Ticket-created email send failed for ticket %s: %s", created_id, exc)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+    # High-priority tickets additionally notify configured rule recipients.
     if created.priority == "high":
         # Capture the id eagerly so the log call below cannot trigger a lazy
         # attribute reload after the session is in a failed-transaction state.
-        created_id = created.id
         try:
             await send_high_priority_ticket_emails(db, created)
         except Exception as exc:

@@ -20,6 +20,7 @@ import {
   offices as officesApi,
   ticketCategories as categoriesApi,
   managers as managersApi,
+  vendors as vendorsApi,
   attachments as attachmentsApi,
   ticketTemplates as templatesApi,
 } from '@/api';
@@ -30,7 +31,7 @@ import {
   ManagerQuickCreate,
   TicketCategoryQuickCreate,
 } from '@/components/common/QuickCreateForms';
-import type { Office, TicketCategory, Manager, TicketTemplate } from '@/types';
+import type { Office, TicketCategory, Manager, TicketTemplate, Vendor } from '@/types';
 
 type SelectOption = { label: string; value: string };
 
@@ -46,6 +47,7 @@ const MaintenanceTicketFormPage: React.FC = () => {
   const [officeOptions, setOfficeOptions] = useState<SelectOption[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<SelectOption[]>([]);
   const [managerOptions, setManagerOptions] = useState<SelectOption[]>([]);
+  const [vendorOptions, setVendorOptions] = useState<SelectOption[]>([]);
 
   const [subject, setSubject] = useState('');
   const [priority, setPriority] = useState('low');
@@ -63,9 +65,11 @@ const MaintenanceTicketFormPage: React.FC = () => {
   const [selectedOffice, setSelectedOffice] = useState<SelectOption | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<SelectOption | null>(null);
   const [selectedAssignedTo, setSelectedAssignedTo] = useState<SelectOption | null>(null);
+  const [selectedVendor, setSelectedVendor] = useState<SelectOption | null>(null);
 
   const [templates, setTemplates] = useState<TicketTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<SelectOption | null>(null);
+  const [pendingVendorId, setPendingVendorId] = useState<string | null>(null);
 
   // Load dropdown options
   useEffect(() => {
@@ -96,6 +100,17 @@ const MaintenanceTicketFormPage: React.FC = () => {
           }))
         );
         setTemplates(Array.isArray(tRes.data) ? tRes.data : []);
+        try {
+          const venRes = await vendorsApi.list({ page_size: 1000 });
+          setVendorOptions(
+            (venRes.data.items ?? []).map((v: Vendor) => ({
+              label: v.company_name,
+              value: String(v.id),
+            }))
+          );
+        } catch {
+          // vendors are optional; ignore load failures
+        }
       } catch {
         // non-critical
       }
@@ -132,6 +147,9 @@ const MaintenanceTicketFormPage: React.FC = () => {
         if (t.assigned_to) {
           setSelectedAssignedTo({ label: t.assigned_to.name, value: String(t.assigned_to.id) });
         }
+        if (t.vendor_id) {
+          setPendingVendorId(String(t.vendor_id));
+        }
       } catch {
         setError('Failed to load ticket data.');
       } finally {
@@ -140,6 +158,16 @@ const MaintenanceTicketFormPage: React.FC = () => {
     };
     fetchTicket();
   }, [id, isEditing]);
+
+  // Resolve the assigned vendor's label once the vendor options have loaded.
+  useEffect(() => {
+    if (!pendingVendorId) return;
+    const match = vendorOptions.find((o) => o.value === pendingVendorId);
+    if (match) {
+      setSelectedVendor(match);
+      setPendingVendorId(null);
+    }
+  }, [pendingVendorId, vendorOptions]);
 
   const handleSubmit = async () => {
     if (!subject.trim()) {
@@ -171,6 +199,7 @@ const MaintenanceTicketFormPage: React.FC = () => {
         location_hours: locationHours.trim() || undefined,
         description: description.trim(),
         assigned_to_id: selectedAssignedTo?.value || undefined,
+        vendor_id: selectedVendor?.value || undefined,
         scheduled_date: scheduledDate || undefined,
         estimated_duration_minutes: estimatedDuration ? parseInt(estimatedDuration, 10) : undefined,
         actual_start_at: actualStart || undefined,
@@ -406,6 +435,23 @@ const MaintenanceTicketFormPage: React.FC = () => {
                     <ManagerQuickCreate visible={visible} onClose={onClose} onCreated={onCreated} />
                   ),
                 }}
+              />
+            </FormField>
+
+            <FormField
+              label="Vendor"
+              description="Assign an external vendor to perform this work (optional)"
+            >
+              <Select
+                selectedOption={selectedVendor}
+                onChange={({ detail }) =>
+                  setSelectedVendor((detail.selectedOption as SelectOption) ?? null)
+                }
+                options={vendorOptions}
+                placeholder="Select vendor"
+                filteringType="auto"
+                disabled={saving}
+                empty="No vendors available"
               />
             </FormField>
 

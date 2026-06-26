@@ -15,15 +15,22 @@ from app.config import settings
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.attachment import Attachment
+from app.models.entity_contact import EntityContact
 from app.models.user import User
 from app.models.vendor import Vendor
 from app.models.maintenance_ticket import MaintenanceTicket
 from app.schemas.attachment import AttachmentResponse
+from app.schemas.entity_contact import (
+    EntityContactCreate,
+    EntityContactResponse,
+    EntityContactUpdate,
+)
 from app.services.webhook_service import dispatch_webhook
 
 router = APIRouter()
 
 _TOKEN_TTL_DAYS = 30
+_VENDOR_ENTITY_TYPE = "vendor"
 
 
 # ── Pydantic Schemas ────────────────────────────────────────────────────────
@@ -77,6 +84,10 @@ class PortalTicketResponse(BaseModel):
     priority: str
     status: str
     description: str
+    location_hours: Optional[str] = None
+    technician_name: Optional[str] = None
+    scheduled_date: Optional[datetime] = None
+    estimated_duration_minutes: Optional[int] = None
     vendor_completion_notes: Optional[str] = None
     vendor_completed_at: Optional[datetime] = None
     created_at: datetime
@@ -88,6 +99,16 @@ class PortalTicketResponse(BaseModel):
 
 class CompleteTicketRequest(BaseModel):
     notes: str
+
+
+class PortalTicketUpdate(BaseModel):
+    """Fields a vendor is allowed to update on an assigned ticket."""
+    description: Optional[str] = None
+    location_hours: Optional[str] = None
+    technician_name: Optional[str] = None
+    scheduled_date: Optional[datetime] = None
+    estimated_duration_minutes: Optional[int] = None
+    vendor_completion_notes: Optional[str] = None
 
 
 # ── Auth dependency ─────────────────────────────────────────────────────────
@@ -254,6 +275,35 @@ async def portal_get_ticket(
     return ticket
 
 
+@router.patch("/vendor-portal/tickets/{ticket_id}", response_model=PortalTicketResponse)
+async def portal_update_ticket(
+    ticket_id: uuid.UUID,
+    payload: PortalTicketUpdate,
+    vendor: Vendor = Depends(get_portal_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Allow the assigned vendor to update editable details on their ticket."""
+    result = await db.execute(
+        select(MaintenanceTicket)
+        .options(selectinload(MaintenanceTicket.office))
+        .where(
+            MaintenanceTicket.id == ticket_id,
+            MaintenanceTicket.vendor_id == vendor.id,
+            MaintenanceTicket.deleted_at == None,  # noqa: E711
+        )
+    )
+    ticket = result.scalar_one_or_none()
+    if not ticket:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(ticket, field, value)
+
+    await db.commit()
+    await db.refresh(ticket)
+    return ticket
+
+
 @router.post("/vendor-portal/tickets/{ticket_id}/complete", response_model=PortalTicketResponse)
 async def portal_complete_ticket(
     ticket_id: uuid.UUID,
@@ -372,3 +422,88 @@ async def portal_upload_invoice(
     await db.commit()
     await db.refresh(attachment)
     return AttachmentResponse.model_validate(attachment, from_attributes=True)
+
+
+# ── Portal: additional contacts (editable) ──────────────────────────────────
+
+@router.get("/vendor-portal/contacts", response_model=list[EntityContactResponse])
+async def portal_list_contacts(
+    vendor: Vendor = Depends(get_portal_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    """List the vendor's additional contacts."""
+    result = await db.execute(
+        select(EntityContact)
+        .where(
+            EntityContact.entity_type == _VENDOR_ENTITY_TYPE,
+            EntityContact.entity_id == vendor.id,
+            EntityContact.organization_id == vendor.organization_id,
+        )
+        .order_by(EntityContact.is_primary.desc(), EntityContact.contact_name)
+    )
+    return [EntityContactResponse.model_validate(c, from_attributes=True) for c in result.scalars().all()]
+
+
+@router.post(
+    "/vendor-portal/contacts",
+    response_model=EntityContactResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def portal_create_contact(
+    payload: EntityContactCreate,
+    vendor: Vendor = Depends(get_portal_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create an additional contact for the authenticated vendor."""
+    data = payload.model_dump()
+    # Force entity scoping from the authenticated vendor; never trust the body.
+    data["entity_type"] = _VENDOR_ENTITY_TYPE
+    data["entity_id"] = vendor.id
+    contact = EntityContact(**data, organization_id=vendor.organization_id)
+    db.add(contact)
+    await db.commit()
+    await db.refresh(contact)
+    return EntityContactResponse.model_validate(contact, from_attributes=True)
+
+
+async def _load_vendor_contact(
+    db: AsyncSession, contact_id: uuid.UUID, vendor: Vendor
+) -> EntityContact:
+    result = await db.execute(
+        select(EntityContact).where(
+            EntityContact.id == contact_id,
+            EntityContact.entity_type == _VENDOR_ENTITY_TYPE,
+            EntityContact.entity_id == vendor.id,
+            EntityContact.organization_id == vendor.organization_id,
+        )
+    )
+    contact = result.scalar_one_or_none()
+    if not contact:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
+    return contact
+
+
+@router.put("/vendor-portal/contacts/{contact_id}", response_model=EntityContactResponse)
+async def portal_update_contact(
+    contact_id: uuid.UUID,
+    payload: EntityContactUpdate,
+    vendor: Vendor = Depends(get_portal_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    contact = await _load_vendor_contact(db, contact_id, vendor)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(contact, field, value)
+    await db.commit()
+    await db.refresh(contact)
+    return EntityContactResponse.model_validate(contact, from_attributes=True)
+
+
+@router.delete("/vendor-portal/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def portal_delete_contact(
+    contact_id: uuid.UUID,
+    vendor: Vendor = Depends(get_portal_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    contact = await _load_vendor_contact(db, contact_id, vendor)
+    await db.delete(contact)
+    await db.commit()

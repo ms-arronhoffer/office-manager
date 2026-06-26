@@ -1010,10 +1010,23 @@ export interface PortalTicket {
   priority: string;
   status: string;
   description: string;
+  location_hours: string | null;
+  technician_name: string | null;
+  scheduled_date: string | null;
+  estimated_duration_minutes: number | null;
   vendor_completion_notes: string | null;
   vendor_completed_at: string | null;
   created_at: string;
   office: { id: string; location_name: string | null } | null;
+}
+
+export interface PortalTicketUpdate {
+  description?: string;
+  location_hours?: string;
+  technician_name?: string;
+  scheduled_date?: string | null;
+  estimated_duration_minutes?: number | null;
+  vendor_completion_notes?: string;
 }
 
 export interface VendorPortalProfile {

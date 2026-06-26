@@ -95,6 +95,7 @@ import type {
   OperatingExpenseVariance,
   PortalTokenResponse,
   PortalTicket,
+  PortalTicketUpdate,
   VendorPortalProfile,
   ClientPortalEntityType,
   ClientPortalInviteResponse,
@@ -948,8 +949,23 @@ export const vendorPortal = {
   getTicket: (token: string, id: string) =>
     _portalClient(token).get<PortalTicket>(`/vendor-portal/tickets/${id}`),
 
+  updateTicket: (token: string, id: string, data: PortalTicketUpdate) =>
+    _portalClient(token).patch<PortalTicket>(`/vendor-portal/tickets/${id}`, data),
+
   completeTicket: (token: string, id: string, notes: string) =>
     _portalClient(token).post<PortalTicket>(`/vendor-portal/tickets/${id}/complete`, { notes }),
+
+  listContacts: (token: string) =>
+    _portalClient(token).get<EntityContact[]>('/vendor-portal/contacts'),
+
+  createContact: (token: string, data: EntityContactCreate) =>
+    _portalClient(token).post<EntityContact>('/vendor-portal/contacts', data),
+
+  updateContact: (token: string, id: string, data: EntityContactUpdate) =>
+    _portalClient(token).put<EntityContact>(`/vendor-portal/contacts/${id}`, data),
+
+  deleteContact: (token: string, id: string) =>
+    _portalClient(token).delete(`/vendor-portal/contacts/${id}`),
 };
 
 // ─── Client Portal (internal: admin generates one-time signup invite) ────────
