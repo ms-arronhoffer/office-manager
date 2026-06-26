@@ -195,3 +195,156 @@ async def test_sign_requires_consent(client, db_session, monkeypatch):
         },
     )
     assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.asyncio
+async def test_duplicate_pending_blocks_resend_and_force_overrides(client, db_session, monkeypatch):
+    import app.routers.waivers as waivers_router
+
+    async def fake_send_email(*a, **k):
+        return None
+
+    monkeypatch.setattr(waivers_router, "send_email", fake_send_email)
+
+    headers = await _make_org_user(db_session, "pro", "dup@w.com")
+    template_id = await _create_template(client, headers)
+
+    body = {
+        "template_id": template_id,
+        "recipient_type": "visitor",
+        "recipient_email": "Dup.Person@Example.com",  # mixed-case on purpose
+        "recipient_name": "Dup Person",
+    }
+    first = await client.post("/api/v1/waivers/send", headers=headers, json=body)
+    assert first.status_code == 201, first.text
+    # Email is normalized on persist.
+    assert first.json()["recipient_email"] == "dup.person@example.com"
+
+    # A second send to the same (template, email) is blocked while the first is pending,
+    # and the comparison is case-insensitive.
+    dup = await client.post(
+        "/api/v1/waivers/send",
+        headers=headers,
+        json={**body, "recipient_email": "dup.person@example.com"},
+    )
+    assert dup.status_code == 409, dup.text
+    assert dup.json()["detail"]["existing_request_id"] == first.json()["id"]
+
+    # force=true overrides.
+    forced = await client.post(
+        "/api/v1/waivers/send", headers=headers, json={**body, "force": True}
+    )
+    assert forced.status_code == 201, forced.text
+
+
+@pytest.mark.asyncio
+async def test_duplicate_check_endpoint(client, db_session, monkeypatch):
+    import app.routers.waivers as waivers_router
+
+    async def fake_send_email(*a, **k):
+        return None
+
+    monkeypatch.setattr(waivers_router, "send_email", fake_send_email)
+
+    headers = await _make_org_user(db_session, "pro", "dchk@w.com")
+    template_id = await _create_template(client, headers)
+
+    # No waiver yet → no pending.
+    pre = await client.post(
+        "/api/v1/waivers/recipients/duplicate-check",
+        headers=headers,
+        json={"recipient_email": "check@example.com", "template_id": template_id},
+    )
+    assert pre.status_code == 200, pre.text
+    assert pre.json()["has_pending"] is False
+
+    await client.post(
+        "/api/v1/waivers/send",
+        headers=headers,
+        json={
+            "template_id": template_id,
+            "recipient_type": "visitor",
+            "recipient_email": "check@example.com",
+            "recipient_name": "Check Person",
+        },
+    )
+
+    post = await client.post(
+        "/api/v1/waivers/recipients/duplicate-check",
+        headers=headers,
+        json={"recipient_email": "CHECK@example.com"},
+    )
+    assert post.status_code == 200, post.text
+    assert post.json()["has_pending"] is True
+    assert len(post.json()["history"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_recipient_search(client, db_session, monkeypatch):
+    import app.routers.waivers as waivers_router
+
+    async def fake_send_email(*a, **k):
+        return None
+
+    monkeypatch.setattr(waivers_router, "send_email", fake_send_email)
+
+    headers = await _make_org_user(db_session, "pro", "rsearch@w.com")
+    template_id = await _create_template(client, headers)
+
+    await client.post(
+        "/api/v1/waivers/send",
+        headers=headers,
+        json={
+            "template_id": template_id,
+            "recipient_type": "visitor",
+            "recipient_email": "marie.curie@example.com",
+            "recipient_name": "Marie Curie",
+        },
+    )
+
+    res = await client.get("/api/v1/waivers/recipients/search?q=marie", headers=headers)
+    assert res.status_code == 200, res.text
+    emails = [r["email"] for r in res.json()]
+    assert "marie.curie@example.com" in emails
+
+
+@pytest.mark.asyncio
+async def test_waiver_send_records_email_log(client, db_session, monkeypatch):
+    """A waiver send must record an EmailLog row so delivery is observable."""
+    import app.routers.waivers as waivers_router
+
+    sent_calls = []
+
+    async def fake_send_email(to, subject, html):
+        sent_calls.append((to, subject))
+        return True  # simulate a successful delivery
+
+    monkeypatch.setattr(waivers_router, "send_email", fake_send_email)
+
+    headers = await _make_org_user(db_session, "pro", "emaillog@w.com")
+    template_id = await _create_template(client, headers)
+
+    resp = await client.post(
+        "/api/v1/waivers/send",
+        headers=headers,
+        json={
+            "template_id": template_id,
+            "recipient_type": "visitor",
+            "recipient_email": "Logged.Person@Example.com",
+            "recipient_name": "Logged Person",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    # send_email was invoked with the normalized address.
+    assert sent_calls and sent_calls[0][0] == "logged.person@example.com"
+
+    from sqlalchemy import select
+    from app.models.email import EmailLog
+
+    logs = (
+        await db_session.execute(
+            select(EmailLog).where(EmailLog.sent_to == "logged.person@example.com")
+        )
+    ).scalars().all()
+    assert len(logs) == 1
+    assert logs[0].status == "sent"

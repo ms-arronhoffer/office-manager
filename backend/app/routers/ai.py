@@ -16,8 +16,8 @@ import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +27,7 @@ from app.database import get_db
 from app.models.lease import Lease
 from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.user import User
-from app.services import ai_service
+from app.services import ai_service, document_extraction, report_export
 from app.services.lease_abstract_catalog import CLAUSE_CATEGORIES
 
 router = APIRouter()
@@ -58,8 +58,15 @@ class SummaryResponse(BaseModel):
     period: str
     period_label: str
     narrative: str
+    narrative_html: str
     data: dict
     model: str
+
+
+class SummaryExportRequest(BaseModel):
+    narrative: str = Field(min_length=1)
+    period_label: str = "Operations Briefing"
+    format: str = "pdf"  # 'pdf' | 'docx'
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -99,7 +106,12 @@ _MIME_BY_EXT = {
     ".jpeg": "image/jpeg",
     ".tif": "image/tiff",
     ".tiff": "image/tiff",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+
+# Extensions whose bytes Gemini cannot read inline — we extract text first.
+_TEXT_EXTRACT_EXTS = {".docx", ".doc", ".txt"}
 
 
 def _ai_error_response(exc: ai_service.AIError) -> HTTPException:
@@ -129,8 +141,27 @@ async def parse_lease(
     intentionally **not** gated behind ``ai_assist``.
     """
     content, mime_type = await _read_document(file)
+    ext = Path(file.filename or "").suffix.lower()
+
+    text_content: str | None = None
+    if ext in _TEXT_EXTRACT_EXTS:
+        # Gemini cannot read Word/text bytes inline; extract plain text first.
+        try:
+            text_content = document_extraction.extract_text(content, file.filename or "")
+        except document_extraction.UnsupportedDocumentError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        except document_extraction.DocumentExtractionError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        if not text_content.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The document did not contain any readable text.",
+            )
+
     try:
-        suggested = await ai_service.parse_lease_document(content, mime_type)
+        suggested = await ai_service.parse_lease_document(
+            content, mime_type, text_content=text_content
+        )
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
     return LeaseParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)
@@ -291,6 +322,46 @@ async def summary_report(
         period=period,
         period_label=period_label,
         narrative=narrative,
+        narrative_html=report_export.markdown_to_html(narrative),
         data=data,
         model=settings.GEMINI_MODEL,
+    )
+
+
+@router.post(
+    "/reports/summary/export",
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def export_summary_report(
+    payload: SummaryExportRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Render a briefing's Markdown to a downloadable PDF or DOCX file."""
+    fmt = payload.format.lower()
+    if fmt not in report_export.EXPORT_FORMATS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported format '{payload.format}'. Use one of: "
+            f"{', '.join(report_export.EXPORT_FORMATS)}.",
+        )
+
+    safe_label = "".join(
+        c if c.isalnum() or c in ("-", "_") else "_" for c in payload.period_label
+    ).strip("_") or "briefing"
+
+    if fmt == "pdf":
+        content = report_export.markdown_to_pdf(payload.narrative, title=payload.period_label)
+        media_type = "application/pdf"
+        filename = f"{safe_label}.pdf"
+    else:
+        content = report_export.markdown_to_docx(payload.narrative, title=payload.period_label)
+        media_type = (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        filename = f"{safe_label}.docx"
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

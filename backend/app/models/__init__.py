@@ -46,6 +46,7 @@ from app.models.waiver import (
     WaiverTemplate, WaiverRequest, WaiverSignature,
     WAIVER_RECIPIENT_TYPES, WAIVER_STATUSES, WAIVER_SIGNATURE_TYPES,
 )
+from app.models.lease_document_chunk import LeaseDocumentChunk
 
 __all__ = [
     "Base", "Organization", "User", "Manager", "Office",
@@ -80,4 +81,5 @@ __all__ = [
     "LeaseAbstractClause",
     "VendorBill", "VendorBillLine", "VendorPayment",
     "WaiverTemplate", "WaiverRequest", "WaiverSignature",
+    "LeaseDocumentChunk",
 ]

@@ -60,7 +60,7 @@ class EmailLogResponse(BaseModel):
 
 # ── Rule Types ────────────────────────────────────────────────────────
 
-VALID_RULE_TYPES = ["lease_expiration", "lease_notice_date", "hvac_service", "hq_pm", "high_priority_ticket"]
+VALID_RULE_TYPES = ["lease_expiration", "lease_notice_date", "hvac_service", "hq_pm", "high_priority_ticket", "ai_briefing"]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────
@@ -85,6 +85,7 @@ async def list_rule_types(
         {"value": "hvac_service", "label": "HVAC Service Due"},
         {"value": "hq_pm", "label": "HQ PM Task Due"},
         {"value": "high_priority_ticket", "label": "High Priority Ticket Created"},
+        {"value": "ai_briefing", "label": "AI Operations Briefing (scheduled)"},
     ]
 
 

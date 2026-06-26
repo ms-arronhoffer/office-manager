@@ -11,6 +11,7 @@ import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
 import Select from '@cloudscape-design/components/select';
+import Autosuggest from '@cloudscape-design/components/autosuggest';
 import Box from '@cloudscape-design/components/box';
 import Spinner from '@cloudscape-design/components/spinner';
 import Alert from '@cloudscape-design/components/alert';
@@ -19,7 +20,7 @@ import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import { waivers as waiversApi } from '@/api';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useConfirmDelete } from '@/hooks/useConfirmDelete';
-import type { WaiverTemplate, WaiverRequestItem, WaiverRecipientType } from '@/types';
+import type { WaiverTemplate, WaiverRequestItem, WaiverRecipientType, WaiverDuplicateCheck } from '@/types';
 
 const RECIPIENT_OPTIONS = [
   { label: 'Existing contact (email on file)', value: 'contact' },
@@ -59,6 +60,10 @@ const WaiversPage: React.FC = () => {
   const [recipientEmail, setRecipientEmail] = useState('');
   const [recipientName, setRecipientName] = useState('');
   const [sending, setSending] = useState(false);
+  // Recipient typeahead + duplicate detection
+  const [recipientSuggestions, setRecipientSuggestions] = useState<{ name: string | null; email: string; source: string }[]>([]);
+  const [duplicate, setDuplicate] = useState<WaiverDuplicateCheck | null>(null);
+  const [checkingDup, setCheckingDup] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -133,10 +138,47 @@ const WaiversPage: React.FC = () => {
     setRecipientType('visitor');
     setRecipientEmail('');
     setRecipientName('');
+    setRecipientSuggestions([]);
+    setDuplicate(null);
     setSendModal(true);
   };
 
-  const submitSend = async () => {
+  // Typeahead: fetch candidate recipients from contacts + prior waivers.
+  const loadRecipientSuggestions = useCallback(async (q: string) => {
+    if (!q.trim()) {
+      setRecipientSuggestions([]);
+      return;
+    }
+    try {
+      const res = await waiversApi.searchRecipients(q);
+      setRecipientSuggestions(res.data);
+    } catch {
+      setRecipientSuggestions([]);
+    }
+  }, []);
+
+  // Duplicate detection: warn if a waiver already exists for this email.
+  const runDuplicateCheck = useCallback(
+    async (email: string, templateId: string | null) => {
+      const trimmed = email.trim();
+      if (!trimmed) {
+        setDuplicate(null);
+        return;
+      }
+      setCheckingDup(true);
+      try {
+        const res = await waiversApi.checkDuplicate(trimmed, templateId);
+        setDuplicate(res.data);
+      } catch {
+        setDuplicate(null);
+      } finally {
+        setCheckingDup(false);
+      }
+    },
+    [],
+  );
+
+  const submitSend = async (force = false) => {
     if (!sendTemplateId || !recipientEmail.trim()) {
       addFlash({ type: 'error', content: 'Template and recipient email are required.' });
       return;
@@ -148,13 +190,25 @@ const WaiversPage: React.FC = () => {
         recipient_type: recipientType,
         recipient_email: recipientEmail,
         recipient_name: recipientName || null,
+        force,
       });
       setSendModal(false);
       setActiveTab('sent');
       addFlash({ type: 'success', content: 'Waiver sent for signature.' });
       load();
-    } catch {
-      addFlash({ type: 'error', content: 'Failed to send waiver.' });
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 409) {
+        // A pending waiver already exists — surface the inline warning instead of
+        // a generic error so the user can choose to send anyway.
+        await runDuplicateCheck(recipientEmail, sendTemplateId);
+        addFlash({
+          type: 'warning',
+          content: 'A waiver is already pending for this email. Review the warning and choose "Send anyway" to proceed.',
+        });
+      } else {
+        addFlash({ type: 'error', content: 'Failed to send waiver.' });
+      }
     } finally {
       setSending(false);
     }
@@ -367,9 +421,15 @@ const WaiversPage: React.FC = () => {
               <Button variant="link" onClick={() => setSendModal(false)} disabled={sending}>
                 Cancel
               </Button>
-              <Button variant="primary" onClick={submitSend} loading={sending}>
-                Send
-              </Button>
+              {duplicate?.has_pending ? (
+                <Button variant="primary" onClick={() => submitSend(true)} loading={sending}>
+                  Send anyway
+                </Button>
+              ) : (
+                <Button variant="primary" onClick={() => submitSend(false)} loading={sending}>
+                  Send
+                </Button>
+              )}
             </SpaceBetween>
           </Box>
         }
@@ -385,7 +445,11 @@ const WaiversPage: React.FC = () => {
                     }
                   : null
               }
-              onChange={(e) => setSendTemplateId(e.detail.selectedOption.value ?? null)}
+              onChange={(e) => {
+                const id = e.detail.selectedOption.value ?? null;
+                setSendTemplateId(id);
+                if (recipientEmail.trim()) runDuplicateCheck(recipientEmail, id);
+              }}
               options={templates.map((t) => ({ value: t.id, label: t.name }))}
               placeholder="Choose a template"
             />
@@ -400,14 +464,46 @@ const WaiversPage: React.FC = () => {
           <FormField label="Recipient name" description="Optional.">
             <Input value={recipientName} onChange={(e) => setRecipientName(e.detail.value)} />
           </FormField>
-          <FormField label="Recipient email">
-            <Input
-              type="email"
+          <FormField
+            label="Recipient email"
+            description="Start typing to search existing contacts and previous recipients."
+          >
+            <Autosuggest
               value={recipientEmail}
-              onChange={(e) => setRecipientEmail(e.detail.value)}
+              onChange={(e) => {
+                setRecipientEmail(e.detail.value);
+                setDuplicate(null);
+                loadRecipientSuggestions(e.detail.value);
+              }}
+              onSelect={(e) => {
+                const picked = recipientSuggestions.find((s) => s.email === e.detail.value);
+                if (picked?.name) setRecipientName(picked.name);
+                runDuplicateCheck(e.detail.value, sendTemplateId);
+              }}
+              onBlur={() => runDuplicateCheck(recipientEmail, sendTemplateId)}
+              options={recipientSuggestions.map((s) => ({
+                value: s.email,
+                label: s.email,
+                description: s.name
+                  ? `${s.name} · ${s.source === 'contact' ? 'Contact' : 'Previous recipient'}`
+                  : s.source === 'contact'
+                    ? 'Contact'
+                    : 'Previous recipient',
+              }))}
+              enteredTextLabel={(v) => `Use "${v}"`}
               placeholder="name@example.com"
+              statusType={checkingDup ? 'loading' : 'finished'}
+              loadingText="Searching recipients…"
             />
           </FormField>
+          {duplicate?.has_pending && (
+            <Alert type="warning" header="A waiver already exists for this email">
+              {duplicate.pending.length === 1
+                ? `A "${duplicate.pending[0].title}" waiver is already ${duplicate.pending[0].status} for this recipient.`
+                : `${duplicate.pending.length} waivers are already pending for this recipient.`}{' '}
+              Choose “Send anyway” to send another, or cancel.
+            </Alert>
+          )}
         </SpaceBetween>
       </Modal>
     </>

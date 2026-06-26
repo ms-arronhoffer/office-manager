@@ -1,0 +1,325 @@
+"""Semantic + keyword search over documents attached to leases.
+
+Pipeline:
+
+1. **Index** — when a document is attached to a lease its text is extracted
+   (:mod:`app.services.document_extraction`), split into overlapping chunks, and
+   (when Gemini is configured) embedded. Chunks are stored in
+   ``lease_document_chunks`` with their embedding vector (JSONB).
+2. **Search** — a query is embedded and ranked against stored chunk embeddings
+   using cosine similarity computed in pure Python (no ``pgvector`` needed). When
+   AI is unconfigured, or no embedded chunks exist, it falls back to a keyword
+   ``ILIKE`` scan so the feature still works.
+
+All operations are organization-scoped.
+"""
+from __future__ import annotations
+
+import logging
+import math
+import uuid
+
+from sqlalchemy import delete, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.attachment import Attachment
+from app.models.lease import Lease
+from app.models.lease_document_chunk import LeaseDocumentChunk
+from app.services import ai_service, document_extraction
+
+logger = logging.getLogger(__name__)
+
+# Chunking parameters (characters). Chunks overlap so a match that straddles a
+# boundary is still captured in at least one chunk.
+CHUNK_SIZE = 1500
+CHUNK_OVERLAP = 200
+MAX_CHUNKS_PER_DOCUMENT = 400
+
+
+def chunk_text(text: str) -> list[str]:
+    """Split ``text`` into overlapping, non-empty chunks."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    chunks: list[str] = []
+    step = max(1, CHUNK_SIZE - CHUNK_OVERLAP)
+    for start in range(0, len(text), step):
+        piece = text[start : start + CHUNK_SIZE].strip()
+        if piece:
+            chunks.append(piece)
+        if len(chunks) >= MAX_CHUNKS_PER_DOCUMENT:
+            break
+    return chunks
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def _snippet(content: str, query: str, width: int = 240) -> str:
+    """Return a short snippet of ``content`` centred on the first query term."""
+    lowered = content.lower()
+    pos = -1
+    for term in query.lower().split():
+        pos = lowered.find(term)
+        if pos != -1:
+            break
+    if pos == -1:
+        return content[:width].strip()
+    start = max(0, pos - width // 2)
+    end = min(len(content), start + width)
+    prefix = "…" if start > 0 else ""
+    suffix = "…" if end < len(content) else ""
+    return f"{prefix}{content[start:end].strip()}{suffix}"
+
+
+async def index_attachment(
+    db: AsyncSession,
+    *,
+    lease: Lease,
+    attachment: Attachment,
+    content: bytes,
+) -> int:
+    """Extract, chunk, (optionally) embed and store a lease attachment's text.
+
+    Returns the number of chunks indexed. Best-effort: returns 0 (and indexes
+    nothing) for document types whose text cannot be extracted. Embeddings are
+    skipped gracefully when Gemini is not configured, leaving chunks
+    keyword-searchable.
+    """
+    if not document_extraction.is_text_extractable(attachment.original_filename):
+        return 0
+    try:
+        text = document_extraction.extract_text(content, attachment.original_filename)
+    except document_extraction.DocumentExtractionError as exc:
+        logger.info("Skipping document index for %s: %s", attachment.original_filename, exc)
+        return 0
+
+    chunks = chunk_text(text)
+    if not chunks:
+        return 0
+
+    embeddings: list[list[float]] | None = None
+    if ai_service.is_configured():
+        try:
+            embeddings = await ai_service.embed_texts(chunks)
+        except ai_service.AIError as exc:
+            logger.warning("Embedding failed for %s; storing keyword-only: %s",
+                           attachment.original_filename, exc)
+            embeddings = None
+
+    # Replace any existing chunks for this attachment (idempotent re-index).
+    await db.execute(
+        delete(LeaseDocumentChunk).where(
+            LeaseDocumentChunk.attachment_id == attachment.id
+        )
+    )
+    for idx, piece in enumerate(chunks):
+        db.add(
+            LeaseDocumentChunk(
+                organization_id=lease.organization_id,
+                lease_id=lease.id,
+                attachment_id=attachment.id,
+                source_filename=attachment.original_filename,
+                chunk_index=idx,
+                content=piece,
+                embedding=embeddings[idx] if embeddings else None,
+            )
+        )
+    await db.commit()
+    return len(chunks)
+
+
+async def search_documents(
+    db: AsyncSession,
+    *,
+    organization_id: uuid.UUID | None,
+    query: str,
+    lease_id: uuid.UUID | None = None,
+    limit: int = 10,
+) -> list[dict]:
+    """Search indexed lease document chunks for ``query``.
+
+    Uses semantic (embedding) ranking when AI is configured and embedded chunks
+    exist; otherwise falls back to a keyword ``ILIKE`` scan. Results are grouped
+    so at most one (best) match per lease is returned.
+    """
+    query = (query or "").strip()
+    if not query:
+        return []
+
+    query_embedding: list[float] | None = None
+    if ai_service.is_configured():
+        try:
+            vectors = await ai_service.embed_texts([query])
+            query_embedding = vectors[0] if vectors else None
+        except ai_service.AIError as exc:
+            logger.info("Query embedding unavailable, using keyword search: %s", exc)
+            query_embedding = None
+
+    if query_embedding is not None:
+        rows = await _semantic_rank(
+            db,
+            organization_id=organization_id,
+            query=query,
+            query_embedding=query_embedding,
+            lease_id=lease_id,
+            limit=limit,
+        )
+        if rows:
+            return rows
+        # Fall through to keyword search when nothing was embedded yet.
+
+    return await _keyword_rank(
+        db,
+        organization_id=organization_id,
+        query=query,
+        lease_id=lease_id,
+        limit=limit,
+    )
+
+
+async def _semantic_rank(
+    db: AsyncSession,
+    *,
+    organization_id: uuid.UUID | None,
+    query: str,
+    query_embedding: list[float],
+    lease_id: uuid.UUID | None,
+    limit: int,
+) -> list[dict]:
+    stmt = select(LeaseDocumentChunk).where(
+        LeaseDocumentChunk.embedding.isnot(None)
+    )
+    if organization_id is not None:
+        stmt = stmt.where(LeaseDocumentChunk.organization_id == organization_id)
+    if lease_id is not None:
+        stmt = stmt.where(LeaseDocumentChunk.lease_id == lease_id)
+    chunks = (await db.execute(stmt)).scalars().all()
+    if not chunks:
+        return []
+
+    scored = []
+    for chunk in chunks:
+        score = _cosine(query_embedding, chunk.embedding or [])
+        scored.append((score, chunk))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return await _best_per_lease(db, scored, query, limit, mode="semantic")
+
+
+async def _keyword_rank(
+    db: AsyncSession,
+    *,
+    organization_id: uuid.UUID | None,
+    query: str,
+    lease_id: uuid.UUID | None,
+    limit: int,
+) -> list[dict]:
+    # ``query`` is guaranteed non-empty by ``search_documents``. Match any of the
+    # individual words; fall back to the whole phrase only if splitting yields
+    # nothing (e.g. punctuation-only input).
+    words = query.split()
+    if words:
+        word_filters = [LeaseDocumentChunk.content.ilike(f"%{w}%") for w in words]
+    else:
+        word_filters = [LeaseDocumentChunk.content.ilike(f"%{query}%")]
+    stmt = select(LeaseDocumentChunk).where(or_(*word_filters))
+    if organization_id is not None:
+        stmt = stmt.where(LeaseDocumentChunk.organization_id == organization_id)
+    if lease_id is not None:
+        stmt = stmt.where(LeaseDocumentChunk.lease_id == lease_id)
+    stmt = stmt.limit(limit * 10)
+    chunks = (await db.execute(stmt)).scalars().all()
+
+    terms = [w.lower() for w in words]
+
+    def keyword_score(content: str) -> int:
+        lowered = content.lower()
+        return sum(lowered.count(t) for t in terms) if terms else lowered.count(query.lower())
+
+    scored = [(keyword_score(c.content), c) for c in chunks]
+    scored = [s for s in scored if s[0] > 0]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return await _best_per_lease(db, scored, query, limit, mode="keyword")
+
+
+async def _best_per_lease(
+    db: AsyncSession,
+    scored: list[tuple[float, LeaseDocumentChunk]],
+    query: str,
+    limit: int,
+    *,
+    mode: str,
+) -> list[dict]:
+    """Collapse scored chunks to the best match per lease and hydrate lease info."""
+    best: dict[uuid.UUID, tuple[float, LeaseDocumentChunk]] = {}
+    for score, chunk in scored:
+        existing = best.get(chunk.lease_id)
+        if existing is None or score > existing[0]:
+            best[chunk.lease_id] = (score, chunk)
+
+    top = sorted(best.values(), key=lambda x: x[0], reverse=True)[:limit]
+    if not top:
+        return []
+
+    lease_ids = [chunk.lease_id for _, chunk in top]
+    leases = (
+        await db.execute(select(Lease).where(Lease.id.in_(lease_ids)))
+    ).scalars().all()
+    lease_by_id = {lease.id: lease for lease in leases}
+
+    results = []
+    for score, chunk in top:
+        lease = lease_by_id.get(chunk.lease_id)
+        results.append(
+            {
+                "lease_id": str(chunk.lease_id),
+                "lease_name": getattr(lease, "lease_name", None) if lease else None,
+                "attachment_id": str(chunk.attachment_id) if chunk.attachment_id else None,
+                "source_filename": chunk.source_filename,
+                "snippet": _snippet(chunk.content, query),
+                "score": round(float(score), 4),
+                "match_type": mode,
+            }
+        )
+    return results
+
+
+async def reindex_lease_documents(db: AsyncSession, lease: Lease) -> int:
+    """(Re)index all extractable documents attached to ``lease``.
+
+    Reads each lease attachment from disk, extracts and stores chunks. Returns
+    the total number of chunks indexed. Used for backfilling existing files.
+    """
+    from pathlib import Path
+
+    from app.config import settings
+
+    attachments = (
+        await db.execute(
+            select(Attachment).where(
+                Attachment.entity_type == "lease",
+                Attachment.entity_id == lease.id,
+            )
+        )
+    ).scalars().all()
+
+    total = 0
+    for attachment in attachments:
+        path = Path(settings.UPLOAD_DIR) / attachment.entity_type / attachment.stored_filename
+        if not path.exists():
+            continue
+        try:
+            content = path.read_bytes()
+        except OSError as exc:
+            logger.warning("Could not read %s for indexing: %s", path, exc)
+            continue
+        total += await index_attachment(db, lease=lease, attachment=attachment, content=content)
+    return total

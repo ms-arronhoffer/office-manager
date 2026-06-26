@@ -1063,11 +1063,14 @@ import type {
   LeaseParseResult,
   AbstractSuggestResult,
   AISummaryResult,
+  LeaseDocumentSearchResult,
   WaiverTemplate as WaiverTemplateType,
   WaiverTemplateCreate,
   WaiverTemplateUpdate,
   WaiverRequestItem,
   SendWaiverRequest as SendWaiverRequestType,
+  WaiverRecipientSuggestion,
+  WaiverDuplicateCheck,
   PublicWaiverView,
   WaiverSignSubmission,
 } from '@/types';
@@ -1093,6 +1096,27 @@ export const ai = {
 
   summary: (period: 'weekly' | 'monthly') =>
     client.post<AISummaryResult>('/ai/reports/summary', { period }),
+
+  exportSummary: (narrative: string, periodLabel: string, format: 'pdf' | 'docx') =>
+    client.post<Blob>(
+      '/ai/reports/summary/export',
+      { narrative, period_label: periodLabel, format },
+      { responseType: 'blob' },
+    ),
+
+  searchLeaseDocuments: (leaseId: string, query: string, limit = 10) =>
+    client.post<LeaseDocumentSearchResult>(`/leases/${leaseId}/document-search`, {
+      query,
+      limit,
+    }),
+
+  searchAllLeaseDocuments: (query: string, limit = 10) =>
+    client.post<LeaseDocumentSearchResult>('/leases/document-search', { query, limit }),
+
+  reindexLeaseDocuments: (leaseId: string) =>
+    client.post<{ lease_id: string; chunks_indexed: number }>(
+      `/leases/${leaseId}/reindex-documents`,
+    ),
 };
 
 // ─── Digital Waivers (internal, gated) ───────────────────────────────────────
@@ -1109,6 +1133,17 @@ export const waivers = {
 
   send: (data: SendWaiverRequestType) =>
     client.post<WaiverRequestItem>('/waivers/send', data),
+
+  searchRecipients: (q: string, limit = 10) =>
+    client.get<WaiverRecipientSuggestion[]>('/waivers/recipients/search', {
+      params: { q, limit },
+    }),
+
+  checkDuplicate: (recipient_email: string, template_id?: string | null) =>
+    client.post<WaiverDuplicateCheck>('/waivers/recipients/duplicate-check', {
+      recipient_email,
+      template_id: template_id ?? null,
+    }),
 
   listRequests: () => client.get<WaiverRequestItem[]>('/waivers/requests'),
 

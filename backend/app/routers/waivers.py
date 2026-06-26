@@ -13,22 +13,26 @@ Two routers are exported:
 """
 from __future__ import annotations
 
+import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_role
 from app.config import settings
 from app.database import get_db
+from app.models.email import EmailLog
 from app.models.organization import Organization
+from app.models.entity_contact import EntityContact
 from app.models.user import User
 from app.models.waiver import (
+    WAIVER_PENDING_STATUSES,
     WAIVER_RECIPIENT_TYPES,
     WaiverRequest,
     WaiverSignature,
@@ -37,6 +41,8 @@ from app.models.waiver import (
 from app.seeds.waiver_seed import seed_prebuilt_templates_for_org
 from app.services import waiver_service
 from app.utils.email_client import send_email
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 public_router = APIRouter()
@@ -79,6 +85,16 @@ class SendWaiverRequest(BaseModel):
     recipient_email: str
     recipient_name: str | None = None
     entity_contact_id: uuid.UUID | None = None
+    # When False (default) a send is rejected with 409 if an open/pending waiver
+    # already exists for the same template + recipient email. Set True to send a
+    # duplicate anyway (e.g. the user confirmed the warning).
+    force: bool = False
+
+
+class RecipientSuggestion(BaseModel):
+    name: str | None
+    email: str
+    source: str  # 'contact' | 'waiver'
 
 
 class WaiverRequestResponse(BaseModel):
@@ -100,6 +116,17 @@ class WaiverRequestResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class DuplicateCheckRequest(BaseModel):
+    recipient_email: str
+    template_id: uuid.UUID | None = None
+
+
+class DuplicateCheckResponse(BaseModel):
+    has_pending: bool
+    pending: list[WaiverRequestResponse]
+    history: list[WaiverRequestResponse]
 
 
 class PublicWaiverView(BaseModel):
@@ -170,6 +197,26 @@ async def _org_name(db: AsyncSession, org_id) -> str | None:
     return result.scalar_one_or_none()
 
 
+async def _requests_for_email(
+    db: AsyncSession, org_id, email: str, *, template_id: uuid.UUID | None = None
+) -> list[WaiverRequest]:
+    """Return an org's waiver requests addressed to ``email`` (case-insensitive).
+
+    Optionally narrowed to a single template. Newest first.
+    """
+    normalized = waiver_service.normalize_email(email)
+    conditions = [
+        WaiverRequest.organization_id == org_id,
+        func.lower(WaiverRequest.recipient_email) == normalized,
+    ]
+    if template_id is not None:
+        conditions.append(WaiverRequest.template_id == template_id)
+    result = await db.execute(
+        select(WaiverRequest).where(*conditions).order_by(WaiverRequest.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
 # ── Templates ─────────────────────────────────────────────────────────────────
 
 @router.get("/templates", response_model=list[TemplateResponse])
@@ -234,6 +281,86 @@ async def delete_template(
     await db.commit()
 
 
+# ── Recipient search & duplicate detection ────────────────────────────────────
+
+@router.get("/recipients/search", response_model=list[RecipientSuggestion])
+async def search_recipients(
+    q: str = Query(min_length=1, max_length=120),
+    limit: int = Query(default=10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[RecipientSuggestion]:
+    """Find candidate waiver recipients across contacts and prior waivers.
+
+    Powers a typeahead when sending a waiver so a user can pick an existing
+    person rather than retyping their email. Results are org-scoped and
+    de-duplicated by normalized email (contacts preferred over prior waivers).
+    """
+    org_id = current_user.organization_id
+    term = f"%{q.strip()}%"
+
+    suggestions: dict[str, RecipientSuggestion] = {}
+
+    # 1) Existing entity contacts with an email.
+    contacts = await db.execute(
+        select(EntityContact.contact_name, EntityContact.email)
+        .where(
+            EntityContact.organization_id == org_id,
+            EntityContact.email.is_not(None),
+            EntityContact.email != "",
+            or_(EntityContact.contact_name.ilike(term), EntityContact.email.ilike(term)),
+        )
+        .order_by(EntityContact.contact_name)
+        .limit(limit * 2)
+    )
+    for name, email in contacts.all():
+        key = waiver_service.normalize_email(email)
+        if key and key not in suggestions:
+            suggestions[key] = RecipientSuggestion(name=name, email=email, source="contact")
+
+    # 2) Prior waiver recipients (fills in people not in the contact book).
+    prior = await db.execute(
+        select(WaiverRequest.recipient_name, WaiverRequest.recipient_email)
+        .where(
+            WaiverRequest.organization_id == org_id,
+            or_(
+                WaiverRequest.recipient_name.ilike(term),
+                WaiverRequest.recipient_email.ilike(term),
+            ),
+        )
+        .order_by(WaiverRequest.created_at.desc())
+        .limit(limit * 2)
+    )
+    for name, email in prior.all():
+        key = waiver_service.normalize_email(email)
+        if key and key not in suggestions:
+            suggestions[key] = RecipientSuggestion(name=name, email=email, source="waiver")
+
+    return list(suggestions.values())[:limit]
+
+
+@router.post("/recipients/duplicate-check", response_model=DuplicateCheckResponse)
+async def check_duplicate_recipient(
+    payload: DuplicateCheckRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Report whether a waiver already exists for an email (optionally per template).
+
+    The UI calls this before sending so it can warn "a waiver already exists for
+    this email" and let the user confirm (``force``) or cancel.
+    """
+    matches = await _requests_for_email(
+        db, current_user.organization_id, payload.recipient_email, template_id=payload.template_id
+    )
+    pending = [r for r in matches if r.status in WAIVER_PENDING_STATUSES]
+    return DuplicateCheckResponse(
+        has_pending=bool(pending),
+        pending=[_request_response(r, include_url=True) for r in pending],
+        history=[_request_response(r) for r in matches],
+    )
+
+
 # ── Sending & tracking ────────────────────────────────────────────────────────
 
 @router.post("/send", response_model=WaiverRequestResponse, status_code=status.HTTP_201_CREATED)
@@ -251,6 +378,35 @@ async def send_waiver(
     tpl = await _load_template(db, payload.template_id, current_user.organization_id)
     org_name = await _org_name(db, current_user.organization_id)
 
+    normalized_email = waiver_service.normalize_email(payload.recipient_email)
+    if not normalized_email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="recipient_email is required",
+        )
+
+    # Enforce "no duplicate pending waiver per (template, email)". A signed,
+    # declined or expired prior waiver does not block a re-send; an open one does
+    # unless the caller explicitly opts in with force=True.
+    if not payload.force:
+        existing = await _requests_for_email(
+            db, current_user.organization_id, normalized_email, template_id=tpl.id
+        )
+        pending = next((r for r in existing if r.status in WAIVER_PENDING_STATUSES), None)
+        if pending is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": (
+                        f"A '{tpl.name}' waiver is already pending for "
+                        f"{normalized_email} (status: {pending.status}). "
+                        "Resend with force=true to send another."
+                    ),
+                    "existing_request_id": str(pending.id),
+                    "existing_status": pending.status,
+                },
+            )
+
     context = waiver_service.build_merge_context(
         recipient_name=payload.recipient_name, organization_name=org_name
     )
@@ -264,7 +420,7 @@ async def send_waiver(
         template_id=tpl.id,
         recipient_type=payload.recipient_type,
         recipient_name=payload.recipient_name,
-        recipient_email=str(payload.recipient_email),
+        recipient_email=normalized_email,
         entity_contact_id=payload.entity_contact_id,
         title=tpl.name,
         rendered_body=rendered,
@@ -278,7 +434,14 @@ async def send_waiver(
     await db.commit()
     await db.refresh(req)
 
-    # Best-effort email; failure to send must not roll back the created request.
+    # Email delivery is best-effort: a send failure must not roll back the
+    # created waiver request. But the outcome must be observable — silently
+    # swallowing errors is why "waiver email isn't working" was undiagnosable —
+    # so we capture send_email's result, log it, and record an EmailLog row
+    # (mirroring the weekly-summary email flow) for the in-app email log viewer.
+    email_subject = f"Signature requested: {tpl.name}"
+    sent = False
+    error_detail: str | None = None
     try:
         sign_url = _sign_url(token)
         html = (
@@ -288,9 +451,40 @@ async def send_waiver(
             f"<p><a href=\"{sign_url}\">Review and sign the document</a></p>"
             f"<p>This link expires on {req.expires_at:%B %d, %Y}.</p>"
         )
-        await send_email(str(payload.recipient_email), f"Signature requested: {tpl.name}", html)
-    except Exception:  # pragma: no cover - email best-effort
-        pass
+        sent = bool(await send_email(normalized_email, email_subject, html))
+        if not sent:
+            error_detail = (
+                "send_email returned False — SMTP is not configured "
+                "(SMTP_HOST unset) or the provider rejected the message."
+            )
+            logger.warning(
+                "Waiver email not delivered to %s for request %s: %s",
+                normalized_email,
+                req.id,
+                error_detail,
+            )
+    except Exception as exc:  # pragma: no cover - email best-effort
+        error_detail = str(exc)
+        logger.exception(
+            "Waiver email send raised for %s (request %s)", normalized_email, req.id
+        )
+
+    # Persist an audit row. Wrapped defensively so a logging failure can never
+    # poison the session or mask the successfully created waiver request.
+    try:
+        db.add(
+            EmailLog(
+                rule_id=None,
+                sent_to=normalized_email,
+                subject=email_subject,
+                body=error_detail,
+                status="sent" if sent else "failed",
+            )
+        )
+        await db.commit()
+    except Exception:
+        logger.exception("Failed to write waiver EmailLog for request %s", req.id)
+        await db.rollback()
 
     return _request_response(req, include_url=True)
 

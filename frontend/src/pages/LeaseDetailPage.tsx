@@ -27,6 +27,7 @@ import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import ActivityTimeline from '@/components/common/ActivityTimeline';
 import ConfirmDeleteModal from '@/components/common/ConfirmDeleteModal';
 import LeaseAbstractSection from '@/components/common/LeaseAbstractSection';
+import LeaseDocumentSearch from '@/components/common/LeaseDocumentSearch';
 import type { Lease, LeaseNote, LeaseAccountingResponse, LeaseRenewal, LeaseOption } from '@/types';
 
 const ACCOUNTING_EXPANDED_KEY = 'leaseDetail.accountingExpanded';
@@ -745,6 +746,9 @@ const LeaseDetailPage: React.FC = () => {
               canEdit={canEdit}
             />
           )}
+
+          {/* Document search (keyword / semantic) */}
+          {id && <LeaseDocumentSearch leaseId={id} canEdit={canEdit} />}
 
           {/* Lease Options */}
           <ExpandableSection

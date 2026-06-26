@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     # empty the AI features degrade gracefully (mirroring SMTP/Stripe).
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.1-flash-lite"
+    GEMINI_EMBED_MODEL: str = "text-embedding-004"
     GEMINI_API_BASE: str = "https://generativelanguage.googleapis.com/v1beta"
     GEMINI_TIMEOUT_SECONDS: int = 60
 

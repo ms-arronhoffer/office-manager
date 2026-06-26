@@ -176,7 +176,8 @@ LEASE_PARSE_SYSTEM = (
     "(YYYY-MM-DD). Do not invent values."
 )
 
-# The fields we ask Gemini to populate map directly onto LeaseCreate.
+# The fields we ask Gemini to populate map directly onto LeaseCreate (including
+# the ASC 842 / IFRS 16 accounting & financial terms).
 LEASE_PARSE_FIELDS = {
     "lease_name": "Short human name for the lease, e.g. tenant or suite",
     "lessor_name": "The landlord / lessor legal name",
@@ -185,25 +186,55 @@ LEASE_PARSE_FIELDS = {
     "lease_notice_date": "Date by which renewal/termination notice must be given (YYYY-MM-DD)",
     "notice_period": "Notice period as written, e.g. '90 days'",
     "notice_period_days": "Notice period in whole days (integer)",
+    "expiration_year": "Year the lease expires (integer)",
+    # ── Accounting & financial terms (ASC 842 / IFRS 16) ──────────────────────
     "payment_amount": "Base rent amount per payment period (number)",
     "payment_frequency": "One of monthly, quarterly, annually",
     "annual_escalation_rate": "Annual rent escalation as a decimal fraction, e.g. 0.03",
-    "expiration_year": "Year the lease expires (integer)",
+    "accounting_standard": "Accounting standard if stated: one of asc842, ifrs16, both",
+    "lease_classification": "Lease classification if determinable: operating or finance",
+    "incremental_borrowing_rate": "Incremental borrowing / discount rate as a decimal fraction, e.g. 0.045",
+    "initial_direct_costs": "Initial direct costs capitalised at commencement (number)",
+    "lease_incentives": "Lease incentives received from the lessor (number)",
+    "prepaid_rent": "Prepaid rent paid at or before commencement (number)",
+    "residual_value_guarantee": "Residual value guaranteed by the lessee (number)",
+    "is_short_term_lease": "True if the lease term is 12 months or less (boolean)",
+    "is_low_value_lease": "True if the underlying asset is low-value (boolean)",
+    "currency": "ISO 4217 currency code of the payments, e.g. USD",
 }
 
 
-async def parse_lease_document(content: bytes, mime_type: str) -> dict[str, Any]:
-    """Extract structured lease fields from a document (PDF/image/text).
+async def parse_lease_document(
+    content: bytes,
+    mime_type: str,
+    *,
+    text_content: str | None = None,
+) -> dict[str, Any]:
+    """Extract structured lease fields from a document.
+
+    For PDFs and images the raw bytes are sent inline (Gemini reads them
+    natively). For formats Gemini cannot parse directly (e.g. Word documents),
+    the caller extracts plain text first and passes it as ``text_content``; that
+    text is then sent in place of the inline document.
 
     Returns a dict whose keys are a subset of :class:`LeaseCreate` fields.
     """
     field_spec = "\n".join(f"- {k}: {v}" for k, v in LEASE_PARSE_FIELDS.items())
     prompt = (
-        "Extract the following fields from the attached lease document and "
+        "Extract the following fields from the lease document and "
         "return a single JSON object with exactly these keys:\n"
         f"{field_spec}\n"
     )
-    parts = [{"text": prompt}, _document_part(content, mime_type)]
+    if text_content is not None:
+        document = text_content[:MAX_TEXT_CHARS].strip()
+        if not document:
+            raise AIRequestError("The document did not contain any readable text.")
+        parts = [
+            {"text": prompt},
+            {"text": "\n\nLEASE DOCUMENT TEXT:\n" + document},
+        ]
+    else:
+        parts = [{"text": prompt}, _document_part(content, mime_type)]
     text = await _generate(
         parts, system_instruction=LEASE_PARSE_SYSTEM, json_response=True
     )
@@ -267,3 +298,66 @@ async def generate_summary_narrative(period_label: str, data: dict[str, Any]) ->
     )
     parts = [{"text": prompt}]
     return await _generate(parts, system_instruction=SUMMARY_SYSTEM, temperature=0.4)
+
+
+# ── Embeddings (semantic document search) ─────────────────────────────────────
+
+# Cap the number of texts embedded in a single batch request.
+EMBED_BATCH_SIZE = 100
+
+
+def _embed_endpoint(model: str) -> str:
+    base = settings.GEMINI_API_BASE.rstrip("/")
+    return f"{base}/models/{model}:batchEmbedContents"
+
+
+async def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Return an embedding vector for each input string via Gemini.
+
+    Raises :class:`AIUnavailableError` when no API key is configured so callers
+    can fall back to keyword search. The embedding model is configurable via
+    ``GEMINI_EMBED_MODEL``.
+    """
+    _require_configured()
+    if not texts:
+        return []
+
+    model = settings.GEMINI_EMBED_MODEL
+    url = _embed_endpoint(model)
+    vectors: list[list[float]] = []
+
+    for start in range(0, len(texts), EMBED_BATCH_SIZE):
+        batch = texts[start : start + EMBED_BATCH_SIZE]
+        payload = {
+            "requests": [
+                {
+                    "model": f"models/{model}",
+                    "content": {"parts": [{"text": (t or "")[:MAX_TEXT_CHARS]}]},
+                }
+                for t in batch
+            ]
+        }
+        try:
+            async with httpx.AsyncClient(timeout=settings.GEMINI_TIMEOUT_SECONDS) as client:
+                resp = await client.post(
+                    url, params={"key": settings.GEMINI_API_KEY}, json=payload
+                )
+        except httpx.HTTPError as exc:
+            logger.warning("Gemini embed request failed: %s", exc)
+            raise AIRequestError(f"AI provider request failed: {exc}") from exc
+
+        if resp.status_code != 200:
+            detail = _safe_error_detail(resp)
+            logger.warning("Gemini embed returned %s: %s", resp.status_code, detail)
+            raise AIRequestError(f"AI provider error ({resp.status_code}): {detail}")
+
+        try:
+            data = resp.json()
+            embeddings = data["embeddings"]
+            for emb in embeddings:
+                vectors.append([float(v) for v in emb["values"]])
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning("Unexpected Gemini embed response shape: %s", exc)
+            raise AIRequestError("AI provider returned an unexpected response") from exc
+
+    return vectors
