@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
@@ -23,7 +23,7 @@ const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { loginWithToken, googleLogin, isAuthenticated } = useAuth();
-  const { settings } = useSiteSettings();
+  const { settings, reload: reloadSiteSettings } = useSiteSettings();
 
   const [mode, setMode] = useState<Mode>('login');
 
@@ -49,8 +49,14 @@ const LoginPage: React.FC = () => {
 
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
 
+  // Redirect away from the login page once the user is authenticated.
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate(from, { replace: true });
+    }
+  }, [isAuthenticated, from, navigate]);
+
   if (isAuthenticated) {
-    navigate(from, { replace: true });
     return null;
   }
 
@@ -79,7 +85,7 @@ const LoginPage: React.FC = () => {
       } else if (data.access_token) {
         await loginWithToken(data.access_token);
         // Reload site settings now that user is authenticated
-        setTimeout(() => { useSiteSettings().reload(); }, 100);
+        reloadSiteSettings();
         navigate(from, { replace: true });
       } else {
         setError('Unexpected response. Please try again.');
@@ -164,7 +170,7 @@ const LoginPage: React.FC = () => {
       const response = await authApi.verifyMfa(mfaToken, mfaCode);
       await loginWithToken(response.data.access_token);
       // Reload site settings now that user is authenticated
-      setTimeout(() => { useSiteSettings().reload(); }, 100);
+      reloadSiteSettings();
       navigate(from, { replace: true });
     } catch (err: unknown) {
       const message =
