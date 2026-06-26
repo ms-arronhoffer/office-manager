@@ -59,7 +59,7 @@ from app.routers import (  # noqa: E402
     ticket_templates, recurring_ticket_rules, notifications, organizations, billing, api_keys,
     webhooks, operating_expenses, vendor_portal, insurance_certificates, ws, work_order_costs,
     space, gl, cam, lifecycle, ap,
-    lease_abstract, management_companies, contacts,
+    lease_abstract, management_companies, contacts, client_portal,
 )
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature  # noqa: E402
@@ -106,6 +106,7 @@ app.include_router(api_keys.router, prefix="/api/v1/api-keys", tags=["API Keys"]
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"], dependencies=[Depends(enforce_org_access), Depends(require_feature("webhooks"))])
 app.include_router(operating_expenses.router, prefix="/api/v1/operating-expenses", tags=["Operating Expenses"], dependencies=_org_guard)
 app.include_router(vendor_portal.router, prefix="/api/v1", tags=["Vendor Portal"])
+app.include_router(client_portal.router, prefix="/api/v1", tags=["Client Portal"])
 app.include_router(insurance_certificates.router, prefix="/api/v1/insurance-certificates", tags=["Insurance Certificates"], dependencies=_org_guard)
 app.include_router(ws.router, tags=["WebSocket"])
 app.include_router(work_order_costs.router, prefix="/api/v1", tags=["Work Order Costs"], dependencies=_org_guard)

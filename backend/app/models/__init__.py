@@ -8,6 +8,7 @@ from app.models.lease_option import LeaseOption
 from app.models.landlord import Landlord, LandlordAdditionalName, LandlordContact
 from app.models.management_company import ManagementCompany
 from app.models.entity_contact import EntityContact
+from app.models.client_portal_account import ClientPortalAccount, CLIENT_PORTAL_ENTITY_TYPES
 from app.models.transition import OfficeTransition, TransitionChecklistItem
 from app.models.hq_hvac import (
     HqHeatPump, HqHeatPumpServiceLog, HqHvacIssue,
@@ -48,6 +49,7 @@ __all__ = [
     "Landlord", "LandlordAdditionalName", "LandlordContact",
     "ManagementCompany",
     "EntityContact",
+    "ClientPortalAccount",
     "OfficeTransition", "TransitionChecklistItem",
     "HqHeatPump", "HqHeatPumpServiceLog", "HqHvacIssue",
     "HqPmTask", "HqPmLog", "HqMaintenanceContract", "HqMaintenanceVisit",
