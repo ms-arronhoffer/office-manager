@@ -111,12 +111,12 @@ class _LeaseBoundedTextMixin(BaseModel):
     @field_validator("lease_name", mode="before", check_fields=False)
     @classmethod
     def _cap_lease_name(cls, value: object) -> object:
-        return _cap_length(value, 255) if value is not None else value
+        return _cap_length(value, 255)
 
     @field_validator("notice_period", mode="before", check_fields=False)
     @classmethod
     def _cap_notice_period(cls, value: object) -> object:
-        return _cap_length(value, 255) if value is not None else value
+        return _cap_length(value, 255)
 
 
 class LeaseCreate(_LeaseAccountingFields, _LeaseBoundedTextMixin):
