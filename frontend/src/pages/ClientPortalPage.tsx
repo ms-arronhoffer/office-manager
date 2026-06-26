@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
@@ -74,6 +75,7 @@ const ClientPortalPage: React.FC = () => {
 
   // Contact modal
   const [contactModal, setContactModal] = useState(false);
+  const { confirmDelete, modal: deleteModal } = useConfirmDelete();
   const [editingContact, setEditingContact] = useState<EntityContact | null>(null);
   const [contactForm, setContactForm] = useState<ContactForm>(emptyContactForm);
   const [contactNameError, setContactNameError] = useState('');
@@ -243,7 +245,9 @@ const ClientPortalPage: React.FC = () => {
   }
 
   return (
-    <ContentLayout
+    <>
+      {deleteModal}
+      <ContentLayout
       header={
         <Header variant="h1" description={`${entityLabel(profile?.entity_type)} portal for ${profile?.name ?? '…'}`}>
           Client Portal
@@ -311,7 +315,7 @@ const ClientPortalPage: React.FC = () => {
                       cell: (c: EntityContact) => (
                         <SpaceBetween direction="horizontal" size="xs">
                           <Button variant="inline-link" onClick={() => openEditContact(c)}>Edit</Button>
-                          <Button variant="inline-link" onClick={() => handleDeleteContact(c)}>Remove</Button>
+                          <Button variant="inline-link" onClick={() => confirmDelete({ itemName: c.contact_name || 'this contact', description: <>Are you sure you want to remove <strong>{c.contact_name || 'this contact'}</strong>?</>, onConfirm: () => handleDeleteContact(c) })}>Remove</Button>
                         </SpaceBetween>
                       ),
                       width: 160,
@@ -453,6 +457,7 @@ const ClientPortalPage: React.FC = () => {
         </SpaceBetween>
       </Modal>
     </ContentLayout>
+    </>
   );
 };
 
