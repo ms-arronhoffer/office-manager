@@ -17,6 +17,13 @@ import re
 
 EXPORT_FORMATS = ("pdf", "docx")
 
+# Markdown line patterns. The captured text group begins with ``\S`` so it can
+# never overlap the preceding ``\s+``; this keeps matching linear and avoids
+# polynomial backtracking (ReDoS) on adversarial whitespace-heavy input.
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(\S.*)$")
+_BULLET_RE = re.compile(r"^[-*+]\s+(\S.*)$")
+_ORDERED_RE = re.compile(r"^\d+[.)]\s+(\S.*)$")
+
 
 def markdown_to_html(md_text: str) -> str:
     """Convert Markdown to an HTML fragment.
@@ -71,18 +78,18 @@ def markdown_to_docx(md_text: str, *, title: str | None = None) -> bytes:
         if not stripped:
             continue
 
-        heading_match = re.match(r"^(#{1,6})\s+(.*)$", stripped)
+        heading_match = _HEADING_RE.match(stripped)
         if heading_match:
             level = min(len(heading_match.group(1)), 4)
             document.add_heading(_strip_inline(heading_match.group(2)), level=level)
             continue
 
-        bullet_match = re.match(r"^[-*+]\s+(.*)$", stripped)
+        bullet_match = _BULLET_RE.match(stripped)
         if bullet_match:
             document.add_paragraph(_strip_inline(bullet_match.group(1)), style="List Bullet")
             continue
 
-        ordered_match = re.match(r"^\d+[.)]\s+(.*)$", stripped)
+        ordered_match = _ORDERED_RE.match(stripped)
         if ordered_match:
             document.add_paragraph(_strip_inline(ordered_match.group(1)), style="List Number")
             continue
@@ -149,7 +156,7 @@ def markdown_to_pdf(md_text: str, *, title: str | None = None) -> bytes:
             flush_bullets()
             continue
 
-        heading_match = re.match(r"^(#{1,6})\s+(.*)$", stripped)
+        heading_match = _HEADING_RE.match(stripped)
         if heading_match:
             flush_bullets()
             level = len(heading_match.group(1))
@@ -157,12 +164,12 @@ def markdown_to_pdf(md_text: str, *, title: str | None = None) -> bytes:
             flow.append(Paragraph(_inline_to_pdf(heading_match.group(2)), style))
             continue
 
-        bullet_match = re.match(r"^[-*+]\s+(.*)$", stripped)
+        bullet_match = _BULLET_RE.match(stripped)
         if bullet_match:
             pending_bullets.append(bullet_match.group(1))
             continue
 
-        ordered_match = re.match(r"^\d+[.)]\s+(.*)$", stripped)
+        ordered_match = _ORDERED_RE.match(stripped)
         if ordered_match:
             pending_bullets.append(ordered_match.group(1))
             continue

@@ -222,11 +222,15 @@ async def _keyword_rank(
     lease_id: uuid.UUID | None,
     limit: int,
 ) -> list[dict]:
-    term = f"%{query}%"
-    stmt = select(LeaseDocumentChunk).where(
-        or_(*[LeaseDocumentChunk.content.ilike(f"%{w}%") for w in query.split()] or
-            [LeaseDocumentChunk.content.ilike(term)])
-    )
+    # ``query`` is guaranteed non-empty by ``search_documents``. Match any of the
+    # individual words; fall back to the whole phrase only if splitting yields
+    # nothing (e.g. punctuation-only input).
+    words = query.split()
+    if words:
+        word_filters = [LeaseDocumentChunk.content.ilike(f"%{w}%") for w in words]
+    else:
+        word_filters = [LeaseDocumentChunk.content.ilike(f"%{query}%")]
+    stmt = select(LeaseDocumentChunk).where(or_(*word_filters))
     if organization_id is not None:
         stmt = stmt.where(LeaseDocumentChunk.organization_id == organization_id)
     if lease_id is not None:
@@ -234,7 +238,7 @@ async def _keyword_rank(
     stmt = stmt.limit(limit * 10)
     chunks = (await db.execute(stmt)).scalars().all()
 
-    terms = [w.lower() for w in query.split()]
+    terms = [w.lower() for w in words]
 
     def keyword_score(content: str) -> int:
         lowered = content.lower()
