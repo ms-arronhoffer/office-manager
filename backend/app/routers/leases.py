@@ -330,7 +330,10 @@ async def create_lease(
     db.add(lease)
     await db.commit()
     await db.refresh(lease)
-    await log_activity(db, user=current_user, action="created", entity_type="lease", entity_id=lease.id, entity_label=lease.lease_name)
+    try:
+        await log_activity(db, user=current_user, action="created", entity_type="lease", entity_id=lease.id, entity_label=lease.lease_name)
+    except Exception:
+        pass
     try:
         await update_search_vector(db, "leases", lease.id)
     except Exception:
@@ -401,7 +404,10 @@ async def delete_lease(
     lease.is_deleted = True
     lease.deleted_at = _utcnow()
     await db.commit()
-    await log_activity(db, user=current_user, action="deleted", entity_type="lease", entity_id=lease_id, entity_label=label)
+    try:
+        await log_activity(db, user=current_user, action="deleted", entity_type="lease", entity_id=lease_id, entity_label=label)
+    except Exception:
+        pass
 
 
 @router.patch("/{lease_id}/restore", response_model=LeaseResponse)
@@ -417,7 +423,10 @@ async def restore_lease(
     lease.is_deleted = False
     lease.deleted_at = None
     await db.commit()
-    await log_activity(db, user=current_user, action="updated", entity_type="lease", entity_id=lease_id, entity_label=lease.lease_name)
+    try:
+        await log_activity(db, user=current_user, action="updated", entity_type="lease", entity_id=lease_id, entity_label=lease.lease_name)
+    except Exception:
+        pass
     result = await db.execute(
         select(Lease)
         .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes))
@@ -450,7 +459,10 @@ async def clone_lease(
     db.add(new_lease)
     await db.commit()
     await db.refresh(new_lease)
-    await log_activity(db, user=current_user, action="created", entity_type="lease", entity_id=new_lease.id, entity_label=new_lease.lease_name)
+    try:
+        await log_activity(db, user=current_user, action="created", entity_type="lease", entity_id=new_lease.id, entity_label=new_lease.lease_name)
+    except Exception:
+        pass
 
     result = await db.execute(
         select(Lease)

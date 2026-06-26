@@ -45,3 +45,38 @@ async def test_delete_lease(client, admin_user, sample_office):
         headers=auth_headers(admin_user),
     )
     assert resp.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_create_lease_succeeds_when_activity_log_fails(
+    client, admin_user, sample_office, monkeypatch
+):
+    """A failure in best-effort activity logging must not 500 the create.
+
+    Regression: the lease is committed before log_activity runs, so a raised
+    error there previously surfaced as "Failed to create lease" even though the
+    lease persisted.
+    """
+    import app.routers.leases as leases_router
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("activity log unavailable")
+
+    monkeypatch.setattr(leases_router, "log_activity", boom)
+
+    resp = await client.post(
+        "/api/v1/leases",
+        headers=auth_headers(admin_user),
+        json={
+            "lease_name": "Resilient Lease",
+            "office_id": str(sample_office.id),
+            "expiration_year": 2030,
+            "lessor_name": "ACME Properties",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["lease_name"] == "Resilient Lease"
+
+    # And it is actually retrievable.
+    listed = await client.get("/api/v1/leases", headers=auth_headers(admin_user))
+    assert any(l["lease_name"] == "Resilient Lease" for l in listed.json()["items"])

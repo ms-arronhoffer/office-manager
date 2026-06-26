@@ -17,6 +17,7 @@ import Spinner from '@cloudscape-design/components/spinner';
 import Alert from '@cloudscape-design/components/alert';
 import Badge from '@cloudscape-design/components/badge';
 import StatusIndicator from '@cloudscape-design/components/status-indicator';
+import TextFilter from '@cloudscape-design/components/text-filter';
 import { waivers as waiversApi } from '@/api';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useConfirmDelete } from '@/hooks/useConfirmDelete';
@@ -42,6 +43,7 @@ const WaiversPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('templates');
   const [templates, setTemplates] = useState<WaiverTemplate[]>([]);
   const [requests, setRequests] = useState<WaiverRequestItem[]>([]);
+  const [requestQuery, setRequestQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
 
@@ -229,6 +231,31 @@ const WaiversPage: React.FC = () => {
     });
   };
 
+  const deleteRequest = (r: WaiverRequestItem) => {
+    confirmDelete({
+      itemName: r.recipient_name || r.recipient_email,
+      onConfirm: async () => {
+        try {
+          await waiversApi.deleteRequest(r.id);
+          addFlash({ type: 'success', content: 'Waiver deleted.' });
+          load();
+        } catch {
+          addFlash({ type: 'error', content: 'Failed to delete waiver.' });
+        }
+      },
+    });
+  };
+
+  const filteredRequests = React.useMemo(() => {
+    const term = requestQuery.trim().toLowerCase();
+    if (!term) return requests;
+    return requests.filter((r) =>
+      [r.title, r.recipient_name, r.recipient_email, r.status]
+        .filter(Boolean)
+        .some((v) => (v as string).toLowerCase().includes(term)),
+    );
+  }, [requests, requestQuery]);
+
   if (forbidden) {
     return (
       <ContentLayout header={<Header variant="h1">Digital Waivers</Header>}>
@@ -312,7 +339,20 @@ const WaiversPage: React.FC = () => {
                 content: (
                   <Container>
                     <Table<WaiverRequestItem>
-                      items={requests}
+                      items={filteredRequests}
+                      filter={
+                        <TextFilter
+                          filteringText={requestQuery}
+                          filteringPlaceholder="Search by recipient, email, title, or status"
+                          filteringAriaLabel="Search waivers"
+                          onChange={(e) => setRequestQuery(e.detail.filteringText)}
+                          countText={
+                            requestQuery.trim()
+                              ? `${filteredRequests.length} match${filteredRequests.length === 1 ? '' : 'es'}`
+                              : ''
+                          }
+                        />
+                      }
                       columnDefinitions={[
                         { id: 'title', header: 'Waiver', cell: (r) => r.title },
                         {
@@ -342,29 +382,33 @@ const WaiversPage: React.FC = () => {
                         {
                           id: 'actions',
                           header: '',
-                          cell: (r) =>
-                            r.status === 'signed' ? (
-                              <Button
-                                variant="inline-link"
-                                onClick={async () => {
-                                  try {
-                                    const res = await waiversApi.downloadPdf(r.id);
-                                    const url = URL.createObjectURL(res.data as Blob);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = `${r.title}.pdf`;
-                                    a.click();
-                                    URL.revokeObjectURL(url);
-                                  } catch {
-                                    addFlash({ type: 'error', content: 'Failed to download signed PDF.' });
-                                  }
-                                }}
-                              >
-                                Download PDF
+                          cell: (r) => (
+                            <SpaceBetween direction="horizontal" size="xs">
+                              {r.status === 'signed' && (
+                                <Button
+                                  variant="inline-link"
+                                  onClick={async () => {
+                                    try {
+                                      const res = await waiversApi.downloadPdf(r.id);
+                                      const url = URL.createObjectURL(res.data as Blob);
+                                      const a = document.createElement('a');
+                                      a.href = url;
+                                      a.download = `${r.title}.pdf`;
+                                      a.click();
+                                      URL.revokeObjectURL(url);
+                                    } catch {
+                                      addFlash({ type: 'error', content: 'Failed to download signed PDF.' });
+                                    }
+                                  }}
+                                >
+                                  Download PDF
+                                </Button>
+                              )}
+                              <Button variant="inline-link" onClick={() => deleteRequest(r)}>
+                                Delete
                               </Button>
-                            ) : (
-                              '—'
-                            ),
+                            </SpaceBetween>
+                          ),
                         },
                       ]}
                       empty={<Box textAlign="center" color="inherit">No waivers sent yet.</Box>}

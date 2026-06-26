@@ -43,3 +43,27 @@ The PDF is produced by `generate_sample_lease.py` (uses `reportlab`, which is
 pip install reportlab
 python docs/samples/generate_sample_lease.py
 ```
+
+## Full Lease Abstract sample
+
+`sample_full_abstract_lease.pdf` is a longer lease whose articles map 1:1 onto
+**every** category in the Lease Abstract catalog
+(`backend/app/services/lease_abstract_catalog.py`, 35 categories). Use it on a
+lease's **Abstract** screen ("Suggest with AI") so
+`POST /api/v1/ai/leases/{id}/abstract/suggest` can populate all clause
+categories — not just the headline fields covered by
+`sample_commercial_lease.pdf`.
+
+Each article spells out the concrete figures behind the structured fields a
+category captures (square footage, dates, dollar amounts, percentages, notice
+periods, caps, etc.) so the extraction has real content to summarise for every
+category.
+
+Regenerate it the same way (it imports the catalog from the backend package, so
+it stays in lock-step with the canonical category list):
+
+```bash
+pip install reportlab
+python docs/samples/generate_full_abstract_lease.py
+```
+
