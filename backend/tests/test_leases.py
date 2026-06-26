@@ -188,3 +188,98 @@ async def test_update_lease_preserves_currency_when_not_provided(
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["currency"] == "EUR"
+
+@pytest.mark.asyncio
+async def test_create_lease_caps_long_text_fields(client, admin_user, sample_office):
+    """Overlong AI-extracted text must not overflow the varchar(255) columns.
+
+    A full notice clause pasted into ``notice_period`` (or an overlong
+    ``lease_name``) previously raised a database StringDataRightTruncation error,
+    surfacing as a 500 on POST /leases and silently blocking the document
+    attachment and abstract pre-fill that run only after a successful create.
+    """
+    resp = await client.post(
+        "/api/v1/leases",
+        headers=auth_headers(admin_user),
+        json={
+            "lease_name": "L" * 400,
+            "office_id": str(sample_office.id),
+            "expiration_year": 2035,
+            "notice_period": "N" * 400,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert len(data["lease_name"]) == 255
+    assert len(data["notice_period"]) == 255
+
+
+@pytest.mark.asyncio
+async def test_create_lease_coerces_freetext_enum_fields(client, admin_user, sample_office):
+    """Free-text / AI-extracted enum-style values must not overflow their columns.
+
+    ``accounting_standard`` (varchar 10), ``lease_classification`` (varchar 20)
+    and ``payment_frequency`` (varchar 20) are coerced to a valid code or None,
+    so values like "ASC 842 / IFRS 16" can never 500 the create.
+    """
+    resp = await client.post(
+        "/api/v1/leases",
+        headers=auth_headers(admin_user),
+        json={
+            "lease_name": "Enum Lease",
+            "office_id": str(sample_office.id),
+            "expiration_year": 2036,
+            "accounting_standard": "ASC 842 / IFRS 16 standard",
+            "lease_classification": "operating lease - modified gross",
+            "payment_frequency": "monthly with quarterly true-up",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["accounting_standard"] is None
+    assert data["lease_classification"] is None
+    assert data["payment_frequency"] is None
+
+
+@pytest.mark.asyncio
+async def test_create_lease_preserves_valid_enum_fields(client, admin_user, sample_office):
+    resp = await client.post(
+        "/api/v1/leases",
+        headers=auth_headers(admin_user),
+        json={
+            "lease_name": "Valid Enum Lease",
+            "office_id": str(sample_office.id),
+            "expiration_year": 2037,
+            "accounting_standard": "asc842",
+            "lease_classification": "operating",
+            "payment_frequency": "monthly",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["accounting_standard"] == "asc842"
+    assert data["lease_classification"] == "operating"
+    assert data["payment_frequency"] == "monthly"
+
+
+@pytest.mark.asyncio
+async def test_update_lease_caps_long_notice_period(client, admin_user, sample_office):
+    create = await client.post(
+        "/api/v1/leases",
+        headers=auth_headers(admin_user),
+        json={
+            "lease_name": "Update Cap Lease",
+            "office_id": str(sample_office.id),
+            "expiration_year": 2038,
+        },
+    )
+    assert create.status_code == 201, create.text
+    lease_id = create.json()["id"]
+
+    resp = await client.put(
+        f"/api/v1/leases/{lease_id}",
+        headers=auth_headers(admin_user),
+        json={"notice_period": "N" * 400},
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()["notice_period"]) == 255
