@@ -120,11 +120,17 @@ function buildClauseUpdate(
       case 'number':
       case 'currency':
       case 'percent': {
-        const n =
-          typeof raw === 'number'
-            ? raw
-            : Number(String(raw).replace(/[^0-9.\-]/g, ''));
-        if (String(raw).trim() !== '' && Number.isFinite(n)) content[field.key] = n;
+        let n: number;
+        if (typeof raw === 'number') {
+          n = raw;
+        } else {
+          // Strip units/symbols; bail out when nothing numeric remains so that
+          // non-numeric text (e.g. "N/A") is not silently coerced to 0.
+          const cleaned = String(raw).replace(/[^0-9.\-]/g, '');
+          if (cleaned === '' || cleaned === '-' || cleaned === '.') break;
+          n = Number(cleaned);
+        }
+        if (Number.isFinite(n)) content[field.key] = n;
         break;
       }
       case 'boolean': {
