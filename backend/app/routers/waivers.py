@@ -506,17 +506,19 @@ async def list_requests(
         .where(WaiverRequest.organization_id == current_user.organization_id)
         .order_by(WaiverRequest.created_at.desc())
     )
-    if q and q.strip():
-        term = f"%{q.strip()}%"
+    term = q.strip() if q else ""
+    if term:
+        like = f"%{term}%"
         stmt = stmt.where(
             or_(
-                WaiverRequest.recipient_name.ilike(term),
-                WaiverRequest.recipient_email.ilike(term),
-                WaiverRequest.title.ilike(term),
+                WaiverRequest.recipient_name.ilike(like),
+                WaiverRequest.recipient_email.ilike(like),
+                WaiverRequest.title.ilike(like),
             )
         )
-    if status_filter and status_filter.strip():
-        stmt = stmt.where(WaiverRequest.status == status_filter.strip())
+    status_value = status_filter.strip() if status_filter else ""
+    if status_value:
+        stmt = stmt.where(WaiverRequest.status == status_value)
     result = await db.execute(stmt)
     return [_request_response(r, include_url=True) for r in result.scalars().all()]
 
