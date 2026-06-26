@@ -114,6 +114,32 @@ _MIME_BY_EXT = {
 _TEXT_EXTRACT_EXTS = {".docx", ".doc", ".txt"}
 
 
+def _maybe_extract_text(filename: str | None, content: bytes) -> str | None:
+    """Extract plain text for formats Gemini cannot read inline.
+
+    Word/text documents (``_TEXT_EXTRACT_EXTS``) must be converted to text
+    before being sent to the model — passing their raw bytes inline yields an
+    empty/garbage response. PDFs and images return ``None`` so the caller sends
+    the bytes inline instead.
+    """
+    ext = Path(filename or "").suffix.lower()
+    if ext not in _TEXT_EXTRACT_EXTS:
+        return None
+    try:
+        text_content = document_extraction.extract_text(content, filename or "")
+    except (
+        document_extraction.UnsupportedDocumentError,
+        document_extraction.DocumentExtractionError,
+    ) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    if not text_content.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The document did not contain any readable text.",
+        )
+    return text_content
+
+
 def _ai_error_response(exc: ai_service.AIError) -> HTTPException:
     if isinstance(exc, ai_service.AIUnavailableError):
         return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
@@ -141,22 +167,7 @@ async def parse_lease(
     intentionally **not** gated behind ``ai_assist``.
     """
     content, mime_type = await _read_document(file)
-    ext = Path(file.filename or "").suffix.lower()
-
-    text_content: str | None = None
-    if ext in _TEXT_EXTRACT_EXTS:
-        # Gemini cannot read Word/text bytes inline; extract plain text first.
-        try:
-            text_content = document_extraction.extract_text(content, file.filename or "")
-        except document_extraction.UnsupportedDocumentError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-        except document_extraction.DocumentExtractionError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-        if not text_content.strip():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="The document did not contain any readable text.",
-            )
+    text_content = _maybe_extract_text(file.filename, content)
 
     try:
         suggested = await ai_service.parse_lease_document(
@@ -193,9 +204,12 @@ async def suggest_abstract(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
 
     content, mime_type = await _read_document(file)
+    text_content = _maybe_extract_text(file.filename, content)
     categories = [{"key": c["key"], "name": c["name"]} for c in CLAUSE_CATEGORIES]
     try:
-        suggested = await ai_service.suggest_abstract_clauses(content, mime_type, categories)
+        suggested = await ai_service.suggest_abstract_clauses(
+            content, mime_type, categories, text_content=text_content
+        )
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
     return AbstractSuggestResponse(suggested=suggested, model=settings.GEMINI_MODEL)

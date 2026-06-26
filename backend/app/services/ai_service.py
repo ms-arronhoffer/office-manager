@@ -267,19 +267,35 @@ async def suggest_abstract_clauses(
     content: bytes,
     mime_type: str,
     categories: list[dict[str, str]],
+    *,
+    text_content: str | None = None,
 ) -> dict[str, Any]:
     """Propose lease-abstract clause content per category.
 
     ``categories`` is a list of ``{"key": ..., "name": ...}`` dicts taken from
     the lease-abstract catalog. Returns a dict keyed by category key.
+
+    For PDFs and images the raw bytes are sent inline (Gemini reads them
+    natively). For formats Gemini cannot parse directly (e.g. Word/text
+    documents), the caller extracts plain text first and passes it as
+    ``text_content``; that text is sent in place of the inline document.
     """
     cat_spec = "\n".join(f"- {c['key']}: {c['name']}" for c in categories)
     prompt = (
-        "Summarise the attached lease for each of these clause categories "
+        "Summarise the lease for each of these clause categories "
         "(category_key: human name):\n"
         f"{cat_spec}\n"
     )
-    parts = [{"text": prompt}, _document_part(content, mime_type)]
+    if text_content is not None:
+        document = text_content[:MAX_TEXT_CHARS].strip()
+        if not document:
+            raise AIRequestError("The document did not contain any readable text.")
+        parts = [
+            {"text": prompt},
+            {"text": "\n\nLEASE DOCUMENT TEXT:\n" + document},
+        ]
+    else:
+        parts = [{"text": prompt}, _document_part(content, mime_type)]
     text = await _generate(
         parts, system_instruction=ABSTRACT_SUGGEST_SYSTEM, json_response=True
     )
