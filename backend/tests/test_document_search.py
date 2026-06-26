@@ -262,3 +262,271 @@ def test_snippet_bounds_overlong_paragraph():
     assert "base rent" in snip
     assert len(snip) <= 122  # max_chars plus the two ellipsis characters
     assert snip.startswith("…") and snip.endswith("…")
+
+
+# ── Multiple hits per document (single-lease search) ──────────────────────────
+
+@pytest.mark.asyncio
+async def test_single_lease_search_returns_multiple_hits(db_session, monkeypatch):
+    """A single-lease search surfaces every matching chunk (no per-lease collapse)
+    so the preview pane can navigate between occurrences."""
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+    org, _user, _ = await _make_org_user(db_session, "multi@test.com")
+    lease = await _make_lease(db_session, org)
+    for idx in range(3):
+        db_session.add(
+            LeaseDocumentChunk(
+                organization_id=org.id, lease_id=lease.id, source_filename="lease.pdf",
+                chunk_index=idx, content=f"clause {idx} mentions base rent details",
+            )
+        )
+    await db_session.commit()
+
+    results = await document_search_service.search_documents(
+        db_session, organization_id=org.id, query="base rent", lease_id=lease.id
+    )
+    assert len(results) == 3
+    assert {r["chunk_index"] for r in results} == {0, 1, 2}
+
+
+@pytest.mark.asyncio
+async def test_portfolio_search_collapses_per_lease(db_session, monkeypatch):
+    """A portfolio-wide search still collapses to one best match per lease."""
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+    org, _user, _ = await _make_org_user(db_session, "collapse@test.com")
+    lease = await _make_lease(db_session, org)
+    for idx in range(3):
+        db_session.add(
+            LeaseDocumentChunk(
+                organization_id=org.id, lease_id=lease.id, source_filename="lease.pdf",
+                chunk_index=idx, content=f"clause {idx} mentions base rent details",
+            )
+        )
+    await db_session.commit()
+
+    results = await document_search_service.search_documents(
+        db_session, organization_id=org.id, query="base rent"
+    )
+    assert len(results) == 1
+
+
+@pytest.mark.asyncio
+async def test_search_scoped_to_single_attachment(db_session, monkeypatch):
+    """Passing attachment_id restricts results to that one uploaded document."""
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+    org, user, _ = await _make_org_user(db_session, "scope@test.com")
+    lease = await _make_lease(db_session, org)
+    att_a = await _make_attachment(db_session, org, user, lease, "lease.pdf")
+    att_b = await _make_attachment(db_session, org, user, lease, "amendment.pdf")
+    db_session.add_all([
+        LeaseDocumentChunk(
+            organization_id=org.id, lease_id=lease.id, attachment_id=att_a.id,
+            source_filename="lease.pdf", chunk_index=0,
+            content="base rent is due monthly",
+        ),
+        LeaseDocumentChunk(
+            organization_id=org.id, lease_id=lease.id, attachment_id=att_b.id,
+            source_filename="amendment.pdf", chunk_index=0,
+            content="base rent is amended to a new amount",
+        ),
+    ])
+    await db_session.commit()
+
+    # Unscoped: both documents match.
+    unscoped = await document_search_service.search_documents(
+        db_session, organization_id=org.id, query="base rent", lease_id=lease.id
+    )
+    assert {r["source_filename"] for r in unscoped} == {"lease.pdf", "amendment.pdf"}
+
+    # Scoped to one document: only that document's chunk is returned.
+    scoped = await document_search_service.search_documents(
+        db_session, organization_id=org.id, query="base rent",
+        lease_id=lease.id, attachment_id=att_b.id,
+    )
+    assert len(scoped) == 1
+    assert scoped[0]["attachment_id"] == str(att_b.id)
+    assert scoped[0]["source_filename"] == "amendment.pdf"
+
+
+@pytest.mark.asyncio
+async def test_list_indexed_documents(db_session, monkeypatch):
+    """list_indexed_documents groups chunks into one entry per document."""
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+    org, user, _ = await _make_org_user(db_session, "listdocs@test.com")
+    lease = await _make_lease(db_session, org)
+    att_a = await _make_attachment(db_session, org, user, lease, "lease.pdf")
+    att_b = await _make_attachment(db_session, org, user, lease, "amendment.pdf")
+    db_session.add_all([
+        LeaseDocumentChunk(
+            organization_id=org.id, lease_id=lease.id, attachment_id=att_a.id,
+            source_filename="lease.pdf", chunk_index=0, content="alpha",
+        ),
+        LeaseDocumentChunk(
+            organization_id=org.id, lease_id=lease.id, attachment_id=att_a.id,
+            source_filename="lease.pdf", chunk_index=1, content="beta",
+        ),
+        LeaseDocumentChunk(
+            organization_id=org.id, lease_id=lease.id, attachment_id=att_b.id,
+            source_filename="amendment.pdf", chunk_index=0, content="gamma",
+        ),
+    ])
+    await db_session.commit()
+
+    docs = await document_search_service.list_indexed_documents(
+        db_session, lease_id=lease.id, organization_id=org.id
+    )
+    assert len(docs) == 2
+    by_name = {d["source_filename"]: d for d in docs}
+    assert by_name["lease.pdf"]["chunk_count"] == 2
+    assert by_name["lease.pdf"]["attachment_id"] == str(att_a.id)
+    assert by_name["amendment.pdf"]["chunk_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_list_indexed_documents_endpoint(client, db_session, monkeypatch):
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+    org, user, headers = await _make_org_user(db_session, "listep@test.com")
+    lease = await _make_lease(db_session, org)
+    att = await _make_attachment(db_session, org, user, lease, "lease.pdf")
+    db_session.add(
+        LeaseDocumentChunk(
+            organization_id=org.id, lease_id=lease.id, attachment_id=att.id,
+            source_filename="lease.pdf", chunk_index=0, content="renewal option",
+        )
+    )
+    await db_session.commit()
+
+    resp = await client.get(
+        f"/api/v1/leases/{lease.id}/documents", headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["lease_id"] == str(lease.id)
+    assert len(body["documents"]) == 1
+    assert body["documents"][0]["attachment_id"] == str(att.id)
+    assert body["documents"][0]["source_filename"] == "lease.pdf"
+    assert body["documents"][0]["chunk_count"] == 1
+
+
+# ── Document text preview ─────────────────────────────────────────────────────
+
+async def _make_attachment(db_session, org, user, lease, filename):
+    """Create a minimal Attachment row (no file on disk) for FK-valid chunks."""
+    attachment = Attachment(
+        organization_id=org.id,
+        entity_type="lease",
+        entity_id=lease.id,
+        original_filename=filename,
+        stored_filename=f"{uuid.uuid4()}{filename[filename.rfind('.'):]}",
+        content_type="application/pdf",
+        file_size=1,
+        uploaded_by=user.email,
+    )
+    db_session.add(attachment)
+    await db_session.commit()
+    await db_session.refresh(attachment)
+    return attachment
+
+
+async def _make_lease_docx_attachment(db_session, org, user, paragraphs):
+    import io
+    from pathlib import Path
+
+    import docx
+
+    from app.config import settings
+
+    lease = await _make_lease(db_session, org)
+    document = docx.Document()
+    for para in paragraphs:
+        document.add_paragraph(para)
+    buf = io.BytesIO()
+    document.save(buf)
+    stored = f"{uuid.uuid4()}.docx"
+    attachment = Attachment(
+        organization_id=org.id,
+        entity_type="lease",
+        entity_id=lease.id,
+        original_filename="lease.docx",
+        stored_filename=stored,
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        file_size=buf.tell(),
+        uploaded_by=user.email,
+    )
+    db_session.add(attachment)
+    await db_session.commit()
+    await db_session.refresh(attachment)
+
+    dest_dir = Path(settings.UPLOAD_DIR) / "lease"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    (dest_dir / stored).write_bytes(buf.getvalue())
+    return lease, attachment, dest_dir / stored
+
+
+@pytest.mark.asyncio
+async def test_get_document_text_service(db_session, monkeypatch):
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+    org, user, _ = await _make_org_user(db_session, "txt@test.com")
+    lease, attachment, path = await _make_lease_docx_attachment(
+        db_session, org, user, ["Base rent is $10,000.", "Term is sixty months."]
+    )
+    try:
+        result = await document_search_service.get_document_text(
+            db_session, lease=lease, attachment_id=attachment.id
+        )
+    finally:
+        path.unlink(missing_ok=True)
+    assert result is not None
+    assert result["extractable"] is True
+    assert "Base rent is $10,000." in result["text"]
+    assert "Term is sixty months." in result["text"]
+
+
+@pytest.mark.asyncio
+async def test_get_document_text_wrong_lease_returns_none(db_session, monkeypatch):
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+    org, user, _ = await _make_org_user(db_session, "wrong@test.com")
+    lease, attachment, path = await _make_lease_docx_attachment(
+        db_session, org, user, ["Base rent is $10,000."]
+    )
+    other_lease = await _make_lease(db_session, org, name="Other Lease")
+    try:
+        result = await document_search_service.get_document_text(
+            db_session, lease=other_lease, attachment_id=attachment.id
+        )
+    finally:
+        path.unlink(missing_ok=True)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_document_text_endpoint(client, db_session, monkeypatch):
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+    org, user, headers = await _make_org_user(db_session, "txtep@test.com")
+    lease, attachment, path = await _make_lease_docx_attachment(
+        db_session, org, user, ["Commencement date is January 1.", "Base rent clause."]
+    )
+    try:
+        resp = await client.get(
+            f"/api/v1/leases/{lease.id}/documents/{attachment.id}/text",
+            headers=headers,
+        )
+    finally:
+        path.unlink(missing_ok=True)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["extractable"] is True
+    assert "Commencement date is January 1." in body["text"]
+    assert body["source_filename"] == "lease.docx"
+
+
+@pytest.mark.asyncio
+async def test_document_text_endpoint_unknown_attachment(client, db_session, monkeypatch):
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+    org, _user, headers = await _make_org_user(db_session, "missing@test.com")
+    lease = await _make_lease(db_session, org)
+    resp = await client.get(
+        f"/api/v1/leases/{lease.id}/documents/{uuid.uuid4()}/text",
+        headers=headers,
+    )
+    assert resp.status_code == 404

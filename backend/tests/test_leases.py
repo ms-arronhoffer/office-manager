@@ -80,3 +80,36 @@ async def test_create_lease_succeeds_when_activity_log_fails(
     # And it is actually retrievable.
     listed = await client.get("/api/v1/leases", headers=auth_headers(admin_user))
     assert any(l["lease_name"] == "Resilient Lease" for l in listed.json()["items"])
+
+
+@pytest.mark.asyncio
+async def test_create_lease_succeeds_when_search_vector_update_fails(
+    client, admin_user, sample_office, monkeypatch
+):
+    """A failure updating the full-text search vector must not 500 the create.
+
+    Like activity logging, search-vector maintenance is a best-effort side
+    effect that runs after the lease is committed; a raised error there must not
+    surface as "Failed to create lease" when the lease actually persisted.
+    """
+    import app.routers.leases as leases_router
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("search vector update unavailable")
+
+    monkeypatch.setattr(leases_router, "update_search_vector", boom)
+
+    resp = await client.post(
+        "/api/v1/leases",
+        headers=auth_headers(admin_user),
+        json={
+            "lease_name": "Indexed Lease",
+            "office_id": str(sample_office.id),
+            "expiration_year": 2031,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["lease_name"] == "Indexed Lease"
+
+    listed = await client.get("/api/v1/leases", headers=auth_headers(admin_user))
+    assert any(l["lease_name"] == "Indexed Lease" for l in listed.json()["items"])
