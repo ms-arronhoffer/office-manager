@@ -1,0 +1,459 @@
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
+import ContentLayout from '@cloudscape-design/components/content-layout';
+import Header from '@cloudscape-design/components/header';
+import Container from '@cloudscape-design/components/container';
+import SpaceBetween from '@cloudscape-design/components/space-between';
+import Table from '@cloudscape-design/components/table';
+import Button from '@cloudscape-design/components/button';
+import Badge from '@cloudscape-design/components/badge';
+import Box from '@cloudscape-design/components/box';
+import Modal from '@cloudscape-design/components/modal';
+import FormField from '@cloudscape-design/components/form-field';
+import Input from '@cloudscape-design/components/input';
+import Textarea from '@cloudscape-design/components/textarea';
+import ColumnLayout from '@cloudscape-design/components/column-layout';
+import Alert from '@cloudscape-design/components/alert';
+import Spinner from '@cloudscape-design/components/spinner';
+import Flashbar from '@cloudscape-design/components/flashbar';
+import Tabs from '@cloudscape-design/components/tabs';
+import type { InputProps } from '@cloudscape-design/components/input';
+import { clientPortal } from '@/api';
+import type {
+  ClientPortalProfile,
+  EntityContact,
+  EntityContactCreate,
+  Attachment,
+} from '@/types';
+
+const formatBytes = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const entityLabel = (t?: string) =>
+  t === 'management_company' ? 'Management Company' : 'Landlord';
+
+type ContactForm = {
+  contact_name: string;
+  title: string;
+  email: string;
+  phone: string;
+  mobile: string;
+  notes: string;
+};
+
+const emptyContactForm: ContactForm = {
+  contact_name: '',
+  title: '',
+  email: '',
+  phone: '',
+  mobile: '',
+  notes: '',
+};
+
+const ClientPortalPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  // The single-use invite lands on /client-portal/signup?token=...; the
+  // persistent portal link is /client-portal?token=...
+  const isSignupRoute = location.pathname.endsWith('/signup');
+  const urlToken = searchParams.get('token') ?? '';
+  const signupToken = isSignupRoute ? urlToken : '';
+  const tokenParam = isSignupRoute ? '' : urlToken;
+
+  const [token, setToken] = useState(tokenParam);
+  const [profile, setProfile] = useState<ClientPortalProfile | null>(null);
+  const [contacts, setContacts] = useState<EntityContact[]>([]);
+  const [documents, setDocuments] = useState<Attachment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState(false);
+  const [flash, setFlash] = useState<{ type: 'success' | 'error'; content: string } | null>(null);
+
+  // Contact modal
+  const [contactModal, setContactModal] = useState(false);
+  const [editingContact, setEditingContact] = useState<EntityContact | null>(null);
+  const [contactForm, setContactForm] = useState<ContactForm>(emptyContactForm);
+  const [contactNameError, setContactNameError] = useState('');
+  const [savingContact, setSavingContact] = useState(false);
+  const contactNameRef = useRef<InputProps.Ref>(null);
+
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Redeem a one-time signup token (if present) before loading data.
+  const redeemSignup = useCallback(async () => {
+    try {
+      const res = await clientPortal.signup(signupToken);
+      const newToken = res.data.portal_token;
+      setToken(newToken);
+      // Swap the single-use signup link for the persistent portal link.
+      navigate(`/client-portal?token=${newToken}`, { replace: true });
+      return newToken;
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 410) {
+        setFlash({ type: 'error', content: 'This signup link has expired. Please request a new one.' });
+      }
+      setAuthError(true);
+      return '';
+    }
+  }, [signupToken, navigate]);
+
+  const loadData = useCallback(async (activeToken: string) => {
+    try {
+      const [profileRes, contactsRes, docsRes] = await Promise.all([
+        clientPortal.getProfile(activeToken),
+        clientPortal.listContacts(activeToken),
+        clientPortal.listDocuments(activeToken),
+      ]);
+      setProfile(profileRes.data);
+      setContacts(contactsRes.data);
+      setDocuments(docsRes.data);
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 401) {
+        setAuthError(true);
+      } else {
+        setFlash({ type: 'error', content: 'Failed to load portal data.' });
+      }
+    }
+  }, []);
+
+  const init = useCallback(async () => {
+    setLoading(true);
+    let activeToken = tokenParam;
+    if (signupToken) {
+      activeToken = await redeemSignup();
+    }
+    if (!activeToken) {
+      setAuthError(true);
+      setLoading(false);
+      return;
+    }
+    await loadData(activeToken);
+    setLoading(false);
+  }, [tokenParam, signupToken, redeemSignup, loadData]);
+
+  useEffect(() => {
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const openCreateContact = () => {
+    setEditingContact(null);
+    setContactForm(emptyContactForm);
+    setContactNameError('');
+    setContactModal(true);
+  };
+
+  const openEditContact = (c: EntityContact) => {
+    setEditingContact(c);
+    setContactForm({
+      contact_name: c.contact_name ?? '',
+      title: c.title ?? '',
+      email: c.email ?? '',
+      phone: c.phone ?? '',
+      mobile: c.mobile ?? '',
+      notes: c.notes ?? '',
+    });
+    setContactNameError('');
+    setContactModal(true);
+  };
+
+  const handleSaveContact = async () => {
+    if (!contactForm.contact_name.trim()) {
+      setContactNameError('Contact name is required.');
+      contactNameRef.current?.focus();
+      return;
+    }
+    setSavingContact(true);
+    try {
+      const payload: Omit<EntityContactCreate, 'entity_type' | 'entity_id'> = {
+        contact_name: contactForm.contact_name.trim(),
+        title: contactForm.title || undefined,
+        email: contactForm.email || undefined,
+        phone: contactForm.phone || undefined,
+        mobile: contactForm.mobile || undefined,
+        notes: contactForm.notes || undefined,
+      };
+      if (editingContact) {
+        await clientPortal.updateContact(token, editingContact.id, payload);
+      } else {
+        // entity_type/entity_id are forced server-side from the portal account.
+        await clientPortal.createContact(token, payload as EntityContactCreate);
+      }
+      setFlash({ type: 'success', content: 'Contact saved.' });
+      setContactModal(false);
+      const res = await clientPortal.listContacts(token);
+      setContacts(res.data);
+    } catch {
+      setFlash({ type: 'error', content: 'Failed to save contact.' });
+    } finally {
+      setSavingContact(false);
+    }
+  };
+
+  const handleDeleteContact = async (c: EntityContact) => {
+    try {
+      await clientPortal.deleteContact(token, c.id);
+      setContacts((prev) => prev.filter((x) => x.id !== c.id));
+      setFlash({ type: 'success', content: 'Contact removed.' });
+    } catch {
+      setFlash({ type: 'error', content: 'Failed to remove contact.' });
+    }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      await clientPortal.uploadDocument(token, file);
+      setFlash({ type: 'success', content: 'Document uploaded.' });
+      const res = await clientPortal.listDocuments(token);
+      setDocuments(res.data);
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setFlash({ type: 'error', content: detail || 'Failed to upload document.' });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  if (loading) {
+    return (
+      <Box textAlign="center" padding={{ top: 'xxxl' }}>
+        <Spinner size="large" />
+      </Box>
+    );
+  }
+
+  if (authError || !token) {
+    return (
+      <Box padding="xxl">
+        <Alert type="error" header="Access denied">
+          This portal link is invalid or has expired. Please contact your property manager for a new link.
+        </Alert>
+      </Box>
+    );
+  }
+
+  return (
+    <ContentLayout
+      header={
+        <Header variant="h1" description={`${entityLabel(profile?.entity_type)} portal for ${profile?.name ?? '…'}`}>
+          Client Portal
+        </Header>
+      }
+    >
+      <SpaceBetween size="l">
+        {flash && (
+          <Flashbar
+            items={[{
+              type: flash.type,
+              content: flash.content,
+              dismissible: true,
+              onDismiss: () => setFlash(null),
+              id: 'flash',
+            }]}
+          />
+        )}
+
+        <Tabs
+          tabs={[
+            {
+              id: 'profile',
+              label: 'Profile',
+              content: profile ? (
+                <Container header={<Header variant="h2" description="This information is managed by your property manager (read-only).">Your Information</Header>}>
+                  <ColumnLayout columns={3} variant="text-grid">
+                    {[
+                      ['Name', profile.name],
+                      ['Primary contact', profile.contact_name],
+                      ['Email', profile.contact_email],
+                      ['Phone', profile.contact_phone],
+                      ['Address', profile.address],
+                      ['Website', profile.website],
+                    ].map(([label, value]) => (
+                      <div key={label as string}>
+                        <Box variant="awsui-key-label">{label}</Box>
+                        <Box>{(value as string) || '—'}</Box>
+                      </div>
+                    ))}
+                  </ColumnLayout>
+                </Container>
+              ) : null,
+            },
+            {
+              id: 'contacts',
+              label: `Contacts (${contacts.length})`,
+              content: (
+                <Table
+                  items={contacts}
+                  columnDefinitions={[
+                    { id: 'name', header: 'Name', cell: (c: EntityContact) => c.contact_name },
+                    { id: 'title', header: 'Title', cell: (c: EntityContact) => c.title || '—' },
+                    { id: 'email', header: 'Email', cell: (c: EntityContact) => c.email || '—' },
+                    { id: 'phone', header: 'Phone', cell: (c: EntityContact) => c.phone || c.mobile || '—' },
+                    {
+                      id: 'primary',
+                      header: '',
+                      cell: (c: EntityContact) => (c.is_primary ? <Badge color="blue">Primary</Badge> : null),
+                      width: 90,
+                    },
+                    {
+                      id: 'actions',
+                      header: '',
+                      cell: (c: EntityContact) => (
+                        <SpaceBetween direction="horizontal" size="xs">
+                          <Button variant="inline-link" onClick={() => openEditContact(c)}>Edit</Button>
+                          <Button variant="inline-link" onClick={() => handleDeleteContact(c)}>Remove</Button>
+                        </SpaceBetween>
+                      ),
+                      width: 160,
+                    },
+                  ]}
+                  empty={
+                    <Box textAlign="center" padding="l">
+                      <b>No additional contacts</b>
+                      <Box color="text-body-secondary">Add the people we should reach out to.</Box>
+                    </Box>
+                  }
+                  header={
+                    <Header
+                      description="Add or update your secondary contacts."
+                      actions={<Button variant="primary" onClick={openCreateContact}>Add contact</Button>}
+                    >
+                      Secondary Contacts
+                    </Header>
+                  }
+                />
+              ),
+            },
+            {
+              id: 'documents',
+              label: `Documents (${documents.length})`,
+              content: (
+                <Container
+                  header={
+                    <Header
+                      description="Upload documents to share with your property manager."
+                      actions={
+                        <>
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            style={{ display: 'none' }}
+                            onChange={handleUpload}
+                          />
+                          <Button
+                            variant="primary"
+                            loading={uploading}
+                            onClick={() => fileInputRef.current?.click()}
+                          >
+                            Upload document
+                          </Button>
+                        </>
+                      }
+                    >
+                      Documents
+                    </Header>
+                  }
+                >
+                  <Table
+                    items={documents}
+                    columnDefinitions={[
+                      { id: 'name', header: 'File', cell: (d: Attachment) => d.original_filename },
+                      { id: 'size', header: 'Size', cell: (d: Attachment) => formatBytes(d.file_size), width: 120 },
+                      {
+                        id: 'uploaded',
+                        header: 'Uploaded',
+                        cell: (d: Attachment) => new Date(d.created_at).toLocaleDateString(),
+                        width: 160,
+                      },
+                    ]}
+                    empty={
+                      <Box textAlign="center" padding="l">
+                        <b>No documents yet</b>
+                        <Box color="text-body-secondary">Uploaded documents will appear here.</Box>
+                      </Box>
+                    }
+                  />
+                </Container>
+              ),
+            },
+          ]}
+        />
+      </SpaceBetween>
+
+      {/* ── Contact Modal ── */}
+      <Modal
+        visible={contactModal}
+        onDismiss={() => setContactModal(false)}
+        header={editingContact ? 'Edit contact' : 'Add contact'}
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => setContactModal(false)}>Cancel</Button>
+              <Button variant="primary" loading={savingContact} onClick={handleSaveContact}>Save</Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="m">
+          <FormField label="Contact name" errorText={contactNameError}>
+            <Input
+              ref={contactNameRef}
+              value={contactForm.contact_name}
+              invalid={!!contactNameError}
+              onChange={({ detail }) => {
+                setContactForm((f) => ({ ...f, contact_name: detail.value }));
+                if (contactNameError) setContactNameError('');
+              }}
+            />
+          </FormField>
+          <FormField label="Title">
+            <Input
+              value={contactForm.title}
+              onChange={({ detail }) => setContactForm((f) => ({ ...f, title: detail.value }))}
+            />
+          </FormField>
+          <SpaceBetween direction="horizontal" size="m">
+            <FormField label="Email">
+              <Input
+                value={contactForm.email}
+                type="email"
+                onChange={({ detail }) => setContactForm((f) => ({ ...f, email: detail.value }))}
+              />
+            </FormField>
+            <FormField label="Phone">
+              <Input
+                value={contactForm.phone}
+                onChange={({ detail }) => setContactForm((f) => ({ ...f, phone: detail.value }))}
+              />
+            </FormField>
+            <FormField label="Mobile">
+              <Input
+                value={contactForm.mobile}
+                onChange={({ detail }) => setContactForm((f) => ({ ...f, mobile: detail.value }))}
+              />
+            </FormField>
+          </SpaceBetween>
+          <FormField label="Notes">
+            <Textarea
+              value={contactForm.notes}
+              onChange={({ detail }) => setContactForm((f) => ({ ...f, notes: detail.value }))}
+              rows={3}
+            />
+          </FormField>
+        </SpaceBetween>
+      </Modal>
+    </ContentLayout>
+  );
+};
+
+export default ClientPortalPage;

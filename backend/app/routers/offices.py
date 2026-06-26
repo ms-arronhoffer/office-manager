@@ -11,6 +11,7 @@ from sqlalchemy.orm import joinedload
 
 from app.auth.dependencies import get_current_user, require_role
 from app.database import get_db
+from app.services import entitlements as ent
 from app.models.base import _utcnow
 from app.models.hvac_contract import HvacContract
 from app.models.landlord import Landlord, LandlordAdditionalName, LandlordContact
@@ -193,20 +194,12 @@ async def create_office(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
-    # Plan limits
-    PLAN_LIMITS = {"starter": 10, "pro": 50, "enterprise": None}
-
-    # Get organization and check office limit
+    # Get organization and check office limit (via the central entitlements catalog)
     org_result = await db.execute(
         select(Organization).where(Organization.id == current_user.organization_id)
     )
     org = org_result.scalar_one_or_none()
-    if not org:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
-
-    # Check office limit based on plan
-    plan = org.plan or "starter"
-    limit = PLAN_LIMITS.get(plan)
+    limit = ent.get_limit(org, "max_offices") if org else None
     if limit is not None:
         office_count_result = await db.execute(
             select(func.count(Office.id)).where(
@@ -217,8 +210,9 @@ async def create_office(
         current_count = office_count_result.scalar_one()
         if current_count >= limit:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Office limit reached for {plan} plan (max {limit}). Please upgrade your plan to add more offices."
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"Office limit reached for the {org.plan} plan (max {limit}). "
+                       "Please upgrade your plan to add more offices."
             )
 
     office = Office(**payload.model_dump(), organization_id=current_user.organization_id)

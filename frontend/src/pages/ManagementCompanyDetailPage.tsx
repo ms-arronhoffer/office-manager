@@ -15,6 +15,7 @@ import { managementCompanies as api } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
 import { useFlashbar } from '@/context/FlashbarContext';
 import ContactsPanel from '@/components/common/ContactsPanel';
+import ClientPortalInvitePanel from '@/components/common/ClientPortalInvitePanel';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import { formatAddress } from '@/components/common/AddressFields';
 import type { ManagementCompany } from '@/types';
@@ -182,6 +183,10 @@ const ManagementCompanyDetailPage: React.FC = () => {
 
         {id && (
           <ContactsPanel entityType="management_company" entityId={id} canEdit={canEdit} />
+        )}
+
+        {id && canEdit && (
+          <ClientPortalInvitePanel entityType="management_company" entityId={id} />
         )}
 
         {id && <AttachmentsPanel entityType="management_company" entityId={id} canEdit={canEdit} />}

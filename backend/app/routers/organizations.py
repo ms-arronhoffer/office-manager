@@ -1,19 +1,22 @@
 import re
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_role, require_super_admin
 from app.auth.jwt_handler import create_access_token
 from app.auth.password import hash_password
 from app.database import get_db
+from app.models.maintenance_ticket import MaintenanceTicket
+from app.models.office import Office
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.organization import (
     OrganizationCreate, OrganizationResponse, OrganizationUpdate,
     SignupRequest, SignupResponse,
 )
+from app.services import entitlements as ent
 
 router = APIRouter()
 
@@ -117,6 +120,59 @@ async def get_my_organization(
     if not org:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
     return org
+
+
+@router.get("/me/entitlements")
+async def get_my_entitlements(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Effective entitlements, billing access state, and usage for the current org.
+
+    Powers the primary app's plan-aware UI (gated nav, usage-vs-limit displays,
+    upgrade prompts) so it no longer needs to hard-code plan feature lists.
+    """
+    if not current_user.organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No organization assigned")
+    org = (
+        await db.execute(select(Organization).where(Organization.id == current_user.organization_id))
+    ).scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    office_count = (
+        await db.execute(
+            select(func.count(Office.id)).where(
+                Office.organization_id == org.id, Office.is_deleted.is_(False)
+            )
+        )
+    ).scalar_one()
+    seat_count = (
+        await db.execute(
+            select(func.count(User.id)).where(
+                User.organization_id == org.id, User.is_active.is_(True)
+            )
+        )
+    ).scalar_one()
+
+    state = ent.org_access_state(org)
+    return {
+        "plan": org.plan,
+        "effective_entitlements": ent.effective_entitlements(org),
+        "plan_defaults": ent.plan_entitlements(org.plan),
+        "overrides": ent.normalize_overrides(org.entitlement_overrides),
+        "features": {k: ent.has_feature(org, k) for k in ent.FEATURE_KEYS},
+        "limits": {k: ent.get_limit(org, k) for k in ent.LIMIT_KEYS},
+        "usage": {"offices": office_count, "seats": seat_count},
+        "access": {
+            "state": state,
+            "blocked": ent.is_access_blocked(state),
+            "payment_status": org.payment_status,
+            "is_active": org.is_active,
+            "past_due_since": org.past_due_since.isoformat() if org.past_due_since else None,
+            "grace_days": ent.PAST_DUE_GRACE_DAYS,
+        },
+    }
 
 
 @router.get("/{org_id}", response_model=OrganizationResponse)

@@ -5,6 +5,7 @@ import Header from '@cloudscape-design/components/header';
 import Form from '@cloudscape-design/components/form';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
+import type { InputProps } from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
 import Button from '@cloudscape-design/components/button';
 import SpaceBetween from '@cloudscape-design/components/space-between';
@@ -38,8 +39,10 @@ const ManagementCompanyFormPage: React.FC = () => {
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | undefined>(undefined);
   const [form, setForm] = useState({ ...emptyForm });
   const [address, setAddress] = useState<StructuredAddress>({});
+  const nameRef = React.useRef<InputProps.Ref>(null);
 
   useEffect(() => {
     if (!isEdit || !id) return;
@@ -75,12 +78,16 @@ const ManagementCompanyFormPage: React.FC = () => {
     fetchCompany();
   }, [id, isEdit]);
 
-  const setField = (key: keyof typeof emptyForm, value: string) =>
+  const setField = (key: keyof typeof emptyForm, value: string) => {
     setForm((f) => ({ ...f, [key]: value }));
+    if (key === 'name') setNameError(undefined);
+  };
 
   const handleSubmit = async () => {
     if (!form.name.trim()) {
+      setNameError('Company Name is required.');
       setError('Company Name is required.');
+      nameRef.current?.focus();
       return;
     }
     setSaving(true);
@@ -169,11 +176,13 @@ const ManagementCompanyFormPage: React.FC = () => {
       >
         <Container header={<Header variant="h2">Company Information</Header>}>
           <SpaceBetween size="l">
-            <FormField label="Company Name" constraintText="Required">
+            <FormField label="Company Name" errorText={nameError} constraintText="Required">
               <Input
+                ref={nameRef}
                 value={form.name}
                 onChange={({ detail }) => setField('name', detail.value)}
                 placeholder="Enter company name"
+                invalid={!!nameError}
               />
             </FormField>
 

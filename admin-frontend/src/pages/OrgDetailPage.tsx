@@ -10,13 +10,47 @@ import { Input } from "../components/ui/input"
 import { Textarea } from "../components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table"
-import { AlertCircle, Copy, Check } from "lucide-react"
+import { AlertCircle, Copy, Check, RotateCcw } from "lucide-react"
 
 import { getOrg, patchOrg, impersonateOrg, getUsers } from "../api"
 import type { AdminOrgDetail, AdminUser } from "../types"
 
 const PLAN_OPTIONS = ["starter", "pro", "enterprise"]
 const PAYMENT_OPTIONS = ["active", "past_due", "trial", "canceled"]
+
+// Catalog keys — keep in sync with backend app/services/entitlements.py
+const LIMIT_KEYS = ["max_offices", "max_seats", "audit_retention_days"] as const
+const FEATURE_KEYS = [
+  "hvac",
+  "transitions",
+  "advanced_analytics",
+  "pdf_export",
+  "api_access",
+  "webhooks",
+  "sso",
+  "custom_fields",
+] as const
+
+const LABELS: Record<string, string> = {
+  max_offices: "Max offices",
+  max_seats: "Max seats",
+  audit_retention_days: "Audit retention (days)",
+  hvac: "HVAC & equipment",
+  transitions: "Transition management",
+  advanced_analytics: "Advanced analytics",
+  pdf_export: "PDF export",
+  api_access: "API access",
+  webhooks: "Webhooks",
+  sso: "SSO / SAML",
+  custom_fields: "Custom fields",
+}
+
+type OverrideValue = number | boolean | null
+type Overrides = Record<string, OverrideValue>
+
+function fmtLimit(v: OverrideValue): string {
+  return v === null || v === undefined ? "Unlimited" : String(v)
+}
 
 function KV({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -42,6 +76,7 @@ export default function OrgDetailPage() {
   const [paymentStatus, setPaymentStatus] = useState("")
   const [maxSeats, setMaxSeats] = useState<number | null>(0)
   const [notes, setNotes] = useState("")
+  const [overrides, setOverrides] = useState<Overrides>({})
 
   useEffect(() => {
     async function load() {
@@ -54,6 +89,7 @@ export default function OrgDetailPage() {
         setPaymentStatus(orgData.payment_status)
         setMaxSeats(orgData.max_seats)
         setNotes(orgData.admin_notes || "")
+        setOverrides({ ...(orgData.entitlement_overrides || {}) })
 
         const usersData = await getUsers({ page: 1, page_size: 100, org_id: orgId })
         setUsers(usersData.items || [])
@@ -66,12 +102,30 @@ export default function OrgDetailPage() {
     load()
   }, [orgId])
 
+  const setOverride = (key: string, value: OverrideValue) => {
+    setOverrides((prev) => ({ ...prev, [key]: value }))
+  }
+  const clearOverride = (key: string) => {
+    setOverrides((prev) => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
+
   const handleSave = async () => {
     if (!org) return
     setSaving(true)
     try {
-      await patchOrg(org.id, { plan, payment_status: paymentStatus, max_seats: maxSeats, admin_notes: notes })
-      setOrg({ ...org, plan, payment_status: paymentStatus, max_seats: maxSeats, admin_notes: notes })
+      const updated = await patchOrg(org.id, {
+        plan,
+        payment_status: paymentStatus,
+        max_seats: maxSeats,
+        admin_notes: notes,
+        entitlement_overrides: overrides,
+      })
+      setOrg(updated)
+      setOverrides({ ...(updated.entitlement_overrides || {}) })
       setError("")
     } catch {
       setError("Failed to save changes")
@@ -135,6 +189,7 @@ export default function OrgDetailPage() {
       <Tabs defaultValue="overview" className="space-y-6">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="entitlements">Entitlements</TabsTrigger>
           <TabsTrigger value="users">Users ({users.length})</TabsTrigger>
           <TabsTrigger value="billing">Billing</TabsTrigger>
         </TabsList>
@@ -155,7 +210,14 @@ export default function OrgDetailPage() {
                 </div>
                 <div>
                   <KV label="Plan" value={org.plan} />
-                  <KV label="Users" value={`${org.seat_count}/${org.max_seats}`} />
+                  <KV
+                    label="Users"
+                    value={`${org.seat_count} / ${fmtLimit(org.effective_entitlements?.max_seats)}`}
+                  />
+                  <KV
+                    label="Offices"
+                    value={`${org.office_count} / ${fmtLimit(org.effective_entitlements?.max_offices)}`}
+                  />
                   <KV label="Stripe ID" value={org.stripe_customer_id ? org.stripe_customer_id.slice(0, 20) + "..." : "—"} />
                 </div>
               </div>
@@ -247,7 +309,154 @@ export default function OrgDetailPage() {
           </Card>
         </TabsContent>
 
-        {/* Users Tab */}
+        {/* Entitlements Tab */}
+        <TabsContent value="entitlements" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Usage vs. limits</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-8">
+                {(() => {
+                  const officeLimit = org.effective_entitlements?.max_offices
+                  const seatLimit = org.effective_entitlements?.max_seats
+                  const officeOver = officeLimit != null && org.office_count > (officeLimit as number)
+                  const seatOver = seatLimit != null && org.seat_count > (seatLimit as number)
+                  return (
+                    <>
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Offices</p>
+                        <p className="font-medium">
+                          {org.office_count} / {fmtLimit(officeLimit)}{" "}
+                          {officeOver && <Badge variant="destructive">over limit</Badge>}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-slate-600 mb-1">Seats</p>
+                        <p className="font-medium">
+                          {org.seat_count} / {fmtLimit(seatLimit)}{" "}
+                          {seatOver && <Badge variant="destructive">over limit</Badge>}
+                        </p>
+                      </div>
+                    </>
+                  )
+                })()}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Feature overrides</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-slate-600 mb-4">
+                Overrides take precedence over the plan default. "Default" inherits from the{" "}
+                <span className="font-medium capitalize">{plan}</span> plan.
+              </p>
+              <div className="space-y-3">
+                {FEATURE_KEYS.map((key) => {
+                  const planDefault = !!org.plan_defaults?.[key]
+                  const isOverridden = key in overrides
+                  const current = isOverridden ? !!overrides[key] : planDefault
+                  const selectValue = isOverridden ? (current ? "true" : "false") : "default"
+                  return (
+                    <div key={key} className="flex items-center justify-between gap-4 border-b pb-2">
+                      <div>
+                        <p className="font-medium text-slate-900">{LABELS[key]}</p>
+                        <p className="text-xs text-slate-500">
+                          Plan default: {planDefault ? "Enabled" : "Disabled"}
+                          {isOverridden && <span className="ml-2 text-amber-600 font-medium">• overridden</span>}
+                        </p>
+                      </div>
+                      <Select
+                        value={selectValue}
+                        onValueChange={(v) => {
+                          if (v === "default") clearOverride(key)
+                          else setOverride(key, v === "true")
+                        }}
+                      >
+                        <SelectTrigger className="w-40">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="default">Default ({planDefault ? "on" : "off"})</SelectItem>
+                          <SelectItem value="true">Enabled</SelectItem>
+                          <SelectItem value="false">Disabled</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Limit overrides</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {LIMIT_KEYS.map((key) => {
+                  const planDefault = org.plan_defaults?.[key] as number | null | undefined
+                  const isOverridden = key in overrides
+                  const value = overrides[key]
+                  const mode = !isOverridden ? "default" : value === null ? "unlimited" : "custom"
+                  return (
+                    <div key={key} className="flex items-center justify-between gap-4 border-b pb-2">
+                      <div>
+                        <p className="font-medium text-slate-900">{LABELS[key]}</p>
+                        <p className="text-xs text-slate-500">
+                          Plan default: {fmtLimit(planDefault ?? null)}
+                          {isOverridden && <span className="ml-2 text-amber-600 font-medium">• overridden</span>}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={mode}
+                          onValueChange={(v) => {
+                            if (v === "default") clearOverride(key)
+                            else if (v === "unlimited") setOverride(key, null)
+                            else setOverride(key, typeof value === "number" ? value : 0)
+                          }}
+                        >
+                          <SelectTrigger className="w-36">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default">Default</SelectItem>
+                            <SelectItem value="unlimited">Unlimited</SelectItem>
+                            <SelectItem value="custom">Custom</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {mode === "custom" && (
+                          <Input
+                            type="number"
+                            min={0}
+                            className="w-24"
+                            value={typeof value === "number" ? value : 0}
+                            onChange={(e) => setOverride(key, e.target.value ? parseInt(e.target.value) : 0)}
+                          />
+                        )}
+                        {isOverridden && (
+                          <Button variant="ghost" size="sm" onClick={() => clearOverride(key)} title="Reset to plan default">
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="mt-6">
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving ? "Saving..." : "Save Entitlements"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
         <TabsContent value="users">
           <Card>
             <CardContent className="pt-6">

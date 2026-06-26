@@ -7,6 +7,7 @@ import Container from '@cloudscape-design/components/container';
 import Form from '@cloudscape-design/components/form';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
+import type { InputProps } from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
 import Textarea from '@cloudscape-design/components/textarea';
 import Button from '@cloudscape-design/components/button';
@@ -101,6 +102,7 @@ const LandlordFormPage: React.FC = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | undefined>(undefined);
   const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
+  const contactNameRef = React.useRef<InputProps.Ref>(null);
 
   useEffect(() => {
     const loadOffices = async () => {
@@ -197,6 +199,8 @@ const LandlordFormPage: React.FC = () => {
   const validate = (): boolean => {
     if (!formValues.contact_name.trim()) {
       setNameError('Name is required.');
+      // Highlight and move focus to the first missing required field.
+      contactNameRef.current?.focus();
       return false;
     }
     return true;
@@ -324,9 +328,11 @@ const LandlordFormPage: React.FC = () => {
             <SpaceBetween size="l">
               <FormField label="Contact Name" errorText={nameError} constraintText="Required">
                 <Input
+                  ref={contactNameRef}
                   value={formValues.contact_name}
                   onChange={({ detail }) => setField('contact_name', detail.value)}
                   placeholder="Enter contact name"
+                  invalid={!!nameError}
                 />
               </FormField>
 

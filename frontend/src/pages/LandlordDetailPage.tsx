@@ -17,6 +17,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { useFlashbar } from '@/context/FlashbarContext';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import ContactsPanel from '@/components/common/ContactsPanel';
+import ClientPortalInvitePanel from '@/components/common/ClientPortalInvitePanel';
 import { formatAddress } from '@/components/common/AddressFields';
 import type { Landlord, LandlordAdditionalName, LandlordOfficeRef } from '@/types';
 
@@ -267,6 +268,9 @@ const LandlordDetailPage: React.FC = () => {
 
           {/* Additional Contacts */}
           {id && <ContactsPanel entityType="landlord" entityId={id} canEdit={canEdit} />}
+
+          {/* Client Portal invite (admin/editor only) */}
+          {id && canEdit && <ClientPortalInvitePanel entityType="landlord" entityId={id} />}
 
           {landlord.additional_names && landlord.additional_names.length > 0 && (
             <Table<LandlordAdditionalName>

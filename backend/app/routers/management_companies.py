@@ -105,10 +105,13 @@ async def create_management_company(
     db.add(company)
     await db.commit()
     await db.refresh(company)
-    await log_activity(
-        db, user=current_user, action="created", entity_type="management_company",
-        entity_id=company.id, entity_label=company.name,
-    )
+    try:
+        await log_activity(
+            db, user=current_user, action="created", entity_type="management_company",
+            entity_id=company.id, entity_label=company.name,
+        )
+    except Exception:
+        pass
     return ManagementCompanyResponse.model_validate(company, from_attributes=True)
 
 
@@ -127,10 +130,13 @@ async def update_management_company(
     await db.commit()
     await db.refresh(company)
     changes = compute_changes(old_values, update_data)
-    await log_activity(
-        db, user=current_user, action="updated", entity_type="management_company",
-        entity_id=company.id, entity_label=company.name, changes=changes,
-    )
+    try:
+        await log_activity(
+            db, user=current_user, action="updated", entity_type="management_company",
+            entity_id=company.id, entity_label=company.name, changes=changes,
+        )
+    except Exception:
+        pass
     return ManagementCompanyResponse.model_validate(company, from_attributes=True)
 
 
@@ -145,10 +151,13 @@ async def delete_management_company(
     company.is_deleted = True
     company.deleted_at = _utcnow()
     await db.commit()
-    await log_activity(
-        db, user=current_user, action="deleted", entity_type="management_company",
-        entity_id=company_id, entity_label=label,
-    )
+    try:
+        await log_activity(
+            db, user=current_user, action="deleted", entity_type="management_company",
+            entity_id=company_id, entity_label=label,
+        )
+    except Exception:
+        pass
 
 
 @router.patch("/{company_id}/restore", response_model=ManagementCompanyResponse)
@@ -171,8 +180,11 @@ async def restore_management_company(
     company.deleted_at = None
     await db.commit()
     await db.refresh(company)
-    await log_activity(
-        db, user=current_user, action="updated", entity_type="management_company",
-        entity_id=company_id, entity_label=company.name,
-    )
+    try:
+        await log_activity(
+            db, user=current_user, action="updated", entity_type="management_company",
+            entity_id=company_id, entity_label=company.name,
+        )
+    except Exception:
+        pass
     return ManagementCompanyResponse.model_validate(company, from_attributes=True)

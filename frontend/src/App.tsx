@@ -60,6 +60,7 @@ const LeaseCalendarPage = lazy(() => import('@/pages/LeaseCalendarPage'));
 const TicketTemplatesPage = lazy(() => import('@/pages/TicketTemplatesPage'));
 const RecurringTicketsPage = lazy(() => import('@/pages/RecurringTicketsPage'));
 const VendorPortalPage = lazy(() => import('@/pages/VendorPortalPage'));
+const ClientPortalPage = lazy(() => import('@/pages/ClientPortalPage'));
 const InsuranceCertificatesPage = lazy(() => import('@/pages/InsuranceCertificatesPage'));
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const DashboardHubPage = lazy(() => import('@/pages/DashboardHubPage'));
@@ -87,6 +88,8 @@ const App: React.FC = () => {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/vendor-portal" element={<VendorPortalPage />} />
+            <Route path="/client-portal" element={<ClientPortalPage />} />
+            <Route path="/client-portal/signup" element={<ClientPortalPage />} />
             <Route
               path="/onboarding"
               element={

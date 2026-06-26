@@ -30,6 +30,10 @@ export interface AdminOrgDetail extends AdminOrg {
   onboarding_complete: boolean;
   open_ticket_count: number;
   admin_notes: string | null;
+  office_count: number;
+  entitlement_overrides: Record<string, number | boolean | null>;
+  plan_defaults: Record<string, number | boolean | null>;
+  effective_entitlements: Record<string, number | boolean | null>;
 }
 
 export interface OrgPatch {
@@ -40,6 +44,14 @@ export interface OrgPatch {
   trial_ends_at?: string | null;
   onboarding_complete?: boolean;
   admin_notes?: string | null;
+  entitlement_overrides?: Record<string, number | boolean | null>;
+}
+
+export interface EntitlementsCatalog {
+  plans: string[];
+  limit_keys: string[];
+  feature_keys: string[];
+  catalog: Record<string, Record<string, number | boolean | null>>;
 }
 
 export interface ImpersonateResponse {

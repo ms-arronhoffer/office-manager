@@ -5,6 +5,7 @@ import Header from '@cloudscape-design/components/header';
 import Form from '@cloudscape-design/components/form';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
+import type { InputProps } from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
 import Checkbox from '@cloudscape-design/components/checkbox';
 import Toggle from '@cloudscape-design/components/toggle';
@@ -41,6 +42,8 @@ const VendorFormPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | undefined>(undefined);
+  const companyNameRef = React.useRef<InputProps.Ref>(null);
 
   const [officeOptions, setOfficeOptions] = useState<SelectOption[]>([]);
   const [selectedOffices, setSelectedOffices] = useState<SelectOption[]>([]);
@@ -124,7 +127,9 @@ const VendorFormPage: React.FC = () => {
 
   const handleSubmit = async () => {
     if (!form.company_name.trim()) {
+      setNameError('Company Name is required.');
       setError('Company Name is required.');
+      companyNameRef.current?.focus();
       return;
     }
     setSaving(true);
@@ -243,11 +248,16 @@ const VendorFormPage: React.FC = () => {
         <SpaceBetween size="l">
         <Container header={<Header variant="h2">Vendor Information</Header>}>
           <SpaceBetween size="l">
-            <FormField label="Company Name" constraintText="Required">
+            <FormField label="Company Name" errorText={nameError} constraintText="Required">
               <Input
+                ref={companyNameRef}
                 value={form.company_name}
-                onChange={({ detail }) => setForm((f) => ({ ...f, company_name: detail.value }))}
+                onChange={({ detail }) => {
+                  setForm((f) => ({ ...f, company_name: detail.value }));
+                  if (nameError) setNameError(undefined);
+                }}
                 placeholder="Enter company name"
+                invalid={!!nameError}
               />
             </FormField>
 
