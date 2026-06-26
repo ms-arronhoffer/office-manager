@@ -1011,6 +1011,34 @@ export interface VendorPortalProfile {
   notes: string | null;
 }
 
+// ─── Client Portal (landlord / management company self-service) ───────────────
+export type ClientPortalEntityType = 'landlord' | 'management_company';
+
+export interface ClientPortalInviteResponse {
+  signup_token: string;
+  signup_url: string;
+  expires_at: string;
+  activated: boolean;
+}
+
+export interface ClientPortalSession {
+  portal_token: string;
+  portal_url: string;
+  expires_at: string;
+  entity_type: ClientPortalEntityType;
+}
+
+export interface ClientPortalProfile {
+  entity_type: ClientPortalEntityType;
+  entity_id: string;
+  name: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  address: string | null;
+  website: string | null;
+}
+
 // ─── Insurance Certificates ───────────────────────────────────────────────────
 export interface InsuranceCertificate {
   id: string;

@@ -96,6 +96,10 @@ import type {
   PortalTokenResponse,
   PortalTicket,
   VendorPortalProfile,
+  ClientPortalEntityType,
+  ClientPortalInviteResponse,
+  ClientPortalSession,
+  ClientPortalProfile,
   InsuranceCertificate,
   InsuranceCertificateCreate,
   InsuranceCertificateUpdate,
@@ -946,6 +950,56 @@ export const vendorPortal = {
 
   completeTicket: (token: string, id: string, notes: string) =>
     _portalClient(token).post<PortalTicket>(`/vendor-portal/tickets/${id}/complete`, { notes }),
+};
+
+// ─── Client Portal (internal: admin generates one-time signup invite) ────────
+export const clientPortalInternal = {
+  generateInvite: (entityType: ClientPortalEntityType, entityId: string) =>
+    client.post<ClientPortalInviteResponse>('/client-portal/invite', {
+      entity_type: entityType,
+      entity_id: entityId,
+    }),
+};
+
+// ─── Client Portal (external: landlord/management-company self-service) ───────
+const _clientPortalClient = (token: string) =>
+  axios.create({
+    baseURL: _portalBase,
+    headers: { 'Content-Type': 'application/json', 'X-Portal-Token': token },
+  });
+
+export const clientPortal = {
+  signup: (token: string) =>
+    axios
+      .create({ baseURL: _portalBase, headers: { 'Content-Type': 'application/json' } })
+      .post<ClientPortalSession>('/client-portal/signup', { token }),
+
+  getProfile: (token: string) =>
+    _clientPortalClient(token).get<ClientPortalProfile>('/client-portal/me'),
+
+  listContacts: (token: string) =>
+    _clientPortalClient(token).get<EntityContact[]>('/client-portal/contacts'),
+
+  createContact: (token: string, data: EntityContactCreate) =>
+    _clientPortalClient(token).post<EntityContact>('/client-portal/contacts', data),
+
+  updateContact: (token: string, id: string, data: EntityContactUpdate) =>
+    _clientPortalClient(token).put<EntityContact>(`/client-portal/contacts/${id}`, data),
+
+  deleteContact: (token: string, id: string) =>
+    _clientPortalClient(token).delete(`/client-portal/contacts/${id}`),
+
+  listDocuments: (token: string) =>
+    _clientPortalClient(token).get<Attachment[]>('/client-portal/documents'),
+
+  uploadDocument: (token: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return axios.create({
+      baseURL: _portalBase,
+      headers: { 'X-Portal-Token': token },
+    }).post<Attachment>('/client-portal/documents', form);
+  },
 };
 
 // ─── Insurance Certificates ───────────────────────────────────────────────────
