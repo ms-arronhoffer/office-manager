@@ -1,8 +1,9 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from app.schemas.office import ManagerResponse
+from app.utils.currency import normalize_currency_code
 
 
 class OfficeSlimResponse(BaseModel):
@@ -43,6 +44,16 @@ class _LeaseAccountingFields(BaseModel):
     is_short_term_lease: bool = False
     is_low_value_lease: bool = False
     currency: str | None = "USD"
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def _normalize_currency(cls, value: object) -> str | None:
+        # Coerce free-text / AI-extracted currency (e.g. "US Dollars") to a
+        # 3-letter code so it can never overflow the varchar(3) column and
+        # 500 the lease create/update request.
+        if value is None:
+            return None
+        return normalize_currency_code(str(value))
 
 
 class LeaseCreate(_LeaseAccountingFields):
