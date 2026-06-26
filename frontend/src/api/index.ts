@@ -1068,6 +1068,8 @@ import type {
   WaiverTemplateUpdate,
   WaiverRequestItem,
   SendWaiverRequest as SendWaiverRequestType,
+  WaiverRecipientSuggestion,
+  WaiverDuplicateCheck,
   PublicWaiverView,
   WaiverSignSubmission,
 } from '@/types';
@@ -1109,6 +1111,17 @@ export const waivers = {
 
   send: (data: SendWaiverRequestType) =>
     client.post<WaiverRequestItem>('/waivers/send', data),
+
+  searchRecipients: (q: string, limit = 10) =>
+    client.get<WaiverRecipientSuggestion[]>('/waivers/recipients/search', {
+      params: { q, limit },
+    }),
+
+  checkDuplicate: (recipient_email: string, template_id?: string | null) =>
+    client.post<WaiverDuplicateCheck>('/waivers/recipients/duplicate-check', {
+      recipient_email,
+      template_id: template_id ?? null,
+    }),
 
   listRequests: () => client.get<WaiverRequestItem[]>('/waivers/requests'),
 

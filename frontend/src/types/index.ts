@@ -1706,6 +1706,19 @@ export interface SendWaiverRequest {
   recipient_email: string;
   recipient_name?: string | null;
   entity_contact_id?: string | null;
+  force?: boolean;
+}
+
+export interface WaiverRecipientSuggestion {
+  name: string | null;
+  email: string;
+  source: 'contact' | 'waiver';
+}
+
+export interface WaiverDuplicateCheck {
+  has_pending: boolean;
+  pending: WaiverRequestItem[];
+  history: WaiverRequestItem[];
 }
 
 export interface PublicWaiverView {
