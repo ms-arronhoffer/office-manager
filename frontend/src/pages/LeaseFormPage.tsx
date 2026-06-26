@@ -41,6 +41,48 @@ function subtractDays(dateStr: string, days: number): string {
   return `${yr}-${mo}-${dy}`;
 }
 
+// Common currency names/aliases → ISO 4217 code (keys upper-cased).
+const CURRENCY_NAME_MAP: Record<string, string> = {
+  'US DOLLAR': 'USD',
+  'US DOLLARS': 'USD',
+  'U.S. DOLLAR': 'USD',
+  'UNITED STATES DOLLAR': 'USD',
+  DOLLAR: 'USD',
+  DOLLARS: 'USD',
+  EURO: 'EUR',
+  EUROS: 'EUR',
+  POUND: 'GBP',
+  POUNDS: 'GBP',
+  'POUND STERLING': 'GBP',
+  'BRITISH POUND': 'GBP',
+  STERLING: 'GBP',
+  YEN: 'JPY',
+  'JAPANESE YEN': 'JPY',
+  'CANADIAN DOLLAR': 'CAD',
+  'AUSTRALIAN DOLLAR': 'AUD',
+  'SWISS FRANC': 'CHF',
+  'SWISS FRANCS': 'CHF',
+  RUPEE: 'INR',
+  'INDIAN RUPEE': 'INR',
+  YUAN: 'CNY',
+  RENMINBI: 'CNY',
+};
+
+// Coerce a free-text / AI-extracted currency value to a 3-letter code so it
+// fits the backend's varchar(3) column (mirrors backend normalize_currency_code).
+function normalizeCurrencyCode(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const collapsed = value.replace(/\s+/g, ' ').trim().toUpperCase();
+  if (!collapsed) return undefined;
+  if (/^[A-Z]{3}$/.test(collapsed)) return collapsed;
+  const mapped = CURRENCY_NAME_MAP[collapsed];
+  if (mapped) return mapped;
+  const embedded = collapsed.match(/\b([A-Z]{3})\b/);
+  if (embedded) return embedded[1];
+  const letters = collapsed.replace(/[^A-Z]/g, '');
+  return letters ? letters.slice(0, 3) : undefined;
+}
+
 const ACCOUNTING_STD_OPTIONS: SelectOption[] = [
   { label: 'ASC 842 (US GAAP)', value: 'asc842' },
   { label: 'IFRS 16', value: 'ifrs16' },
@@ -412,7 +454,10 @@ const LeaseFormPage: React.FC = () => {
     }
 
     const cur = str(suggested.currency);
-    if (cur) setCurrency(cur.toUpperCase());
+    if (cur) {
+      const code = normalizeCurrencyCode(cur);
+      if (code) setCurrency(code);
+    }
 
     if (typeof suggested.is_short_term_lease === 'boolean') {
       setIsShortTermLease(suggested.is_short_term_lease);

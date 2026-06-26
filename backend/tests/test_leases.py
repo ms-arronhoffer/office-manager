@@ -113,3 +113,47 @@ async def test_create_lease_succeeds_when_search_vector_update_fails(
 
     listed = await client.get("/api/v1/leases", headers=auth_headers(admin_user))
     assert any(l["lease_name"] == "Indexed Lease" for l in listed.json()["items"])
+
+@pytest.mark.asyncio
+async def test_create_lease_normalizes_long_currency(client, admin_user, sample_office):
+    """An AI-extracted currency like "US Dollars" must not overflow varchar(3).
+
+    Previously such a value raised a database StringDataRightTruncation error,
+    surfacing as a 500 on POST /leases and silently blocking the document
+    attachment and abstract pre-fill that run only after a successful create.
+    """
+    resp = await client.post(
+        "/api/v1/leases",
+        headers=auth_headers(admin_user),
+        json={
+            "lease_name": "Currency Lease",
+            "office_id": str(sample_office.id),
+            "expiration_year": 2032,
+            "currency": "US Dollars",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["currency"] == "USD"
+
+
+@pytest.mark.asyncio
+async def test_update_lease_normalizes_long_currency(client, admin_user, sample_office):
+    create = await client.post(
+        "/api/v1/leases",
+        headers=auth_headers(admin_user),
+        json={
+            "lease_name": "Currency Update Lease",
+            "office_id": str(sample_office.id),
+            "expiration_year": 2033,
+        },
+    )
+    assert create.status_code == 201, create.text
+    lease_id = create.json()["id"]
+
+    resp = await client.put(
+        f"/api/v1/leases/{lease_id}",
+        headers=auth_headers(admin_user),
+        json={"currency": "Euro"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["currency"] == "EUR"
