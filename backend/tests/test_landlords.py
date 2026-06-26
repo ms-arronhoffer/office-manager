@@ -105,3 +105,35 @@ async def test_landlord_contact_typing(client, admin_user):
     contact = resp.json()
     assert contact["contact_type"] == "billing"
     assert contact["is_primary"] is True
+
+
+@pytest.mark.asyncio
+async def test_update_landlord_survives_best_effort_side_effect_failure(
+    client, admin_user, db_session, monkeypatch
+):
+    """Regression: a DB-level failure in a best-effort side effect (activity log
+    or search vector) must not poison the session and cause a spurious 500 after
+    the update has already committed."""
+    import app.routers.landlords as landlords_router
+    from sqlalchemy import text
+
+    create = await client.post(
+        "/api/v1/landlords",
+        headers=auth_headers(admin_user),
+        json={"contact_name": "Jane", "landlord_company": "ABC", "office_ids": []},
+    )
+    assert create.status_code == 201, create.text
+    landlord_id = create.json()["id"]
+
+    async def _db_boom(db, **kwargs):
+        await db.execute(text("SELECT * FROM table_that_does_not_exist"))
+
+    monkeypatch.setattr(landlords_router, "log_activity", _db_boom)
+
+    resp = await client.put(
+        f"/api/v1/landlords/{landlord_id}",
+        headers=auth_headers(admin_user),
+        json={"contact_name": "Jane", "landlord_company": "ABC LLC", "office_ids": []},
+    )
+    assert resp.status_code == 200, f"got {resp.status_code}: {resp.text}"
+    assert resp.json()["landlord_company"] == "ABC LLC"

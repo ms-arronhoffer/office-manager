@@ -33,5 +33,12 @@ async def update_search_vector(db: AsyncSession, table: str, record_id: uuid.UUI
     sql = _VECTOR_SQL.get(table)
     if not sql:
         return
-    await db.execute(text(sql), {"id": str(record_id)})
-    await db.commit()
+    try:
+        await db.execute(text(sql), {"id": str(record_id)})
+        await db.commit()
+    except Exception:
+        # Best-effort: roll back on failure so an aborted transaction does not
+        # poison the caller's session and cause a spurious error on the
+        # subsequent response query.
+        await db.rollback()
+        raise
