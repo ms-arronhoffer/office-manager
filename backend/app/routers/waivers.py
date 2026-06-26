@@ -491,14 +491,35 @@ async def send_waiver(
 
 @router.get("/requests", response_model=list[WaiverRequestResponse])
 async def list_requests(
+    q: str | None = Query(default=None, max_length=200),
+    status_filter: str | None = Query(default=None, alias="status", max_length=20),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(
+    """List sent waiver requests, optionally filtered by free-text ``q`` and/or ``status``.
+
+    ``q`` matches (case-insensitively) against the recipient name, recipient
+    email, or waiver title.
+    """
+    stmt = (
         select(WaiverRequest)
         .where(WaiverRequest.organization_id == current_user.organization_id)
         .order_by(WaiverRequest.created_at.desc())
     )
+    term = q.strip() if q else ""
+    if term:
+        like = f"%{term}%"
+        stmt = stmt.where(
+            or_(
+                WaiverRequest.recipient_name.ilike(like),
+                WaiverRequest.recipient_email.ilike(like),
+                WaiverRequest.title.ilike(like),
+            )
+        )
+    status_value = status_filter.strip() if status_filter else ""
+    if status_value:
+        stmt = stmt.where(WaiverRequest.status == status_value)
+    result = await db.execute(stmt)
     return [_request_response(r, include_url=True) for r in result.scalars().all()]
 
 
@@ -523,6 +544,18 @@ async def get_request(
 ):
     req = await _load_request(db, request_id, current_user.organization_id)
     return _request_response(req, include_url=True)
+
+
+@router.delete("/requests/{request_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_request(
+    request_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    """Delete a waiver request (and its signature, via cascade)."""
+    req = await _load_request(db, request_id, current_user.organization_id)
+    await db.delete(req)
+    await db.commit()
 
 
 @router.get("/requests/{request_id}/pdf")

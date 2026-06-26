@@ -348,3 +348,131 @@ async def test_waiver_send_records_email_log(client, db_session, monkeypatch):
     ).scalars().all()
     assert len(logs) == 1
     assert logs[0].status == "sent"
+
+
+async def _send_visitor(client, headers, template_id, email, name, monkeypatch_done=True):
+    resp = await client.post(
+        "/api/v1/waivers/send",
+        headers=headers,
+        json={
+            "template_id": template_id,
+            "recipient_type": "visitor",
+            "recipient_email": email,
+            "recipient_name": name,
+            "force": True,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+@pytest.mark.asyncio
+async def test_search_requests(client, db_session, monkeypatch):
+    import app.routers.waivers as waivers_router
+
+    async def fake_send_email(*a, **k):
+        return None
+
+    monkeypatch.setattr(waivers_router, "send_email", fake_send_email)
+
+    headers = await _make_org_user(db_session, "pro", "search@w.com")
+    template_id = await _create_template(client, headers)
+    await _send_visitor(client, headers, template_id, "alice@example.com", "Alice Adams")
+    await _send_visitor(client, headers, template_id, "bob@example.com", "Bob Brown")
+
+    # Free-text on recipient name
+    res = await client.get("/api/v1/waivers/requests", headers=headers, params={"q": "alice"})
+    assert res.status_code == 200, res.text
+    items = res.json()
+    assert len(items) == 1
+    assert items[0]["recipient_email"] == "alice@example.com"
+
+    # Free-text on email
+    res = await client.get("/api/v1/waivers/requests", headers=headers, params={"q": "bob@example"})
+    assert res.status_code == 200
+    assert len(res.json()) == 1
+
+    # Status filter
+    res = await client.get("/api/v1/waivers/requests", headers=headers, params={"status": "sent"})
+    assert res.status_code == 200
+    assert len(res.json()) == 2
+
+    res = await client.get("/api/v1/waivers/requests", headers=headers, params={"status": "signed"})
+    assert res.status_code == 200
+    assert res.json() == []
+
+    # No filter returns all
+    res = await client.get("/api/v1/waivers/requests", headers=headers)
+    assert len(res.json()) == 2
+
+
+@pytest.mark.asyncio
+async def test_delete_request(client, db_session, monkeypatch):
+    import app.routers.waivers as waivers_router
+
+    async def fake_send_email(*a, **k):
+        return None
+
+    monkeypatch.setattr(waivers_router, "send_email", fake_send_email)
+
+    headers = await _make_org_user(db_session, "pro", "del@w.com")
+    template_id = await _create_template(client, headers)
+    request_id = await _send_visitor(client, headers, template_id, "del-visitor@example.com", "Del Visitor")
+
+    # Delete it
+    deleted = await client.delete(f"/api/v1/waivers/requests/{request_id}", headers=headers)
+    assert deleted.status_code == 204, deleted.text
+
+    # Gone from the list and from get
+    listed = await client.get("/api/v1/waivers/requests", headers=headers)
+    assert all(r["id"] != request_id for r in listed.json())
+    missing = await client.get(f"/api/v1/waivers/requests/{request_id}", headers=headers)
+    assert missing.status_code == 404
+
+    # Deleting again 404s
+    again = await client.delete(f"/api/v1/waivers/requests/{request_id}", headers=headers)
+    assert again.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_signed_request_cascades_signature(client, db_session, monkeypatch):
+    import app.routers.waivers as waivers_router
+
+    async def fake_send_email(*a, **k):
+        return None
+
+    monkeypatch.setattr(waivers_router, "send_email", fake_send_email)
+
+    headers = await _make_org_user(db_session, "pro", "delsigned@w.com")
+    template_id = await _create_template(client, headers)
+    request_id = await _send_visitor(client, headers, template_id, "signer@example.com", "Signer")
+
+    from sqlalchemy import select
+    from app.models.waiver import WaiverRequest, WaiverSignature
+
+    row = (
+        await db_session.execute(select(WaiverRequest).where(WaiverRequest.id == request_id))
+    ).scalar_one()
+    token = row.sign_token
+
+    sign = await client.post(
+        f"/api/v1/waivers/sign/{token}",
+        json={
+            "signer_name": "Signer",
+            "signature_type": "typed",
+            "signature_data": "Signer",
+            "consent_agreed": True,
+        },
+    )
+    assert sign.status_code == 200, sign.text
+
+    deleted = await client.delete(f"/api/v1/waivers/requests/{request_id}", headers=headers)
+    assert deleted.status_code == 204, deleted.text
+
+    # Signature row is removed by cascade.
+    sig = (
+        await db_session.execute(
+            select(WaiverSignature).where(WaiverSignature.request_id == request_id)
+        )
+    ).scalar_one_or_none()
+    assert sig is None

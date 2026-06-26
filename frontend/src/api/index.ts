@@ -1145,7 +1145,10 @@ export const waivers = {
       template_id: template_id ?? null,
     }),
 
-  listRequests: () => client.get<WaiverRequestItem[]>('/waivers/requests'),
+  listRequests: (params?: { q?: string; status?: string }) =>
+    client.get<WaiverRequestItem[]>('/waivers/requests', { params }),
+
+  deleteRequest: (id: string) => client.delete(`/waivers/requests/${id}`),
 
   downloadPdf: (id: string) =>
     client.get(`/waivers/requests/${id}/pdf`, { responseType: 'blob' }),
