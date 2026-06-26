@@ -1,0 +1,113 @@
+"""Keyword / semantic search over documents attached to leases.
+
+Mounted under ``/api/v1/leases`` alongside the main leases router. Endpoints:
+
+* ``POST /{lease_id}/document-search`` — search within a single lease's documents.
+* ``POST /document-search`` — portfolio-wide search across the org's leases.
+* ``POST /{lease_id}/reindex-documents`` — (re)build the index for a lease's
+  existing attachments (backfill).
+
+Search degrades gracefully: semantic ranking is used when Gemini is configured
+and embedded chunks exist, otherwise a keyword scan is used.
+"""
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.dependencies import get_current_user, require_role
+from app.database import get_db
+from app.models.lease import Lease
+from app.models.user import User
+from app.services import document_search_service
+
+router = APIRouter()
+
+
+class DocumentSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+class DocumentSearchMatch(BaseModel):
+    lease_id: str
+    lease_name: str | None = None
+    attachment_id: str | None = None
+    source_filename: str
+    snippet: str
+    score: float
+    match_type: str
+
+
+class DocumentSearchResponse(BaseModel):
+    query: str
+    matches: list[DocumentSearchMatch]
+
+
+class ReindexResponse(BaseModel):
+    lease_id: str
+    chunks_indexed: int
+
+
+async def _get_lease_or_404(db: AsyncSession, lease_id: uuid.UUID, user: User) -> Lease:
+    lease = (
+        await db.execute(
+            select(Lease).where(
+                Lease.id == lease_id,
+                Lease.is_deleted.is_(False),
+                Lease.organization_id == user.organization_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if lease is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
+    return lease
+
+
+@router.post("/document-search", response_model=DocumentSearchResponse)
+async def search_all_lease_documents(
+    payload: DocumentSearchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Search document text across all of the organization's leases."""
+    matches = await document_search_service.search_documents(
+        db,
+        organization_id=current_user.organization_id,
+        query=payload.query,
+        limit=payload.limit,
+    )
+    return DocumentSearchResponse(query=payload.query, matches=matches)
+
+
+@router.post("/{lease_id}/document-search", response_model=DocumentSearchResponse)
+async def search_lease_documents(
+    lease_id: uuid.UUID,
+    payload: DocumentSearchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Search document text within a single lease's attachments."""
+    await _get_lease_or_404(db, lease_id, current_user)
+    matches = await document_search_service.search_documents(
+        db,
+        organization_id=current_user.organization_id,
+        query=payload.query,
+        lease_id=lease_id,
+        limit=payload.limit,
+    )
+    return DocumentSearchResponse(query=payload.query, matches=matches)
+
+
+@router.post("/{lease_id}/reindex-documents", response_model=ReindexResponse)
+async def reindex_lease_documents(
+    lease_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    """(Re)build the search index for a lease's existing attachments."""
+    lease = await _get_lease_or_404(db, lease_id, current_user)
+    count = await document_search_service.reindex_lease_documents(db, lease)
+    return ReindexResponse(lease_id=str(lease_id), chunks_indexed=count)

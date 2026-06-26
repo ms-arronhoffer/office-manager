@@ -60,7 +60,7 @@ from app.routers import (  # noqa: E402
     webhooks, operating_expenses, vendor_portal, insurance_certificates, ws, work_order_costs,
     space, gl, cam, lifecycle, ap,
     lease_abstract, management_companies, contacts, client_portal,
-    ai, waivers,
+    ai, waivers, document_search,
 )
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature  # noqa: E402
@@ -76,6 +76,7 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(managers.router, prefix="/api/v1/managers", tags=["Managers"], dependencies=_org_guard)
 app.include_router(offices.router, prefix="/api/v1/offices", tags=["Offices"], dependencies=_org_guard)
 app.include_router(leases.router, prefix="/api/v1/leases", tags=["Leases"], dependencies=_org_guard)
+app.include_router(document_search.router, prefix="/api/v1/leases", tags=["Lease Document Search"], dependencies=_org_guard)
 app.include_router(lease_abstract.router, prefix="/api/v1/leases", tags=["Lease Abstract"], dependencies=_org_guard)
 app.include_router(landlords.router, prefix="/api/v1/landlords", tags=["Landlords"], dependencies=_org_guard)
 app.include_router(management_companies.router, prefix="/api/v1/management-companies", tags=["Management Companies"], dependencies=_org_guard)

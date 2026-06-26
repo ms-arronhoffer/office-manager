@@ -1,5 +1,6 @@
 import re
 import uuid
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -21,8 +22,11 @@ from app.models.transition import OfficeTransition
 from app.models.user import User
 from app.models.vendor import Vendor
 from app.schemas.attachment import AttachmentResponse
+from app.services import document_search_service
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 # Map entity_type string -> SQLAlchemy model class.
 # Models all use SoftDeleteMixin (is_deleted column).
@@ -166,6 +170,25 @@ async def upload_attachment(
     db.add(attachment)
     await db.commit()
     await db.refresh(attachment)
+
+    # Best-effort: index lease document text for keyword/semantic search.
+    if entity_type == "lease":
+        try:
+            lease = (
+                await db.execute(select(Lease).where(Lease.id == entity_id))
+            ).scalar_one_or_none()
+            if lease is not None:
+                if attachment.organization_id is None and lease.organization_id is not None:
+                    attachment.organization_id = lease.organization_id
+                    await db.commit()
+                    await db.refresh(attachment)
+                await document_search_service.index_attachment(
+                    db, lease=lease, attachment=attachment, content=content
+                )
+        except Exception:  # noqa: BLE001 - indexing must never block upload
+            await db.rollback()
+            logger.exception("Failed to index lease attachment %s", attachment.id)
+
     return AttachmentResponse.model_validate(attachment, from_attributes=True)
 
 

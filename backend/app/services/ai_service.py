@@ -298,3 +298,66 @@ async def generate_summary_narrative(period_label: str, data: dict[str, Any]) ->
     )
     parts = [{"text": prompt}]
     return await _generate(parts, system_instruction=SUMMARY_SYSTEM, temperature=0.4)
+
+
+# ── Embeddings (semantic document search) ─────────────────────────────────────
+
+# Cap the number of texts embedded in a single batch request.
+EMBED_BATCH_SIZE = 100
+
+
+def _embed_endpoint(model: str) -> str:
+    base = settings.GEMINI_API_BASE.rstrip("/")
+    return f"{base}/models/{model}:batchEmbedContents"
+
+
+async def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Return an embedding vector for each input string via Gemini.
+
+    Raises :class:`AIUnavailableError` when no API key is configured so callers
+    can fall back to keyword search. The embedding model is configurable via
+    ``GEMINI_EMBED_MODEL``.
+    """
+    _require_configured()
+    if not texts:
+        return []
+
+    model = settings.GEMINI_EMBED_MODEL
+    url = _embed_endpoint(model)
+    vectors: list[list[float]] = []
+
+    for start in range(0, len(texts), EMBED_BATCH_SIZE):
+        batch = texts[start : start + EMBED_BATCH_SIZE]
+        payload = {
+            "requests": [
+                {
+                    "model": f"models/{model}",
+                    "content": {"parts": [{"text": (t or "")[:MAX_TEXT_CHARS]}]},
+                }
+                for t in batch
+            ]
+        }
+        try:
+            async with httpx.AsyncClient(timeout=settings.GEMINI_TIMEOUT_SECONDS) as client:
+                resp = await client.post(
+                    url, params={"key": settings.GEMINI_API_KEY}, json=payload
+                )
+        except httpx.HTTPError as exc:
+            logger.warning("Gemini embed request failed: %s", exc)
+            raise AIRequestError(f"AI provider request failed: {exc}") from exc
+
+        if resp.status_code != 200:
+            detail = _safe_error_detail(resp)
+            logger.warning("Gemini embed returned %s: %s", resp.status_code, detail)
+            raise AIRequestError(f"AI provider error ({resp.status_code}): {detail}")
+
+        try:
+            data = resp.json()
+            embeddings = data["embeddings"]
+            for emb in embeddings:
+                vectors.append([float(v) for v in emb["values"]])
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning("Unexpected Gemini embed response shape: %s", exc)
+            raise AIRequestError("AI provider returned an unexpected response") from exc
+
+    return vectors
