@@ -60,6 +60,7 @@ from app.routers import (  # noqa: E402
     webhooks, operating_expenses, vendor_portal, insurance_certificates, ws, work_order_costs,
     space, gl, cam, lifecycle, ap,
     lease_abstract, management_companies, contacts, client_portal,
+    ai, waivers,
 )
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature  # noqa: E402
@@ -115,6 +116,14 @@ app.include_router(gl.router, prefix="/api/v1/gl", tags=["General Ledger"], depe
 app.include_router(cam.router, prefix="/api/v1/cam", tags=["CAM Reconciliation"], dependencies=_org_guard)
 app.include_router(lifecycle.router, prefix="/api/v1/lifecycle", tags=["Lease Lifecycle Accounting"], dependencies=_org_guard)
 app.include_router(ap.router, prefix="/api/v1/ap", tags=["Accounts Payable"], dependencies=_org_guard)
+app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Assist"], dependencies=_org_guard)
+app.include_router(
+    waivers.router,
+    prefix="/api/v1/waivers",
+    tags=["Digital Waivers"],
+    dependencies=[Depends(enforce_org_access), Depends(require_feature("digital_waivers"))],
+)
+app.include_router(waivers.public_router, prefix="/api/v1/waivers", tags=["Digital Waivers"])
 
 
 app.include_router(admin_orgs.router, prefix="/admin/v1/orgs", tags=["Admin - Orgs"])

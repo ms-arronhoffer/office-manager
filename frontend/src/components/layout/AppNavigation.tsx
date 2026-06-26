@@ -86,6 +86,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
         { type: 'link' as const, text: 'Transitions', href: '/transitions' },
         { type: 'link' as const, text: 'HVAC', href: '/hvac' },
         ...(isEditorOrAdmin ? [{ type: 'link' as const, text: 'Insurance Certificates', href: '/insurance-certificates' }] : []),
+        ...(isEditorOrAdmin ? [{ type: 'link' as const, text: 'Digital Waivers', href: '/waivers' }] : []),
       ],
     },
     ...(isEditorOrAdmin ? [{

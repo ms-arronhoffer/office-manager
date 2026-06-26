@@ -22,6 +22,7 @@ import Link from '@cloudscape-design/components/link';
 import { offices as officesApi, leases as leasesApi, landlords as landlordsApi, hvacContracts as hvacContractsApi, maintenanceTickets as ticketsApi, transitions as transitionsApi, space as spaceApi } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
 import { useFlashbar } from '@/context/FlashbarContext';
+import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import { formatAddress } from '@/components/common/AddressFields';
 import ActivityTimeline from '@/components/common/ActivityTimeline';
@@ -39,6 +40,7 @@ const OfficeDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { addFlash } = useFlashbar();
+  const { confirmDelete, modal: deleteModal } = useConfirmDelete();
 
   const [office, setOffice] = useState<Office | null>(null);
   const [leases, setLeases] = useState<Lease[]>([]);
@@ -241,6 +243,7 @@ const OfficeDetailPage: React.FC = () => {
 
   return (
     <>
+      {deleteModal}
       <ContentLayout
         header={
           <SpaceBetween size="m">
@@ -259,7 +262,7 @@ const OfficeDetailPage: React.FC = () => {
               actions={
                 <SpaceBetween direction="horizontal" size="xs">
                   <Button onClick={() => navigate(`/offices/${id}/edit`)}>Edit</Button>
-                  <Button onClick={handleDelete}>Delete</Button>
+                  <Button onClick={() => confirmDelete({ itemName: office.location_name, onConfirm: handleDelete })}>Delete</Button>
                 </SpaceBetween>
               }
             >

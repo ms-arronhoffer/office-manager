@@ -15,6 +15,7 @@ import Link from '@cloudscape-design/components/link';
 import { landlords as landlordsApi } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
 import { useFlashbar } from '@/context/FlashbarContext';
+import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import ContactsPanel from '@/components/common/ContactsPanel';
 import ClientPortalInvitePanel from '@/components/common/ClientPortalInvitePanel';
@@ -34,6 +35,7 @@ const LandlordDetailPage: React.FC = () => {
   const { user } = useAuth();
   const { addFlash } = useFlashbar();
   const canEdit = user?.role === 'admin' || user?.role === 'editor';
+  const { confirmDelete, modal: deleteModal } = useConfirmDelete();
 
   const [landlord, setLandlord] = useState<Landlord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -96,6 +98,7 @@ const LandlordDetailPage: React.FC = () => {
 
   return (
     <>
+      {deleteModal}
       <ContentLayout
         header={
           <SpaceBetween size="m">
@@ -115,7 +118,10 @@ const LandlordDetailPage: React.FC = () => {
               actions={
                 <SpaceBetween direction="horizontal" size="xs">
                   <Button onClick={() => navigate(`/landlords/${id}/edit`)}>Edit</Button>
-                  <Button variant="normal" onClick={handleDelete}>
+                  <Button variant="normal" onClick={() => confirmDelete({
+                    itemName: landlord.landlord_company || landlord.contact_name || landlord.office_name || 'Landlord',
+                    onConfirm: handleDelete,
+                  })}>
                     Delete
                   </Button>
                 </SpaceBetween>

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import Alert from '@cloudscape-design/components/alert';
 import Badge from '@cloudscape-design/components/badge';
 import Box from '@cloudscape-design/components/box';
@@ -28,6 +29,7 @@ const ApiKeysPage: React.FC = () => {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { confirmDelete, modal: deleteModal } = useConfirmDelete();
   const [newKey, setNewKey] = useState<string | null>(null);
 
   // Create modal state
@@ -110,7 +112,9 @@ const ApiKeysPage: React.FC = () => {
   }
 
   return (
-    <ContentLayout
+    <>
+      {deleteModal}
+      <ContentLayout
       header={
         <Header
           variant="h1"
@@ -213,7 +217,7 @@ const ApiKeysPage: React.FC = () => {
                   <Button
                     variant="link"
                     loading={deletingId === item.id}
-                    onClick={() => handleRevoke(item.id)}
+                    onClick={() => confirmDelete({ itemName: item.name, description: <>Are you sure you want to revoke the API key <strong>{item.name}</strong>? Applications using it will immediately lose access. This cannot be undone.</>, onConfirm: () => handleRevoke(item.id) })}
                   >
                     Revoke
                   </Button>
@@ -279,6 +283,7 @@ const ApiKeysPage: React.FC = () => {
         </SpaceBetween>
       </Modal>
     </ContentLayout>
+    </>
   );
 };
 

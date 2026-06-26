@@ -23,6 +23,7 @@ import {
   attachments as attachmentsApi,
 } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
+import AILeasePrefill from '@/components/common/AILeasePrefill';
 import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
 import { OfficeQuickCreate, ManagerQuickCreate } from '@/components/common/QuickCreateForms';
 import type { LeaseCreate, Office, Manager } from '@/types';
@@ -259,6 +260,23 @@ const LeaseFormPage: React.FC = () => {
     );
   }
 
+  const applyAISuggestions = (suggested: Record<string, unknown>) => {
+    const str = (v: unknown): string | undefined =>
+      v === null || v === undefined ? undefined : String(v);
+    setForm((f) => ({
+      ...f,
+      lease_name: str(suggested.lease_name) ?? f.lease_name,
+      lessor_name: str(suggested.lessor_name) ?? f.lessor_name,
+      lease_expiration: str(suggested.lease_expiration) ?? f.lease_expiration,
+      notice_period: str(suggested.notice_period) ?? f.notice_period,
+      lease_notice_date: str(suggested.lease_notice_date) ?? f.lease_notice_date,
+    }));
+    const commencement = str(suggested.lease_commencement) ?? str(suggested.commencement_date);
+    if (commencement) setCommencementDate(commencement);
+    const rent = str(suggested.monthly_rent) ?? str(suggested.base_rent) ?? str(suggested.rent);
+    if (rent) setPaymentAmount(rent.replace(/[^0-9.]/g, ''));
+  };
+
   return (
     <ContentLayout
       header={
@@ -296,6 +314,7 @@ const LeaseFormPage: React.FC = () => {
         }
       >
         <SpaceBetween size="l">
+        {!isEditing && <AILeasePrefill onSuggested={applyAISuggestions} />}
         <Container header={<Header variant="h2">Lease Information</Header>}>
           <SpaceBetween size="l">
             <FormField label="Lease Name" constraintText="Required">

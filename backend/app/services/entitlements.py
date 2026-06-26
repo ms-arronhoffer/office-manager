@@ -41,6 +41,8 @@ FEATURE_KEYS: tuple[str, ...] = (
     "webhooks",
     "sso",
     "custom_fields",
+    "ai_assist",
+    "digital_waivers",
 )
 
 # All keys that may appear in an entitlement override payload.
@@ -65,6 +67,8 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "webhooks": False,
         "sso": False,
         "custom_fields": False,
+        "ai_assist": False,
+        "digital_waivers": False,
     },
     "pro": {
         "max_offices": 50,
@@ -78,6 +82,8 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "webhooks": False,
         "sso": False,
         "custom_fields": False,
+        "ai_assist": True,
+        "digital_waivers": True,
     },
     "enterprise": {
         "max_offices": UNLIMITED,
@@ -91,6 +97,8 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "webhooks": True,
         "sso": True,
         "custom_fields": True,
+        "ai_assist": True,
+        "digital_waivers": True,
     },
 }
 

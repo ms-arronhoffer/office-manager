@@ -14,6 +14,7 @@ import Link from '@cloudscape-design/components/link';
 import { managementCompanies as api } from '@/api';
 import { useAuth } from '@/auth/AuthContext';
 import { useFlashbar } from '@/context/FlashbarContext';
+import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import ContactsPanel from '@/components/common/ContactsPanel';
 import ClientPortalInvitePanel from '@/components/common/ClientPortalInvitePanel';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
@@ -32,6 +33,7 @@ const ManagementCompanyDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { addFlash } = useFlashbar();
+  const { confirmDelete, modal: deleteModal } = useConfirmDelete();
   const canEdit = user?.role === 'admin' || user?.role === 'editor';
 
   const [company, setCompany] = useState<ManagementCompany | null>(null);
@@ -99,7 +101,9 @@ const ManagementCompanyDetailPage: React.FC = () => {
   }
 
   return (
-    <ContentLayout
+    <>
+      {deleteModal}
+      <ContentLayout
       header={
         <SpaceBetween size="m">
           <BreadcrumbGroup
@@ -118,7 +122,7 @@ const ManagementCompanyDetailPage: React.FC = () => {
               canEdit ? (
                 <SpaceBetween direction="horizontal" size="xs">
                   <Button onClick={() => navigate(`/management-companies/${id}/edit`)}>Edit</Button>
-                  <Button variant="normal" onClick={handleDelete}>
+                  <Button variant="normal" onClick={() => confirmDelete({ itemName: company.name, onConfirm: handleDelete })}>
                     Delete
                   </Button>
                 </SpaceBetween>
@@ -192,6 +196,7 @@ const ManagementCompanyDetailPage: React.FC = () => {
         {id && <AttachmentsPanel entityType="management_company" entityId={id} canEdit={canEdit} />}
       </SpaceBetween>
     </ContentLayout>
+    </>
   );
 };
 

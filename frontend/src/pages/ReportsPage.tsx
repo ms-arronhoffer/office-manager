@@ -18,6 +18,7 @@ import TokenGroup from '@cloudscape-design/components/token-group';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import { reports, leases as leasesApi } from '@/api';
+import AISummaryPanel from '@/components/common/AISummaryPanel';
 import type { ReportTemplate, FilterConfig, LeasePortfolioResponse, RentRollRow } from '@/types';
 
 type Format = 'pdf' | 'csv' | 'xlsx';
@@ -479,6 +480,9 @@ const ReportsPage: React.FC = () => {
             {templateError || error}
           </Alert>
         )}
+
+        {/* AI-generated operations briefing (Pro+) */}
+        <AISummaryPanel />
 
         {/* Quick Export */}
         <Container

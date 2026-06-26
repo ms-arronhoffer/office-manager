@@ -10,6 +10,8 @@ interface ConfirmDeleteModalProps {
   onConfirm: () => void;
   onCancel: () => void;
   loading?: boolean;
+  /** Optional override of the default confirmation message. */
+  description?: React.ReactNode;
 }
 
 const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
@@ -18,6 +20,7 @@ const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
   onConfirm,
   onCancel,
   loading = false,
+  description,
 }) => (
   <Modal
     visible={visible}
@@ -32,7 +35,9 @@ const ConfirmDeleteModal: React.FC<ConfirmDeleteModalProps> = ({
       </Box>
     }
   >
-    Are you sure you want to delete <strong>{itemName}</strong>? This action can be undone from the trash.
+    {description ?? (
+      <>Are you sure you want to delete <strong>{itemName}</strong>? This action can be undone from the trash.</>
+    )}
   </Modal>
 );
 

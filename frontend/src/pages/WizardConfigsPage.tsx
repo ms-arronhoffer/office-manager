@@ -17,6 +17,7 @@ import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
 import { useNavigate } from 'react-router-dom';
 import { wizardConfigs as wizardApi } from '@/api';
 import { useFlashbar } from '@/context/FlashbarContext';
+import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import type { WizardConfig } from '@/types';
 
 interface FormState {
@@ -38,6 +39,7 @@ const emptyForm: FormState = {
 const WizardConfigsPage: React.FC = () => {
   const navigate = useNavigate();
   const { addFlash } = useFlashbar();
+  const { confirmDelete, modal: deleteModal } = useConfirmDelete();
 
   const [configs, setConfigs] = useState<WizardConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -156,6 +158,7 @@ const WizardConfigsPage: React.FC = () => {
 
   return (
     <>
+      {deleteModal}
       <ContentLayout
         header={
           <SpaceBetween size="m">
@@ -241,7 +244,7 @@ const WizardConfigsPage: React.FC = () => {
                 cell: (item) => (
                   <SpaceBetween direction="horizontal" size="xs">
                     <Button onClick={() => openEdit(item)} iconName="edit" variant="inline-icon" ariaLabel="Edit" />
-                    <Button onClick={() => handleDelete(item)} iconName="remove" variant="inline-icon" ariaLabel="Delete" />
+                    <Button onClick={() => confirmDelete({ itemName: item.name, onConfirm: () => handleDelete(item) })} iconName="remove" variant="inline-icon" ariaLabel="Delete" />
                   </SpaceBetween>
                 ),
               },

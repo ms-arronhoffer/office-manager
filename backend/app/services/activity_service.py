@@ -25,7 +25,14 @@ async def log_activity(
         changes=changes,
     )
     db.add(entry)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        # Best-effort logging: if the insert fails (e.g. a constraint/DB error),
+        # roll back so the aborted transaction does not poison the caller's
+        # session and cause a spurious 500 on the subsequent response query.
+        await db.rollback()
+        raise
 
 
 def compute_changes(old_values: dict, new_values: dict) -> dict | None:

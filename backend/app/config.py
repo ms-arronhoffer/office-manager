@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     STRIPE_PRICE_ID_PRO: str = ""
     STRIPE_PRICE_ID_ENTERPRISE: str = ""
 
+    # Google Gemini (AI assist). All three are configurable so the model id and
+    # endpoint can be corrected without a code change. When GEMINI_API_KEY is
+    # empty the AI features degrade gracefully (mirroring SMTP/Stripe).
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-3.1-flash-lite"
+    GEMINI_API_BASE: str = "https://generativelanguage.googleapis.com/v1beta"
+    GEMINI_TIMEOUT_SECONDS: int = 60
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     def model_post_init(self, __context) -> None:
