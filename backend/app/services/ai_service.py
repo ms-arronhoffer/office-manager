@@ -173,7 +173,20 @@ LEASE_PARSE_SYSTEM = (
     "You are a commercial real-estate lease abstraction assistant. Extract key "
     "lease details from the supplied document. Respond ONLY with a JSON object. "
     "Use null for any field you cannot determine. Dates must be ISO 8601 "
-    "(YYYY-MM-DD). Do not invent values."
+    "(YYYY-MM-DD). Do not invent values.\n"
+    "\n"
+    "Financial extraction rules:\n"
+    "- Return all monetary amounts as plain numbers (no currency symbols, commas, "
+    "or thousands separators), e.g. 12500.50 not \"$12,500.50\".\n"
+    "- payment_amount must be the base rent for ONE payment_frequency period. If "
+    "the lease states an annual base rent but rent is paid monthly, divide by 12 "
+    "and set payment_frequency to monthly. If it states a per-square-foot rate, "
+    "multiply by the rentable area to get the periodic amount when the area is "
+    "given.\n"
+    "- Express rates (annual_escalation_rate, incremental_borrowing_rate) as "
+    "decimal fractions, e.g. 3% becomes 0.03 and 4.5% becomes 0.045.\n"
+    "- Prefer the most recent/initial base rent at commencement when a rent "
+    "schedule lists multiple steps."
 )
 
 # The fields we ask Gemini to populate map directly onto LeaseCreate (including
@@ -188,17 +201,17 @@ LEASE_PARSE_FIELDS = {
     "notice_period_days": "Notice period in whole days (integer)",
     "expiration_year": "Year the lease expires (integer)",
     # ── Accounting & financial terms (ASC 842 / IFRS 16) ──────────────────────
-    "payment_amount": "Base rent amount per payment period (number)",
-    "payment_frequency": "One of monthly, quarterly, annually",
-    "annual_escalation_rate": "Annual rent escalation as a decimal fraction, e.g. 0.03",
+    "payment_amount": "Base rent for a SINGLE payment period as a plain number (no symbols/commas). Convert annual rent to the per-period amount that matches payment_frequency",
+    "payment_frequency": "Billing cadence of the base rent: one of monthly, quarterly, annually",
+    "annual_escalation_rate": "Annual rent escalation as a decimal fraction, e.g. 0.03 for 3%",
     "accounting_standard": "Accounting standard if stated: one of asc842, ifrs16, both",
     "lease_classification": "Lease classification if determinable: operating or finance",
-    "incremental_borrowing_rate": "Incremental borrowing / discount rate as a decimal fraction, e.g. 0.045",
-    "initial_direct_costs": "Initial direct costs capitalised at commencement (number)",
-    "lease_incentives": "Lease incentives received from the lessor (number)",
-    "prepaid_rent": "Prepaid rent paid at or before commencement (number)",
-    "residual_value_guarantee": "Residual value guaranteed by the lessee (number)",
-    "is_short_term_lease": "True if the lease term is 12 months or less (boolean)",
+    "incremental_borrowing_rate": "Incremental borrowing / discount rate as a decimal fraction, e.g. 0.045 for 4.5%",
+    "initial_direct_costs": "Initial direct costs capitalised at commencement as a plain number",
+    "lease_incentives": "Lease incentives / tenant improvement allowances received from the lessor as a plain number",
+    "prepaid_rent": "Prepaid rent paid at or before commencement as a plain number",
+    "residual_value_guarantee": "Residual value guaranteed by the lessee as a plain number",
+    "is_short_term_lease": "True if the total lease term is 12 months or less (boolean)",
     "is_low_value_lease": "True if the underlying asset is low-value (boolean)",
     "currency": "ISO 4217 currency code of the payments, e.g. USD",
 }
