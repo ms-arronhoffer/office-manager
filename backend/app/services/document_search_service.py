@@ -447,6 +447,9 @@ async def list_indexed_documents(
     stmt = (
         select(
             LeaseDocumentChunk.attachment_id,
+            # All chunks for a given attachment share the same source_filename
+            # (set once from the attachment in ``index_attachment``), so any
+            # aggregate is equivalent; ``min`` makes the grouped select valid.
             func.min(LeaseDocumentChunk.source_filename).label("source_filename"),
             func.count(LeaseDocumentChunk.id).label("chunk_count"),
         )
