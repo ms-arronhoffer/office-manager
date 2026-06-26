@@ -40,6 +40,9 @@ services:
       DEFAULT_ADMIN_EMAIL: ${DEFAULT_ADMIN_EMAIL:-admin@officemanager.local}
       DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:?DEFAULT_ADMIN_PASSWORD is required}
       ADMIN_FRONTEND_URL: ${ADMIN_FRONTEND_URL:-http://localhost:4001}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      
     volumes:
       - uploads:/app/uploads
     networks:
