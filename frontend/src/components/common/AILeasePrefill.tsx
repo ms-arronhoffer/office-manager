@@ -11,6 +11,11 @@ import { ai } from '@/api';
 interface AILeasePrefillProps {
   /** Called with the model's suggested field map for the form to apply. */
   onSuggested: (suggested: Record<string, unknown>) => void;
+  /**
+   * Called with the uploaded document after a successful extraction so the
+   * parent can keep it queued as an attachment when the lease is saved.
+   */
+  onFileExtracted?: (file: File) => void;
 }
 
 /**
@@ -19,7 +24,7 @@ interface AILeasePrefillProps {
  * the form for human review before saving. Degrades gracefully when the server
  * has no Gemini API key configured.
  */
-const AILeasePrefill: React.FC<AILeasePrefillProps> = ({ onSuggested }) => {
+const AILeasePrefill: React.FC<AILeasePrefillProps> = ({ onSuggested, onFileExtracted }) => {
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +38,9 @@ const AILeasePrefill: React.FC<AILeasePrefillProps> = ({ onSuggested }) => {
     try {
       const res = await ai.parseLease(files[0]);
       onSuggested(res.data.suggested || {});
+      // Keep the parsed document attached to the lease once it's created so the
+      // user doesn't have to re-upload the file they just analysed.
+      onFileExtracted?.(files[0]);
       setDone(true);
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status;
@@ -83,7 +91,7 @@ const AILeasePrefill: React.FC<AILeasePrefillProps> = ({ onSuggested }) => {
         {error && <Alert type="warning">{error}</Alert>}
         {done && !error && (
           <Box variant="small" color="text-status-success">
-            Suggestions applied below. Review and edit before saving.
+            Suggestions applied below, and the document will be attached when you save. Review and edit before saving.
           </Box>
         )}
       </SpaceBetween>

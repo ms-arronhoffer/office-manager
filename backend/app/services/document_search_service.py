@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import uuid
 
 from sqlalchemy import delete, or_, select
@@ -63,21 +64,63 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-def _snippet(content: str, query: str, width: int = 240) -> str:
-    """Return a short snippet of ``content`` centred on the first query term."""
+def _match_position(content: str, query: str) -> int:
+    """Return the index of the first query term found in ``content`` (or 0)."""
     lowered = content.lower()
-    pos = -1
     for term in query.lower().split():
         pos = lowered.find(term)
         if pos != -1:
+            return pos
+    return 0
+
+
+def _snippet(content: str, query: str, max_chars: int = 2000) -> str:
+    """Return the full paragraph of ``content`` that contains the match.
+
+    Rather than a fixed-width window centred on the match, this returns the
+    entire paragraph the match falls in so the result is readable in context.
+    A paragraph is the block of text delimited by blank lines; when the text has
+    no blank lines (e.g. Word documents whose paragraphs are joined by single
+    newlines) each newline is treated as a paragraph boundary instead. Internal
+    line breaks are collapsed to single spaces for display, and an over-long
+    paragraph is trimmed around the match so the snippet stays bounded.
+    """
+    content = content or ""
+    if not content.strip():
+        return ""
+
+    pos = _match_position(content, query)
+
+    # Prefer blank-line paragraph boundaries; fall back to single newlines when
+    # the text has none (so Word-style single-newline paragraphs still split).
+    separators = list(re.finditer(r"\n[ \t]*\n+", content))
+    if not separators:
+        separators = list(re.finditer(r"\n+", content))
+
+    start = 0
+    end = len(content)
+    for m in separators:
+        if m.start() <= pos:
+            start = m.end()
+        else:
+            end = m.start()
             break
-    if pos == -1:
-        return content[:width].strip()
-    start = max(0, pos - width // 2)
-    end = min(len(content), start + width)
-    prefix = "…" if start > 0 else ""
-    suffix = "…" if end < len(content) else ""
-    return f"{prefix}{content[start:end].strip()}{suffix}"
+
+    paragraph = re.sub(r"\s+", " ", content[start:end]).strip()
+    if not paragraph:
+        paragraph = re.sub(r"\s+", " ", content).strip()
+
+    if len(paragraph) > max_chars:
+        # Re-locate the match inside the collapsed paragraph and centre a window
+        # on it so the returned snippet remains bounded.
+        rel = _match_position(paragraph, query)
+        window_start = max(0, rel - max_chars // 2)
+        window_end = min(len(paragraph), window_start + max_chars)
+        prefix = "…" if window_start > 0 else ""
+        suffix = "…" if window_end < len(paragraph) else ""
+        paragraph = f"{prefix}{paragraph[window_start:window_end].strip()}{suffix}"
+
+    return paragraph
 
 
 async def index_attachment(

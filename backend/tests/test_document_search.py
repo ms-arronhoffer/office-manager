@@ -219,3 +219,46 @@ async def test_index_attachment_keyword_only(db_session, monkeypatch):
         db_session, organization_id=org.id, query="subletting"
     )
     assert results and results[0]["lease_id"] == str(lease.id)
+
+
+def test_snippet_returns_full_paragraph_single_newline():
+    """Word-style text (paragraphs joined by single newlines) returns the whole
+    matched paragraph, not a truncated window."""
+    content = (
+        "Article 1. Premises. The premises are leased as-is.\n"
+        "Article 2. Base Rent. Tenant shall pay base rent of $28,500 per month "
+        "payable monthly in advance without demand, setoff, or deduction.\n"
+        "Article 3. Term. The term is sixty months."
+    )
+    snip = document_search_service._snippet(content, "base rent")
+    assert snip.startswith("Article 2. Base Rent.")
+    assert "without demand, setoff, or deduction." in snip
+    # Must not bleed into neighbouring paragraphs.
+    assert "Article 1." not in snip
+    assert "Article 3." not in snip
+
+
+def test_snippet_returns_full_paragraph_blank_line_delimited():
+    """PDF-style text (paragraphs separated by blank lines, wrapped with single
+    newlines) returns the full paragraph with line breaks collapsed."""
+    content = (
+        "Page intro text.\n\n"
+        "5. Renewal and Notice\n"
+        "Tenant shall have one option to renew\n"
+        "for five years by delivering written\n"
+        "notice ninety days prior to expiration.\n\n"
+        "6. Permitted Use\nGeneral office use only."
+    )
+    snip = document_search_service._snippet(content, "ninety days")
+    assert "5. Renewal and Notice" in snip
+    assert "ninety days prior to expiration." in snip
+    assert "\n" not in snip  # internal line breaks collapsed
+    assert "Permitted Use" not in snip
+
+
+def test_snippet_bounds_overlong_paragraph():
+    content = "x" * 4000 + " base rent clause " + "y" * 4000
+    snip = document_search_service._snippet(content, "base rent", max_chars=120)
+    assert "base rent" in snip
+    assert len(snip) <= 122  # max_chars plus the two ellipsis characters
+    assert snip.startswith("…") and snip.endswith("…")

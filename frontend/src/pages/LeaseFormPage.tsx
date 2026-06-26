@@ -260,6 +260,16 @@ const LeaseFormPage: React.FC = () => {
     );
   }
 
+  const queueExtractedFile = (file: File) => {
+    setQueuedFiles((prev) => {
+      // Avoid duplicating the same document if the user re-runs the extraction.
+      if (prev.some((qf) => qf.file.name === file.name && qf.file.size === file.size)) {
+        return prev;
+      }
+      return [...prev, { file, id: `ai-${Date.now()}-${Math.random()}` }];
+    });
+  };
+
   const applyAISuggestions = (suggested: Record<string, unknown>) => {
     const str = (v: unknown): string | undefined =>
       v === null || v === undefined ? undefined : String(v);
@@ -314,7 +324,7 @@ const LeaseFormPage: React.FC = () => {
         }
       >
         <SpaceBetween size="l">
-        {!isEditing && <AILeasePrefill onSuggested={applyAISuggestions} />}
+        {!isEditing && <AILeasePrefill onSuggested={applyAISuggestions} onFileExtracted={queueExtractedFile} />}
         <Container header={<Header variant="h2">Lease Information</Header>}>
           <SpaceBetween size="l">
             <FormField label="Lease Name" constraintText="Required">
