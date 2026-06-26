@@ -1064,7 +1064,7 @@ import type {
   AbstractSuggestResult,
   AISummaryResult,
   LeaseDocumentSearchResult,
-  WaiverTemplate as WaiverTemplateType,
+  LeaseDocumentTextResult,
   WaiverTemplateCreate,
   WaiverTemplateUpdate,
   WaiverRequestItem,
@@ -1112,6 +1112,11 @@ export const ai = {
 
   searchAllLeaseDocuments: (query: string, limit = 10) =>
     client.post<LeaseDocumentSearchResult>('/leases/document-search', { query, limit }),
+
+  getLeaseDocumentText: (leaseId: string, attachmentId: string) =>
+    client.get<LeaseDocumentTextResult>(
+      `/leases/${leaseId}/documents/${attachmentId}/text`,
+    ),
 
   reindexLeaseDocuments: (leaseId: string) =>
     client.post<{ lease_id: string; chunks_indexed: number }>(

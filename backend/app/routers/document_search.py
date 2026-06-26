@@ -36,6 +36,7 @@ class DocumentSearchMatch(BaseModel):
     lease_name: str | None = None
     attachment_id: str | None = None
     source_filename: str
+    chunk_index: int | None = None
     snippet: str
     score: float
     match_type: str
@@ -44,6 +45,14 @@ class DocumentSearchMatch(BaseModel):
 class DocumentSearchResponse(BaseModel):
     query: str
     matches: list[DocumentSearchMatch]
+
+
+class DocumentTextResponse(BaseModel):
+    attachment_id: str
+    source_filename: str
+    content_type: str | None = None
+    text: str | None = None
+    extractable: bool
 
 
 class ReindexResponse(BaseModel):
@@ -99,6 +108,33 @@ async def search_lease_documents(
         limit=payload.limit,
     )
     return DocumentSearchResponse(query=payload.query, matches=matches)
+
+
+@router.get(
+    "/{lease_id}/documents/{attachment_id}/text",
+    response_model=DocumentTextResponse,
+)
+async def get_lease_document_text(
+    lease_id: uuid.UUID,
+    attachment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return the full extracted text of a lease attachment for previewing.
+
+    Powers the search preview pane: the client highlights the query terms in the
+    returned text. ``text`` is null with ``extractable=false`` when the document
+    type cannot be extracted (the caller should fall back to the snippet).
+    """
+    lease = await _get_lease_or_404(db, lease_id, current_user)
+    result = await document_search_service.get_document_text(
+        db, lease=lease, attachment_id=attachment_id
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        )
+    return DocumentTextResponse(**result)
 
 
 @router.post("/{lease_id}/reindex-documents", response_model=ReindexResponse)

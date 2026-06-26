@@ -1659,6 +1659,7 @@ export interface LeaseDocumentSearchMatch {
   lease_name: string | null;
   attachment_id: string | null;
   source_filename: string;
+  chunk_index: number | null;
   snippet: string;
   score: number;
   match_type: string;
@@ -1667,6 +1668,14 @@ export interface LeaseDocumentSearchMatch {
 export interface LeaseDocumentSearchResult {
   query: string;
   matches: LeaseDocumentSearchMatch[];
+}
+
+export interface LeaseDocumentTextResult {
+  attachment_id: string;
+  source_filename: string;
+  content_type: string | null;
+  text: string | null;
+  extractable: boolean;
 }
 
 // ─── Digital Waivers ──────────────────────────────────────────────────────────
