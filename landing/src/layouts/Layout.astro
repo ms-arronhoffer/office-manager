@@ -7,6 +7,7 @@ const {
   title = "Office Manager — Every Office. Every Lease. Every Deadline.",
   description = "The all-in-one platform for corporate real estate and facilities teams. Manage leases, maintenance, vendors, and compliance in one place.",
 } = Astro.props;
+const canonical = Astro.url.pathname;
 ---
 <!doctype html>
 <html lang="en">
@@ -15,6 +16,16 @@ const {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content={description} />
     <title>{title}</title>
+    <link rel="canonical" href={canonical} />
+
+    <!-- Open Graph / social preview -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400..900;1,14..32,400..900&display=swap" rel="stylesheet" />
@@ -23,7 +34,9 @@ const {
   <body class="font-sans">
     <slot />
 
-    <!-- Wire all [data-href] CTAs from SITE_CONFIG at runtime -->
+    <!-- Wire all [data-href] CTAs from SITE_CONFIG at runtime, and brand name. -->
+    <!-- Note: contact is handled by the on-site /contact form, so no email
+         address is ever placed in the HTML for spam harvesters to scrape. -->
     <script is:inline>
       (function () {
         var cfg = window.SITE_CONFIG || {};
@@ -36,12 +49,6 @@ const {
             el.addEventListener('click', function () { window.location.href = url; });
             el.style.cursor = 'pointer';
           }
-        });
-        document.querySelectorAll('[data-demo-email]').forEach(function (el) {
-          var email = cfg.DEMO_EMAIL || '';
-          var subject = encodeURIComponent('Office Manager Demo Request');
-          var body = encodeURIComponent('Hi,\n\nI\'d like to schedule a demo of Office Manager.\n\nName:\nCompany:\nPhone:\n');
-          if (el.tagName === 'A') el.href = 'mailto:' + email + '?subject=' + subject + '&body=' + body;
         });
         document.querySelectorAll('[data-company]').forEach(function (el) {
           el.textContent = cfg.COMPANY_NAME || 'Office Manager';

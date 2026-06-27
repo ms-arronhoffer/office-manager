@@ -1,0 +1,31 @@
+---
+import AppShell from './AppShell.astro';
+const kpis = [
+  { label: 'Active Leases', val: '24', color: 'text-blue-600' },
+  { label: 'Expiring Soon', val: '7', pill: 'Action needed', pillColor: 'bg-amber-100 text-amber-700' },
+  { label: 'SLA Compliance', val: '98%', pill: 'On track', pillColor: 'bg-green-100 text-green-700' },
+];
+const tickets = [
+  { prio: 'Urgent', label: 'HVAC failure — Chicago HQ, 3rd floor', color: 'bg-red-100 text-red-700' },
+  { prio: 'Medium', label: 'Elevator maintenance — NYC Office', color: 'bg-amber-100 text-amber-700' },
+  { prio: 'Low', label: 'Lobby lighting replacement — Austin', color: 'bg-slate-100 text-slate-600' },
+];
+---
+<AppShell active="Dashboard" url="app.officemanager.io/dashboard">
+  <div class="grid grid-cols-3 gap-3 mb-5">
+    {kpis.map(stat => (
+      <div class="bg-slate-50 rounded-xl p-3 border border-slate-100">
+        <div class={`text-2xl font-bold ${stat.color ?? 'text-slate-800'}`}>{stat.val}</div>
+        <div class="text-xs text-slate-500 mt-0.5">{stat.label}</div>
+        {stat.pill && <span class={`inline-block mt-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${stat.pillColor}`}>{stat.pill}</span>}
+      </div>
+    ))}
+  </div>
+  <div class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Open Tickets</div>
+  {tickets.map(t => (
+    <div class="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
+      <span class={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${t.color}`}>{t.prio}</span>
+      <span class="text-sm text-slate-600 truncate">{t.label}</span>
+    </div>
+  ))}
+</AppShell>

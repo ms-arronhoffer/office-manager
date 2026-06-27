@@ -1,0 +1,41 @@
+---
+import AppShell from './AppShell.astro';
+const requests = [
+  { name: 'Dana Whitfield', doc: 'Visitor Liability Waiver', status: 'Signed', sc: 'bg-green-100 text-green-700', when: 'Today, 9:41 AM' },
+  { name: 'Self-serve kiosk', doc: 'Contractor Site Waiver', status: 'Signed', sc: 'bg-green-100 text-green-700', when: 'Today, 8:12 AM' },
+  { name: 'Priya N.', doc: 'Photo Release', status: 'Sent', sc: 'bg-blue-100 text-blue-700', when: 'Yesterday' },
+  { name: 'Marcus K.', doc: 'NDA — Tour', status: 'Viewed', sc: 'bg-amber-100 text-amber-700', when: 'Yesterday' },
+];
+---
+<AppShell active="Waivers" url="app.officemanager.io/waivers" title="Digital Waivers & e-Signatures">
+  <div class="grid lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 rounded-xl border border-slate-200 overflow-hidden">
+      <div class="grid grid-cols-12 gap-2 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        <div class="col-span-4">Signer</div>
+        <div class="col-span-4">Document</div>
+        <div class="col-span-2">Status</div>
+        <div class="col-span-2">When</div>
+      </div>
+      {requests.map(r => (
+        <div class="grid grid-cols-12 gap-2 items-center px-3 py-2.5 border-t border-slate-100 text-xs">
+          <div class="col-span-4 text-slate-700 truncate">{r.name}</div>
+          <div class="col-span-4 text-slate-600 truncate">{r.doc}</div>
+          <div class="col-span-2"><span class={`px-2 py-0.5 rounded-full text-[10px] font-medium ${r.sc}`}>{r.status}</span></div>
+          <div class="col-span-2 text-slate-400 truncate">{r.when}</div>
+        </div>
+      ))}
+    </div>
+    <div class="rounded-xl border border-slate-200 p-4">
+      <div class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Audit trail</div>
+      <div class="rounded-lg bg-slate-50 border border-slate-100 p-3 mb-3">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400">Signature</div>
+        <div class="mt-1 font-[cursive] text-xl text-slate-700">Dana Whitfield</div>
+      </div>
+      <ul class="space-y-2 text-[11px] text-slate-500">
+        <li class="flex items-start gap-2"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0"></span>Consent captured · 192.0.2.41</li>
+        <li class="flex items-start gap-2"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0"></span>Identity attribution recorded</li>
+        <li class="flex items-start gap-2"><span class="mt-1 w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0"></span>ESIGN / UETA compliant</li>
+      </ul>
+    </div>
+  </div>
+</AppShell>
