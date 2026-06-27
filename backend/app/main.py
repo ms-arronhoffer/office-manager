@@ -60,7 +60,7 @@ from app.routers import (  # noqa: E402
     webhooks, operating_expenses, vendor_portal, insurance_certificates, ws, work_order_costs,
     space, gl, cam, lifecycle, ap,
     lease_abstract, management_companies, contacts, client_portal,
-    ai, waivers, document_search,
+    ai, waivers, document_search, maintenance,
 )
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature  # noqa: E402
@@ -84,6 +84,7 @@ app.include_router(contacts.router, prefix="/api/v1/contacts", tags=["Contacts"]
 app.include_router(transitions.router, prefix="/api/v1/transitions", tags=["Transitions"], dependencies=[Depends(enforce_org_access), Depends(require_feature("transitions"))])
 app.include_router(hq_hvac.router, prefix="/api/v1/hq-hvac", tags=["HQ HVAC"], dependencies=[Depends(enforce_org_access), Depends(require_feature("hvac"))])
 app.include_router(hvac_contracts.router, prefix="/api/v1/hvac-contracts", tags=["HVAC Contracts"], dependencies=[Depends(enforce_org_access), Depends(require_feature("hvac"))])
+app.include_router(maintenance.router, prefix="/api/v1/maintenance", tags=["Maintenance"], dependencies=[Depends(enforce_org_access), Depends(require_feature("maintenance"))])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"], dependencies=_org_guard)
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"], dependencies=_org_guard)
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"], dependencies=_org_guard)

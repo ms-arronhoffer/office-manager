@@ -1809,3 +1809,115 @@ export interface WaiverSignSubmission {
   consent_agreed: boolean;
   visitor_details?: { label: string; value: string }[] | null;
 }
+
+// ─── Maintenance program ──────────────────────────────────────────────────────
+
+export interface MaintenanceVendorSummary {
+  id: string;
+  company_name: string;
+}
+
+export interface MaintenanceOfficeSummary {
+  id: string;
+  location_name: string;
+}
+
+export interface MaintenanceCatalogSubtopic {
+  value: string;
+  label: string;
+}
+
+export interface MaintenanceCatalogCategory {
+  value: string;
+  label: string;
+  subtopics: MaintenanceCatalogSubtopic[];
+}
+
+export interface MaintenanceCatalog {
+  categories: MaintenanceCatalogCategory[];
+  frequencies: string[];
+  task_statuses: string[];
+  asset_statuses: string[];
+}
+
+export interface MaintenanceAsset {
+  id: string;
+  organization_id: string | null;
+  category: string;
+  subtopic: string | null;
+  office_id: string | null;
+  name: string;
+  location_desc: string | null;
+  make: string | null;
+  model: string | null;
+  serial_number: string | null;
+  install_date: string | null;
+  vendor_id: string | null;
+  is_regulatory: boolean;
+  certification_expiry: string | null;
+  status: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  vendor: MaintenanceVendorSummary | null;
+  office: MaintenanceOfficeSummary | null;
+}
+
+export interface MaintenanceTask {
+  id: string;
+  organization_id: string | null;
+  asset_id: string | null;
+  category: string;
+  subtopic: string | null;
+  office_id: string | null;
+  title: string;
+  description: string | null;
+  frequency: string | null;
+  last_completed_date: string | null;
+  next_due_date: string | null;
+  vendor_id: string | null;
+  status: string;
+  is_regulatory: boolean;
+  reminder_enabled: boolean;
+  reminder_days_before: number;
+  reminder_recipients: string[];
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  vendor: MaintenanceVendorSummary | null;
+  office: MaintenanceOfficeSummary | null;
+  computed_status: string;
+}
+
+export interface MaintenanceLog {
+  id: string;
+  task_id: string | null;
+  asset_id: string | null;
+  service_date: string | null;
+  performed_by: string | null;
+  vendor_id: string | null;
+  cost: number | null;
+  invoice_number: string | null;
+  description: string;
+  status: string | null;
+  created_at: string;
+  vendor: MaintenanceVendorSummary | null;
+}
+
+export interface MaintenanceOverviewCategoryStat {
+  category: string;
+  label: string;
+  task_count: number;
+  asset_count: number;
+  overdue: number;
+  due_soon: number;
+}
+
+export interface MaintenanceOverview {
+  total_tasks: number;
+  total_assets: number;
+  overdue: number;
+  due_soon: number;
+  expiring_certifications: number;
+  by_category: MaintenanceOverviewCategoryStat[];
+}

@@ -16,6 +16,12 @@ from app.models.hq_hvac import (
     HqTowerSprayLog, HqBackflow,
 )
 from app.models.hvac_contract import HvacContract, HvacOfficeDetail
+from app.models.maintenance import (
+    MaintenanceAsset, MaintenanceTask, MaintenanceLog,
+    MAINTENANCE_CATEGORIES, MAINTENANCE_CATEGORY_KEYS,
+    MAINTENANCE_FREQUENCIES, MAINTENANCE_TASK_STATUSES,
+    MAINTENANCE_ASSET_STATUSES,
+)
 from app.models.email import EmailReminderRule, EmailLog
 from app.models.attachment import Attachment
 from app.models.maintenance_ticket import TicketCategory, MaintenanceTicket, TicketNote, WorkOrderCostLine
@@ -60,6 +66,7 @@ __all__ = [
     "HqPmTask", "HqPmLog", "HqMaintenanceContract", "HqMaintenanceVisit",
     "HqTowerSprayLog", "HqBackflow",
     "HvacContract", "HvacOfficeDetail",
+    "MaintenanceAsset", "MaintenanceTask", "MaintenanceLog",
     "EmailReminderRule", "EmailLog",
     "Attachment",
     "TicketCategory", "MaintenanceTicket", "TicketNote", "WorkOrderCostLine",

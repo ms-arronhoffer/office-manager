@@ -68,6 +68,7 @@ const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const DashboardHubPage = lazy(() => import('@/pages/DashboardHubPage'));
 const FinancePage = lazy(() => import('@/pages/FinancePage'));
 const HvacPage = lazy(() => import('@/pages/HvacPage'));
+const MaintenancePage = lazy(() => import('@/pages/MaintenancePage'));
 const AdministrationPage = lazy(() => import('@/pages/AdministrationPage'));
 
 const PageLoader = () => (
@@ -155,6 +156,8 @@ const App: React.FC = () => {
                         <Route path="transitions/:id/edit" element={<TransitionFormPage />} />
                         <Route path="hvac" element={<HvacPage />} />
                         <Route path="hvac/contracts" element={<HvacPage />} />
+                        <Route path="maintenance" element={<MaintenancePage />} />
+                        <Route path="maintenance/:category" element={<MaintenancePage />} />
                         <Route path="hvac-contracts/new" element={<HvacContractFormPage />} />
                         <Route path="hvac-contracts/:id" element={<HvacContractDetailPage />} />
                         <Route path="hvac-contracts/:id/edit" element={<HvacContractFormPage />} />

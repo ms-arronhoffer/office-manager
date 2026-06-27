@@ -34,6 +34,7 @@ LIMIT_KEYS: tuple[str, ...] = ("max_offices", "max_seats", "audit_retention_days
 # Feature flag keys (boolean).
 FEATURE_KEYS: tuple[str, ...] = (
     "hvac",
+    "maintenance",
     "transitions",
     "advanced_analytics",
     "pdf_export",
@@ -60,6 +61,7 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "max_seats": UNLIMITED,
         "audit_retention_days": 90,
         "hvac": False,
+        "maintenance": False,
         "transitions": False,
         "advanced_analytics": False,
         "pdf_export": False,
@@ -75,6 +77,7 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "max_seats": UNLIMITED,
         "audit_retention_days": UNLIMITED,
         "hvac": True,
+        "maintenance": True,
         "transitions": True,
         "advanced_analytics": True,
         "pdf_export": True,
@@ -90,6 +93,7 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "max_seats": UNLIMITED,
         "audit_retention_days": UNLIMITED,
         "hvac": True,
+        "maintenance": True,
         "transitions": True,
         "advanced_analytics": True,
         "pdf_export": True,
