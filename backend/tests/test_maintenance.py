@@ -66,6 +66,88 @@ async def test_create_task_rejects_unknown_category(client, admin_user):
 
 
 @pytest.mark.asyncio
+async def test_category_subtopics_can_be_configured(client, admin_user):
+    update = await client.put(
+        "/api/v1/maintenance/categories/hvac/subtopics",
+        headers=auth_headers(admin_user),
+        json={"subtopics": [{"label": "RTU Tune Up"}, {"label": "Belt Inspection"}]},
+    )
+    assert update.status_code == 200, update.text
+    assert [item["value"] for item in update.json()["subtopics"]] == [
+        "rtu_tune_up",
+        "belt_inspection",
+    ]
+
+    catalog = await client.get("/api/v1/maintenance/catalog", headers=auth_headers(admin_user))
+    assert catalog.status_code == 200, catalog.text
+    hvac = next(item for item in catalog.json()["categories"] if item["value"] == "hvac")
+    assert [item["value"] for item in hvac["subtopics"]] == ["rtu_tune_up", "belt_inspection"]
+
+    create = await client.post(
+        "/api/v1/maintenance/assets",
+        headers=auth_headers(admin_user),
+        json={"category": "hvac", "subtopic": "rtu_tune_up", "name": "RTU-1"},
+    )
+    assert create.status_code == 201, create.text
+
+    rejected = await client.post(
+        "/api/v1/maintenance/assets",
+        headers=auth_headers(admin_user),
+        json={"category": "hvac", "subtopic": "filter_change", "name": "RTU-2"},
+    )
+    assert rejected.status_code == 422, rejected.text
+
+
+@pytest.mark.asyncio
+async def test_reset_category_subtopics_restores_defaults(client, admin_user):
+    await client.put(
+        "/api/v1/maintenance/categories/hvac/subtopics",
+        headers=auth_headers(admin_user),
+        json={"subtopics": [{"label": "RTU Tune Up"}]},
+    )
+    reset = await client.delete(
+        "/api/v1/maintenance/categories/hvac/subtopics",
+        headers=auth_headers(admin_user),
+    )
+    assert reset.status_code == 200, reset.text
+    assert any(item["value"] == "filter_change" for item in reset.json()["subtopics"])
+
+
+@pytest.mark.asyncio
+async def test_update_task_allows_unchanged_legacy_subtopic(client, admin_user):
+    create = await client.post(
+        "/api/v1/maintenance/tasks",
+        headers=auth_headers(admin_user),
+        json={
+            "category": "fire_life_safety",
+            "subtopic": "sprinkler_inspection",
+            "title": "Annual sprinkler inspection",
+        },
+    )
+    assert create.status_code == 201, create.text
+    task = create.json()
+
+    update_topics = await client.put(
+        "/api/v1/maintenance/categories/fire_life_safety/subtopics",
+        headers=auth_headers(admin_user),
+        json={"subtopics": [{"label": "Panel Test"}]},
+    )
+    assert update_topics.status_code == 200, update_topics.text
+
+    update_task = await client.patch(
+        f"/api/v1/maintenance/tasks/{task['id']}",
+        headers=auth_headers(admin_user),
+        json={
+            "title": "Annual sprinkler inspection - updated",
+            "category": "fire_life_safety",
+            "subtopic": "sprinkler_inspection",
+        },
+    )
+    assert update_task.status_code == 200, update_task.text
+    assert update_task.json()["subtopic"] == "sprinkler_inspection"
+
+
+@pytest.mark.asyncio
 async def test_list_tasks_filtered_by_category(client, admin_user):
     await client.post(
         "/api/v1/maintenance/tasks",

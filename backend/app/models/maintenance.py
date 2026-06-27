@@ -21,6 +21,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     String, Integer, Boolean, Date, DateTime, Text, ForeignKey, Index, Numeric,
+    JSON, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -126,6 +127,13 @@ MAINTENANCE_ASSET_STATUSES: tuple[str, ...] = (
 )
 
 
+def default_subtopics_for_category(category: str) -> list[dict[str, str]]:
+    cat = MAINTENANCE_CATEGORIES.get(category)
+    if not cat:
+        return []
+    return [{"value": key, "label": label} for key, label in cat["subtopics"].items()]
+
+
 def is_valid_subtopic(category: str, subtopic: str | None) -> bool:
     """Return whether ``subtopic`` belongs to ``category`` (None is allowed)."""
     if subtopic is None:
@@ -134,6 +142,26 @@ def is_valid_subtopic(category: str, subtopic: str | None) -> bool:
     if not cat:
         return False
     return subtopic in cat["subtopics"]
+
+
+class MaintenanceCategoryTopicConfig(TimestampMixin, Base):
+    __tablename__ = "maintenance_category_topic_configs"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "category",
+            name="uq_maint_category_topic_config_org_category",
+        ),
+        Index("idx_maint_topic_config_org", "organization_id"),
+        Index("idx_maint_topic_config_category", "category"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organizations.id"), nullable=True, index=True
+    )
+    category: Mapped[str] = mapped_column(String(40), nullable=False)
+    subtopics: Mapped[list[dict[str, str]]] = mapped_column(JSON, nullable=False, default=list)
 
 
 class MaintenanceAsset(TimestampMixin, Base):

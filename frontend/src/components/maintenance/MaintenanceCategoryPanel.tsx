@@ -41,6 +41,8 @@ const freqLabel = (f: string) =>
   f.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 const fmtDate = (d: string | null | undefined) => (d ? d : '—');
+const topicLabel = (value: string) =>
+  value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 
 const taskStatusBadge = (s: string) => {
   if (s === 'overdue') return <Badge color="red">OVERDUE</Badge>;
@@ -117,7 +119,7 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
     [category],
   );
   const subtopicLabel = useCallback(
-    (v: string | null) => category.subtopics.find((s) => s.value === v)?.label ?? '—',
+    (v: string | null) => (v ? category.subtopics.find((s) => s.value === v)?.label ?? topicLabel(v) : '—'),
     [category],
   );
 
@@ -383,10 +385,18 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
   const subtopicSelect = (value: string, onChange: (v: string) => void) => (
     <Select
       selectedOption={
-        value ? subtopicOptions.find((o) => o.value === value) ?? null : { label: 'None', value: NONE }
+        value
+          ? subtopicOptions.find((o) => o.value === value) ?? { label: topicLabel(value), value }
+          : { label: 'None', value: NONE }
       }
       onChange={({ detail }) => onChange(detail.selectedOption.value ?? NONE)}
-      options={[{ label: 'None', value: NONE }, ...subtopicOptions]}
+      options={[
+        { label: 'None', value: NONE },
+        ...subtopicOptions,
+        ...(value && !subtopicOptions.some((o) => o.value === value)
+          ? [{ label: topicLabel(value), value }]
+          : []),
+      ]}
       placeholder="Select a topic"
     />
   );
