@@ -182,12 +182,14 @@ async def _collect_chunks(
     for clause in clauses:
         lease_name = lease_name_by_id.get(clause.lease_id)
         text = _abstract_text(clause, lease_name)
+        title = f"Abstract '{clause.category_key}'"
+        if lease_name:
+            title = f"{title} — {lease_name}"
         chunks.append(
             {
                 "source_type": SOURCE_LEASE_ABSTRACT,
                 "source_id": clause.lease_id,
-                "title": f"Abstract '{clause.category_key}'"
-                + (f" — {lease_name}" if lease_name else ""),
+                "title": title,
                 "reference": f"leases/{clause.lease_id}",
                 "content": text,
             }
