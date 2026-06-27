@@ -753,6 +753,74 @@ async def generate_summary_narrative(period_label: str, data: dict[str, Any]) ->
     return await _generate(parts, system_instruction=SUMMARY_SYSTEM, temperature=0.4)
 
 
+# ── Portfolio assistant (RAG Q&A, Phase 3) ────────────────────────────────────
+
+ASSISTANT_SYSTEM = (
+    "You are a portfolio assistant for a commercial property management team. "
+    "Answer the user's question using ONLY the numbered context passages "
+    "provided. The context is drawn from the team's own leases, maintenance "
+    "tickets, and lease abstracts.\n"
+    "\n"
+    "Rules:\n"
+    "- Base every statement on the context. Never invent facts, figures, names, "
+    "or dates that are not present in the passages.\n"
+    "- Cite the passages you rely on inline using square-bracket numbers that "
+    "match the passage numbers, e.g. [1] or [2][3].\n"
+    "- If the context does not contain enough information to answer, say so "
+    "plainly rather than guessing.\n"
+    "- Be concise and factual. Use Markdown when it aids readability."
+)
+
+# Bound the context assembled into the assistant prompt.
+MAX_ASSISTANT_CONTEXT_CHARS = 24_000
+MAX_ASSISTANT_PASSAGE_CHARS = 2_000
+
+
+async def answer_portfolio_question(
+    question: str,
+    context_blocks: list[dict[str, Any]],
+) -> str:
+    """Answer ``question`` grounded in the supplied retrieved ``context_blocks``.
+
+    Each block is a dict with at least ``title`` and ``content`` keys (as
+    returned by :func:`app.services.knowledge_service.retrieve`). Passages are
+    numbered so the model can cite them; the answer is returned as Markdown text.
+    Raises :class:`AIUnavailableError` when Gemini is not configured.
+    """
+    question = (question or "").strip()
+    if not question:
+        raise AIRequestError("The question was empty.")
+
+    lines: list[str] = []
+    used = 0
+    for idx, block in enumerate(context_blocks, start=1):
+        title = _clean_inline(str(block.get("title") or "Untitled"))
+        body = _clean_inline(str(block.get("content") or ""))[:MAX_ASSISTANT_PASSAGE_CHARS]
+        passage = f"[{idx}] {title}\n{body}"
+        if used + len(passage) > MAX_ASSISTANT_CONTEXT_CHARS:
+            break
+        lines.append(passage)
+        used += len(passage)
+
+    context = "\n\n".join(lines) if lines else "(no relevant context found)"
+    prompt = (
+        "Context passages:\n"
+        f"{context}\n"
+        "\n"
+        f"Question: {question}\n"
+        "\n"
+        "Answer the question using only the context above, citing passages by "
+        "their number."
+    )
+    return await _generate(
+        [{"text": prompt}], system_instruction=ASSISTANT_SYSTEM, temperature=0.2
+    )
+
+
+def _clean_inline(text: str) -> str:
+    return " ".join((text or "").split())
+
+
 # ── Embeddings (semantic document search) ─────────────────────────────────────
 
 # Cap the number of texts embedded in a single batch request.

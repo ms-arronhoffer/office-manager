@@ -722,3 +722,125 @@ async def test_triage_ticket_service_caches(monkeypatch):
     assert first == second
     assert calls["n"] == 1
     ai_service.clear_parse_cache()
+
+
+# ── Phase 3: portfolio assistant (RAG Q&A) ────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_assistant_query_gated_for_starter(client, db_session):
+    headers = await _make_org_user(db_session, "starter", "assist-gate@test.com")
+    resp = await client.post(
+        "/api/v1/ai/assistant/query",
+        headers=headers,
+        json={"question": "When does my downtown lease expire?"},
+    )
+    assert resp.status_code == 402, resp.text
+
+
+@pytest.mark.asyncio
+async def test_assistant_query_returns_answer_with_citations(client, db_session, monkeypatch):
+    """A Pro org gets a grounded answer plus citations mapped from retrieval."""
+    from app.services import knowledge_service
+
+    headers, user, org = await _make_org_user_full(db_session, "pro", "assist-ok@test.com")
+
+    async def fake_retrieve(db, *, organization_id, query, limit=8):
+        assert organization_id == org.id
+        return [
+            {
+                "source_type": "lease",
+                "source_id": "11111111-1111-1111-1111-111111111111",
+                "title": "Lease: Downtown HQ",
+                "reference": "leases/11111111-1111-1111-1111-111111111111",
+                "content": "Lease: Downtown HQ. Expiration: 2027-05-31.",
+                "score": 0.91,
+                "match_type": "semantic",
+            }
+        ]
+
+    captured = {}
+
+    async def fake_answer(question, context_blocks):
+        captured["question"] = question
+        captured["n_blocks"] = len(context_blocks)
+        return "Your Downtown HQ lease expires on 2027-05-31 [1]."
+
+    monkeypatch.setattr(knowledge_service, "retrieve", fake_retrieve)
+    monkeypatch.setattr(ai_service, "answer_portfolio_question", fake_answer)
+
+    resp = await client.post(
+        "/api/v1/ai/assistant/query",
+        headers=headers,
+        json={"question": "When does my Downtown HQ lease expire?"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "2027-05-31" in body["answer"]
+    assert body["mode"] == "semantic"
+    assert len(body["citations"]) == 1
+    citation = body["citations"][0]
+    assert citation["index"] == 1
+    assert citation["source_type"] == "lease"
+    assert citation["title"] == "Lease: Downtown HQ"
+    assert captured["n_blocks"] == 1
+
+
+@pytest.mark.asyncio
+async def test_assistant_query_degrades_when_unconfigured(client, db_session, monkeypatch):
+    """When Gemini is unconfigured the answer step raises → 503."""
+    from app.services import knowledge_service
+
+    headers, user, org = await _make_org_user_full(db_session, "pro", "assist-503@test.com")
+
+    async def fake_retrieve(db, *, organization_id, query, limit=8):
+        return []
+
+    async def fake_answer(question, context_blocks):
+        raise ai_service.AIUnavailableError("AI assist is not configured")
+
+    monkeypatch.setattr(knowledge_service, "retrieve", fake_retrieve)
+    monkeypatch.setattr(ai_service, "answer_portfolio_question", fake_answer)
+
+    resp = await client.post(
+        "/api/v1/ai/assistant/query",
+        headers=headers,
+        json={"question": "Anything?"},
+    )
+    assert resp.status_code == 503, resp.text
+
+
+@pytest.mark.asyncio
+async def test_assistant_reindex_builds_and_keyword_retrieves(client, db_session):
+    """Reindex builds keyword-only chunks (AI off) that keyword retrieval finds."""
+    from sqlalchemy import select
+
+    from app.models.knowledge_chunk import KnowledgeChunk
+    from app.models.lease import Lease
+    from app.services import knowledge_service
+
+    headers, user, org = await _make_org_user_full(db_session, "pro", "assist-reindex@test.com")
+    lease = Lease(
+        lease_name="Riverside Distribution Center",
+        expiration_year=2030,
+        organization_id=org.id,
+    )
+    db_session.add(lease)
+    await db_session.commit()
+
+    resp = await client.post("/api/v1/ai/assistant/reindex", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["indexed"] >= 1
+
+    rows = (
+        await db_session.execute(
+            select(KnowledgeChunk).where(KnowledgeChunk.organization_id == org.id)
+        )
+    ).scalars().all()
+    assert any("Riverside Distribution Center" in r.content for r in rows)
+
+    matches = await knowledge_service.retrieve(
+        db_session, organization_id=org.id, query="Riverside Distribution", limit=5
+    )
+    assert matches
+    assert any("Riverside" in m["content"] for m in matches)
+    assert matches[0]["match_type"] == "keyword"

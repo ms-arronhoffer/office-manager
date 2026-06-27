@@ -14,6 +14,8 @@ Gating:
 * ``POST /ai/tickets/triage`` — **maintenance ticket triage**, Pro+ (``ai_assist``).
 * ``POST /ai/tickets/similar`` — **duplicate ticket detection**, Pro+ (``ai_assist``).
 * ``POST /ai/tickets/draft-from-email`` — **email → ticket draft**, Pro+ (``ai_assist``).
+* ``POST /ai/assistant/query`` — **portfolio Q&A (RAG)**, Pro+ (``ai_assist``).
+* ``POST /ai/assistant/reindex`` — **rebuild the knowledge index**, Pro+ (``ai_assist``).
 * ``POST /ai/reports/summary`` — Pro+ (``ai_assist``).
 """
 from __future__ import annotations
@@ -34,7 +36,7 @@ from app.models.lease import Lease
 from app.models.maintenance_ticket import MaintenanceTicket, TicketCategory
 from app.models.user import User
 from app.models.vendor import Vendor
-from app.services import ai_service, document_extraction, report_export
+from app.services import ai_service, document_extraction, knowledge_service, report_export
 from app.services.lease_abstract_catalog import CLAUSE_CATEGORIES
 
 router = APIRouter()
@@ -74,6 +76,32 @@ class SummaryExportRequest(BaseModel):
     narrative: str = Field(min_length=1)
     period_label: str = "Operations Briefing"
     format: str = "pdf"  # 'pdf' | 'docx'
+
+
+class AssistantQueryRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    limit: int = Field(default=8, ge=1, le=20)
+
+
+class AssistantCitation(BaseModel):
+    index: int
+    source_type: str
+    source_id: str | None = None
+    title: str
+    reference: str | None = None
+    snippet: str
+    score: float
+
+
+class AssistantQueryResponse(BaseModel):
+    answer: str
+    citations: list[AssistantCitation]
+    mode: str  # 'semantic' | 'keyword'
+    model: str
+
+
+class AssistantReindexResponse(BaseModel):
+    indexed: int
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -689,3 +717,87 @@ async def export_summary_report(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── Portfolio assistant (RAG Q&A, Pro+) ───────────────────────────────────────
+
+# Cap the length of the citation preview returned to the client.
+_CITATION_SNIPPET_CHARS = 320
+
+
+def _citation_snippet(content: str) -> str:
+    text = " ".join((content or "").split())
+    if len(text) > _CITATION_SNIPPET_CHARS:
+        return text[:_CITATION_SNIPPET_CHARS].rstrip() + "…"
+    return text
+
+
+@router.post(
+    "/assistant/query",
+    response_model=AssistantQueryResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def assistant_query(
+    payload: AssistantQueryRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Answer a natural-language question about the org's portfolio (RAG).
+
+    Retrieves the most relevant chunks from the generalized knowledge index and
+    the lease-document index (organization-scoped), then asks Gemini to answer
+    grounded in those passages with inline citations. Degrades to a 503 when AI
+    is not configured (generation requires the model), and returns an honest
+    "not enough information" style answer when retrieval finds nothing.
+    """
+    org_id = current_user.organization_id
+    chunks = await knowledge_service.retrieve(
+        db, organization_id=org_id, query=payload.question, limit=payload.limit
+    )
+
+    try:
+        answer = await ai_service.answer_portfolio_question(payload.question, chunks)
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    mode = chunks[0]["match_type"] if chunks else "semantic"
+    citations = [
+        AssistantCitation(
+            index=idx,
+            source_type=chunk["source_type"],
+            source_id=chunk.get("source_id"),
+            title=chunk["title"],
+            reference=chunk.get("reference"),
+            snippet=_citation_snippet(chunk.get("content", "")),
+            score=chunk.get("score", 0.0),
+        )
+        for idx, chunk in enumerate(chunks, start=1)
+    ]
+    return AssistantQueryResponse(
+        answer=answer, citations=citations, mode=mode, model=settings.GEMINI_MODEL
+    )
+
+
+@router.post(
+    "/assistant/reindex",
+    response_model=AssistantReindexResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def assistant_reindex(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Rebuild this organization's portfolio knowledge index on demand.
+
+    The index is also refreshed nightly by the scheduler; this endpoint lets an
+    operator force an immediate rebuild after bulk edits. Works without AI
+    configured (chunks are stored keyword-only in that case).
+    """
+    try:
+        indexed = await knowledge_service.reindex_organization(
+            db, current_user.organization_id
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+    return AssistantReindexResponse(indexed=indexed)
+

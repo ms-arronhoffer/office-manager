@@ -1138,6 +1138,8 @@ import type {
   AISummaryResult,
   TicketTriageResult,
   SimilarTicketsResult,
+  AssistantQueryResult,
+  AssistantReindexResult,
   LeaseDocumentSearchResult,
   LeaseIndexedDocumentsResult,
   LeaseDocumentTextResult,
@@ -1215,6 +1217,12 @@ export const ai = {
 
   draftTicketFromEmail: (emailText: string) =>
     client.post<DocumentParseResult>('/ai/tickets/draft-from-email', { email_text: emailText }),
+
+  assistantQuery: (question: string, limit = 8) =>
+    client.post<AssistantQueryResult>('/ai/assistant/query', { question, limit }),
+
+  assistantReindex: () =>
+    client.post<AssistantReindexResult>('/ai/assistant/reindex', {}),
 
   exportSummary: (narrative: string, periodLabel: string, format: 'pdf' | 'docx') =>
     client.post<Blob>(

@@ -1720,6 +1720,27 @@ export interface SimilarTicketsResult {
   mode: 'semantic' | 'keyword';
 }
 
+export interface AssistantCitation {
+  index: number;
+  source_type: string;
+  source_id: string | null;
+  title: string;
+  reference: string | null;
+  snippet: string;
+  score: number;
+}
+
+export interface AssistantQueryResult {
+  answer: string;
+  citations: AssistantCitation[];
+  mode: 'semantic' | 'keyword';
+  model: string;
+}
+
+export interface AssistantReindexResult {
+  indexed: number;
+}
+
 export interface LeaseDocumentSearchMatch {
   lease_id: string;
   lease_name: string | null;
