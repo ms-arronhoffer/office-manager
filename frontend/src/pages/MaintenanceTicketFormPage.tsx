@@ -23,6 +23,7 @@ import {
   vendors as vendorsApi,
   attachments as attachmentsApi,
   ticketTemplates as templatesApi,
+  ai as aiApi,
 } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
 import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
@@ -70,6 +71,12 @@ const MaintenanceTicketFormPage: React.FC = () => {
   const [templates, setTemplates] = useState<TicketTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<SelectOption | null>(null);
   const [pendingVendorId, setPendingVendorId] = useState<string | null>(null);
+
+  // AI triage assist
+  const [aiConfigured, setAiConfigured] = useState(false);
+  const [triaging, setTriaging] = useState(false);
+  const [triageError, setTriageError] = useState<string | null>(null);
+  const [triageInfo, setTriageInfo] = useState<string | null>(null);
 
   // Load dropdown options
   useEffect(() => {
@@ -168,6 +175,70 @@ const MaintenanceTicketFormPage: React.FC = () => {
       setPendingVendorId(null);
     }
   }, [pendingVendorId, vendorOptions]);
+
+  // Detect whether AI assist is configured so the triage action can be shown.
+  useEffect(() => {
+    aiApi
+      .status()
+      .then((res) => setAiConfigured(!!res.data.configured))
+      .catch(() => setAiConfigured(false));
+  }, []);
+
+  const runTriage = async () => {
+    if (!subject.trim() && !description.trim()) {
+      setTriageError('Add a subject or description first.');
+      return;
+    }
+    setTriaging(true);
+    setTriageError(null);
+    setTriageInfo(null);
+    try {
+      const res = await aiApi.triageTicket(subject.trim(), description.trim());
+      const s = res.data.suggested || {};
+      const applied: string[] = [];
+
+      const suggestedPriority = (s.priority || '').toLowerCase();
+      if (['low', 'medium', 'high'].includes(suggestedPriority)) {
+        setPriority(suggestedPriority);
+        applied.push(`priority "${suggestedPriority}"`);
+      }
+      if (s.category_id) {
+        const match = categoryOptions.find((o) => o.value === String(s.category_id));
+        if (match) {
+          setSelectedCategory(match);
+          applied.push(`category "${match.label}"`);
+        }
+      }
+      if (s.vendor_id) {
+        const match = vendorOptions.find((o) => o.value === String(s.vendor_id));
+        if (match) {
+          setSelectedVendor(match);
+          applied.push(`vendor "${match.label}"`);
+        }
+      }
+
+      const infoParts: string[] = [];
+      if (applied.length > 0) {
+        infoParts.push(`Applied ${applied.join(', ')}.`);
+      } else {
+        infoParts.push('No confident match — please set the fields manually.');
+      }
+      if (s.reasoning) infoParts.push(String(s.reasoning));
+      if (s.draft_response) infoParts.push(`Suggested reply: ${String(s.draft_response)}`);
+      setTriageInfo(infoParts.join(' '));
+    } catch (err: unknown) {
+      const code = (err as { response?: { status?: number } })?.response?.status;
+      if (code === 503) {
+        setTriageError('AI assist is not configured on the server.');
+      } else if (code === 402) {
+        setTriageError('AI triage is available on the Pro plan and above.');
+      } else {
+        setTriageError('Could not generate suggestions. Please set the fields manually.');
+      }
+    } finally {
+      setTriaging(false);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!subject.trim()) {
@@ -421,6 +492,29 @@ const MaintenanceTicketFormPage: React.FC = () => {
                 disabled={saving}
               />
             </FormField>
+
+            {!isEditing && aiConfigured && (
+              <SpaceBetween size="xs">
+                <Button
+                  iconName="gen-ai"
+                  onClick={runTriage}
+                  loading={triaging}
+                  disabled={saving}
+                >
+                  Suggest category, priority &amp; vendor with AI
+                </Button>
+                {triageError && (
+                  <Alert type="warning" dismissible onDismiss={() => setTriageError(null)}>
+                    {triageError}
+                  </Alert>
+                )}
+                {triageInfo && !triageError && (
+                  <Alert type="success" dismissible onDismiss={() => setTriageInfo(null)}>
+                    {triageInfo}
+                  </Alert>
+                )}
+              </SpaceBetween>
+            )}
 
             <FormField label="Assigned To">
               <EntityQuickCreateSelect

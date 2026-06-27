@@ -1134,6 +1134,7 @@ import type {
   AIStatus,
   LeaseParseResult,
   AbstractSuggestResult,
+  TicketTriageResult,
   AISummaryResult,
   LeaseDocumentSearchResult,
   LeaseIndexedDocumentsResult,
@@ -1166,6 +1167,9 @@ export const ai = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+
+  triageTicket: (subject: string, description: string) =>
+    client.post<TicketTriageResult>('/ai/tickets/triage', { subject, description }),
 
   summary: (period: 'weekly' | 'monthly') =>
     client.post<AISummaryResult>('/ai/reports/summary', { period }),

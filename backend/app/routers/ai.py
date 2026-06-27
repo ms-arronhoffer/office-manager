@@ -18,15 +18,16 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_feature
 from app.config import settings
 from app.database import get_db
 from app.models.lease import Lease
-from app.models.maintenance_ticket import MaintenanceTicket
+from app.models.maintenance_ticket import MaintenanceTicket, TicketCategory
 from app.models.user import User
+from app.models.vendor import Vendor
 from app.services import ai_service, document_extraction, report_export
 from app.services.lease_abstract_catalog import CLAUSE_CATEGORIES
 
@@ -46,6 +47,16 @@ class LeaseParseResponse(BaseModel):
 
 
 class AbstractSuggestResponse(BaseModel):
+    suggested: dict
+    model: str
+
+
+class TicketTriageRequest(BaseModel):
+    subject: str = Field(min_length=1)
+    description: str = ""
+
+
+class TicketTriageResponse(BaseModel):
     suggested: dict
     model: str
 
@@ -216,6 +227,70 @@ async def suggest_abstract(
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
     return AbstractSuggestResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+
+
+# ── Maintenance ticket triage (Pro+) ──────────────────────────────────────────
+
+@router.post(
+    "/tickets/triage",
+    response_model=TicketTriageResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def triage_ticket(
+    payload: TicketTriageRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Suggest a category, priority, vendor, and draft response for a ticket.
+
+    The recommendation is grounded in the org's own categories and vendors and
+    is returned for human review — nothing is auto-assigned.
+    """
+    org_id = current_user.organization_id
+
+    cat_rows = (
+        await db.execute(
+            select(TicketCategory.id, TicketCategory.name)
+            # Include org-specific categories as well as the global/default
+            # categories (organization_id IS NULL) shared across all orgs.
+            .where(
+                or_(
+                    TicketCategory.organization_id == org_id,
+                    TicketCategory.organization_id.is_(None),
+                )
+            )
+            .order_by(TicketCategory.name.asc())
+        )
+    ).all()
+    categories = [{"id": str(cid), "name": name} for cid, name in cat_rows]
+
+    vendor_rows = (
+        await db.execute(
+            select(Vendor.id, Vendor.company_name, Vendor.services, Vendor.is_preferred)
+            .where(
+                Vendor.organization_id == org_id,
+                Vendor.is_deleted.is_(False),
+            )
+            .order_by(Vendor.company_name.asc())
+        )
+    ).all()
+    vendors = [
+        {
+            "id": str(vid),
+            "name": name,
+            "services": services,
+            "preferred": bool(preferred),
+        }
+        for vid, name, services, preferred in vendor_rows
+    ]
+
+    try:
+        suggested = await ai_service.triage_ticket(
+            payload.subject, payload.description, categories, vendors
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+    return TicketTriageResponse(suggested=suggested, model=settings.GEMINI_MODEL)
 
 
 # ── Narrative summary report (Pro+) ───────────────────────────────────────────

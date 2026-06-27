@@ -328,3 +328,84 @@ async def test_abstract_suggest_sends_pdf_bytes_inline(client, db_session, monke
     assert resp.status_code == 200, resp.text
     assert captured["text_content"] is None
     assert captured["mime_type"] == "application/pdf"
+
+
+@pytest.mark.asyncio
+async def test_ticket_triage_gated_for_starter(client, db_session):
+    headers = await _make_org_user(db_session, "starter", "triage-starter@test.com")
+    resp = await client.post(
+        "/api/v1/ai/tickets/triage",
+        headers=headers,
+        json={"subject": "No heat", "description": "Furnace is dead."},
+    )
+    assert resp.status_code == 402, resp.text
+
+
+@pytest.mark.asyncio
+async def test_ticket_triage_allowed_for_pro(client, db_session, monkeypatch):
+    headers = await _make_org_user(db_session, "pro", "triage-pro@test.com")
+
+    async def fake_triage(subject, description, categories, vendors):
+        return {
+            "category_id": None,
+            "category_name": "HVAC",
+            "priority": "high",
+            "vendor_id": None,
+            "vendor_name": None,
+            "reasoning": "No heat is urgent.",
+            "draft_response": "Thanks, we're dispatching a technician.",
+        }
+
+    monkeypatch.setattr(ai_service, "triage_ticket", fake_triage)
+
+    resp = await client.post(
+        "/api/v1/ai/tickets/triage",
+        headers=headers,
+        json={"subject": "No heat", "description": "Furnace is dead."},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["suggested"]["priority"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_ticket_triage_forwards_org_categories_and_vendors(client, db_session, monkeypatch):
+    """The router must ground the model in the org's own categories and vendors."""
+    from sqlalchemy import select as _select
+
+    from app.models.maintenance_ticket import TicketCategory
+    from app.models.user import User
+    from app.models.vendor import Vendor
+
+    email = "triage-ground@test.com"
+    headers = await _make_org_user(db_session, "pro", email)
+    user = (
+        await db_session.execute(_select(User).where(User.email == email))
+    ).scalar_one()
+    org_uuid = user.organization_id
+
+    db_session.add(TicketCategory(name="Plumbing", organization_id=org_uuid))
+    db_session.add(
+        Vendor(company_name="Acme Plumbing", services="plumbing, drains", organization_id=org_uuid)
+    )
+    await db_session.commit()
+
+    captured: dict[str, object] = {}
+
+    async def fake_triage(subject, description, categories, vendors):
+        captured["categories"] = categories
+        captured["vendors"] = vendors
+        return {"priority": "medium"}
+
+    monkeypatch.setattr(ai_service, "triage_ticket", fake_triage)
+
+    resp = await client.post(
+        "/api/v1/ai/tickets/triage",
+        headers=headers,
+        json={"subject": "Leak", "description": "Sink is leaking."},
+    )
+    assert resp.status_code == 200, resp.text
+    cat_names = {c["name"] for c in captured["categories"]}
+    vendor_names = {v["name"] for v in captured["vendors"]}
+    assert "Plumbing" in cat_names
+    assert "Acme Plumbing" in vendor_names

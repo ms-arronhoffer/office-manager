@@ -1678,6 +1678,21 @@ export interface AbstractSuggestResult {
   model: string;
 }
 
+export interface TicketTriageSuggestion {
+  category_id?: string | null;
+  category_name?: string | null;
+  priority?: string | null;
+  vendor_id?: string | null;
+  vendor_name?: string | null;
+  reasoning?: string | null;
+  draft_response?: string | null;
+}
+
+export interface TicketTriageResult {
+  suggested: TicketTriageSuggestion;
+  model: string;
+}
+
 export interface AISummaryResult {
   period: string;
   period_label: string;

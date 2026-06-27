@@ -334,6 +334,76 @@ async def suggest_abstract_clauses(
     return _parse_json_object(text)
 
 
+TICKET_TRIAGE_SYSTEM = (
+    "You are a dispatcher for a commercial property maintenance team. Given a "
+    "maintenance request (subject + description) and the lists of available "
+    "ticket categories and vendors, recommend how to triage the request. "
+    "Respond ONLY with a JSON object. Do not invent categories, vendors, or "
+    "values that are not provided.\n"
+    "\n"
+    "Rules:\n"
+    "- category_id must be the id of the single best-matching category from the "
+    "supplied list, or null if none clearly fit. category_name must be that "
+    "category's name (or null).\n"
+    "- priority must be exactly one of: low, medium, high. Use high for safety "
+    "issues, security, no heat/AC, water leaks, power loss, or anything blocking "
+    "business operations; medium for problems that impair use but are not "
+    "urgent; low for cosmetic or routine requests.\n"
+    "- vendor_id must be the id of the most suitable vendor from the supplied "
+    "list based on the vendor's services/trade, or null if none clearly fit. "
+    "Prefer a vendor marked preferred when two are equally suitable. vendor_name "
+    "must be that vendor's company name (or null).\n"
+    "- reasoning must be one short sentence explaining the recommendation.\n"
+    "- draft_response must be a brief, professional acknowledgement message the "
+    "team could send to the requester, confirming the issue and next steps."
+)
+
+
+async def triage_ticket(
+    subject: str,
+    description: str,
+    categories: list[dict[str, Any]],
+    vendors: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Recommend triage details for a maintenance ticket.
+
+    ``categories`` is a list of ``{"id", "name"}`` dicts and ``vendors`` a list
+    of ``{"id", "name", "services", "preferred"}`` dicts (both organization
+    scoped by the caller). Returns a dict with the keys ``category_id``,
+    ``category_name``, ``priority``, ``vendor_id``, ``vendor_name``,
+    ``reasoning`` and ``draft_response``. All values are *suggestions* for human
+    review; callers never auto-assign.
+    """
+    cat_lines = "\n".join(f"- {c['id']}: {c['name']}" for c in categories) or "(none)"
+    vendor_lines = (
+        "\n".join(
+            "- {id}: {name}{services}{preferred}".format(
+                id=v["id"],
+                name=v["name"],
+                services=f" — services: {v['services']}" if v.get("services") else "",
+                preferred=" [preferred]" if v.get("preferred") else "",
+            )
+            for v in vendors
+        )
+        or "(none)"
+    )
+    prompt = (
+        "Triage this maintenance request and return a single JSON object with "
+        "exactly these keys: category_id, category_name, priority, vendor_id, "
+        "vendor_name, reasoning, draft_response.\n\n"
+        f"SUBJECT:\n{(subject or '').strip()[:2000]}\n\n"
+        f"DESCRIPTION:\n{(description or '').strip()[:MAX_TEXT_CHARS]}\n\n"
+        f"AVAILABLE CATEGORIES (id: name):\n{cat_lines}\n\n"
+        f"AVAILABLE VENDORS (id: name — services):\n{vendor_lines}\n"
+    )
+    text = await _generate(
+        [{"text": prompt}],
+        system_instruction=TICKET_TRIAGE_SYSTEM,
+        json_response=True,
+    )
+    return _parse_json_object(text)
+
+
 SUMMARY_SYSTEM = (
     "You are an operations analyst for a commercial property management team. "
     "Write a concise, professional briefing in Markdown from the structured data "
