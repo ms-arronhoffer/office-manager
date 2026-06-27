@@ -84,9 +84,21 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
         { type: 'link' as const, text: 'Maintenance Tickets', href: '/maintenance-tickets' },
         { type: 'link' as const, text: 'Vendors', href: '/vendors' },
         { type: 'link' as const, text: 'Transitions', href: '/transitions' },
-        { type: 'link' as const, text: 'HVAC', href: '/hvac' },
         ...(isEditorOrAdmin ? [{ type: 'link' as const, text: 'Insurance Certificates', href: '/insurance-certificates' }] : []),
         ...(isEditorOrAdmin ? [{ type: 'link' as const, text: 'Digital Waivers', href: '/waivers' }] : []),
+      ],
+    },
+    {
+      type: 'section' as const,
+      text: 'Maintenance',
+      items: [
+        { type: 'link' as const, text: 'Overview', href: '/maintenance' },
+        { type: 'link' as const, text: 'HVAC Systems', href: '/maintenance/hvac' },
+        { type: 'link' as const, text: 'Fire & Life Safety', href: '/maintenance/fire_life_safety' },
+        { type: 'link' as const, text: 'Plumbing & Backflow', href: '/maintenance/plumbing_backflow' },
+        { type: 'link' as const, text: 'Refuse & Waste', href: '/maintenance/refuse_waste' },
+        { type: 'link' as const, text: 'Exterior & Structural', href: '/maintenance/exterior_structural' },
+        { type: 'link' as const, text: 'Elevators & Lifts', href: '/maintenance/elevators_lifts' },
       ],
     },
     ...(isEditorOrAdmin ? [{

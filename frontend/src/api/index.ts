@@ -105,6 +105,11 @@ import type {
   InsuranceCertificateCreate,
   InsuranceCertificateUpdate,
   InsuranceCertComplianceSummary,
+  MaintenanceAsset,
+  MaintenanceTask,
+  MaintenanceLog,
+  MaintenanceCatalog,
+  MaintenanceOverview,
   WorkOrderCostLine,
   WorkOrderCostLineCreate,
   WorkOrderCostLineUpdate,
@@ -1037,6 +1042,49 @@ export const insuranceCertificates = {
 
   delete: (id: string) =>
     client.delete(`/insurance-certificates/${id}`),
+};
+
+// ─── Maintenance program ──────────────────────────────────────────────────────
+export const maintenance = {
+  catalog: () => client.get<MaintenanceCatalog>('/maintenance/catalog'),
+
+  overview: () => client.get<MaintenanceOverview>('/maintenance/overview'),
+
+  listAssets: (params?: { category?: string; office_id?: string }) =>
+    client.get<MaintenanceAsset[]>('/maintenance/assets', { params }),
+
+  createAsset: (data: Partial<MaintenanceAsset>) =>
+    client.post<MaintenanceAsset>('/maintenance/assets', data),
+
+  updateAsset: (id: string, data: Partial<MaintenanceAsset>) =>
+    client.patch<MaintenanceAsset>(`/maintenance/assets/${id}`, data),
+
+  deleteAsset: (id: string) => client.delete(`/maintenance/assets/${id}`),
+
+  listTasks: (params?: {
+    category?: string;
+    office_id?: string;
+    vendor_id?: string;
+    asset_id?: string;
+    due_within_days?: number;
+    overdue_only?: boolean;
+  }) => client.get<MaintenanceTask[]>('/maintenance/tasks', { params }),
+
+  createTask: (data: Partial<MaintenanceTask>) =>
+    client.post<MaintenanceTask>('/maintenance/tasks', data),
+
+  updateTask: (id: string, data: Partial<MaintenanceTask>) =>
+    client.patch<MaintenanceTask>(`/maintenance/tasks/${id}`, data),
+
+  deleteTask: (id: string) => client.delete(`/maintenance/tasks/${id}`),
+
+  listLogs: (params?: { task_id?: string; asset_id?: string }) =>
+    client.get<MaintenanceLog[]>('/maintenance/logs', { params }),
+
+  createLog: (data: Partial<MaintenanceLog>) =>
+    client.post<MaintenanceLog>('/maintenance/logs', data),
+
+  deleteLog: (id: string) => client.delete(`/maintenance/logs/${id}`),
 };
 
 // ─── General Ledger ──────────────────────────────────────────────────────────
