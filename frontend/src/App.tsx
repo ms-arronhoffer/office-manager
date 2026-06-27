@@ -36,6 +36,7 @@ const HvacContractDetailPage = lazy(() => import('@/pages/HvacContractDetailPage
 const HvacContractFormPage = lazy(() => import('@/pages/HvacContractFormPage'));
 const ManagersPage = lazy(() => import('@/pages/ManagersPage'));
 const TicketCategoriesPage = lazy(() => import('@/pages/TicketCategoriesPage'));
+const MaintenanceTopicsPage = lazy(() => import('@/pages/MaintenanceTopicsPage'));
 const MaintenanceTicketsPage = lazy(() => import('@/pages/MaintenanceTicketsPage'));
 const MaintenanceTicketFormPage = lazy(() => import('@/pages/MaintenanceTicketFormPage'));
 const MaintenanceTicketDetailPage = lazy(() => import('@/pages/MaintenanceTicketDetailPage'));
@@ -167,6 +168,7 @@ const App: React.FC = () => {
                         <Route path="administration/system" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
                         <Route path="managers" element={<RoleGuard allowedRoles={['admin']}><ManagersPage /></RoleGuard>} />
                         <Route path="ticket-categories" element={<RoleGuard allowedRoles={['admin']}><TicketCategoriesPage /></RoleGuard>} />
+                        <Route path="maintenance-topics" element={<RoleGuard allowedRoles={['admin', 'editor']}><MaintenanceTopicsPage /></RoleGuard>} />
                         <Route path="maintenance-tickets" element={<MaintenanceTicketsPage />} />
                         <Route path="maintenance-tickets/new" element={<MaintenanceTicketFormPage />} />
                         <Route path="maintenance-tickets/:id" element={<MaintenanceTicketDetailPage />} />

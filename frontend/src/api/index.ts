@@ -109,6 +109,8 @@ import type {
   MaintenanceTask,
   MaintenanceLog,
   MaintenanceCatalog,
+  MaintenanceCatalogCategory,
+  MaintenanceCatalogSubtopic,
   MaintenanceOverview,
   WorkOrderCostLine,
   WorkOrderCostLineCreate,
@@ -1047,6 +1049,12 @@ export const insuranceCertificates = {
 // ─── Maintenance program ──────────────────────────────────────────────────────
 export const maintenance = {
   catalog: () => client.get<MaintenanceCatalog>('/maintenance/catalog'),
+
+  updateCategorySubtopics: (category: string, data: { subtopics: MaintenanceCatalogSubtopic[] }) =>
+    client.put<MaintenanceCatalogCategory>(`/maintenance/categories/${category}/subtopics`, data),
+
+  resetCategorySubtopics: (category: string) =>
+    client.delete<MaintenanceCatalogCategory>(`/maintenance/categories/${category}/subtopics`),
 
   overview: () => client.get<MaintenanceOverview>('/maintenance/overview'),
 

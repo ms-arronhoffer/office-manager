@@ -17,10 +17,10 @@ from app.models.hq_hvac import (
 )
 from app.models.hvac_contract import HvacContract, HvacOfficeDetail
 from app.models.maintenance import (
-    MaintenanceAsset, MaintenanceTask, MaintenanceLog,
+    MaintenanceAsset, MaintenanceTask, MaintenanceLog, MaintenanceCategoryTopicConfig,
     MAINTENANCE_CATEGORIES, MAINTENANCE_CATEGORY_KEYS,
     MAINTENANCE_FREQUENCIES, MAINTENANCE_TASK_STATUSES,
-    MAINTENANCE_ASSET_STATUSES,
+    MAINTENANCE_ASSET_STATUSES, default_subtopics_for_category,
 )
 from app.models.email import EmailReminderRule, EmailLog
 from app.models.attachment import Attachment
@@ -66,7 +66,7 @@ __all__ = [
     "HqPmTask", "HqPmLog", "HqMaintenanceContract", "HqMaintenanceVisit",
     "HqTowerSprayLog", "HqBackflow",
     "HvacContract", "HvacOfficeDetail",
-    "MaintenanceAsset", "MaintenanceTask", "MaintenanceLog",
+    "MaintenanceAsset", "MaintenanceTask", "MaintenanceLog", "MaintenanceCategoryTopicConfig",
     "EmailReminderRule", "EmailLog",
     "Attachment",
     "TicketCategory", "MaintenanceTicket", "TicketNote", "WorkOrderCostLine",

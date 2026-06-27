@@ -6,6 +6,7 @@ carry a due date, an optionally assigned vendor, and reminder settings; logging 
 service visit advances the task's ``last_completed_date`` / ``next_due_date``.
 """
 import uuid
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
@@ -20,6 +21,7 @@ from app.auth.dependencies import get_current_user
 from app.database import get_db
 from app.models.maintenance import (
     MaintenanceAsset,
+    MaintenanceCategoryTopicConfig,
     MaintenanceLog,
     MaintenanceTask,
     MAINTENANCE_CATEGORIES,
@@ -27,7 +29,7 @@ from app.models.maintenance import (
     MAINTENANCE_FREQUENCIES,
     MAINTENANCE_ASSET_STATUSES,
     MAINTENANCE_TASK_STATUSES,
-    is_valid_subtopic,
+    default_subtopics_for_category,
 )
 from app.models.user import User
 
@@ -229,6 +231,11 @@ class CategorySubtopic(BaseModel):
     label: str
 
 
+class CategorySubtopicUpdate(BaseModel):
+    value: Optional[str] = None
+    label: str
+
+
 class CategoryInfo(BaseModel):
     value: str
     label: str
@@ -260,6 +267,10 @@ class OverviewResponse(BaseModel):
     by_category: list[OverviewCategoryStat]
 
 
+class CategorySubtopicsUpdate(BaseModel):
+    subtopics: list[CategorySubtopicUpdate]
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _ASSET_OPTS = (
@@ -280,13 +291,102 @@ def _require_editor(user: User) -> None:
         )
 
 
-def _validate_category(category: str, subtopic: Optional[str]) -> None:
+def _sanitize_subtopic_value(value: str) -> str:
+    sanitized = re.sub(r"[^a-z0-9_]+", "_", value.strip().lower()).strip("_")
+    sanitized = re.sub(r"_+", "_", sanitized)
+    return sanitized[:60]
+
+
+def _subtopic_value_from_label(label: str) -> str:
+    return _sanitize_subtopic_value(label)
+
+
+def _normalize_subtopics(subtopics: list[CategorySubtopicUpdate]) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    seen_values: set[str] = set()
+    seen_labels: set[str] = set()
+    for item in subtopics:
+        label = item.label.strip()
+        if not label:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Topic labels cannot be blank",
+            )
+        raw_value = (item.value or "").strip()
+        value = _sanitize_subtopic_value(raw_value) if raw_value else _subtopic_value_from_label(label)
+        if not value:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Topic '{label}' must produce a valid key",
+            )
+        if value in seen_values:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Duplicate topic key: {value}",
+            )
+        lower_label = label.lower()
+        if lower_label in seen_labels:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Duplicate topic label: {label}",
+            )
+        seen_values.add(value)
+        seen_labels.add(lower_label)
+        normalized.append({"value": value, "label": label})
+    return normalized
+
+
+def _build_category_info(category: str, subtopics: list[dict[str, str]]) -> CategoryInfo:
+    return CategoryInfo(
+        value=category,
+        label=MAINTENANCE_CATEGORIES[category]["label"],
+        subtopics=[CategorySubtopic(**item) for item in subtopics],
+    )
+
+
+async def _configured_subtopics_map(
+    db: AsyncSession, organization_id: Optional[uuid.UUID]
+) -> dict[str, list[dict[str, str]]]:
+    if not organization_id:
+        return {}
+    result = await db.execute(
+        select(MaintenanceCategoryTopicConfig).where(
+            MaintenanceCategoryTopicConfig.organization_id == organization_id
+        )
+    )
+    return {
+        row.category: row.subtopics or []
+        for row in result.scalars().all()
+    }
+
+
+async def _effective_subtopics(
+    db: AsyncSession, organization_id: Optional[uuid.UUID], category: str
+) -> list[dict[str, str]]:
+    configured = await _configured_subtopics_map(db, organization_id)
+    return configured.get(category, default_subtopics_for_category(category))
+
+
+async def _validate_category(
+    category: str,
+    subtopic: Optional[str],
+    db: AsyncSession,
+    organization_id: Optional[uuid.UUID],
+    *,
+    current_category: Optional[str] = None,
+    current_subtopic: Optional[str] = None,
+) -> None:
     if category not in MAINTENANCE_CATEGORY_KEYS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Unknown maintenance category: {category}",
         )
-    if not is_valid_subtopic(category, subtopic):
+    if subtopic is None:
+        return
+    if category == current_category and subtopic == current_subtopic:
+        return
+    allowed = {item["value"] for item in await _effective_subtopics(db, organization_id, category)}
+    if subtopic not in allowed:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Subtopic '{subtopic}' is not valid for category '{category}'",
@@ -315,17 +415,14 @@ def _task_response(task: MaintenanceTask) -> TaskResponse:
 # ── Catalog & overview ────────────────────────────────────────────────────────
 
 @router.get("/catalog", response_model=CatalogResponse)
-async def get_catalog(current_user: User = Depends(get_current_user)):
+async def get_catalog(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    configured = await _configured_subtopics_map(db, current_user.organization_id)
     categories = [
-        CategoryInfo(
-            value=key,
-            label=cat["label"],
-            subtopics=[
-                CategorySubtopic(value=sk, label=sl)
-                for sk, sl in cat["subtopics"].items()
-            ],
-        )
-        for key, cat in MAINTENANCE_CATEGORIES.items()
+        _build_category_info(key, configured.get(key, default_subtopics_for_category(key)))
+        for key in MAINTENANCE_CATEGORIES
     ]
     return CatalogResponse(
         categories=categories,
@@ -333,6 +430,70 @@ async def get_catalog(current_user: User = Depends(get_current_user)):
         task_statuses=list(MAINTENANCE_TASK_STATUSES),
         asset_statuses=list(MAINTENANCE_ASSET_STATUSES),
     )
+
+
+@router.put("/categories/{category}/subtopics", response_model=CategoryInfo)
+async def update_category_subtopics(
+    category: str,
+    payload: CategorySubtopicsUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_editor(current_user)
+    if category not in MAINTENANCE_CATEGORY_KEYS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown maintenance category: {category}",
+        )
+    normalized = _normalize_subtopics(payload.subtopics)
+    defaults = default_subtopics_for_category(category)
+    result = await db.execute(
+        select(MaintenanceCategoryTopicConfig).where(
+            MaintenanceCategoryTopicConfig.organization_id == current_user.organization_id,
+            MaintenanceCategoryTopicConfig.category == category,
+        )
+    )
+    config = result.scalar_one_or_none()
+    if normalized == defaults:
+        if config:
+            await db.delete(config)
+    else:
+        if not config:
+            config = MaintenanceCategoryTopicConfig(
+                organization_id=current_user.organization_id,
+                category=category,
+                subtopics=normalized,
+            )
+            db.add(config)
+        else:
+            config.subtopics = normalized
+    await db.commit()
+    return _build_category_info(category, normalized)
+
+
+@router.delete("/categories/{category}/subtopics", response_model=CategoryInfo)
+async def reset_category_subtopics(
+    category: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _require_editor(current_user)
+    if category not in MAINTENANCE_CATEGORY_KEYS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown maintenance category: {category}",
+        )
+    result = await db.execute(
+        select(MaintenanceCategoryTopicConfig).where(
+            MaintenanceCategoryTopicConfig.organization_id == current_user.organization_id,
+            MaintenanceCategoryTopicConfig.category == category,
+        )
+    )
+    config = result.scalar_one_or_none()
+    if config:
+        await db.delete(config)
+        await db.commit()
+    return _build_category_info(category, default_subtopics_for_category(category))
 
 
 @router.get("/overview", response_model=OverviewResponse)
@@ -426,7 +587,9 @@ async def create_asset(
     current_user: User = Depends(get_current_user),
 ):
     _require_editor(current_user)
-    _validate_category(payload.category, payload.subtopic)
+    await _validate_category(
+        payload.category, payload.subtopic, db, current_user.organization_id
+    )
     asset = MaintenanceAsset(
         organization_id=current_user.organization_id, **payload.model_dump()
     )
@@ -462,7 +625,14 @@ async def update_asset(
     new_category = updates.get("category", asset.category)
     new_subtopic = updates.get("subtopic", asset.subtopic)
     if "category" in updates or "subtopic" in updates:
-        _validate_category(new_category, new_subtopic)
+        await _validate_category(
+            new_category,
+            new_subtopic,
+            db,
+            current_user.organization_id,
+            current_category=asset.category,
+            current_subtopic=asset.subtopic,
+        )
     for field, value in updates.items():
         setattr(asset, field, value)
 
@@ -544,7 +714,9 @@ async def create_task(
     current_user: User = Depends(get_current_user),
 ):
     _require_editor(current_user)
-    _validate_category(payload.category, payload.subtopic)
+    await _validate_category(
+        payload.category, payload.subtopic, db, current_user.organization_id
+    )
     task = MaintenanceTask(
         organization_id=current_user.organization_id, **payload.model_dump()
     )
@@ -580,7 +752,14 @@ async def update_task(
     new_category = updates.get("category", task.category)
     new_subtopic = updates.get("subtopic", task.subtopic)
     if "category" in updates or "subtopic" in updates:
-        _validate_category(new_category, new_subtopic)
+        await _validate_category(
+            new_category,
+            new_subtopic,
+            db,
+            current_user.organization_id,
+            current_category=task.category,
+            current_subtopic=task.subtopic,
+        )
     for field, value in updates.items():
         setattr(task, field, value)
 

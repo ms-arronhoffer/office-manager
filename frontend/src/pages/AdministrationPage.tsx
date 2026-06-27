@@ -39,6 +39,7 @@ const GROUPS: AdminGroup[] = [
     href: '/administration/automation',
     links: [
       { text: 'Ticket Categories', href: '/ticket-categories', description: 'Define maintenance ticket categories.', roles: ['admin'] },
+      { text: 'Maintenance Topics', href: '/maintenance-topics', description: 'Configure maintenance asset and task topics by category.', roles: ['admin', 'editor'] },
       { text: 'Ticket Templates', href: '/ticket-templates', description: 'Reusable templates for common tickets.', roles: ['admin', 'editor'] },
       { text: 'Recurring Tickets', href: '/recurring-ticket-rules', description: 'Schedule tickets that repeat automatically.', roles: ['admin', 'editor'] },
       { text: 'Email Rules', href: '/email-rules', description: 'Route inbound email into tickets.', roles: ['admin'] },
