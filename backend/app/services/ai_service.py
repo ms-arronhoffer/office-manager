@@ -431,6 +431,77 @@ async def generate_summary_narrative(period_label: str, data: dict[str, Any]) ->
     return await _generate(parts, system_instruction=SUMMARY_SYSTEM, temperature=0.4)
 
 
+# ── Portfolio Q&A (RAG over lease document chunks) ───────────────────────────
+
+PORTFOLIO_QA_SYSTEM = (
+    "You are a commercial real-estate portfolio analyst assistant. Answer the "
+    "user's question using ONLY the supplied lease document excerpts. Each "
+    "excerpt is prefixed with a numbered citation id like [1], [2]. Ground every "
+    "factual claim in the excerpts and cite the supporting excerpt id(s) inline "
+    "in square brackets, e.g. 'the lease expires in 2026 [2].'. Cite only "
+    "excerpts you actually relied on. If the excerpts do not contain enough "
+    "information to answer the question, say so plainly — do not speculate or "
+    "invent lease terms, dates, or figures. Be concise and use Markdown."
+)
+
+# Cap how many excerpts (and how much of each) we feed the model so the prompt
+# stays bounded regardless of how many chunks were retrieved.
+MAX_QA_CONTEXT_CHUNKS = 12
+MAX_QA_CHUNK_CHARS = 4000
+
+
+async def answer_portfolio_question(
+    question: str,
+    context_chunks: list[dict[str, Any]],
+    *,
+    temperature: float = 0.2,
+) -> str:
+    """Answer ``question`` grounded in retrieved lease document excerpts.
+
+    ``context_chunks`` is an ordered list of dicts describing the retrieved
+    excerpts. Each must carry an ``index`` (1-based citation id) and a textual
+    body (``content`` or ``snippet``); ``lease_name`` and ``source_filename``
+    are included in the prompt when present so the model can attribute claims.
+    The returned Markdown answer cites excerpts inline by their ``index``.
+
+    Raises :class:`AIUnavailableError` when no API key is configured so callers
+    can degrade gracefully.
+    """
+    question = (question or "").strip()
+    if not question:
+        raise AIRequestError("A question is required.")
+
+    blocks: list[str] = []
+    for chunk in context_chunks[:MAX_QA_CONTEXT_CHUNKS]:
+        idx = chunk.get("index")
+        body = (chunk.get("content") or chunk.get("snippet") or "").strip()
+        if idx is None or not body:
+            continue
+        lease_name = (chunk.get("lease_name") or "Unknown lease").strip()
+        filename = (chunk.get("source_filename") or "").strip()
+        header = f"[{idx}] Lease: {lease_name}"
+        if filename:
+            header += f" — Document: {filename}"
+        blocks.append(f"{header}\n{body[:MAX_QA_CHUNK_CHARS]}")
+
+    if not blocks:
+        raise AIRequestError("No lease document excerpts were available to answer the question.")
+
+    context = "\n\n".join(blocks)[:MAX_TEXT_CHARS]
+    prompt = (
+        f"QUESTION:\n{question}\n\n"
+        "LEASE DOCUMENT EXCERPTS:\n"
+        f"{context}\n\n"
+        "Answer the question using only these excerpts and cite the excerpt "
+        "id(s) you used in square brackets."
+    )
+    return await _generate(
+        [{"text": prompt}],
+        system_instruction=PORTFOLIO_QA_SYSTEM,
+        temperature=temperature,
+    )
+
+
 # ── Embeddings (semantic document search) ─────────────────────────────────────
 
 # Cap the number of texts embedded in a single batch request.

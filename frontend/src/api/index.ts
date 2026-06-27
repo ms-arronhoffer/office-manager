@@ -1139,6 +1139,7 @@ import type {
   LeaseDocumentSearchResult,
   LeaseIndexedDocumentsResult,
   LeaseDocumentTextResult,
+  PortfolioAskResult,
   WaiverTemplateCreate,
   WaiverTemplateUpdate,
   WaiverRequestItem,
@@ -1208,6 +1209,9 @@ export const ai = {
     client.post<{ lease_id: string; chunks_indexed: number }>(
       `/leases/${leaseId}/reindex-documents`,
     ),
+
+  askPortfolio: (question: string, limit = 8) =>
+    client.post<PortfolioAskResult>('/ai/portfolio/ask', { question, limit }),
 };
 
 // ─── Digital Waivers (internal, gated) ───────────────────────────────────────

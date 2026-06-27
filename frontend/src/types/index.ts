@@ -1737,6 +1737,27 @@ export interface LeaseDocumentTextResult {
   extractable: boolean;
 }
 
+export interface PortfolioCitation {
+  index: number;
+  lease_id: string;
+  lease_name: string | null;
+  attachment_id: string | null;
+  source_filename: string;
+  chunk_index: number | null;
+  snippet: string;
+  score: number;
+  match_type: string;
+}
+
+export interface PortfolioAskResult {
+  question: string;
+  answer: string;
+  answer_html: string;
+  citations: PortfolioCitation[];
+  grounded: boolean;
+  model: string;
+}
+
 // ─── Digital Waivers ──────────────────────────────────────────────────────────
 export type WaiverRecipientType = 'contact' | 'visitor';
 export type WaiverStatus = 'sent' | 'viewed' | 'signed' | 'declined' | 'expired';

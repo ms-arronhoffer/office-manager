@@ -9,6 +9,7 @@ Gating:
   tiers (not gated by ``ai_assist``).
 * ``POST /ai/leases/{lease_id}/abstract/suggest`` — Pro+ (``ai_assist``).
 * ``POST /ai/reports/summary`` — Pro+ (``ai_assist``).
+* ``POST /ai/portfolio/ask`` — Pro+ (``ai_assist``); grounded portfolio Q&A (RAG).
 """
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ from app.models.lease import Lease
 from app.models.maintenance_ticket import MaintenanceTicket, TicketCategory
 from app.models.user import User
 from app.models.vendor import Vendor
-from app.services import ai_service, document_extraction, report_export
+from app.services import ai_service, document_extraction, document_search_service, report_export
 from app.services.lease_abstract_catalog import CLAUSE_CATEGORIES
 
 router = APIRouter()
@@ -78,6 +79,32 @@ class SummaryExportRequest(BaseModel):
     narrative: str = Field(min_length=1)
     period_label: str = "Operations Briefing"
     format: str = "pdf"  # 'pdf' | 'docx'
+
+
+class PortfolioAskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+    limit: int = Field(default=8, ge=1, le=20)
+
+
+class PortfolioCitation(BaseModel):
+    index: int
+    lease_id: str
+    lease_name: str | None = None
+    attachment_id: str | None = None
+    source_filename: str
+    chunk_index: int | None = None
+    snippet: str
+    score: float
+    match_type: str
+
+
+class PortfolioAskResponse(BaseModel):
+    question: str
+    answer: str
+    answer_html: str
+    citations: list[PortfolioCitation]
+    grounded: bool
+    model: str
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -456,4 +483,69 @@ async def export_summary_report(
         content=content,
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── Portfolio Q&A (RAG "Ask your portfolio") (Pro+) ───────────────────────────
+
+@router.post(
+    "/portfolio/ask",
+    response_model=PortfolioAskResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def ask_portfolio(
+    payload: PortfolioAskRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Answer a natural-language question grounded in the org's lease documents.
+
+    Reuses the existing semantic/keyword document retrieval to pull the most
+    relevant lease document chunks, then adds a generation step that composes a
+    grounded answer citing those passages. Citations map back to the lease
+    document chunks the answer relied on. When no relevant documents are found
+    the answer reports that plainly without calling the model.
+    """
+    matches = await document_search_service.search_documents(
+        db,
+        organization_id=current_user.organization_id,
+        query=payload.question,
+        limit=payload.limit,
+    )
+
+    citations = [
+        PortfolioCitation(index=i, **match)
+        for i, match in enumerate(matches, start=1)
+    ]
+
+    if not matches:
+        answer = (
+            "I couldn't find any indexed lease documents relevant to that "
+            "question. Try rephrasing, or make sure the related lease documents "
+            "have been uploaded and indexed."
+        )
+        return PortfolioAskResponse(
+            question=payload.question,
+            answer=answer,
+            answer_html=report_export.markdown_to_html(answer),
+            citations=citations,
+            grounded=False,
+            model=settings.GEMINI_MODEL,
+        )
+
+    context_chunks = [c.model_dump() for c in citations]
+    try:
+        answer = await ai_service.answer_portfolio_question(
+            payload.question, context_chunks
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    return PortfolioAskResponse(
+        question=payload.question,
+        answer=answer,
+        answer_html=report_export.markdown_to_html(answer),
+        citations=citations,
+        grounded=True,
+        model=settings.GEMINI_MODEL,
     )

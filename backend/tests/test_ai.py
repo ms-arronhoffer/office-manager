@@ -409,3 +409,190 @@ async def test_ticket_triage_forwards_org_categories_and_vendors(client, db_sess
     vendor_names = {v["name"] for v in captured["vendors"]}
     assert "Plumbing" in cat_names
     assert "Acme Plumbing" in vendor_names
+
+
+# ── Portfolio Q&A (RAG "Ask your portfolio") ──────────────────────────────────
+
+
+async def _make_lease(db_session, org_id, name="Acme HQ Lease"):
+    from app.models.lease import Lease
+
+    lease = Lease(lease_name=name, organization_id=org_id, expiration_year=2030)
+    db_session.add(lease)
+    await db_session.commit()
+    await db_session.refresh(lease)
+    return lease
+
+
+async def _add_chunk(db_session, org_id, lease_id, content, *, filename="lease.pdf"):
+    from app.models.lease_document_chunk import LeaseDocumentChunk
+
+    db_session.add(
+        LeaseDocumentChunk(
+            organization_id=org_id,
+            lease_id=lease_id,
+            attachment_id=None,
+            source_filename=filename,
+            chunk_index=0,
+            content=content,
+            embedding=None,
+        )
+    )
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_portfolio_ask_gated_for_starter(client, db_session):
+    headers = await _make_org_user(db_session, "starter", "ask-starter@test.com")
+    resp = await client.post(
+        "/api/v1/ai/portfolio/ask",
+        headers=headers,
+        json={"question": "Which leases expire in 2026?"},
+    )
+    assert resp.status_code == 402, resp.text
+
+
+@pytest.mark.asyncio
+async def test_portfolio_ask_grounds_answer_in_retrieved_chunks(client, db_session, monkeypatch):
+    """The endpoint retrieves relevant chunks, feeds them to generation, and
+    returns the answer with citations back to those chunks."""
+    from sqlalchemy import select as _select
+
+    from app.models.user import User
+
+    email = "ask-pro@test.com"
+    headers = await _make_org_user(db_session, "pro", email)
+    user = (
+        await db_session.execute(_select(User).where(User.email == email))
+    ).scalar_one()
+    org_id = user.organization_id
+
+    # Keyword retrieval path (no Gemini embeddings needed).
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+    lease = await _make_lease(db_session, org_id, "Co-Tenancy Lease")
+    await _add_chunk(
+        db_session,
+        org_id,
+        lease.id,
+        "The co-tenancy clause expires on 2026-06-30 unless renewed by the tenant.",
+    )
+
+    captured: dict[str, object] = {}
+
+    async def fake_answer(question, context_chunks, **kwargs):
+        captured["question"] = question
+        captured["context_chunks"] = context_chunks
+        return "The co-tenancy clause expires in 2026 [1]."
+
+    monkeypatch.setattr(ai_service, "answer_portfolio_question", fake_answer)
+
+    resp = await client.post(
+        "/api/v1/ai/portfolio/ask",
+        headers=headers,
+        json={"question": "Which leases have a co-tenancy clause expiring in 2026?"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["grounded"] is True
+    assert "2026" in body["answer"]
+    assert len(body["citations"]) == 1
+    citation = body["citations"][0]
+    assert citation["index"] == 1
+    assert citation["lease_id"] == str(lease.id)
+    assert citation["lease_name"] == "Co-Tenancy Lease"
+    # The retrieved chunk was forwarded to the generation step with a citation id.
+    forwarded = captured["context_chunks"]
+    assert forwarded[0]["index"] == 1
+    assert "co-tenancy" in (forwarded[0]["snippet"] or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_portfolio_ask_no_matches_returns_ungrounded(client, db_session, monkeypatch):
+    """With no relevant documents the model is never called and the answer
+    reports the gap with ``grounded=False``."""
+    headers = await _make_org_user(db_session, "pro", "ask-empty@test.com")
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+
+    async def fail_answer(question, context_chunks, **kwargs):  # pragma: no cover
+        raise AssertionError("generation should not run with no matches")
+
+    monkeypatch.setattr(ai_service, "answer_portfolio_question", fail_answer)
+
+    resp = await client.post(
+        "/api/v1/ai/portfolio/ask",
+        headers=headers,
+        json={"question": "Anything about indemnification?"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["grounded"] is False
+    assert body["citations"] == []
+
+
+@pytest.mark.asyncio
+async def test_portfolio_ask_degrades_when_generation_unconfigured(client, db_session, monkeypatch):
+    """When matches exist but generation is unconfigured, surface a clear 503."""
+    from sqlalchemy import select as _select
+
+    from app.models.user import User
+
+    email = "ask-degrade@test.com"
+    headers = await _make_org_user(db_session, "pro", email)
+    user = (
+        await db_session.execute(_select(User).where(User.email == email))
+    ).scalar_one()
+    org_id = user.organization_id
+
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+    lease = await _make_lease(db_session, org_id, "CAM Lease")
+    await _add_chunk(
+        db_session,
+        org_id,
+        lease.id,
+        "Tenant's share of common area maintenance is capped at 5% annually.",
+    )
+
+    async def unavailable(question, context_chunks, **kwargs):
+        raise ai_service.AIUnavailableError("AI assist is not configured")
+
+    monkeypatch.setattr(ai_service, "answer_portfolio_question", unavailable)
+
+    resp = await client.post(
+        "/api/v1/ai/portfolio/ask",
+        headers=headers,
+        json={"question": "What is our CAM exposure?"},
+    )
+    assert resp.status_code == 503, resp.text
+
+
+@pytest.mark.asyncio
+async def test_answer_portfolio_question_builds_cited_prompt(monkeypatch):
+    """The generation prompt must enumerate excerpts with their citation ids so
+    the model can attribute claims."""
+    captured: dict[str, object] = {}
+
+    async def fake_generate(parts, **kwargs):
+        captured["parts"] = parts
+        captured["system"] = kwargs.get("system_instruction")
+        return "Answer [1]."
+
+    monkeypatch.setattr(ai_service, "_generate", fake_generate)
+
+    chunks = [
+        {
+            "index": 1,
+            "lease_name": "Northeast Plaza",
+            "source_filename": "lease.pdf",
+            "snippet": "CAM charges are estimated at $42,000 per year.",
+        }
+    ]
+    answer = await ai_service.answer_portfolio_question("Total CAM exposure?", chunks)
+    assert answer == "Answer [1]."
+
+    prompt_text = " ".join(
+        p["text"] for p in captured["parts"] if isinstance(p, dict) and "text" in p
+    )
+    assert "[1]" in prompt_text
+    assert "Northeast Plaza" in prompt_text
+    assert "CAM charges" in prompt_text
+    assert "cite" in (captured["system"] or "").lower()
