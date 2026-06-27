@@ -21,8 +21,10 @@ import {
   offices as officesApi,
   managers as managersApi,
   attachments as attachmentsApi,
+  ai as aiApi,
 } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
+import AIDocumentPrefill from '@/components/common/AIDocumentPrefill';
 import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
 import { OfficeQuickCreate, ManagerQuickCreate } from '@/components/common/QuickCreateForms';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
@@ -151,6 +153,43 @@ const HvacContractFormPage: React.FC = () => {
     if (key === 'hvac_company') setCompanyError(undefined);
   };
 
+  const applyAISuggestions = (suggested: Record<string, unknown>) => {
+    const str = (v: unknown): string | undefined =>
+      v === null || v === undefined ? undefined : String(v);
+
+    setForm((f) => ({
+      ...f,
+      hvac_company: str(suggested.hvac_company) ?? f.hvac_company,
+      contact: str(suggested.contact) ?? f.contact,
+      comments: str(suggested.comments) ?? f.comments,
+      office_name: str(suggested.office_name) ?? f.office_name,
+      last_serviced_date: str(suggested.last_serviced_date) ?? f.last_serviced_date,
+      next_service_date: str(suggested.next_service_date) ?? f.next_service_date,
+      landlord_handles:
+        typeof suggested.landlord_handles === 'boolean'
+          ? suggested.landlord_handles
+          : f.landlord_handles,
+    }));
+    if (suggested.hvac_company) setCompanyError(undefined);
+
+    const freq = str(suggested.frequency);
+    if (freq) {
+      const match = FREQUENCY_OPTIONS.find(
+        (o) => o.value.toLowerCase() === freq.toLowerCase(),
+      );
+      setSelectedFrequency(match ?? { label: freq, value: freq });
+    }
+    setDirty(true);
+  };
+
+  const queueAIDocument = (file: File) => {
+    setQueuedFiles((prev) =>
+      prev.some((qf) => qf.file.name === file.name && qf.file.size === file.size)
+        ? prev
+        : [...prev, { file, id: `${file.name}-${file.size}-${Date.now()}` }],
+    );
+  };
+
   const validate = (): boolean => {
     if (!form.hvac_company.trim()) {
       setCompanyError('HVAC Company is required.');
@@ -265,6 +304,16 @@ const HvacContractFormPage: React.FC = () => {
           }
         >
           <SpaceBetween size="l">
+            {!isEdit && (
+              <AIDocumentPrefill
+                title="AI assist — extract from document"
+                description="Upload an HVAC service contract and let AI pre-fill the fields below for your review."
+                dropzoneText="Drop an HVAC contract here"
+                parse={aiApi.parseHvacContract}
+                onSuggested={applyAISuggestions}
+                onFileExtracted={queueAIDocument}
+              />
+            )}
             <Container header={<Header variant="h2">Contract details</Header>}>
               <SpaceBetween size="l">
                 <FormField

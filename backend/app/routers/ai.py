@@ -7,7 +7,15 @@ Gating:
 
 * ``POST /ai/leases/parse`` — **basic lease detail ingestion**, available on all
   tiers (not gated by ``ai_assist``).
+* ``POST /ai/ap/parse`` — **vendor bill / invoice ingestion**, all tiers.
+* ``POST /ai/insurance/parse`` — **certificate-of-insurance ingestion**, all tiers.
+* ``POST /ai/hvac-contracts/parse`` — **HVAC contract ingestion**, all tiers.
 * ``POST /ai/leases/{lease_id}/abstract/suggest`` — Pro+ (``ai_assist``).
+* ``POST /ai/tickets/triage`` — **maintenance ticket triage**, Pro+ (``ai_assist``).
+* ``POST /ai/tickets/similar`` — **duplicate ticket detection**, Pro+ (``ai_assist``).
+* ``POST /ai/tickets/draft-from-email`` — **email → ticket draft**, Pro+ (``ai_assist``).
+* ``POST /ai/assistant/query`` — **portfolio Q&A (RAG)**, Pro+ (``ai_assist``).
+* ``POST /ai/assistant/reindex`` — **rebuild the knowledge index**, Pro+ (``ai_assist``).
 * ``POST /ai/reports/summary`` — Pro+ (``ai_assist``).
 """
 from __future__ import annotations
@@ -25,9 +33,10 @@ from app.auth.dependencies import get_current_user, require_feature
 from app.config import settings
 from app.database import get_db
 from app.models.lease import Lease
-from app.models.maintenance_ticket import MaintenanceTicket
+from app.models.maintenance_ticket import MaintenanceTicket, TicketCategory
 from app.models.user import User
-from app.services import ai_service, document_extraction, report_export
+from app.models.vendor import Vendor
+from app.services import ai_service, document_extraction, knowledge_service, report_export
 from app.services.lease_abstract_catalog import CLAUSE_CATEGORIES
 
 router = APIRouter()
@@ -67,6 +76,32 @@ class SummaryExportRequest(BaseModel):
     narrative: str = Field(min_length=1)
     period_label: str = "Operations Briefing"
     format: str = "pdf"  # 'pdf' | 'docx'
+
+
+class AssistantQueryRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+    limit: int = Field(default=8, ge=1, le=20)
+
+
+class AssistantCitation(BaseModel):
+    index: int
+    source_type: str
+    source_id: str | None = None
+    title: str
+    reference: str | None = None
+    snippet: str
+    score: float
+
+
+class AssistantQueryResponse(BaseModel):
+    answer: str
+    citations: list[AssistantCitation]
+    mode: str  # 'semantic' | 'keyword'
+    model: str
+
+
+class AssistantReindexResponse(BaseModel):
+    indexed: int
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -176,6 +211,306 @@ async def parse_lease(
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
     return LeaseParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+
+
+# ── Document extraction for other entities (all tiers, like lease parse) ──────
+
+class DocumentParseResponse(BaseModel):
+    suggested: dict
+    model: str
+
+
+async def _parse_document_with(
+    file: UploadFile,
+    parser,
+) -> DocumentParseResponse:
+    """Shared body for the per-entity document-extraction endpoints."""
+    content, mime_type = await _read_document(file)
+    text_content = _maybe_extract_text(file.filename, content)
+    try:
+        suggested = await parser(content, mime_type, text_content=text_content)
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+    return DocumentParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+
+
+@router.post("/ap/parse", response_model=DocumentParseResponse)
+async def parse_vendor_bill(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Extract suggested vendor-bill header fields from an uploaded invoice."""
+    return await _parse_document_with(file, ai_service.parse_vendor_bill_document)
+
+
+@router.post("/insurance/parse", response_model=DocumentParseResponse)
+async def parse_insurance(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Extract suggested certificate-of-insurance fields from an uploaded document."""
+    return await _parse_document_with(file, ai_service.parse_insurance_certificate)
+
+
+@router.post("/hvac-contracts/parse", response_model=DocumentParseResponse)
+async def parse_hvac_contract(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Extract suggested HVAC-contract fields from an uploaded document."""
+    return await _parse_document_with(file, ai_service.parse_hvac_contract)
+
+
+# ── Maintenance ticket intelligence (Pro+) ────────────────────────────────────
+
+class TicketTriageRequest(BaseModel):
+    subject: str = Field(min_length=1, max_length=255)
+    description: str = ""
+
+
+class TicketTriageSuggestion(BaseModel):
+    category_id: uuid.UUID | None = None
+    category_name: str | None = None
+    priority: str | None = None
+    vendor_id: uuid.UUID | None = None
+    vendor_name: str | None = None
+    reasoning: str | None = None
+
+
+class TicketTriageResponse(BaseModel):
+    suggested: TicketTriageSuggestion
+    model: str
+
+
+class SimilarTicketsRequest(BaseModel):
+    subject: str = Field(min_length=1, max_length=255)
+    description: str = ""
+    exclude_id: uuid.UUID | None = None
+    limit: int = Field(default=5, ge=1, le=20)
+
+
+class SimilarTicketMatch(BaseModel):
+    id: uuid.UUID
+    subject: str
+    status: str
+    priority: str
+    score: float
+    created_at: datetime
+
+
+class SimilarTicketsResponse(BaseModel):
+    matches: list[SimilarTicketMatch]
+    mode: str  # 'semantic' | 'keyword'
+
+
+class TicketEmailDraftRequest(BaseModel):
+    email_text: str = Field(min_length=1)
+
+
+class TicketEmailDraftResponse(BaseModel):
+    suggested: dict
+    model: str
+
+
+# Candidate open tickets considered for duplicate detection per request.
+_SIMILAR_CANDIDATE_LIMIT = 200
+# Minimum similarity for a match to surface (semantic / keyword respectively).
+_SEMANTIC_SIMILAR_THRESHOLD = 0.78
+_KEYWORD_SIMILAR_THRESHOLD = 0.3
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(y * y for y in b) ** 0.5
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def _keyword_tokens(text: str) -> set[str]:
+    return {t for t in "".join(c.lower() if c.isalnum() else " " for c in text).split() if len(t) > 2}
+
+
+@router.post(
+    "/tickets/triage",
+    response_model=TicketTriageResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def triage_ticket(
+    payload: TicketTriageRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Suggest a category, priority, and vendor for a maintenance request.
+
+    The model is constrained to the org's existing categories and vendors; the
+    returned names are mapped back onto ids for the form to apply after review.
+    """
+    org_id = current_user.organization_id
+    categories = (
+        await db.execute(
+            select(TicketCategory).where(TicketCategory.organization_id == org_id)
+        )
+    ).scalars().all()
+    vendors = (
+        await db.execute(
+            select(Vendor).where(
+                Vendor.organization_id == org_id, Vendor.is_deleted.is_(False)
+            )
+        )
+    ).scalars().all()
+
+    try:
+        result = await ai_service.triage_ticket(
+            payload.subject,
+            payload.description,
+            categories=[c.name for c in categories],
+            vendors=[{"name": v.company_name, "services": v.services} for v in vendors],
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    suggested = _map_triage_result(result, categories, vendors)
+    return TicketTriageResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+
+
+def _map_triage_result(result: dict, categories, vendors) -> TicketTriageSuggestion:
+    """Resolve the model's suggested category/vendor names back onto ids."""
+    cat_name = (result.get("category") or "").strip() or None
+    vendor_name = (result.get("vendor") or "").strip() or None
+    priority = (result.get("priority") or "").strip().lower() or None
+    if priority not in {"low", "medium", "high"}:
+        priority = None
+
+    category_id = None
+    matched_cat_name = None
+    if cat_name:
+        for c in categories:
+            if c.name.strip().lower() == cat_name.lower():
+                category_id, matched_cat_name = c.id, c.name
+                break
+
+    vendor_id = None
+    matched_vendor_name = None
+    if vendor_name:
+        for v in vendors:
+            if v.company_name.strip().lower() == vendor_name.lower():
+                vendor_id, matched_vendor_name = v.id, v.company_name
+                break
+
+    return TicketTriageSuggestion(
+        category_id=category_id,
+        category_name=matched_cat_name,
+        priority=priority,
+        vendor_id=vendor_id,
+        vendor_name=matched_vendor_name,
+        reasoning=(result.get("reasoning") or None),
+    )
+
+
+@router.post(
+    "/tickets/similar",
+    response_model=SimilarTicketsResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def similar_tickets(
+    payload: SimilarTicketsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Surface open tickets similar to a draft, to catch duplicates on intake.
+
+    Uses Gemini embeddings + cosine similarity when configured, and degrades to a
+    keyword token-overlap match when no API key is set so the feature still works.
+    """
+    stmt = (
+        select(MaintenanceTicket)
+        .where(
+            MaintenanceTicket.organization_id == current_user.organization_id,
+            MaintenanceTicket.is_deleted.is_(False),
+            MaintenanceTicket.status.in_(["open", "in_progress"]),
+        )
+        .order_by(MaintenanceTicket.created_at.desc())
+        .limit(_SIMILAR_CANDIDATE_LIMIT)
+    )
+    if payload.exclude_id is not None:
+        stmt = stmt.where(MaintenanceTicket.id != payload.exclude_id)
+    candidates = (await db.execute(stmt)).scalars().all()
+    if not candidates:
+        return SimilarTicketsResponse(matches=[], mode="keyword")
+
+    query_text = f"{payload.subject}\n\n{payload.description}".strip()
+    cand_texts = [f"{t.subject}\n\n{t.description}".strip() for t in candidates]
+
+    scored: list[tuple[float, MaintenanceTicket]] = []
+    mode = "keyword"
+    if ai_service.is_configured():
+        try:
+            vectors = await ai_service.embed_texts([query_text, *cand_texts])
+            query_vec, cand_vecs = vectors[0], vectors[1:]
+            for ticket, vec in zip(candidates, cand_vecs):
+                score = _cosine(query_vec, vec)
+                if score >= _SEMANTIC_SIMILAR_THRESHOLD:
+                    scored.append((score, ticket))
+            mode = "semantic"
+        except ai_service.AIError:
+            scored = []  # fall through to keyword matching below
+
+    if mode == "keyword":
+        query_tokens = _keyword_tokens(query_text)
+        if query_tokens:
+            for ticket, text in zip(candidates, cand_texts):
+                cand_tokens = _keyword_tokens(text)
+                if not cand_tokens:
+                    continue
+                overlap = len(query_tokens & cand_tokens)
+                score = overlap / len(query_tokens | cand_tokens)
+                if score >= _KEYWORD_SIMILAR_THRESHOLD:
+                    scored.append((score, ticket))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    matches = [
+        SimilarTicketMatch(
+            id=t.id,
+            subject=t.subject,
+            status=t.status,
+            priority=t.priority,
+            score=round(score, 4),
+            created_at=t.created_at,
+        )
+        for score, t in scored[: payload.limit]
+    ]
+    return SimilarTicketsResponse(matches=matches, mode=mode)
+
+
+@router.post(
+    "/tickets/draft-from-email",
+    response_model=TicketEmailDraftResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def draft_ticket_from_email(
+    payload: TicketEmailDraftRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Draft structured ticket fields from a free-text request email."""
+    categories = (
+        await db.execute(
+            select(TicketCategory).where(
+                TicketCategory.organization_id == current_user.organization_id
+            )
+        )
+    ).scalars().all()
+    try:
+        suggested = await ai_service.draft_ticket_from_email(
+            payload.email_text, categories=[c.name for c in categories]
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+    return TicketEmailDraftResponse(suggested=suggested, model=settings.GEMINI_MODEL)
 
 
 # ── Lease abstract suggestions (Pro+) ─────────────────────────────────────────
@@ -382,3 +717,87 @@ async def export_summary_report(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ── Portfolio assistant (RAG Q&A, Pro+) ───────────────────────────────────────
+
+# Cap the length of the citation preview returned to the client.
+_CITATION_SNIPPET_CHARS = 320
+
+
+def _citation_snippet(content: str) -> str:
+    text = " ".join((content or "").split())
+    if len(text) > _CITATION_SNIPPET_CHARS:
+        return text[:_CITATION_SNIPPET_CHARS].rstrip() + "…"
+    return text
+
+
+@router.post(
+    "/assistant/query",
+    response_model=AssistantQueryResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def assistant_query(
+    payload: AssistantQueryRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Answer a natural-language question about the org's portfolio (RAG).
+
+    Retrieves the most relevant chunks from the generalized knowledge index and
+    the lease-document index (organization-scoped), then asks Gemini to answer
+    grounded in those passages with inline citations. Degrades to a 503 when AI
+    is not configured (generation requires the model), and returns an honest
+    "not enough information" style answer when retrieval finds nothing.
+    """
+    org_id = current_user.organization_id
+    chunks = await knowledge_service.retrieve(
+        db, organization_id=org_id, query=payload.question, limit=payload.limit
+    )
+
+    try:
+        answer = await ai_service.answer_portfolio_question(payload.question, chunks)
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    mode = chunks[0]["match_type"] if chunks else "semantic"
+    citations = [
+        AssistantCitation(
+            index=idx,
+            source_type=chunk["source_type"],
+            source_id=chunk.get("source_id"),
+            title=chunk["title"],
+            reference=chunk.get("reference"),
+            snippet=_citation_snippet(chunk.get("content", "")),
+            score=chunk.get("score", 0.0),
+        )
+        for idx, chunk in enumerate(chunks, start=1)
+    ]
+    return AssistantQueryResponse(
+        answer=answer, citations=citations, mode=mode, model=settings.GEMINI_MODEL
+    )
+
+
+@router.post(
+    "/assistant/reindex",
+    response_model=AssistantReindexResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def assistant_reindex(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Rebuild this organization's portfolio knowledge index on demand.
+
+    The index is also refreshed nightly by the scheduler; this endpoint lets an
+    operator force an immediate rebuild after bulk edits. Works without AI
+    configured (chunks are stored keyword-only in that case).
+    """
+    try:
+        indexed = await knowledge_service.reindex_organization(
+            db, current_user.organization_id
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+    return AssistantReindexResponse(indexed=indexed)
+

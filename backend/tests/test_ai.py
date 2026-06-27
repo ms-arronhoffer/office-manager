@@ -328,3 +328,519 @@ async def test_abstract_suggest_sends_pdf_bytes_inline(client, db_session, monke
     assert resp.status_code == 200, resp.text
     assert captured["text_content"] is None
     assert captured["mime_type"] == "application/pdf"
+
+
+# ── Phase 1: document extraction for AP bills, insurance, HVAC contracts ──────
+
+@pytest.mark.asyncio
+async def test_vendor_bill_parse_allowed_on_starter(client, db_session, monkeypatch):
+    """AP invoice extraction is open to all tiers (like lease parse)."""
+    headers = await _make_org_user(db_session, "starter", "ap-parse@test.com")
+
+    async def fake_parse(content, mime_type, *, text_content=None):
+        return {"vendor_name": "Acme HVAC", "total_amount": 1250.5}
+
+    monkeypatch.setattr(ai_service, "parse_vendor_bill_document", fake_parse)
+
+    files = {"file": ("invoice.txt", io.BytesIO(b"Invoice total $1,250.50"), "text/plain")}
+    resp = await client.post("/api/v1/ai/ap/parse", headers=headers, files=files)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["suggested"]["vendor_name"] == "Acme HVAC"
+
+
+@pytest.mark.asyncio
+async def test_vendor_bill_parse_degrades_when_unconfigured(client, db_session, monkeypatch):
+    headers = await _make_org_user(db_session, "starter", "ap-503@test.com")
+
+    async def fake_parse(content, mime_type, *, text_content=None):
+        raise ai_service.AIUnavailableError("AI assist is not configured")
+
+    monkeypatch.setattr(ai_service, "parse_vendor_bill_document", fake_parse)
+
+    files = {"file": ("invoice.txt", io.BytesIO(b"x"), "text/plain")}
+    resp = await client.post("/api/v1/ai/ap/parse", headers=headers, files=files)
+    assert resp.status_code == 503, resp.text
+
+
+@pytest.mark.asyncio
+async def test_insurance_parse_extracts_text_for_docx(client, db_session, monkeypatch):
+    """A .docx COI upload must be converted to text before the model is called."""
+    headers = await _make_org_user(db_session, "starter", "coi-parse@test.com")
+
+    captured: dict[str, object] = {}
+
+    async def fake_parse(content, mime_type, *, text_content=None):
+        captured["text_content"] = text_content
+        return {"insurer": "Travelers", "certificate_type": "General Liability"}
+
+    monkeypatch.setattr(ai_service, "parse_insurance_certificate", fake_parse)
+
+    docx_bytes = _make_docx_bytes("Insurer: Travelers. Coverage: General Liability $1M.")
+    files = {
+        "file": (
+            "coi.docx",
+            io.BytesIO(docx_bytes),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+    }
+    resp = await client.post("/api/v1/ai/insurance/parse", headers=headers, files=files)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["suggested"]["insurer"] == "Travelers"
+    assert captured["text_content"] is not None
+    assert "Travelers" in captured["text_content"]
+
+
+@pytest.mark.asyncio
+async def test_hvac_contract_parse_sends_pdf_inline(client, db_session, monkeypatch):
+    """PDFs are sent inline (no text extraction) for HVAC contract parsing."""
+    headers = await _make_org_user(db_session, "starter", "hvac-parse@test.com")
+
+    captured: dict[str, object] = {}
+
+    async def fake_parse(content, mime_type, *, text_content=None):
+        captured["text_content"] = text_content
+        captured["mime_type"] = mime_type
+        return {"hvac_company": "CoolAir Inc"}
+
+    monkeypatch.setattr(ai_service, "parse_hvac_contract", fake_parse)
+
+    files = {"file": ("contract.pdf", io.BytesIO(b"%PDF-1.4 fake"), "application/pdf")}
+    resp = await client.post("/api/v1/ai/hvac-contracts/parse", headers=headers, files=files)
+    assert resp.status_code == 200, resp.text
+    assert captured["text_content"] is None
+    assert captured["mime_type"] == "application/pdf"
+
+
+@pytest.mark.asyncio
+async def test_parse_cache_short_circuits_identical_calls(monkeypatch):
+    """An identical (parser, document) parse is served from cache without a
+    second provider round-trip."""
+    ai_service.clear_parse_cache()
+    calls = {"n": 0}
+
+    async def fake_generate(parts, **kwargs):
+        calls["n"] += 1
+        return '{"vendor_name": "Acme"}'
+
+    monkeypatch.setattr(ai_service, "_generate", fake_generate)
+
+    first = await ai_service.parse_vendor_bill_document(
+        b"", "text/plain", text_content="Invoice from Acme"
+    )
+    second = await ai_service.parse_vendor_bill_document(
+        b"", "text/plain", text_content="Invoice from Acme"
+    )
+    assert first == second == {"vendor_name": "Acme"}
+    assert calls["n"] == 1  # second call hit the cache
+
+    # A different document must NOT hit the cache.
+    await ai_service.parse_vendor_bill_document(
+        b"", "text/plain", text_content="Invoice from Other Co"
+    )
+    assert calls["n"] == 2
+    ai_service.clear_parse_cache()
+
+
+# ── Phase 2: maintenance ticket intelligence ──────────────────────────────────
+
+async def _make_org_user_full(db_session, plan: str, email: str):
+    """Create an org + admin user and return (headers, user, org)."""
+    org = Organization(name=f"Org {email}", slug=f"org-{email[:8]}", plan=plan)
+    db_session.add(org)
+    await db_session.commit()
+    await db_session.refresh(org)
+    user = User(
+        email=email,
+        display_name="U",
+        password_hash=hash_password("x"),
+        auth_provider="internal",
+        role="admin",
+        is_active=True,
+        organization_id=org.id,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    token = create_access_token({"sub": str(user.id), "role": user.role})
+    return {"Authorization": "Bearer " + token}, user, org
+
+
+@pytest.mark.asyncio
+async def test_ticket_triage_gated_for_starter(client, db_session):
+    headers = await _make_org_user(db_session, "starter", "triage-gate@test.com")
+    resp = await client.post(
+        "/api/v1/ai/tickets/triage",
+        headers=headers,
+        json={"subject": "Leak", "description": "Water leak"},
+    )
+    assert resp.status_code == 402, resp.text
+
+
+@pytest.mark.asyncio
+async def test_ticket_triage_maps_names_to_ids(client, db_session, monkeypatch):
+    """The router must resolve the model's suggested category/vendor names back
+    onto the org's ids and pass through a valid priority."""
+    from app.models.maintenance_ticket import TicketCategory
+    from app.models.vendor import Vendor
+
+    headers, user, org = await _make_org_user_full(db_session, "pro", "triage-map@test.com")
+    category = TicketCategory(name="Plumbing", organization_id=org.id)
+    vendor = Vendor(company_name="Acme Plumbing", services="Plumbing repairs", organization_id=org.id)
+    db_session.add_all([category, vendor])
+    await db_session.commit()
+    await db_session.refresh(category)
+    await db_session.refresh(vendor)
+
+    async def fake_triage(subject, description, *, categories, vendors):
+        assert "Plumbing" in categories
+        assert any(v["name"] == "Acme Plumbing" for v in vendors)
+        return {
+            "category": "Plumbing",
+            "priority": "high",
+            "vendor": "Acme Plumbing",
+            "reasoning": "Active water leak.",
+        }
+
+    monkeypatch.setattr(ai_service, "triage_ticket", fake_triage)
+
+    resp = await client.post(
+        "/api/v1/ai/tickets/triage",
+        headers=headers,
+        json={"subject": "Burst pipe", "description": "Water everywhere"},
+    )
+    assert resp.status_code == 200, resp.text
+    suggested = resp.json()["suggested"]
+    assert suggested["category_id"] == str(category.id)
+    assert suggested["category_name"] == "Plumbing"
+    assert suggested["vendor_id"] == str(vendor.id)
+    assert suggested["priority"] == "high"
+    assert suggested["reasoning"] == "Active water leak."
+
+
+@pytest.mark.asyncio
+async def test_ticket_triage_drops_unknown_names_and_bad_priority(client, db_session, monkeypatch):
+    """Hallucinated categories/vendors and invalid priorities are discarded."""
+    headers, user, org = await _make_org_user_full(db_session, "pro", "triage-bad@test.com")
+
+    async def fake_triage(subject, description, *, categories, vendors):
+        return {
+            "category": "Nonexistent",
+            "priority": "urgent",  # not in low|medium|high
+            "vendor": "Ghost Vendor",
+            "reasoning": "x",
+        }
+
+    monkeypatch.setattr(ai_service, "triage_ticket", fake_triage)
+
+    resp = await client.post(
+        "/api/v1/ai/tickets/triage",
+        headers=headers,
+        json={"subject": "Thing", "description": "Stuff"},
+    )
+    assert resp.status_code == 200, resp.text
+    suggested = resp.json()["suggested"]
+    assert suggested["category_id"] is None
+    assert suggested["vendor_id"] is None
+    assert suggested["priority"] is None
+
+
+@pytest.mark.asyncio
+async def test_ticket_triage_degrades_when_unconfigured(client, db_session, monkeypatch):
+    headers, user, org = await _make_org_user_full(db_session, "pro", "triage-503@test.com")
+
+    async def fake_triage(subject, description, *, categories, vendors):
+        raise ai_service.AIUnavailableError("not configured")
+
+    monkeypatch.setattr(ai_service, "triage_ticket", fake_triage)
+
+    resp = await client.post(
+        "/api/v1/ai/tickets/triage",
+        headers=headers,
+        json={"subject": "Thing", "description": "Stuff"},
+    )
+    assert resp.status_code == 503, resp.text
+
+
+async def _make_ticket(db_session, org, user, *, subject, description, category_id, office_id):
+    from app.models.maintenance_ticket import MaintenanceTicket
+
+    ticket = MaintenanceTicket(
+        organization_id=org.id,
+        subject=subject,
+        priority="medium",
+        status="open",
+        category_id=category_id,
+        office_id=office_id,
+        description=description,
+        created_by_id=user.id,
+    )
+    db_session.add(ticket)
+    await db_session.commit()
+    await db_session.refresh(ticket)
+    return ticket
+
+
+@pytest.mark.asyncio
+async def test_similar_tickets_keyword_fallback(client, db_session, monkeypatch):
+    """With no API key, duplicate detection falls back to keyword matching."""
+    from app.models.maintenance_ticket import TicketCategory
+    from app.models.office import Office
+
+    headers, user, org = await _make_org_user_full(db_session, "pro", "similar-kw@test.com")
+    category = TicketCategory(name="HVAC", organization_id=org.id)
+    office = Office(office_number=1, location_type="office", location_name="HQ", organization_id=org.id)
+    db_session.add_all([category, office])
+    await db_session.commit()
+    await db_session.refresh(category)
+    await db_session.refresh(office)
+
+    await _make_ticket(
+        db_session, org, user,
+        subject="Air conditioning broken in lobby",
+        description="The lobby AC unit stopped cooling",
+        category_id=category.id, office_id=office.id,
+    )
+    await _make_ticket(
+        db_session, org, user,
+        subject="Parking lot lights out",
+        description="Several lamps in the parking lot are dark",
+        category_id=category.id, office_id=office.id,
+    )
+
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+
+    resp = await client.post(
+        "/api/v1/ai/tickets/similar",
+        headers=headers,
+        json={"subject": "Lobby air conditioning not cooling", "description": "AC broken"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["mode"] == "keyword"
+    subjects = [m["subject"] for m in body["matches"]]
+    assert "Air conditioning broken in lobby" in subjects
+    assert "Parking lot lights out" not in subjects
+
+
+@pytest.mark.asyncio
+async def test_similar_tickets_semantic_with_embeddings(client, db_session, monkeypatch):
+    from app.models.maintenance_ticket import TicketCategory
+    from app.models.office import Office
+
+    headers, user, org = await _make_org_user_full(db_session, "pro", "similar-sem@test.com")
+    category = TicketCategory(name="HVAC", organization_id=org.id)
+    office = Office(office_number=2, location_type="office", location_name="HQ2", organization_id=org.id)
+    db_session.add_all([category, office])
+    await db_session.commit()
+    await db_session.refresh(category)
+    await db_session.refresh(office)
+
+    dup = await _make_ticket(
+        db_session, org, user,
+        subject="AC down", description="cooling failure",
+        category_id=category.id, office_id=office.id,
+    )
+    await _make_ticket(
+        db_session, org, user,
+        subject="Repaint hallway", description="walls scuffed",
+        category_id=category.id, office_id=office.id,
+    )
+
+    monkeypatch.setattr(ai_service, "is_configured", lambda: True)
+
+    async def fake_embed(texts):
+        # First text is the query. Return a vector close to the duplicate and
+        # orthogonal to the unrelated ticket.
+        vecs = []
+        for t in texts:
+            if "AC" in t or "cooling" in t:
+                vecs.append([1.0, 0.0])
+            else:
+                vecs.append([0.0, 1.0])
+        return vecs
+
+    monkeypatch.setattr(ai_service, "embed_texts", fake_embed)
+
+    resp = await client.post(
+        "/api/v1/ai/tickets/similar",
+        headers=headers,
+        json={"subject": "AC cooling broken", "description": "no cold air"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["mode"] == "semantic"
+    ids = [m["id"] for m in body["matches"]]
+    assert str(dup.id) in ids
+    assert len(body["matches"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_draft_ticket_from_email(client, db_session, monkeypatch):
+    headers, user, org = await _make_org_user_full(db_session, "pro", "draft-email@test.com")
+
+    async def fake_draft(email_text, *, categories):
+        assert "leaking" in email_text
+        return {"subject": "Roof leak", "priority": "high", "category": None}
+
+    monkeypatch.setattr(ai_service, "draft_ticket_from_email", fake_draft)
+
+    resp = await client.post(
+        "/api/v1/ai/tickets/draft-from-email",
+        headers=headers,
+        json={"email_text": "Hi, the roof is leaking over the server room."},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["suggested"]["subject"] == "Roof leak"
+
+
+@pytest.mark.asyncio
+async def test_draft_ticket_from_email_gated_for_starter(client, db_session):
+    headers = await _make_org_user(db_session, "starter", "draft-gate@test.com")
+    resp = await client.post(
+        "/api/v1/ai/tickets/draft-from-email",
+        headers=headers,
+        json={"email_text": "something broke"},
+    )
+    assert resp.status_code == 402, resp.text
+
+
+@pytest.mark.asyncio
+async def test_triage_ticket_service_caches(monkeypatch):
+    """Identical triage inputs are served from the in-process cache."""
+    ai_service.clear_parse_cache()
+    calls = {"n": 0}
+
+    async def fake_generate(parts, **kwargs):
+        calls["n"] += 1
+        return '{"category": "Plumbing", "priority": "high", "vendor": null, "reasoning": "x"}'
+
+    monkeypatch.setattr(ai_service, "_generate", fake_generate)
+
+    args = dict(categories=["Plumbing"], vendors=[{"name": "Acme", "services": "pipes"}])
+    first = await ai_service.triage_ticket("Leak", "Pipe burst", **args)
+    second = await ai_service.triage_ticket("Leak", "Pipe burst", **args)
+    assert first == second
+    assert calls["n"] == 1
+    ai_service.clear_parse_cache()
+
+
+# ── Phase 3: portfolio assistant (RAG Q&A) ────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_assistant_query_gated_for_starter(client, db_session):
+    headers = await _make_org_user(db_session, "starter", "assist-gate@test.com")
+    resp = await client.post(
+        "/api/v1/ai/assistant/query",
+        headers=headers,
+        json={"question": "When does my downtown lease expire?"},
+    )
+    assert resp.status_code == 402, resp.text
+
+
+@pytest.mark.asyncio
+async def test_assistant_query_returns_answer_with_citations(client, db_session, monkeypatch):
+    """A Pro org gets a grounded answer plus citations mapped from retrieval."""
+    from app.services import knowledge_service
+
+    headers, user, org = await _make_org_user_full(db_session, "pro", "assist-ok@test.com")
+
+    async def fake_retrieve(db, *, organization_id, query, limit=8):
+        assert organization_id == org.id
+        return [
+            {
+                "source_type": "lease",
+                "source_id": "11111111-1111-1111-1111-111111111111",
+                "title": "Lease: Downtown HQ",
+                "reference": "leases/11111111-1111-1111-1111-111111111111",
+                "content": "Lease: Downtown HQ. Expiration: 2027-05-31.",
+                "score": 0.91,
+                "match_type": "semantic",
+            }
+        ]
+
+    captured = {}
+
+    async def fake_answer(question, context_blocks):
+        captured["question"] = question
+        captured["n_blocks"] = len(context_blocks)
+        return "Your Downtown HQ lease expires on 2027-05-31 [1]."
+
+    monkeypatch.setattr(knowledge_service, "retrieve", fake_retrieve)
+    monkeypatch.setattr(ai_service, "answer_portfolio_question", fake_answer)
+
+    resp = await client.post(
+        "/api/v1/ai/assistant/query",
+        headers=headers,
+        json={"question": "When does my Downtown HQ lease expire?"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "2027-05-31" in body["answer"]
+    assert body["mode"] == "semantic"
+    assert len(body["citations"]) == 1
+    citation = body["citations"][0]
+    assert citation["index"] == 1
+    assert citation["source_type"] == "lease"
+    assert citation["title"] == "Lease: Downtown HQ"
+    assert captured["n_blocks"] == 1
+
+
+@pytest.mark.asyncio
+async def test_assistant_query_degrades_when_unconfigured(client, db_session, monkeypatch):
+    """When Gemini is unconfigured the answer step raises → 503."""
+    from app.services import knowledge_service
+
+    headers, user, org = await _make_org_user_full(db_session, "pro", "assist-503@test.com")
+
+    async def fake_retrieve(db, *, organization_id, query, limit=8):
+        return []
+
+    async def fake_answer(question, context_blocks):
+        raise ai_service.AIUnavailableError("AI assist is not configured")
+
+    monkeypatch.setattr(knowledge_service, "retrieve", fake_retrieve)
+    monkeypatch.setattr(ai_service, "answer_portfolio_question", fake_answer)
+
+    resp = await client.post(
+        "/api/v1/ai/assistant/query",
+        headers=headers,
+        json={"question": "Anything?"},
+    )
+    assert resp.status_code == 503, resp.text
+
+
+@pytest.mark.asyncio
+async def test_assistant_reindex_builds_and_keyword_retrieves(client, db_session):
+    """Reindex builds keyword-only chunks (AI off) that keyword retrieval finds."""
+    from sqlalchemy import select
+
+    from app.models.knowledge_chunk import KnowledgeChunk
+    from app.models.lease import Lease
+    from app.services import knowledge_service
+
+    headers, user, org = await _make_org_user_full(db_session, "pro", "assist-reindex@test.com")
+    lease = Lease(
+        lease_name="Riverside Distribution Center",
+        expiration_year=2030,
+        organization_id=org.id,
+    )
+    db_session.add(lease)
+    await db_session.commit()
+
+    resp = await client.post("/api/v1/ai/assistant/reindex", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["indexed"] >= 1
+
+    rows = (
+        await db_session.execute(
+            select(KnowledgeChunk).where(KnowledgeChunk.organization_id == org.id)
+        )
+    ).scalars().all()
+    assert any("Riverside Distribution Center" in r.content for r in rows)
+
+    matches = await knowledge_service.retrieve(
+        db_session, organization_id=org.id, query="Riverside Distribution", limit=5
+    )
+    assert matches
+    assert any("Riverside" in m["content"] for m in matches)
+    assert matches[0]["match_type"] == "keyword"

@@ -1134,7 +1134,12 @@ import type {
   AIStatus,
   LeaseParseResult,
   AbstractSuggestResult,
+  DocumentParseResult,
   AISummaryResult,
+  TicketTriageResult,
+  SimilarTicketsResult,
+  AssistantQueryResult,
+  AssistantReindexResult,
   LeaseDocumentSearchResult,
   LeaseIndexedDocumentsResult,
   LeaseDocumentTextResult,
@@ -1167,8 +1172,57 @@ export const ai = {
     });
   },
 
+  parseVendorBill: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post<DocumentParseResult>('/ai/ap/parse', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  parseInsuranceCertificate: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post<DocumentParseResult>('/ai/insurance/parse', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  parseHvacContract: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post<DocumentParseResult>('/ai/hvac-contracts/parse', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
   summary: (period: 'weekly' | 'monthly') =>
     client.post<AISummaryResult>('/ai/reports/summary', { period }),
+
+  triageTicket: (subject: string, description: string) =>
+    client.post<TicketTriageResult>('/ai/tickets/triage', { subject, description }),
+
+  similarTickets: (
+    subject: string,
+    description: string,
+    excludeId?: string | null,
+    limit = 5,
+  ) =>
+    client.post<SimilarTicketsResult>('/ai/tickets/similar', {
+      subject,
+      description,
+      exclude_id: excludeId ?? null,
+      limit,
+    }),
+
+  draftTicketFromEmail: (emailText: string) =>
+    client.post<DocumentParseResult>('/ai/tickets/draft-from-email', { email_text: emailText }),
+
+  assistantQuery: (question: string, limit = 8) =>
+    client.post<AssistantQueryResult>('/ai/assistant/query', { question, limit }),
+
+  assistantReindex: () =>
+    client.post<AssistantReindexResult>('/ai/assistant/reindex', {}),
 
   exportSummary: (narrative: string, periodLabel: string, format: 'pdf' | 'docx') =>
     client.post<Blob>(
