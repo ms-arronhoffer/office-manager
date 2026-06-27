@@ -1,26 +1,25 @@
 ---
+import Brand from './Brand.astro';
+import { primaryNav } from '../config/site';
+const path = Astro.url.pathname;
+const isActive = (href: string) =>
+  href === '/' ? path === '/' : path === href || path.startsWith(href + '/');
 ---
 <header class="sticky top-0 z-50 bg-white/80 backdrop-blur border-b border-slate-100">
   <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
     <div class="flex items-center justify-between h-16">
 
-      <!-- Logo -->
-      <a href="#" class="flex items-center gap-2.5 font-bold text-slate-900 text-lg">
-        <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-            <rect x="3" y="3.5" width="12" height="1.8" rx="0.9" fill="white"/>
-            <rect x="3" y="8" width="8" height="1.8" rx="0.9" fill="white" opacity=".75"/>
-            <rect x="3" y="12.5" width="10" height="1.8" rx="0.9" fill="white" opacity=".5"/>
-          </svg>
-        </div>
-        <span data-company>Office Manager</span>
-      </a>
+      <Brand />
 
       <!-- Desktop nav -->
       <nav class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600">
-        <a href="#features" class="hover:text-slate-900 transition-colors">Features</a>
-        <a href="#how-it-works" class="hover:text-slate-900 transition-colors">How it works</a>
-        <a href="#pricing" class="hover:text-slate-900 transition-colors">Pricing</a>
+        {primaryNav.map(link => (
+          <a
+            href={link.href}
+            class={`transition-colors hover:text-slate-900 ${isActive(link.href) ? 'text-slate-900' : ''}`}
+            aria-current={isActive(link.href) ? 'page' : undefined}
+          >{link.label}</a>
+        ))}
       </nav>
 
       <!-- CTAs -->
@@ -28,11 +27,48 @@
         <a href="#" data-href="LOGIN_URL" class="hidden sm:block text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
           Sign in
         </a>
-        <a href="#" data-href="SIGNUP_URL" class="bg-slate-900 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors">
+        <a href="#" data-href="SIGNUP_URL" class="hidden sm:block bg-slate-900 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-slate-700 transition-colors">
           Start Free Trial
         </a>
+        <!-- Mobile menu toggle -->
+        <button
+          type="button"
+          id="nav-toggle"
+          class="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg border border-slate-200 text-slate-700"
+          aria-label="Open menu"
+          aria-expanded="false"
+          aria-controls="mobile-nav"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
       </div>
 
     </div>
   </div>
+
+  <!-- Mobile nav panel -->
+  <div id="mobile-nav" class="md:hidden hidden border-t border-slate-100 bg-white">
+    <nav class="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-col gap-1 text-sm font-medium">
+      {primaryNav.map(link => (
+        <a
+          href={link.href}
+          class={`px-3 py-2.5 rounded-lg hover:bg-slate-50 ${isActive(link.href) ? 'text-slate-900 bg-slate-50' : 'text-slate-600'}`}
+        >{link.label}</a>
+      ))}
+      <a href="#" data-href="LOGIN_URL" class="px-3 py-2.5 rounded-lg text-slate-600 hover:bg-slate-50">Sign in</a>
+      <a href="#" data-href="SIGNUP_URL" class="mt-2 text-center bg-slate-900 text-white font-semibold px-4 py-2.5 rounded-lg hover:bg-slate-700">Start Free Trial</a>
+    </nav>
+  </div>
 </header>
+
+<script is:inline>
+  (function () {
+    var btn = document.getElementById('nav-toggle');
+    var panel = document.getElementById('mobile-nav');
+    if (!btn || !panel) return;
+    btn.addEventListener('click', function () {
+      var open = panel.classList.toggle('hidden') === false;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  })();
+</script>

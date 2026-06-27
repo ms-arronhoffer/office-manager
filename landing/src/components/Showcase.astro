@@ -1,0 +1,72 @@
+---
+import LeaseAbstractScreen from './screens/LeaseAbstractScreen.astro';
+import MaintenanceScreen from './screens/MaintenanceScreen.astro';
+import WaiversScreen from './screens/WaiversScreen.astro';
+import AnalyticsScreen from './screens/AnalyticsScreen.astro';
+
+const tabs = [
+  { id: 'lease', label: 'AI Lease Abstracts' },
+  { id: 'maintenance', label: 'Maintenance Tickets' },
+  { id: 'waivers', label: 'Digital Waivers' },
+  { id: 'analytics', label: 'Analytics' },
+];
+---
+<section class="py-24 bg-slate-50 border-y border-slate-100">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center max-w-2xl mx-auto mb-12">
+      <p class="text-sm font-semibold text-blue-600 uppercase tracking-widest mb-3">See it in action</p>
+      <h2 class="text-4xl lg:text-5xl font-extrabold text-slate-900">Real screens, real workflows</h2>
+      <p class="mt-4 text-lg text-slate-500">Click through the features your team will use every day.</p>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex flex-wrap justify-center gap-2 mb-8" role="tablist">
+      {tabs.map((t, i) => (
+        <button
+          type="button"
+          data-showcase-tab={t.id}
+          role="tab"
+          aria-selected={i === 0 ? 'true' : 'false'}
+          class={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${i === 0 ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'}`}
+        >{t.label}</button>
+      ))}
+    </div>
+
+    <!-- Panels -->
+    <div class="max-w-5xl mx-auto">
+      <div data-showcase-panel="lease"><LeaseAbstractScreen /></div>
+      <div data-showcase-panel="maintenance" class="hidden"><MaintenanceScreen /></div>
+      <div data-showcase-panel="waivers" class="hidden"><WaiversScreen /></div>
+      <div data-showcase-panel="analytics" class="hidden"><AnalyticsScreen /></div>
+    </div>
+
+    <div class="text-center mt-10">
+      <a href="/features" class="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700">
+        Explore all features
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+    </div>
+  </div>
+</section>
+
+<script is:inline>
+  (function () {
+    var tabs = document.querySelectorAll('[data-showcase-tab]');
+    var panels = document.querySelectorAll('[data-showcase-panel]');
+    if (!tabs.length) return;
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        var id = tab.getAttribute('data-showcase-tab');
+        tabs.forEach(function (t) {
+          var active = t === tab;
+          t.setAttribute('aria-selected', active ? 'true' : 'false');
+          t.className = 'px-4 py-2 rounded-full text-sm font-semibold transition-colors ' +
+            (active ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300');
+        });
+        panels.forEach(function (p) {
+          p.classList.toggle('hidden', p.getAttribute('data-showcase-panel') !== id);
+        });
+      });
+    });
+  })();
+</script>
