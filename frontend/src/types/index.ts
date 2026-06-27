@@ -1692,6 +1692,34 @@ export interface AISummaryResult {
   model: string;
 }
 
+export interface TicketTriageSuggestion {
+  category_id: string | null;
+  category_name: string | null;
+  priority: string | null;
+  vendor_id: string | null;
+  vendor_name: string | null;
+  reasoning: string | null;
+}
+
+export interface TicketTriageResult {
+  suggested: TicketTriageSuggestion;
+  model: string;
+}
+
+export interface SimilarTicketMatch {
+  id: string;
+  subject: string;
+  status: string;
+  priority: string;
+  score: number;
+  created_at: string;
+}
+
+export interface SimilarTicketsResult {
+  matches: SimilarTicketMatch[];
+  mode: 'semantic' | 'keyword';
+}
+
 export interface LeaseDocumentSearchMatch {
   lease_id: string;
   lease_name: string | null;

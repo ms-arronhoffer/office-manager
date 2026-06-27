@@ -11,6 +11,9 @@ Gating:
 * ``POST /ai/insurance/parse`` — **certificate-of-insurance ingestion**, all tiers.
 * ``POST /ai/hvac-contracts/parse`` — **HVAC contract ingestion**, all tiers.
 * ``POST /ai/leases/{lease_id}/abstract/suggest`` — Pro+ (``ai_assist``).
+* ``POST /ai/tickets/triage`` — **maintenance ticket triage**, Pro+ (``ai_assist``).
+* ``POST /ai/tickets/similar`` — **duplicate ticket detection**, Pro+ (``ai_assist``).
+* ``POST /ai/tickets/draft-from-email`` — **email → ticket draft**, Pro+ (``ai_assist``).
 * ``POST /ai/reports/summary`` — Pro+ (``ai_assist``).
 """
 from __future__ import annotations
@@ -28,8 +31,9 @@ from app.auth.dependencies import get_current_user, require_feature
 from app.config import settings
 from app.database import get_db
 from app.models.lease import Lease
-from app.models.maintenance_ticket import MaintenanceTicket
+from app.models.maintenance_ticket import MaintenanceTicket, TicketCategory
 from app.models.user import User
+from app.models.vendor import Vendor
 from app.services import ai_service, document_extraction, report_export
 from app.services.lease_abstract_catalog import CLAUSE_CATEGORIES
 
@@ -227,6 +231,258 @@ async def parse_hvac_contract(
 ):
     """Extract suggested HVAC-contract fields from an uploaded document."""
     return await _parse_document_with(file, ai_service.parse_hvac_contract)
+
+
+# ── Maintenance ticket intelligence (Pro+) ────────────────────────────────────
+
+class TicketTriageRequest(BaseModel):
+    subject: str = Field(min_length=1, max_length=255)
+    description: str = ""
+
+
+class TicketTriageSuggestion(BaseModel):
+    category_id: uuid.UUID | None = None
+    category_name: str | None = None
+    priority: str | None = None
+    vendor_id: uuid.UUID | None = None
+    vendor_name: str | None = None
+    reasoning: str | None = None
+
+
+class TicketTriageResponse(BaseModel):
+    suggested: TicketTriageSuggestion
+    model: str
+
+
+class SimilarTicketsRequest(BaseModel):
+    subject: str = Field(min_length=1, max_length=255)
+    description: str = ""
+    exclude_id: uuid.UUID | None = None
+    limit: int = Field(default=5, ge=1, le=20)
+
+
+class SimilarTicketMatch(BaseModel):
+    id: uuid.UUID
+    subject: str
+    status: str
+    priority: str
+    score: float
+    created_at: datetime
+
+
+class SimilarTicketsResponse(BaseModel):
+    matches: list[SimilarTicketMatch]
+    mode: str  # 'semantic' | 'keyword'
+
+
+class TicketEmailDraftRequest(BaseModel):
+    email_text: str = Field(min_length=1)
+
+
+class TicketEmailDraftResponse(BaseModel):
+    suggested: dict
+    model: str
+
+
+# Candidate open tickets considered for duplicate detection per request.
+_SIMILAR_CANDIDATE_LIMIT = 200
+# Minimum similarity for a match to surface (semantic / keyword respectively).
+_SEMANTIC_SIMILAR_THRESHOLD = 0.78
+_KEYWORD_SIMILAR_THRESHOLD = 0.3
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(y * y for y in b) ** 0.5
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def _keyword_tokens(text: str) -> set[str]:
+    return {t for t in "".join(c.lower() if c.isalnum() else " " for c in text).split() if len(t) > 2}
+
+
+@router.post(
+    "/tickets/triage",
+    response_model=TicketTriageResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def triage_ticket(
+    payload: TicketTriageRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Suggest a category, priority, and vendor for a maintenance request.
+
+    The model is constrained to the org's existing categories and vendors; the
+    returned names are mapped back onto ids for the form to apply after review.
+    """
+    org_id = current_user.organization_id
+    categories = (
+        await db.execute(
+            select(TicketCategory).where(TicketCategory.organization_id == org_id)
+        )
+    ).scalars().all()
+    vendors = (
+        await db.execute(
+            select(Vendor).where(
+                Vendor.organization_id == org_id, Vendor.is_deleted.is_(False)
+            )
+        )
+    ).scalars().all()
+
+    try:
+        result = await ai_service.triage_ticket(
+            payload.subject,
+            payload.description,
+            categories=[c.name for c in categories],
+            vendors=[{"name": v.company_name, "services": v.services} for v in vendors],
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    suggested = _map_triage_result(result, categories, vendors)
+    return TicketTriageResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+
+
+def _map_triage_result(result: dict, categories, vendors) -> TicketTriageSuggestion:
+    """Resolve the model's suggested category/vendor names back onto ids."""
+    cat_name = (result.get("category") or "").strip() or None
+    vendor_name = (result.get("vendor") or "").strip() or None
+    priority = (result.get("priority") or "").strip().lower() or None
+    if priority not in {"low", "medium", "high"}:
+        priority = None
+
+    category_id = None
+    matched_cat_name = None
+    if cat_name:
+        for c in categories:
+            if c.name.strip().lower() == cat_name.lower():
+                category_id, matched_cat_name = c.id, c.name
+                break
+
+    vendor_id = None
+    matched_vendor_name = None
+    if vendor_name:
+        for v in vendors:
+            if v.company_name.strip().lower() == vendor_name.lower():
+                vendor_id, matched_vendor_name = v.id, v.company_name
+                break
+
+    return TicketTriageSuggestion(
+        category_id=category_id,
+        category_name=matched_cat_name,
+        priority=priority,
+        vendor_id=vendor_id,
+        vendor_name=matched_vendor_name,
+        reasoning=(result.get("reasoning") or None),
+    )
+
+
+@router.post(
+    "/tickets/similar",
+    response_model=SimilarTicketsResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def similar_tickets(
+    payload: SimilarTicketsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Surface open tickets similar to a draft, to catch duplicates on intake.
+
+    Uses Gemini embeddings + cosine similarity when configured, and degrades to a
+    keyword token-overlap match when no API key is set so the feature still works.
+    """
+    stmt = (
+        select(MaintenanceTicket)
+        .where(
+            MaintenanceTicket.organization_id == current_user.organization_id,
+            MaintenanceTicket.is_deleted.is_(False),
+            MaintenanceTicket.status.in_(["open", "in_progress"]),
+        )
+        .order_by(MaintenanceTicket.created_at.desc())
+        .limit(_SIMILAR_CANDIDATE_LIMIT)
+    )
+    if payload.exclude_id is not None:
+        stmt = stmt.where(MaintenanceTicket.id != payload.exclude_id)
+    candidates = (await db.execute(stmt)).scalars().all()
+    if not candidates:
+        return SimilarTicketsResponse(matches=[], mode="keyword")
+
+    query_text = f"{payload.subject}\n\n{payload.description}".strip()
+    cand_texts = [f"{t.subject}\n\n{t.description}".strip() for t in candidates]
+
+    scored: list[tuple[float, MaintenanceTicket]] = []
+    mode = "keyword"
+    if ai_service.is_configured():
+        try:
+            vectors = await ai_service.embed_texts([query_text, *cand_texts])
+            query_vec, cand_vecs = vectors[0], vectors[1:]
+            for ticket, vec in zip(candidates, cand_vecs):
+                score = _cosine(query_vec, vec)
+                if score >= _SEMANTIC_SIMILAR_THRESHOLD:
+                    scored.append((score, ticket))
+            mode = "semantic"
+        except ai_service.AIError:
+            scored = []  # fall through to keyword matching below
+
+    if mode == "keyword":
+        query_tokens = _keyword_tokens(query_text)
+        if query_tokens:
+            for ticket, text in zip(candidates, cand_texts):
+                cand_tokens = _keyword_tokens(text)
+                if not cand_tokens:
+                    continue
+                overlap = len(query_tokens & cand_tokens)
+                score = overlap / len(query_tokens | cand_tokens)
+                if score >= _KEYWORD_SIMILAR_THRESHOLD:
+                    scored.append((score, ticket))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    matches = [
+        SimilarTicketMatch(
+            id=t.id,
+            subject=t.subject,
+            status=t.status,
+            priority=t.priority,
+            score=round(score, 4),
+            created_at=t.created_at,
+        )
+        for score, t in scored[: payload.limit]
+    ]
+    return SimilarTicketsResponse(matches=matches, mode=mode)
+
+
+@router.post(
+    "/tickets/draft-from-email",
+    response_model=TicketEmailDraftResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def draft_ticket_from_email(
+    payload: TicketEmailDraftRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Draft structured ticket fields from a free-text request email."""
+    categories = (
+        await db.execute(
+            select(TicketCategory).where(
+                TicketCategory.organization_id == current_user.organization_id
+            )
+        )
+    ).scalars().all()
+    try:
+        suggested = await ai_service.draft_ticket_from_email(
+            payload.email_text, categories=[c.name for c in categories]
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+    return TicketEmailDraftResponse(suggested=suggested, model=settings.GEMINI_MODEL)
 
 
 # ── Lease abstract suggestions (Pro+) ─────────────────────────────────────────

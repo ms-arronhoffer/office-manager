@@ -1136,6 +1136,8 @@ import type {
   AbstractSuggestResult,
   DocumentParseResult,
   AISummaryResult,
+  TicketTriageResult,
+  SimilarTicketsResult,
   LeaseDocumentSearchResult,
   LeaseIndexedDocumentsResult,
   LeaseDocumentTextResult,
@@ -1194,6 +1196,25 @@ export const ai = {
 
   summary: (period: 'weekly' | 'monthly') =>
     client.post<AISummaryResult>('/ai/reports/summary', { period }),
+
+  triageTicket: (subject: string, description: string) =>
+    client.post<TicketTriageResult>('/ai/tickets/triage', { subject, description }),
+
+  similarTickets: (
+    subject: string,
+    description: string,
+    excludeId?: string | null,
+    limit = 5,
+  ) =>
+    client.post<SimilarTicketsResult>('/ai/tickets/similar', {
+      subject,
+      description,
+      exclude_id: excludeId ?? null,
+      limit,
+    }),
+
+  draftTicketFromEmail: (emailText: string) =>
+    client.post<DocumentParseResult>('/ai/tickets/draft-from-email', { email_text: emailText }),
 
   exportSummary: (narrative: string, periodLabel: string, format: 'pdf' | 'docx') =>
     client.post<Blob>(

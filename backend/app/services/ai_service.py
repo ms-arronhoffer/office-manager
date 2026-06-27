@@ -491,6 +491,161 @@ async def parse_hvac_contract(
     )
 
 
+# ── Maintenance ticket intelligence (Phase 2) ────────────────────────────────
+#
+# Unlike the document parsers above, ticket triage and email drafting work from
+# short free-text inputs rather than uploaded files, so they don't go through
+# ``_parse_fields_from_document``. They still reuse ``_generate`` /
+# ``_parse_json_object`` and the in-process cache (keyed on the JSON-serialised
+# input) to cut latency and provider spend on identical repeat calls.
+
+TICKET_TRIAGE_SYSTEM = (
+    "You are a commercial-property facilities dispatcher. Given a maintenance "
+    "request, classify it so a property manager can triage it quickly. Respond "
+    "ONLY with a JSON object. Use null when you cannot determine a value. Never "
+    "invent a category or vendor that is not in the provided lists.\n"
+    "\n"
+    "- category MUST be EXACTLY one of the provided category names, or null.\n"
+    "- priority MUST be one of: low, medium, high. Use high for safety hazards, "
+    "security issues, loss of heat/AC, water leaks, power loss, or anything "
+    "blocking business operations; low for cosmetic or non-urgent issues; medium "
+    "otherwise.\n"
+    "- vendor MUST be EXACTLY one of the provided vendor names whose services "
+    "best match the work, or null if none clearly fit.\n"
+    "- reasoning is ONE short sentence explaining the suggestion."
+)
+
+
+async def triage_ticket(
+    subject: str,
+    description: str,
+    *,
+    categories: list[str],
+    vendors: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Suggest a category, priority, and vendor for a maintenance request.
+
+    ``categories`` is the list of the org's category names. ``vendors`` is a
+    list of ``{"name": ..., "services": ...}`` dicts. The model is constrained to
+    pick only from those lists (mirroring the abstract-catalog approach); the
+    caller maps the returned names back onto ids. Returns a dict with keys
+    ``category``, ``priority``, ``vendor``, and ``reasoning``.
+    """
+    cache_input = json.dumps(
+        {
+            "subject": subject,
+            "description": description,
+            "categories": sorted(categories),
+            "vendors": sorted(
+                (v.get("name", ""), v.get("services") or "") for v in vendors
+            ),
+        },
+        sort_keys=True,
+    ).encode("utf-8", "ignore")
+    key = _cache_key("ticket_triage", cache_input)
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+
+    cat_list = "\n".join(f"- {c}" for c in categories) or "(none defined)"
+    ven_list = (
+        "\n".join(
+            f"- {v.get('name', '')}: {v.get('services') or 'general maintenance'}"
+            for v in vendors
+        )
+        or "(none available)"
+    )
+    prompt = (
+        "Maintenance request to triage:\n"
+        f"Subject: {subject}\n"
+        f"Description: {description}\n"
+        "\n"
+        "Available categories:\n"
+        f"{cat_list}\n"
+        "\n"
+        "Available vendors (name: services):\n"
+        f"{ven_list}\n"
+        "\n"
+        "Return a single JSON object with exactly these keys: category, "
+        "priority, vendor, reasoning."
+    )
+    text = await _generate(
+        [{"text": prompt}], system_instruction=TICKET_TRIAGE_SYSTEM, json_response=True
+    )
+    result = _parse_json_object(text)
+    _cache_put(key, result)
+    return result
+
+
+TICKET_EMAIL_DRAFT_SYSTEM = (
+    "You are a facilities intake assistant. Convert a free-text maintenance "
+    "request email into a structured ticket draft for human review. Respond ONLY "
+    "with a JSON object. Use null for any field you cannot determine. Never "
+    "invent details that are not in the email.\n"
+    "\n"
+    "- subject is a short (max ~80 chars) summary of the problem.\n"
+    "- description is a clear, concise restatement of the reported issue.\n"
+    "- priority MUST be one of: low, medium, high (high for safety/operational "
+    "emergencies, low for cosmetic/non-urgent, medium otherwise).\n"
+    "- category MUST be EXACTLY one of the provided category names, or null.\n"
+    "- location_hint is any building/suite/site reference mentioned, or null."
+)
+
+TICKET_EMAIL_DRAFT_FIELDS = {
+    "subject": "Short summary of the problem (max ~80 characters)",
+    "description": "Clear, concise restatement of the reported issue",
+    "priority": "One of: low, medium, high",
+    "category": "EXACTLY one of the provided category names, or null",
+    "location_hint": "Any building / suite / site reference mentioned, or null",
+}
+
+
+async def draft_ticket_from_email(
+    email_text: str,
+    *,
+    categories: list[str],
+) -> dict[str, Any]:
+    """Draft structured ticket fields from a free-text request email.
+
+    Returns a dict with keys ``subject``, ``description``, ``priority``,
+    ``category``, and ``location_hint`` for the form to apply after review.
+    """
+    body = (email_text or "").strip()
+    if not body:
+        raise AIRequestError("The email did not contain any readable text.")
+    body = body[:MAX_TEXT_CHARS]
+
+    cache_input = json.dumps(
+        {"email": body, "categories": sorted(categories)}, sort_keys=True
+    ).encode("utf-8", "ignore")
+    key = _cache_key("ticket_email_draft", cache_input)
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+
+    field_spec = "\n".join(f"- {k}: {v}" for k, v in TICKET_EMAIL_DRAFT_FIELDS.items())
+    cat_list = "\n".join(f"- {c}" for c in categories) or "(none defined)"
+    prompt = (
+        "Convert the following maintenance request email into a single JSON "
+        "object with exactly these keys:\n"
+        f"{field_spec}\n"
+        "\n"
+        "Available categories:\n"
+        f"{cat_list}\n"
+        "\n"
+        "REQUEST EMAIL TEXT:\n"
+        f"{body}"
+    )
+    text = await _generate(
+        [{"text": prompt}],
+        system_instruction=TICKET_EMAIL_DRAFT_SYSTEM,
+        json_response=True,
+    )
+    result = _parse_json_object(text)
+    _cache_put(key, result)
+    return result
+
+
 ABSTRACT_SUGGEST_SYSTEM = (
     "You are a commercial lease abstraction assistant. For each requested clause "
     "category, extract the relevant lease provisions into the category's "
