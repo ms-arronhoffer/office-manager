@@ -193,9 +193,10 @@ ACCESS_BLOCKED_INACTIVE = "blocked_inactive"
 ACCESS_BLOCKED_CANCELED = "blocked_canceled"
 ACCESS_BLOCKED_PAST_DUE = "blocked_past_due"
 ACCESS_GRACE_PAST_DUE = "grace_past_due"
+ACCESS_TRIAL_EXPIRED = "trial_expired"
 
 _BLOCKED_STATES = frozenset(
-    {ACCESS_BLOCKED_INACTIVE, ACCESS_BLOCKED_CANCELED, ACCESS_BLOCKED_PAST_DUE}
+    {ACCESS_BLOCKED_INACTIVE, ACCESS_BLOCKED_CANCELED, ACCESS_BLOCKED_PAST_DUE, ACCESS_TRIAL_EXPIRED}
 )
 
 
@@ -217,6 +218,22 @@ def org_access_state(org: "Organization", now: "datetime | None" = None) -> str:
     payment_status = getattr(org, "payment_status", "active")
     if payment_status == "canceled":
         return ACCESS_BLOCKED_CANCELED
+
+    # Trial expiry: org is on "active" payment status but has no paid subscription
+    # and the trial window has closed.
+    trial_ends_at = getattr(org, "trial_ends_at", None)
+    stripe_subscription_id = getattr(org, "stripe_subscription_id", None)
+    if (
+        trial_ends_at is not None
+        and payment_status == "active"
+        and stripe_subscription_id is None
+    ):
+        current_for_trial = now or _dt.now(_tz.utc)
+        trial_ts = trial_ends_at
+        if trial_ts.tzinfo is None:
+            trial_ts = trial_ts.replace(tzinfo=_tz.utc)
+        if current_for_trial > trial_ts:
+            return ACCESS_TRIAL_EXPIRED
 
     if payment_status == "past_due":
         since = getattr(org, "past_due_since", None)
@@ -245,6 +262,9 @@ def access_denied_message(state: str) -> str:
         ACCESS_BLOCKED_PAST_DUE: (
             "This organization's payment is past due and the grace period has "
             "expired. Update your billing details to restore access."
+        ),
+        ACCESS_TRIAL_EXPIRED: (
+            "Your free trial has ended. Upgrade to a paid plan to restore full access."
         ),
     }.get(state, "Access to this organization is currently restricted.")
 

@@ -11,10 +11,86 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user, require_role
 from app.config import settings
 from app.database import get_db
+from app.models.notification import Notification
 from app.models.organization import Organization
 from app.models.user import User
+from app.utils.email_client import send_email
 
 router = APIRouter()
+
+
+async def _get_org_admin_emails(db: AsyncSession, org_id) -> list[str]:
+    """Return email addresses of active admin users for an org."""
+    result = await db.execute(
+        select(User.email).where(
+            User.organization_id == org_id,
+            User.role == "admin",
+            User.is_active.is_(True),
+        )
+    )
+    return [r[0] for r in result.all()]
+
+
+async def _send_billing_email(
+    db: AsyncSession,
+    org: Organization,
+    template_name: str,
+    subject: str,
+    extra_ctx: dict | None = None,
+) -> None:
+    """Send a billing lifecycle email to all active admins of an org."""
+    try:
+        from jinja2 import Environment, FileSystemLoader
+        env = Environment(loader=FileSystemLoader("app/templates"))
+        template = env.get_template(template_name)
+        ctx = {"org_name": org.name, "billing_url": f"{settings.FRONTEND_URL}/billing"}
+        if extra_ctx:
+            ctx.update(extra_ctx)
+        html_body = template.render(**ctx)
+        recipients = await _get_org_admin_emails(db, org.id)
+        for email in recipients:
+            await send_email(to=email, subject=subject, html_body=html_body)
+    except Exception as e:
+        print(f"[BILLING EMAIL] Failed to send {template_name} for {org.name}: {e}")
+
+
+async def _notify_super_admins(
+    db: AsyncSession,
+    org: Organization,
+    message: str,
+) -> None:
+    """Create an in-app Notification for every active super-admin."""
+    try:
+        super_admins = (
+            await db.execute(
+                select(User).where(User.is_super_admin.is_(True), User.is_active.is_(True))
+            )
+        ).scalars().all()
+        for admin in super_admins:
+            notif = Notification(
+                user_id=admin.id,
+                organization_id=org.id,
+                kind="billing_alert",
+                title=f"Billing alert: {org.name}",
+                body=message,
+            )
+            db.add(notif)
+        await db.commit()
+    except Exception as e:
+        print(f"[BILLING NOTIFICATION] Failed: {e}")
+        await db.rollback()
+
+
+async def _notify_slack(message: str) -> None:
+    """Post a message to the configured Slack webhook (best-effort)."""
+    if not settings.SLACK_WEBHOOK_URL:
+        return
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(settings.SLACK_WEBHOOK_URL, json={"text": message})
+    except Exception as e:
+        print(f"[SLACK] Failed to send notification: {e}")
 
 
 def _mark_active(org: Organization) -> None:
@@ -225,6 +301,9 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                     org.is_active = False
                     org.past_due_since = None
                 await db.commit()
+                if sub_status in _PAST_DUE_STATUSES:
+                    await _notify_super_admins(db, org, f"Subscription past due for org '{org.name}'")
+                    await _notify_slack(f":warning: Subscription past due for org *{org.name}*")
 
     elif event_type == "customer.subscription.deleted":
         # Subscription fully canceled
@@ -241,6 +320,13 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 org.is_active = False
                 org.past_due_since = None
                 await db.commit()
+                await _send_billing_email(
+                    db, org,
+                    "billing_account_suspended.html",
+                    f"Your SwiftLease account has been suspended",
+                )
+                await _notify_super_admins(db, org, f"Subscription canceled for org '{org.name}' (plan: {org.plan})")
+                await _notify_slack(f":red_circle: Subscription canceled for org *{org.name}*")
 
     elif event_type == "invoice.payment_failed":
         # Payment attempt failed — enter dunning state (keep org active, show warning)
@@ -253,6 +339,14 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             if org and org.payment_status == "active":
                 _mark_past_due(org)
                 await db.commit()
+                await _send_billing_email(
+                    db, org,
+                    "billing_payment_failed.html",
+                    f"Payment failed for {org.name} — action required",
+                    extra_ctx={"grace_days": 10},
+                )
+                await _notify_super_admins(db, org, f"Payment failed for org '{org.name}' (plan: {org.plan})")
+                await _notify_slack(f":warning: Payment failed for org *{org.name}* (plan: {org.plan})")
 
     elif event_type == "invoice.payment_succeeded":
         # Payment recovered — clear dunning state
@@ -265,5 +359,10 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             if org and org.payment_status in ("past_due",):
                 _mark_active(org)
                 await db.commit()
+                await _send_billing_email(
+                    db, org,
+                    "billing_payment_recovered.html",
+                    f"Payment successful — {org.name} account restored",
+                )
 
     return {"received": True}

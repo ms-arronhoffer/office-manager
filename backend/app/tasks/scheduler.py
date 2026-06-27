@@ -9,6 +9,8 @@ from app.tasks.webhook_retry import retry_failed_webhooks
 from app.tasks.insurance_reminders import check_insurance_expirations
 from app.tasks.maintenance_reminders import check_maintenance_reminders
 from app.tasks.knowledge_index import reindex_knowledge
+from app.tasks.billing_hygiene import run_billing_hygiene
+from app.tasks.audit_log_pruning import run_audit_log_pruning
 
 scheduler = AsyncIOScheduler()
 
@@ -25,8 +27,10 @@ def start_scheduler():
     scheduler.add_job(check_insurance_expirations, "cron", hour=8, minute=0, id="insurance_expirations")
     scheduler.add_job(retry_failed_webhooks, "interval", minutes=2, id="webhook_retries")
     scheduler.add_job(reindex_knowledge, "cron", hour=3, minute=0, id="knowledge_reindex")
+    scheduler.add_job(run_billing_hygiene, "cron", hour=6, minute=0, id="billing_hygiene")
+    scheduler.add_job(run_audit_log_pruning, "cron", hour=2, minute=0, id="audit_log_pruning")
     scheduler.start()
-    print("[SCHEDULER] Started with 11 jobs (10 daily/weekly + webhook retry every 2 min)")
+    print("[SCHEDULER] Started with 13 jobs (12 daily/weekly + webhook retry every 2 min)")
 
 
 def stop_scheduler():
