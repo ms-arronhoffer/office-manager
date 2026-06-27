@@ -11,6 +11,7 @@ import GlobalSearchBar from '@/components/common/GlobalSearchBar';
 import KeyboardShortcutsModal from '@/components/common/KeyboardShortcutsModal';
 import NotificationBell from '@/components/common/NotificationBell';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import './AppNavigation.css';
 
 interface AppNavigationProps {
   children: React.ReactNode;
@@ -181,15 +182,17 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       </div>
       <AppLayout
         navigation={
-          <SideNavigation
-            activeHref={location.pathname}
-            header={{ href: '/', text: settings.app_name }}
-            items={navItems}
-            onFollow={(e) => {
-              e.preventDefault();
-              navigate(e.detail.href);
-            }}
-          />
+          <div className="app-side-nav">
+            <SideNavigation
+              activeHref={location.pathname}
+              header={{ href: '/', text: settings.app_name }}
+              items={navItems}
+              onFollow={(e) => {
+                e.preventDefault();
+                navigate(e.detail.href);
+              }}
+            />
+          </div>
         }
         navigationOpen={navigationOpen}
         onNavigationChange={handleNavigationChange}

@@ -1,5 +1,4 @@
 import React, { useCallback, useState } from 'react';
-import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Tabs from '@cloudscape-design/components/tabs';
 import Table from '@cloudscape-design/components/table';
@@ -1011,12 +1010,11 @@ const HqHvacPage: React.FC = () => {
   const refreshActive = useCallback(() => loadTab(activeTabId), [activeTabId, loadTab]);
 
   return (
-    <ContentLayout header={<Header variant="h1">HVAC Systems</Header>}>
-      <SpaceBetween size="l">
-        <Tabs
-          activeTabId={activeTabId}
-          onChange={handleTabChange}
-          tabs={[
+    <SpaceBetween size="l">
+      <Tabs
+        activeTabId={activeTabId}
+        onChange={handleTabChange}
+        tabs={[
             {
               id: 'heat-pumps', label: 'Heat Pumps',
               content: <Box padding={{ top: 'm' }}><HeatPumpsTab state={heatPumpsState} onRefresh={refreshActive} officeOptions={officeOptions} /></Box>,
@@ -1043,8 +1041,7 @@ const HqHvacPage: React.FC = () => {
             },
           ]}
         />
-      </SpaceBetween>
-    </ContentLayout>
+    </SpaceBetween>
   );
 };
 

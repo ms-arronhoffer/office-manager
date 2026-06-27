@@ -1,0 +1,16 @@
+/*
+ * Indent links that live underneath a side-navigation roll-up (a `section`
+ * group such as "Portfolio" or "Maintenance") so it is visually clear they
+ * belong to the parent category. Cloudscape renders section children at the
+ * same indentation as top-level links by default, which makes the grouping
+ * hard to read.
+ *
+ * The child links sit in a generic `awsui_list_*` <ul> nested inside the
+ * section's `awsui_section_*` element. The `:not(#\9)` suffix mirrors
+ * Cloudscape's own specificity trick so this override wins over the library's
+ * base list padding.
+ */
+.app-side-nav [class*="awsui_section_"] [class*="awsui_list_"]:not(#\9),
+.app-side-nav [class*="awsui_expandable-link-group_"] [class*="awsui_list_"]:not(#\9) {
+  padding-inline-start: 36px;
+}

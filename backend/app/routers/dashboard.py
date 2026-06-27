@@ -80,6 +80,7 @@ async def get_summary(
     lease_count_result = await db.execute(
         select(func.count(Lease.id)).where(
             Lease.organization_id == current_user.organization_id,
+            Lease.is_deleted.is_(False),
             Lease.lease_expiration.is_not(None),
             Lease.lease_expiration >= today,
         )
@@ -89,6 +90,7 @@ async def get_summary(
     upcoming_result = await db.execute(
         select(func.count(Lease.id)).where(
             Lease.organization_id == current_user.organization_id,
+            Lease.is_deleted.is_(False),
             Lease.lease_expiration.is_not(None),
             Lease.lease_expiration >= today,
             Lease.lease_expiration <= cutoff_90,
@@ -99,6 +101,7 @@ async def get_summary(
     overdue_result = await db.execute(
         select(func.count(Lease.id)).where(
             Lease.organization_id == current_user.organization_id,
+            Lease.is_deleted.is_(False),
             Lease.lease_notice_date.is_not(None),
             Lease.lease_notice_date < today,
             Lease.notice_given_date.is_(None),
@@ -147,6 +150,7 @@ async def lease_expirations_by_year(
     result = await db.execute(
         select(Lease.expiration_year, func.count(Lease.id).label("count"))
         .where(Lease.organization_id == current_user.organization_id)
+        .where(Lease.is_deleted.is_(False))
         .group_by(Lease.expiration_year)
         .order_by(Lease.expiration_year)
     )
@@ -221,6 +225,7 @@ async def upcoming_reminders(
     # Leases expiring within 90 days
     lease_result = await db.execute(
         select(Lease)
+        .where(Lease.is_deleted.is_(False))
         .where(Lease.lease_expiration.is_not(None))
         .where(Lease.lease_expiration >= today)
         .where(Lease.lease_expiration <= cutoff_90)
@@ -241,6 +246,7 @@ async def upcoming_reminders(
     # Notices due within 30 days
     notice_result = await db.execute(
         select(Lease)
+        .where(Lease.is_deleted.is_(False))
         .where(Lease.lease_notice_date.is_not(None))
         .where(Lease.lease_notice_date >= today)
         .where(Lease.lease_notice_date <= cutoff_30)
@@ -420,6 +426,7 @@ async def lease_risk(
     result = await db.execute(
         select(Lease.lease_expiration).where(
             Lease.organization_id == current_user.organization_id,
+            Lease.is_deleted.is_(False),
             Lease.lease_expiration.is_not(None),
         )
     )
@@ -453,12 +460,14 @@ async def portfolio_health(
     total_leases = (await db.execute(
         select(func.count(Lease.id)).where(
             Lease.organization_id == org_id,
+            Lease.is_deleted.is_(False),
             Lease.lease_expiration.is_not(None),
         )
     )).scalar_one() or 1
     at_risk_leases = (await db.execute(
         select(func.count(Lease.id)).where(
             Lease.organization_id == org_id,
+            Lease.is_deleted.is_(False),
             Lease.lease_expiration.is_not(None),
             Lease.lease_expiration <= today + timedelta(days=90),
         )
@@ -592,6 +601,7 @@ async def cost_per_sqft(
             Lease.payment_frequency,
         ).where(
             Lease.organization_id == org_id,
+            Lease.is_deleted.is_(False),
             Lease.office_id.is_not(None),
             Lease.payment_amount.is_not(None),
         )
@@ -613,6 +623,7 @@ async def cost_per_sqft(
         .join(OperatingExpense, OperatingExpense.lease_id == Lease.id)
         .where(
             Lease.organization_id == org_id,
+            Lease.is_deleted.is_(False),
             OperatingExpense.year == current_year,
             OperatingExpense.actual.is_not(None),
         )
@@ -630,6 +641,7 @@ async def cost_per_sqft(
         .join(OperatingExpense, OperatingExpense.lease_id == Lease.id)
         .where(
             Lease.organization_id == org_id,
+            Lease.is_deleted.is_(False),
             OperatingExpense.year == current_year,
             OperatingExpense.actual.is_not(None),
         )
