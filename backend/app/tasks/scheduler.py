@@ -30,7 +30,8 @@ def start_scheduler():
     scheduler.add_job(run_billing_hygiene, "cron", hour=6, minute=0, id="billing_hygiene")
     scheduler.add_job(run_audit_log_pruning, "cron", hour=2, minute=0, id="audit_log_pruning")
     scheduler.start()
-    print("[SCHEDULER] Started with 13 jobs (12 daily/weekly + webhook retry every 2 min)")
+    job_count = len(scheduler.get_jobs())
+    print(f"[SCHEDULER] Started with {job_count} jobs")
 
 
 def stop_scheduler():

@@ -209,7 +209,7 @@ async def run_billing_hygiene() -> None:
                     recipients = await _get_org_admin_emails(db, org.id)
                     for email in recipients:
                         subject = f"Urgent: Update payment for {org.name} to avoid lockout"
-                        if not await _already_sent(db, email, subject[:40]):
+                        if not await _already_sent(db, email, "billing_payment_failed.html"):
                             sent = await send_email(to=email, subject=subject, html_body=html)
                             if sent:
                                 await _log_sent(db, email, subject, "billing_payment_failed.html")

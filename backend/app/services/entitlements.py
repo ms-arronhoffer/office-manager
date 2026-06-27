@@ -200,21 +200,25 @@ _BLOCKED_STATES = frozenset(
 )
 
 
+def _as_utc(dt: "datetime") -> "datetime":
+    """Return *dt* with UTC timezone attached; adds UTC if the datetime is naive."""
+    from datetime import timezone as _tz
+
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=_tz.utc)
+
+
 def _is_expired_trial(org: "Organization", now: "datetime") -> bool:
     """Return True when the org's free trial has ended with no paid subscription.
 
     Evaluates to False when the org has a Stripe subscription (they upgraded),
     or when ``trial_ends_at`` is unset, or when the trial has not yet ended.
     """
-    from datetime import timezone as _tz
-
     trial_ends_at = getattr(org, "trial_ends_at", None)
     if trial_ends_at is None:
         return False
     if getattr(org, "stripe_subscription_id", None) is not None:
         return False
-    ts = trial_ends_at if trial_ends_at.tzinfo is not None else trial_ends_at.replace(tzinfo=_tz.utc)
-    return now > ts
+    return now > _as_utc(trial_ends_at)
 
 
 def org_access_state(org: "Organization", now: "datetime | None" = None) -> str:
@@ -246,9 +250,7 @@ def org_access_state(org: "Organization", now: "datetime | None" = None) -> str:
         if since is None:
             return ACCESS_GRACE_PAST_DUE
         current = now or _dt.now(_tz.utc)
-        if since.tzinfo is None:
-            since = since.replace(tzinfo=_tz.utc)
-        if current - since > _td(days=PAST_DUE_GRACE_DAYS):
+        if current - _as_utc(since) > _td(days=PAST_DUE_GRACE_DAYS):
             return ACCESS_BLOCKED_PAST_DUE
         return ACCESS_GRACE_PAST_DUE
 
