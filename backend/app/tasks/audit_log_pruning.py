@@ -61,6 +61,7 @@ async def run_audit_log_pruning() -> None:
     async with async_session() as db:
         result = await db.execute(select(Organization).where(Organization.is_active.is_(True)))
         orgs = result.scalars().all()
+        org_count = len(orgs)
 
         for org in orgs:
             try:
@@ -71,4 +72,4 @@ async def run_audit_log_pruning() -> None:
             except Exception as e:
                 print(f"[AUDIT PRUNE] Failed for org '{org.name}': {e}")
 
-    print(f"[AUDIT PRUNE] Completed — {total_deleted} rows deleted across {len(orgs)} orgs")
+        print(f"[AUDIT PRUNE] Completed — {total_deleted} rows deleted across {org_count} orgs")

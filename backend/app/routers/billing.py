@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_role
 from app.config import settings
+from app.services import entitlements as ent
 from app.database import get_db
 from app.models.notification import Notification
 from app.models.organization import Organization
@@ -343,7 +344,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                     db, org,
                     "billing_payment_failed.html",
                     f"Payment failed for {org.name} — action required",
-                    extra_ctx={"grace_days": 10},
+                    extra_ctx={"grace_days": ent.PAST_DUE_GRACE_DAYS},
                 )
                 await _notify_super_admins(db, org, f"Payment failed for org '{org.name}' (plan: {org.plan})")
                 await _notify_slack(f":warning: Payment failed for org *{org.name}* (plan: {org.plan})")

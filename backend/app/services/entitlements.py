@@ -200,6 +200,23 @@ _BLOCKED_STATES = frozenset(
 )
 
 
+def _is_expired_trial(org: "Organization", now: "datetime") -> bool:
+    """Return True when the org's free trial has ended with no paid subscription.
+
+    Evaluates to False when the org has a Stripe subscription (they upgraded),
+    or when ``trial_ends_at`` is unset, or when the trial has not yet ended.
+    """
+    from datetime import timezone as _tz
+
+    trial_ends_at = getattr(org, "trial_ends_at", None)
+    if trial_ends_at is None:
+        return False
+    if getattr(org, "stripe_subscription_id", None) is not None:
+        return False
+    ts = trial_ends_at if trial_ends_at.tzinfo is not None else trial_ends_at.replace(tzinfo=_tz.utc)
+    return now > ts
+
+
 def org_access_state(org: "Organization", now: "datetime | None" = None) -> str:
     """Classify an org's current access state.
 
@@ -221,19 +238,8 @@ def org_access_state(org: "Organization", now: "datetime | None" = None) -> str:
 
     # Trial expiry: org is on "active" payment status but has no paid subscription
     # and the trial window has closed.
-    trial_ends_at = getattr(org, "trial_ends_at", None)
-    stripe_subscription_id = getattr(org, "stripe_subscription_id", None)
-    if (
-        trial_ends_at is not None
-        and payment_status == "active"
-        and stripe_subscription_id is None
-    ):
-        current_for_trial = now or _dt.now(_tz.utc)
-        trial_ts = trial_ends_at
-        if trial_ts.tzinfo is None:
-            trial_ts = trial_ts.replace(tzinfo=_tz.utc)
-        if current_for_trial > trial_ts:
-            return ACCESS_TRIAL_EXPIRED
+    if payment_status == "active" and _is_expired_trial(org, now or _dt.now(_tz.utc)):
+        return ACCESS_TRIAL_EXPIRED
 
     if payment_status == "past_due":
         since = getattr(org, "past_due_since", None)

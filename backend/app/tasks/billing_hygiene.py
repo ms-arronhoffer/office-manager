@@ -22,13 +22,24 @@ from app.services import entitlements as ent
 from app.utils.email_client import send_email
 
 
-async def _already_sent(db: AsyncSession, email: str, subject_prefix: str) -> bool:
-    """Return True if we sent an email with this subject prefix to this address in the last 20h."""
+def _ensure_utc(dt: datetime) -> datetime:
+    """Return ``dt`` with UTC timezone; adds UTC if naive."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+async def _already_sent(db: AsyncSession, email: str, template_name: str) -> bool:
+    """Return True if we sent this template to this address in the last 20h.
+
+    Uses the template name stored in the EmailLog body (``template:<name>``)
+    rather than a subject prefix, making deduplication unambiguous.
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(hours=20)
     result = await db.execute(
         select(EmailLog).where(
             EmailLog.sent_to == email,
-            EmailLog.subject.like(f"{subject_prefix}%"),
+            EmailLog.body == f"template:{template_name}",
             EmailLog.sent_at >= cutoff,
         )
     )
@@ -89,7 +100,7 @@ async def _send_trial_email(
 
         recipients = await _get_org_admin_emails(db, org.id)
         for email in recipients:
-            if not await _already_sent(db, email, subject[:40]):
+            if not await _already_sent(db, email, template_name):
                 sent = await send_email(to=email, subject=subject, html_body=html_body)
                 if sent:
                     await _log_sent(db, email, subject, template_name)
@@ -114,12 +125,9 @@ async def run_billing_hygiene() -> None:
         trial_orgs = result.scalars().all()
 
         for org in trial_orgs:
-            trial_end = org.trial_ends_at
-            if trial_end.tzinfo is None:
-                trial_end = trial_end.replace(tzinfo=timezone.utc)
-
+            trial_end = _ensure_utc(org.trial_ends_at)
             days_remaining = (trial_end - now).days
-            days_since_signup = (now - org.created_at.replace(tzinfo=timezone.utc)).days if org.created_at.tzinfo is None else (now - org.created_at).days
+            days_since_signup = (now - _ensure_utc(org.created_at)).days
 
             # Trial already expired — send expiry email
             if now > trial_end:
