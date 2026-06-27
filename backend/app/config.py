@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     STRIPE_PRICE_ID_PRO: str = ""
     STRIPE_PRICE_ID_ENTERPRISE: str = ""
 
+    # Trial period
+    TRIAL_DAYS: int = 30
+
+    # Slack webhook for internal ops alerts (billing events, etc.). Optional.
+    SLACK_WEBHOOK_URL: str = ""
+
     # Google Gemini (AI assist). All three are configurable so the model id and
     # endpoint can be corrected without a code change. When GEMINI_API_KEY is
     # empty the AI features degrade gracefully (mirroring SMTP/Stripe).

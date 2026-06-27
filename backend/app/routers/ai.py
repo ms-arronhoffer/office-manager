@@ -42,6 +42,34 @@ from app.services.lease_abstract_catalog import CLAUSE_CATEGORIES
 router = APIRouter()
 
 
+# ── Usage logging ─────────────────────────────────────────────────────────────
+
+async def _log_ai_usage(
+    db: AsyncSession,
+    org_id,
+    feature: str,
+    quantity: int = 1,
+    meta: str | None = None,
+) -> None:
+    """Best-effort: record a usage event for metered AI feature tracking."""
+    from app.models.usage_event import UsageEvent
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    period = now.strftime("%Y-%m")
+    event = UsageEvent(
+        organization_id=org_id,
+        feature=feature,
+        quantity=quantity,
+        period_month=period,
+        meta=meta,
+    )
+    db.add(event)
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+
+
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class AIStatusResponse(BaseModel):
@@ -374,6 +402,7 @@ async def triage_ticket(
         raise _ai_error_response(exc)
 
     suggested = _map_triage_result(result, categories, vendors)
+    await _log_ai_usage(db, current_user.organization_id, "ai_triage")
     return TicketTriageResponse(suggested=suggested, model=settings.GEMINI_MODEL)
 
 
@@ -483,6 +512,7 @@ async def similar_tickets(
         )
         for score, t in scored[: payload.limit]
     ]
+    await _log_ai_usage(db, current_user.organization_id, "ai_similar")
     return SimilarTicketsResponse(matches=matches, mode=mode)
 
 
@@ -510,6 +540,7 @@ async def draft_ticket_from_email(
         )
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
+    await _log_ai_usage(db, current_user.organization_id, "ai_draft")
     return TicketEmailDraftResponse(suggested=suggested, model=settings.GEMINI_MODEL)
 
 
@@ -550,6 +581,7 @@ async def suggest_abstract(
         )
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
+    await _log_ai_usage(db, current_user.organization_id, "ai_abstract")
     return AbstractSuggestResponse(suggested=suggested, model=settings.GEMINI_MODEL)
 
 
@@ -670,6 +702,7 @@ async def summary_report(
         narrative = await ai_service.generate_summary_narrative(period_label, data)
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
+    await _log_ai_usage(db, current_user.organization_id, "ai_summary")
     return SummaryResponse(
         period=period,
         period_label=period_label,
@@ -760,6 +793,7 @@ async def assistant_query(
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
 
+    await _log_ai_usage(db, current_user.organization_id, "ai_assistant")
     mode = chunks[0]["match_type"] if chunks else "semantic"
     citations = [
         AssistantCitation(

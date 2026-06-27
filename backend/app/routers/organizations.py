@@ -1,5 +1,7 @@
 import re
 import uuid
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user, require_role, require_super_admin
 from app.auth.jwt_handler import create_access_token
 from app.auth.password import hash_password
+from app.config import settings
 from app.database import get_db
 from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.office import Office
@@ -55,6 +58,7 @@ async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)):
         plan="starter",
         is_active=True,
         onboarding_complete=False,
+        trial_ends_at=datetime.now(timezone.utc) + timedelta(days=settings.TRIAL_DAYS),
     )
     db.add(org)
     await db.flush()  # get org.id before creating user
@@ -221,3 +225,35 @@ async def update_organization(
     await db.commit()
     await db.refresh(org)
     return org
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_organization(
+    current_user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft-delete the current organization. Cancels Stripe subscription if present.
+
+    This is irreversible from the tenant's perspective. Data is preserved for
+    compliance; a super-admin hard-delete can be performed separately.
+    """
+    if not current_user.organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No organization assigned")
+
+    result = await db.execute(select(Organization).where(Organization.id == current_user.organization_id))
+    org = result.scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    # Cancel Stripe subscription best-effort
+    if org.stripe_subscription_id and settings.STRIPE_SECRET_KEY:
+        try:
+            import stripe
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            stripe.Subscription.delete(org.stripe_subscription_id)
+        except Exception as e:
+            print(f"[STRIPE] Failed to cancel subscription on org self-delete: {e}")
+
+    org.is_active = False
+    org.payment_status = "canceled"
+    await db.commit()

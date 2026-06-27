@@ -12,6 +12,7 @@ from app.config import settings
 from app.tasks.scheduler import start_scheduler, stop_scheduler
 from app.database import async_session
 from app.seeds.wizard_seed import seed_default_wizard_config
+from app.utils.rate_limit import org_limiter
 
 
 APP_VERSION = "1.0.0"
@@ -36,6 +37,7 @@ app = FastAPI(
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 app.state.limiter = limiter
+app.state.org_limiter = org_limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
