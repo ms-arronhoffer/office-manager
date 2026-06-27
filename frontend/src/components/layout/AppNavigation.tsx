@@ -74,11 +74,6 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       ],
     },
     {
-      type: 'link' as const,
-      text: 'Finance',
-      href: '/finance',
-    },
-    {
       type: 'section' as const,
       text: 'Operations',
       items: [
@@ -101,6 +96,11 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
         { type: 'link' as const, text: 'Exterior & Structural', href: '/maintenance/exterior_structural' },
         { type: 'link' as const, text: 'Elevators & Lifts', href: '/maintenance/elevators_lifts' },
       ],
+    },
+    {
+      type: 'link' as const,
+      text: 'Finance',
+      href: '/finance',
     },
     ...(isEditorOrAdmin ? [{
       type: 'link' as const,
