@@ -9,7 +9,6 @@ import Spinner from '@cloudscape-design/components/spinner';
 import Link from '@cloudscape-design/components/link';
 import TabbedPage from '@/components/layout/TabbedPage';
 import MaintenanceCategoryPanel from '@/components/maintenance/MaintenanceCategoryPanel';
-import HqHvacPage from '@/pages/HqHvacPage';
 import { useAuth } from '@/auth/AuthContext';
 import {
   maintenance as maintApi,
@@ -117,23 +116,20 @@ const MaintenancePage: React.FC = () => {
         id: cat.value,
         label: cat.label,
         href: `/maintenance/${cat.value}`,
-        content:
-          cat.value === 'hvac' ? (
-            <Box padding={{ top: 'm' }}><HqHvacPage /></Box>
-          ) : (
-            <Box padding={{ top: 'm' }}>
-              <MaintenanceCategoryPanel
-                category={cat}
-                frequencies={catalog.frequencies}
-                taskStatuses={catalog.task_statuses}
-                assetStatuses={catalog.asset_statuses}
-                vendorOptions={vendorOptions}
-                officeOptions={officeOptions}
-                canEdit={canEdit}
-                onChanged={loadOverview}
-              />
-            </Box>
-          ),
+        content: (
+          <Box padding={{ top: 'm' }}>
+            <MaintenanceCategoryPanel
+              category={cat}
+              frequencies={catalog.frequencies}
+              taskStatuses={catalog.task_statuses}
+              assetStatuses={catalog.asset_statuses}
+              vendorOptions={vendorOptions}
+              officeOptions={officeOptions}
+              canEdit={canEdit}
+              onChanged={loadOverview}
+            />
+          </Box>
+        ),
       });
     }
     return built;
