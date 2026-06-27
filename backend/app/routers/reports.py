@@ -80,7 +80,9 @@ async def generate_report(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    # PDF/XLSX export requires the pdf_export feature
+    # PDF/XLSX export requires the pdf_export feature; CSV is available on all plans.
+    # An inline check is used here instead of a route-level Depends(require_feature(...))
+    # because the same endpoint serves all formats and we want CSV to remain free.
     if request.format in ("pdf", "xlsx"):
         org_result = await db.execute(select(Organization).where(Organization.id == user.organization_id))
         org = org_result.scalar_one_or_none()

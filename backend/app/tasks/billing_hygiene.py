@@ -19,14 +19,8 @@ from app.models.email import EmailLog
 from app.models.organization import Organization
 from app.models.user import User
 from app.services import entitlements as ent
+from app.utils.datetime_utils import as_utc as _ensure_utc
 from app.utils.email_client import send_email
-
-
-def _ensure_utc(dt: datetime) -> datetime:
-    """Return ``dt`` with UTC timezone; adds UTC if naive."""
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
 
 
 async def _already_sent(db: AsyncSession, email: str, template_name: str) -> bool:
@@ -190,9 +184,7 @@ async def run_billing_hygiene() -> None:
         for org in past_due_orgs:
             if org.past_due_since is None:
                 continue
-            past_due_ts = org.past_due_since
-            if past_due_ts.tzinfo is None:
-                past_due_ts = past_due_ts.replace(tzinfo=timezone.utc)
+            past_due_ts = _ensure_utc(org.past_due_since)
             days_past_due = (now - past_due_ts).days
             if days_past_due >= ent.PAST_DUE_GRACE_DAYS - 2:
                 # 2 days before lockout — send urgent dunning notice

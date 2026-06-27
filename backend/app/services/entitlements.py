@@ -202,9 +202,8 @@ _BLOCKED_STATES = frozenset(
 
 def _as_utc(dt: "datetime") -> "datetime":
     """Return *dt* with UTC timezone attached; adds UTC if the datetime is naive."""
-    from datetime import timezone as _tz
-
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=_tz.utc)
+    from app.utils.datetime_utils import as_utc
+    return as_utc(dt)
 
 
 def _is_expired_trial(org: "Organization", now: "datetime") -> bool:
