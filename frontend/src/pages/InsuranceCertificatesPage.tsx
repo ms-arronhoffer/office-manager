@@ -16,7 +16,8 @@ import ColumnLayout from '@cloudscape-design/components/column-layout';
 import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import Toggle from '@cloudscape-design/components/toggle';
 import { useFlashbar } from '@/context/FlashbarContext';
-import { insuranceCertificates as certsApi, leases as leasesApi, vendors as vendorsApi } from '@/api';
+import AIDocumentPrefill from '@/components/common/AIDocumentPrefill';
+import { insuranceCertificates as certsApi, leases as leasesApi, vendors as vendorsApi, ai as aiApi } from '@/api';
 import type { InsuranceCertificate, InsuranceCertComplianceSummary } from '@/types';
 
 const CERT_TYPES = [
@@ -157,6 +158,35 @@ const InsuranceCertificatesPage: React.FC = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const applyAISuggestions = (suggested: Record<string, unknown>) => {
+    const str = (v: unknown): string | undefined =>
+      v === null || v === undefined ? undefined : String(v);
+    // Map free-text coverage type onto one of the known select values.
+    const mapCertType = (v: unknown): string | undefined => {
+      const s = str(v);
+      if (!s) return undefined;
+      const lower = s.toLowerCase();
+      const direct = CERT_TYPES.find((t) => t.value === lower);
+      if (direct) return direct.value;
+      if (lower.includes('general') || lower.includes('liab')) return 'general_liability';
+      if (lower.includes('comp')) return 'workers_comp';
+      if (lower.includes('auto')) return 'auto';
+      if (lower.includes('umbrella') || lower.includes('excess')) return 'umbrella';
+      return 'other';
+    };
+    setForm((f) => ({
+      ...f,
+      certificate_type: mapCertType(suggested.certificate_type) ?? f.certificate_type,
+      insurer: str(suggested.insurer) ?? f.insurer,
+      policy_number: str(suggested.policy_number) ?? f.policy_number,
+      effective_date: str(suggested.effective_date) ?? f.effective_date,
+      expiration_date: str(suggested.expiration_date) ?? f.expiration_date,
+      limits: str(suggested.limits) ?? f.limits,
+      certificate_holder: str(suggested.certificate_holder) ?? f.certificate_holder,
+      notes: str(suggested.notes) ?? f.notes,
+    }));
   };
 
   const handleDelete = async (id: string) => {
@@ -302,6 +332,16 @@ const InsuranceCertificatesPage: React.FC = () => {
         }
       >
         <SpaceBetween size="m">
+          {!editingId && (
+            <AIDocumentPrefill
+              title="AI assist — extract from document"
+              description="Upload a certificate of insurance and let AI pre-fill the fields below for your review."
+              dropzoneText="Drop a certificate of insurance here"
+              parse={aiApi.parseInsuranceCertificate}
+              onSuggested={applyAISuggestions}
+              onFileExtracted={(file) => setForm((f) => ({ ...f, file }))}
+            />
+          )}
           <FormField label="Vendor or landlord" description="Required">
             <Select
               selectedOption={form.entity ? { label: form.entity.label, value: form.entity.value } : null}

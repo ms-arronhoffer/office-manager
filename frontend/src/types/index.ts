@@ -1678,6 +1678,11 @@ export interface AbstractSuggestResult {
   model: string;
 }
 
+export interface DocumentParseResult {
+  suggested: Record<string, unknown>;
+  model: string;
+}
+
 export interface AISummaryResult {
   period: string;
   period_label: string;

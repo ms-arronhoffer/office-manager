@@ -24,8 +24,10 @@ AI output.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
+from collections import OrderedDict
 from typing import Any
 
 import httpx
@@ -37,6 +39,55 @@ logger = logging.getLogger(__name__)
 # Hard caps to protect against oversized prompts / documents.
 MAX_DOCUMENT_BYTES = 15 * 1024 * 1024  # 15 MB of raw document bytes
 MAX_TEXT_CHARS = 200_000
+
+# Bump whenever a parse prompt/field-spec changes so cached results from an
+# older prompt version are invalidated rather than served stale.
+PROMPT_VERSION = "1"
+
+# ── Response cache (document parses) ──────────────────────────────────────────
+#
+# Document extraction is deterministic enough that re-parsing the *same* bytes
+# with the *same* prompt is wasted latency and Gemini spend. We keep a small,
+# in-process LRU cache keyed on a hash of (parser, prompt version, model,
+# document bytes / extracted text). The cache is best-effort: it never changes
+# behaviour, only short-circuits an identical repeat call within a single
+# process. It deliberately stores only parsed JSON (no raw document bytes).
+
+CACHE_MAX_ENTRIES = 256
+_parse_cache: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
+
+
+def _cache_key(parser: str, payload: bytes) -> str:
+    digest = hashlib.sha256(payload).hexdigest()
+    return f"{parser}:{PROMPT_VERSION}:{settings.GEMINI_MODEL}:{digest}"
+
+
+def _cache_get(key: str) -> dict[str, Any] | None:
+    value = _parse_cache.get(key)
+    if value is not None:
+        _parse_cache.move_to_end(key)
+        # Return a copy so callers can't mutate the cached object.
+        return dict(value)
+    return None
+
+
+def _cache_put(key: str, value: dict[str, Any]) -> None:
+    _parse_cache[key] = dict(value)
+    _parse_cache.move_to_end(key)
+    while len(_parse_cache) > CACHE_MAX_ENTRIES:
+        _parse_cache.popitem(last=False)
+
+
+def _cache_payload(content: bytes, text_content: str | None) -> bytes:
+    """Build the bytes a cache key hashes over for a document parse."""
+    if text_content is not None:
+        return text_content.encode("utf-8", "ignore")
+    return content
+
+
+def clear_parse_cache() -> None:
+    """Empty the in-process parse cache (used by tests)."""
+    _parse_cache.clear()
 
 
 class AIError(Exception):
@@ -217,6 +268,53 @@ LEASE_PARSE_FIELDS = {
 }
 
 
+async def _parse_fields_from_document(
+    *,
+    parser: str,
+    system_instruction: str,
+    field_spec_map: dict[str, str],
+    intro: str,
+    document_label: str,
+    content: bytes,
+    mime_type: str,
+    text_content: str | None = None,
+) -> dict[str, Any]:
+    """Extract a fixed set of structured fields from a document.
+
+    Shared engine behind the per-entity ``parse_*`` helpers. For PDFs and images
+    the raw bytes are sent inline (Gemini reads them natively); for formats
+    Gemini cannot parse directly (e.g. Word documents) the caller extracts plain
+    text first and passes it as ``text_content``.
+
+    Identical (parser, prompt version, model, document) calls are served from a
+    small in-process cache to cut latency and provider spend.
+    """
+    payload = _cache_payload(content, text_content)
+    key = _cache_key(parser, payload)
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+
+    field_spec = "\n".join(f"- {k}: {v}" for k, v in field_spec_map.items())
+    prompt = f"{intro}\n{field_spec}\n"
+    if text_content is not None:
+        document = text_content[:MAX_TEXT_CHARS].strip()
+        if not document:
+            raise AIRequestError("The document did not contain any readable text.")
+        parts = [
+            {"text": prompt},
+            {"text": f"\n\n{document_label}:\n" + document},
+        ]
+    else:
+        parts = [{"text": prompt}, _document_part(content, mime_type)]
+    text = await _generate(
+        parts, system_instruction=system_instruction, json_response=True
+    )
+    result = _parse_json_object(text)
+    _cache_put(key, result)
+    return result
+
+
 async def parse_lease_document(
     content: bytes,
     mime_type: str,
@@ -232,26 +330,165 @@ async def parse_lease_document(
 
     Returns a dict whose keys are a subset of :class:`LeaseCreate` fields.
     """
-    field_spec = "\n".join(f"- {k}: {v}" for k, v in LEASE_PARSE_FIELDS.items())
-    prompt = (
-        "Extract the following fields from the lease document and "
-        "return a single JSON object with exactly these keys:\n"
-        f"{field_spec}\n"
+    return await _parse_fields_from_document(
+        parser="lease",
+        system_instruction=LEASE_PARSE_SYSTEM,
+        field_spec_map=LEASE_PARSE_FIELDS,
+        intro=(
+            "Extract the following fields from the lease document and "
+            "return a single JSON object with exactly these keys:"
+        ),
+        document_label="LEASE DOCUMENT TEXT",
+        content=content,
+        mime_type=mime_type,
+        text_content=text_content,
     )
-    if text_content is not None:
-        document = text_content[:MAX_TEXT_CHARS].strip()
-        if not document:
-            raise AIRequestError("The document did not contain any readable text.")
-        parts = [
-            {"text": prompt},
-            {"text": "\n\nLEASE DOCUMENT TEXT:\n" + document},
-        ]
-    else:
-        parts = [{"text": prompt}, _document_part(content, mime_type)]
-    text = await _generate(
-        parts, system_instruction=LEASE_PARSE_SYSTEM, json_response=True
+
+
+# ── Vendor bill / AP invoice extraction (maps onto BillCreate) ────────────────
+
+VENDOR_BILL_PARSE_SYSTEM = (
+    "You are an accounts-payable assistant. Extract the header details of a "
+    "vendor invoice / bill from the supplied document. Respond ONLY with a JSON "
+    "object. Use null for any field you cannot determine. Dates must be ISO 8601 "
+    "(YYYY-MM-DD). Do not invent values.\n"
+    "\n"
+    "- Return all monetary amounts as plain numbers (no currency symbols, "
+    "commas, or thousands separators), e.g. 12500.50 not \"$12,500.50\".\n"
+    "- total_amount is the invoice grand total (amount due).\n"
+    "- vendor_name is the company that issued the invoice (the payee), not the "
+    "bill-to / customer."
+)
+
+VENDOR_BILL_PARSE_FIELDS = {
+    "vendor_name": "Name of the vendor / supplier that issued the invoice",
+    "bill_number": "Invoice or bill number / reference as printed",
+    "bill_date": "Invoice date (YYYY-MM-DD)",
+    "due_date": "Payment due date if stated (YYYY-MM-DD)",
+    "total_amount": "Invoice grand total / amount due as a plain number",
+    "currency": "ISO 4217 currency code of the amounts, e.g. USD",
+    "memo": "Short description of what the invoice is for",
+}
+
+
+async def parse_vendor_bill_document(
+    content: bytes,
+    mime_type: str,
+    *,
+    text_content: str | None = None,
+) -> dict[str, Any]:
+    """Extract suggested vendor-bill header fields from an invoice document."""
+    return await _parse_fields_from_document(
+        parser="vendor_bill",
+        system_instruction=VENDOR_BILL_PARSE_SYSTEM,
+        field_spec_map=VENDOR_BILL_PARSE_FIELDS,
+        intro=(
+            "Extract the following fields from the vendor invoice / bill and "
+            "return a single JSON object with exactly these keys:"
+        ),
+        document_label="VENDOR INVOICE TEXT",
+        content=content,
+        mime_type=mime_type,
+        text_content=text_content,
     )
-    return _parse_json_object(text)
+
+
+# ── Insurance certificate (COI) extraction (maps onto CertCreate) ─────────────
+
+INSURANCE_PARSE_SYSTEM = (
+    "You are an insurance compliance assistant. Extract the key details from a "
+    "Certificate of Insurance (ACORD or similar). Respond ONLY with a JSON "
+    "object. Use null for any field you cannot determine. Dates must be ISO 8601 "
+    "(YYYY-MM-DD). Do not invent values.\n"
+    "\n"
+    "- insurer is the insurance carrier / underwriting company.\n"
+    "- certificate_holder is the entity the certificate is issued to (the holder "
+    "box), not the insured.\n"
+    "- limits should be a short human-readable summary of the coverage limits, "
+    "e.g. 'GL $1M/$2M; Auto $1M; Umbrella $5M'."
+)
+
+INSURANCE_PARSE_FIELDS = {
+    "certificate_type": "Type of coverage, e.g. 'General Liability', 'Workers Comp', 'Auto', 'Umbrella'",
+    "insurer": "Insurance carrier / underwriting company name",
+    "policy_number": "Policy number as printed",
+    "effective_date": "Policy effective date (YYYY-MM-DD)",
+    "expiration_date": "Policy expiration date (YYYY-MM-DD)",
+    "limits": "Short human-readable summary of coverage limits",
+    "certificate_holder": "Entity the certificate is issued to (the certificate holder)",
+    "notes": "Any other relevant notes, e.g. additional insured / waiver of subrogation",
+}
+
+
+async def parse_insurance_certificate(
+    content: bytes,
+    mime_type: str,
+    *,
+    text_content: str | None = None,
+) -> dict[str, Any]:
+    """Extract suggested certificate-of-insurance fields from a document."""
+    return await _parse_fields_from_document(
+        parser="insurance",
+        system_instruction=INSURANCE_PARSE_SYSTEM,
+        field_spec_map=INSURANCE_PARSE_FIELDS,
+        intro=(
+            "Extract the following fields from the certificate of insurance and "
+            "return a single JSON object with exactly these keys:"
+        ),
+        document_label="CERTIFICATE OF INSURANCE TEXT",
+        content=content,
+        mime_type=mime_type,
+        text_content=text_content,
+    )
+
+
+# ── HVAC contract extraction (maps onto HvacContractCreate) ───────────────────
+
+HVAC_CONTRACT_PARSE_SYSTEM = (
+    "You are a facilities-management assistant. Extract the key details from an "
+    "HVAC service / maintenance contract or agreement. Respond ONLY with a JSON "
+    "object. Use null for any field you cannot determine. Dates must be ISO 8601 "
+    "(YYYY-MM-DD). Do not invent values.\n"
+    "\n"
+    "- hvac_company is the contractor / service provider performing the work.\n"
+    "- frequency is the service cadence if stated, e.g. 'Monthly', 'Quarterly', "
+    "'Bi-Annual', 'Annual', 'On-Demand'.\n"
+    "- landlord_handles is true only if the document indicates the landlord (not "
+    "the tenant) is responsible for HVAC maintenance."
+)
+
+HVAC_CONTRACT_PARSE_FIELDS = {
+    "hvac_company": "Name of the HVAC contractor / service provider",
+    "contact": "Primary contact name, phone, or email for the contractor",
+    "frequency": "Service cadence, e.g. Monthly, Quarterly, Bi-Annual, Annual, On-Demand",
+    "next_service_date": "Next scheduled service date if stated (YYYY-MM-DD)",
+    "last_serviced_date": "Most recent service date if stated (YYYY-MM-DD)",
+    "office_name": "Office / site name or location covered by the contract",
+    "landlord_handles": "true if the landlord is responsible for HVAC maintenance (boolean)",
+    "comments": "Any other relevant notes about scope, term, or pricing",
+}
+
+
+async def parse_hvac_contract(
+    content: bytes,
+    mime_type: str,
+    *,
+    text_content: str | None = None,
+) -> dict[str, Any]:
+    """Extract suggested HVAC-contract fields from a document."""
+    return await _parse_fields_from_document(
+        parser="hvac_contract",
+        system_instruction=HVAC_CONTRACT_PARSE_SYSTEM,
+        field_spec_map=HVAC_CONTRACT_PARSE_FIELDS,
+        intro=(
+            "Extract the following fields from the HVAC service contract and "
+            "return a single JSON object with exactly these keys:"
+        ),
+        document_label="HVAC CONTRACT TEXT",
+        content=content,
+        mime_type=mime_type,
+        text_content=text_content,
+    )
 
 
 ABSTRACT_SUGGEST_SYSTEM = (

@@ -328,3 +328,114 @@ async def test_abstract_suggest_sends_pdf_bytes_inline(client, db_session, monke
     assert resp.status_code == 200, resp.text
     assert captured["text_content"] is None
     assert captured["mime_type"] == "application/pdf"
+
+
+# ── Phase 1: document extraction for AP bills, insurance, HVAC contracts ──────
+
+@pytest.mark.asyncio
+async def test_vendor_bill_parse_allowed_on_starter(client, db_session, monkeypatch):
+    """AP invoice extraction is open to all tiers (like lease parse)."""
+    headers = await _make_org_user(db_session, "starter", "ap-parse@test.com")
+
+    async def fake_parse(content, mime_type, *, text_content=None):
+        return {"vendor_name": "Acme HVAC", "total_amount": 1250.5}
+
+    monkeypatch.setattr(ai_service, "parse_vendor_bill_document", fake_parse)
+
+    files = {"file": ("invoice.txt", io.BytesIO(b"Invoice total $1,250.50"), "text/plain")}
+    resp = await client.post("/api/v1/ai/ap/parse", headers=headers, files=files)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["suggested"]["vendor_name"] == "Acme HVAC"
+
+
+@pytest.mark.asyncio
+async def test_vendor_bill_parse_degrades_when_unconfigured(client, db_session, monkeypatch):
+    headers = await _make_org_user(db_session, "starter", "ap-503@test.com")
+
+    async def fake_parse(content, mime_type, *, text_content=None):
+        raise ai_service.AIUnavailableError("AI assist is not configured")
+
+    monkeypatch.setattr(ai_service, "parse_vendor_bill_document", fake_parse)
+
+    files = {"file": ("invoice.txt", io.BytesIO(b"x"), "text/plain")}
+    resp = await client.post("/api/v1/ai/ap/parse", headers=headers, files=files)
+    assert resp.status_code == 503, resp.text
+
+
+@pytest.mark.asyncio
+async def test_insurance_parse_extracts_text_for_docx(client, db_session, monkeypatch):
+    """A .docx COI upload must be converted to text before the model is called."""
+    headers = await _make_org_user(db_session, "starter", "coi-parse@test.com")
+
+    captured: dict[str, object] = {}
+
+    async def fake_parse(content, mime_type, *, text_content=None):
+        captured["text_content"] = text_content
+        return {"insurer": "Travelers", "certificate_type": "General Liability"}
+
+    monkeypatch.setattr(ai_service, "parse_insurance_certificate", fake_parse)
+
+    docx_bytes = _make_docx_bytes("Insurer: Travelers. Coverage: General Liability $1M.")
+    files = {
+        "file": (
+            "coi.docx",
+            io.BytesIO(docx_bytes),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+    }
+    resp = await client.post("/api/v1/ai/insurance/parse", headers=headers, files=files)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["suggested"]["insurer"] == "Travelers"
+    assert captured["text_content"] is not None
+    assert "Travelers" in captured["text_content"]
+
+
+@pytest.mark.asyncio
+async def test_hvac_contract_parse_sends_pdf_inline(client, db_session, monkeypatch):
+    """PDFs are sent inline (no text extraction) for HVAC contract parsing."""
+    headers = await _make_org_user(db_session, "starter", "hvac-parse@test.com")
+
+    captured: dict[str, object] = {}
+
+    async def fake_parse(content, mime_type, *, text_content=None):
+        captured["text_content"] = text_content
+        captured["mime_type"] = mime_type
+        return {"hvac_company": "CoolAir Inc"}
+
+    monkeypatch.setattr(ai_service, "parse_hvac_contract", fake_parse)
+
+    files = {"file": ("contract.pdf", io.BytesIO(b"%PDF-1.4 fake"), "application/pdf")}
+    resp = await client.post("/api/v1/ai/hvac-contracts/parse", headers=headers, files=files)
+    assert resp.status_code == 200, resp.text
+    assert captured["text_content"] is None
+    assert captured["mime_type"] == "application/pdf"
+
+
+@pytest.mark.asyncio
+async def test_parse_cache_short_circuits_identical_calls(monkeypatch):
+    """An identical (parser, document) parse is served from cache without a
+    second provider round-trip."""
+    ai_service.clear_parse_cache()
+    calls = {"n": 0}
+
+    async def fake_generate(parts, **kwargs):
+        calls["n"] += 1
+        return '{"vendor_name": "Acme"}'
+
+    monkeypatch.setattr(ai_service, "_generate", fake_generate)
+
+    first = await ai_service.parse_vendor_bill_document(
+        b"", "text/plain", text_content="Invoice from Acme"
+    )
+    second = await ai_service.parse_vendor_bill_document(
+        b"", "text/plain", text_content="Invoice from Acme"
+    )
+    assert first == second == {"vendor_name": "Acme"}
+    assert calls["n"] == 1  # second call hit the cache
+
+    # A different document must NOT hit the cache.
+    await ai_service.parse_vendor_bill_document(
+        b"", "text/plain", text_content="Invoice from Other Co"
+    )
+    assert calls["n"] == 2
+    ai_service.clear_parse_cache()

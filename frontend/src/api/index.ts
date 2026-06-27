@@ -1134,6 +1134,7 @@ import type {
   AIStatus,
   LeaseParseResult,
   AbstractSuggestResult,
+  DocumentParseResult,
   AISummaryResult,
   LeaseDocumentSearchResult,
   LeaseIndexedDocumentsResult,
@@ -1163,6 +1164,30 @@ export const ai = {
     const form = new FormData();
     form.append('file', file);
     return client.post<AbstractSuggestResult>(`/ai/leases/${leaseId}/abstract/suggest`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  parseVendorBill: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post<DocumentParseResult>('/ai/ap/parse', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  parseInsuranceCertificate: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post<DocumentParseResult>('/ai/insurance/parse', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  parseHvacContract: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post<DocumentParseResult>('/ai/hvac-contracts/parse', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },

@@ -7,6 +7,9 @@ Gating:
 
 * ``POST /ai/leases/parse`` — **basic lease detail ingestion**, available on all
   tiers (not gated by ``ai_assist``).
+* ``POST /ai/ap/parse`` — **vendor bill / invoice ingestion**, all tiers.
+* ``POST /ai/insurance/parse`` — **certificate-of-insurance ingestion**, all tiers.
+* ``POST /ai/hvac-contracts/parse`` — **HVAC contract ingestion**, all tiers.
 * ``POST /ai/leases/{lease_id}/abstract/suggest`` — Pro+ (``ai_assist``).
 * ``POST /ai/reports/summary`` — Pro+ (``ai_assist``).
 """
@@ -176,6 +179,54 @@ async def parse_lease(
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
     return LeaseParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+
+
+# ── Document extraction for other entities (all tiers, like lease parse) ──────
+
+class DocumentParseResponse(BaseModel):
+    suggested: dict
+    model: str
+
+
+async def _parse_document_with(
+    file: UploadFile,
+    parser,
+) -> DocumentParseResponse:
+    """Shared body for the per-entity document-extraction endpoints."""
+    content, mime_type = await _read_document(file)
+    text_content = _maybe_extract_text(file.filename, content)
+    try:
+        suggested = await parser(content, mime_type, text_content=text_content)
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+    return DocumentParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+
+
+@router.post("/ap/parse", response_model=DocumentParseResponse)
+async def parse_vendor_bill(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Extract suggested vendor-bill header fields from an uploaded invoice."""
+    return await _parse_document_with(file, ai_service.parse_vendor_bill_document)
+
+
+@router.post("/insurance/parse", response_model=DocumentParseResponse)
+async def parse_insurance(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Extract suggested certificate-of-insurance fields from an uploaded document."""
+    return await _parse_document_with(file, ai_service.parse_insurance_certificate)
+
+
+@router.post("/hvac-contracts/parse", response_model=DocumentParseResponse)
+async def parse_hvac_contract(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Extract suggested HVAC-contract fields from an uploaded document."""
+    return await _parse_document_with(file, ai_service.parse_hvac_contract)
 
 
 # ── Lease abstract suggestions (Pro+) ─────────────────────────────────────────
