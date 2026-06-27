@@ -1693,11 +1693,19 @@ export interface TicketTriageResult {
   model: string;
 }
 
+export interface AIRecommendedAction {
+  title: string;
+  detail: string;
+  priority: string;
+  category: string;
+}
+
 export interface AISummaryResult {
   period: string;
   period_label: string;
   narrative: string;
   narrative_html: string;
+  recommended_actions: AIRecommendedAction[];
   data: Record<string, unknown>;
   model: string;
 }

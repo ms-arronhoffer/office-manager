@@ -21,15 +21,25 @@ from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFil
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.auth.dependencies import get_current_user, require_feature
 from app.config import settings
 from app.database import get_db
+from app.models.hvac_contract import HvacContract
+from app.models.insurance_certificate import InsuranceCertificate
 from app.models.lease import Lease
 from app.models.maintenance_ticket import MaintenanceTicket, TicketCategory
 from app.models.user import User
 from app.models.vendor import Vendor
-from app.services import ai_service, document_extraction, document_search_service, report_export
+from app.models.vendor_bill import VendorBill
+from app.services import (
+    ai_service,
+    ap_service,
+    document_extraction,
+    document_search_service,
+    report_export,
+)
 from app.services.lease_abstract_catalog import CLAUSE_CATEGORIES
 
 router = APIRouter()
@@ -66,11 +76,19 @@ class SummaryRequest(BaseModel):
     period: str = "weekly"  # 'weekly' | 'monthly'
 
 
+class SummaryActionItem(BaseModel):
+    title: str
+    detail: str = ""
+    priority: str = "medium"
+    category: str = "other"
+
+
 class SummaryResponse(BaseModel):
     period: str
     period_label: str
     narrative: str
     narrative_html: str
+    recommended_actions: list[SummaryActionItem] = Field(default_factory=list)
     data: dict
     model: str
 
@@ -383,6 +401,79 @@ async def _aggregate_summary(db: AsyncSession, org_id, horizon_days: int) -> dic
         )
     ).scalars().all()
 
+    # Certificates of insurance (COIs) expiring within the horizon. Already-expired
+    # certificates are surfaced too (a lapsed COI is a live risk), bounded to the
+    # recent past so the briefing stays actionable.
+    coi_floor = today - timedelta(days=horizon_days)
+    expiring_cois = (
+        await db.execute(
+            select(InsuranceCertificate)
+            .where(
+                InsuranceCertificate.organization_id == org_id,
+                InsuranceCertificate.expiration_date.is_not(None),
+                InsuranceCertificate.expiration_date <= horizon,
+                InsuranceCertificate.expiration_date >= coi_floor,
+            )
+            .options(
+                selectinload(InsuranceCertificate.vendor),
+                selectinload(InsuranceCertificate.landlord),
+            )
+            .order_by(InsuranceCertificate.expiration_date.asc())
+            .limit(25)
+        )
+    ).scalars().all()
+
+    # HVAC service / contract renewals coming due within the horizon.
+    hvac_renewals = (
+        await db.execute(
+            select(HvacContract)
+            .where(
+                HvacContract.organization_id == org_id,
+                HvacContract.next_service_date.is_not(None),
+                HvacContract.next_service_date <= horizon,
+                HvacContract.next_service_date >= today,
+                HvacContract.is_deleted.is_(False),
+            )
+            .order_by(HvacContract.next_service_date.asc())
+            .limit(25)
+        )
+    ).scalars().all()
+
+    # Past-due accounts-payable: finalized vendor bills whose due date has passed
+    # and still carry an outstanding balance (posted to the GL via the ``ap`` tag).
+    overdue_bills = (
+        await db.execute(
+            select(VendorBill)
+            .where(
+                VendorBill.organization_id == org_id,
+                VendorBill.status == "finalized",
+                VendorBill.due_date.is_not(None),
+                VendorBill.due_date < today,
+            )
+            .options(
+                selectinload(VendorBill.lines),
+                selectinload(VendorBill.payments),
+                selectinload(VendorBill.vendor),
+            )
+            .order_by(VendorBill.due_date.asc())
+            .limit(25)
+        )
+    ).scalars().all()
+    past_due_payables = []
+    for bill in overdue_bills:
+        balance = ap_service.balance_due(bill)
+        if balance <= 0:
+            continue
+        past_due_payables.append(
+            {
+                "vendor": bill.vendor.company_name if bill.vendor else None,
+                "bill_number": bill.bill_number,
+                "due_date": bill.due_date.isoformat() if bill.due_date else None,
+                "days_overdue": (today - bill.due_date).days if bill.due_date else None,
+                "balance_due": float(balance),
+            }
+        )
+
     return {
         "horizon_days": horizon_days,
         "open_tickets": int(open_tickets),
@@ -410,6 +501,34 @@ async def _aggregate_summary(db: AsyncSession, org_id, horizon_days: int) -> dic
             }
             for l in upcoming_notices
         ],
+        "expiring_cois": [
+            {
+                "holder": c.vendor.company_name
+                if c.vendor
+                else (
+                    (c.landlord.landlord_company or c.landlord.office_name)
+                    if c.landlord
+                    else None
+                ),
+                "certificate_type": c.certificate_type,
+                "insurer": c.insurer,
+                "expires": c.expiration_date.isoformat() if c.expiration_date else None,
+                "expired": bool(c.expiration_date and c.expiration_date < today),
+            }
+            for c in expiring_cois
+        ],
+        "hvac_renewals": [
+            {
+                "office": h.office_name,
+                "hvac_company": h.hvac_company,
+                "frequency": h.frequency,
+                "next_service": h.next_service_date.isoformat()
+                if h.next_service_date
+                else None,
+            }
+            for h in hvac_renewals
+        ],
+        "past_due_payables": past_due_payables,
     }
 
 
@@ -437,11 +556,22 @@ async def summary_report(
         narrative = await ai_service.generate_summary_narrative(period_label, data)
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
+
+    # Recommended actions are an additive, best-effort section: if that second
+    # generation fails we still return the narrative rather than 500 the request.
+    try:
+        recommended_actions = await ai_service.generate_recommended_actions(
+            period_label, data
+        )
+    except ai_service.AIError:
+        recommended_actions = []
+
     return SummaryResponse(
         period=period,
         period_label=period_label,
         narrative=narrative,
         narrative_html=report_export.markdown_to_html(narrative),
+        recommended_actions=[SummaryActionItem(**a) for a in recommended_actions],
         data=data,
         model=settings.GEMINI_MODEL,
     )

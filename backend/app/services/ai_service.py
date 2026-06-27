@@ -407,9 +407,11 @@ async def triage_ticket(
 SUMMARY_SYSTEM = (
     "You are an operations analyst for a commercial property management team. "
     "Write a concise, professional briefing in Markdown from the structured data "
-    "provided. Lead with the most time-sensitive items (lease notice deadlines, "
-    "upcoming expirations, overdue maintenance). Be specific and do not invent "
-    "data beyond what is given."
+    "provided. Lead with the most time-sensitive items, covering, where present: "
+    "lease notice deadlines, upcoming lease expirations, overdue maintenance, "
+    "expiring certificates of insurance (COIs), upcoming HVAC service/contract "
+    "renewals, and past-due accounts-payable (vendor bills). Be specific and do "
+    "not invent data beyond what is given."
 )
 
 
@@ -417,7 +419,8 @@ async def generate_summary_narrative(period_label: str, data: dict[str, Any]) ->
     """Generate a narrative summary report from aggregated stats.
 
     ``data`` is a JSON-serialisable dict of pre-aggregated figures (counts,
-    upcoming lease notice/expiration items, overdue tickets, etc).
+    upcoming lease notice/expiration items, overdue tickets, expiring COIs,
+    HVAC renewals, past-due payables, etc).
     """
     blob = json.dumps(data, default=str)
     if len(blob) > MAX_TEXT_CHARS:
@@ -429,6 +432,100 @@ async def generate_summary_narrative(period_label: str, data: dict[str, Any]) ->
     )
     parts = [{"text": prompt}]
     return await _generate(parts, system_instruction=SUMMARY_SYSTEM, temperature=0.4)
+
+
+# ── AI-recommended actions ────────────────────────────────────────────────────
+
+RECOMMENDED_ACTIONS_SYSTEM = (
+    "You are an operations analyst for a commercial property management team. "
+    "From the structured portfolio data provided, produce a prioritised list of "
+    "concrete, actionable next steps the team should take this period. Focus on "
+    "time-sensitive risk and deadline items: lease notice deadlines and "
+    "expirations, overdue maintenance, expiring certificates of insurance (COIs), "
+    "upcoming HVAC service/contract renewals, and past-due vendor bills. "
+    "Return ONLY a JSON object of the form "
+    '{"actions": [{"title": "...", "detail": "...", "priority": "high|medium|low", '
+    '"category": "lease|insurance|hvac|accounts_payable|maintenance|other"}]}. '
+    "Order actions from highest to lowest priority. Keep each title short (under "
+    "120 characters) and the detail to one or two sentences. Do not invent data "
+    "beyond what is given; if nothing requires action, return an empty list."
+)
+
+# Bound how many actions we surface so the prompt/response stay manageable.
+MAX_RECOMMENDED_ACTIONS = 12
+
+_ACTION_PRIORITIES = ("high", "medium", "low")
+
+
+async def generate_recommended_actions(
+    period_label: str, data: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Generate a structured list of AI-recommended actions from aggregated stats.
+
+    Returns a list of ``{"title", "detail", "priority", "category"}`` dicts,
+    ordered highest-priority first. Defensive against malformed model output.
+    """
+    blob = json.dumps(data, default=str)
+    if len(blob) > MAX_TEXT_CHARS:
+        blob = blob[:MAX_TEXT_CHARS]
+    prompt = (
+        f"Recommend prioritised actions for the period: {period_label}.\n"
+        "Use the following structured data (JSON):\n"
+        f"{blob}\n"
+    )
+    parts = [{"text": prompt}]
+    raw = await _generate(
+        parts,
+        system_instruction=RECOMMENDED_ACTIONS_SYSTEM,
+        json_response=True,
+        temperature=0.3,
+    )
+    parsed = _parse_json_object(raw)
+    return _normalize_actions(parsed.get("actions"))
+
+
+def _normalize_actions(actions: Any) -> list[dict[str, Any]]:
+    """Coerce model output into a clean, bounded list of action dicts."""
+    if not isinstance(actions, list):
+        return []
+    cleaned: list[dict[str, Any]] = []
+    for item in actions:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        if not title:
+            continue
+        priority = str(item.get("priority") or "").strip().lower()
+        if priority not in _ACTION_PRIORITIES:
+            priority = "medium"
+        category = str(item.get("category") or "other").strip().lower() or "other"
+        cleaned.append(
+            {
+                "title": title[:200],
+                "detail": str(item.get("detail") or "").strip()[:500],
+                "priority": priority,
+                "category": category,
+            }
+        )
+        if len(cleaned) >= MAX_RECOMMENDED_ACTIONS:
+            break
+    return cleaned
+
+
+def actions_to_markdown(actions: list[dict[str, Any]]) -> str:
+    """Render recommended actions as a Markdown section for emails/exports."""
+    if not actions:
+        return ""
+    lines = ["## AI-Recommended Actions", ""]
+    for action in actions:
+        priority = str(action.get("priority") or "medium").upper()
+        title = str(action.get("title") or "").strip()
+        detail = str(action.get("detail") or "").strip()
+        bullet = f"- **[{priority}] {title}**"
+        if detail:
+            bullet += f" — {detail}"
+        lines.append(bullet)
+    return "\n".join(lines)
 
 
 # ── Portfolio Q&A (RAG over lease document chunks) ───────────────────────────

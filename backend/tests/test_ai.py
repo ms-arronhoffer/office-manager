@@ -596,3 +596,194 @@ async def test_answer_portfolio_question_builds_cited_prompt(monkeypatch):
     assert "Northeast Plaza" in prompt_text
     assert "CAM charges" in prompt_text
     assert "cite" in (captured["system"] or "").lower()
+
+
+# ── Broadened summary inputs + AI-recommended actions ─────────────────────────
+
+
+async def _org_for(db_session, email: str):
+    """Create an org + admin user, returning (headers, organization)."""
+    from app.models.organization import Organization
+
+    org = Organization(name=f"Org {email}", slug=f"org-{email[:8]}", plan="pro")
+    db_session.add(org)
+    await db_session.commit()
+    await db_session.refresh(org)
+    user = User(
+        email=email,
+        display_name="U",
+        password_hash=hash_password("x"),
+        auth_provider="internal",
+        role="admin",
+        is_active=True,
+        organization_id=org.id,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    token = create_access_token({"sub": str(user.id), "role": user.role})
+    return {"Authorization": "Bearer " + token}, org
+
+
+@pytest.mark.asyncio
+async def test_aggregate_summary_includes_broadened_inputs(db_session):
+    """COIs, HVAC renewals and past-due payables are aggregated org-scoped."""
+    from datetime import date, timedelta
+
+    from app.models.general_ledger import GLAccount
+    from app.models.hvac_contract import HvacContract
+    from app.models.insurance_certificate import InsuranceCertificate
+    from app.models.vendor import Vendor
+    from app.models.vendor_bill import VendorBill, VendorBillLine
+    from app.routers.ai import _aggregate_summary
+
+    _, org = await _org_for(db_session, "broaden@test.com")
+    today = date.today()
+
+    # Vendor + expiring COI
+    vendor = Vendor(organization_id=org.id, company_name="Acme HVAC")
+    db_session.add(vendor)
+    await db_session.commit()
+    await db_session.refresh(vendor)
+
+    db_session.add(
+        InsuranceCertificate(
+            organization_id=org.id,
+            vendor_id=vendor.id,
+            certificate_type="general_liability",
+            insurer="State Farm",
+            expiration_date=today + timedelta(days=10),
+        )
+    )
+
+    # HVAC renewal due soon
+    db_session.add(
+        HvacContract(
+            organization_id=org.id,
+            office_name="Suite 100",
+            hvac_company="CoolAir",
+            next_service_date=today + timedelta(days=5),
+        )
+    )
+
+    # Past-due, finalized, unpaid vendor bill
+    account = GLAccount(
+        organization_id=org.id, code="6000", name="Repairs", type="expense"
+    )
+    db_session.add(account)
+    await db_session.commit()
+    await db_session.refresh(account)
+
+    bill = VendorBill(
+        organization_id=org.id,
+        vendor_id=vendor.id,
+        bill_number="INV-1",
+        bill_date=today - timedelta(days=60),
+        due_date=today - timedelta(days=15),
+        status="finalized",
+        total_amount=500,
+    )
+    db_session.add(bill)
+    await db_session.commit()
+    await db_session.refresh(bill)
+    db_session.add(
+        VendorBillLine(bill_id=bill.id, account_id=account.id, amount=500)
+    )
+    await db_session.commit()
+
+    data = await _aggregate_summary(db_session, org.id, horizon_days=30)
+
+    assert len(data["expiring_cois"]) == 1
+    assert data["expiring_cois"][0]["holder"] == "Acme HVAC"
+
+    assert len(data["hvac_renewals"]) == 1
+    assert data["hvac_renewals"][0]["office"] == "Suite 100"
+
+    assert len(data["past_due_payables"]) == 1
+    payable = data["past_due_payables"][0]
+    assert payable["vendor"] == "Acme HVAC"
+    assert payable["balance_due"] == 500.0
+    assert payable["days_overdue"] == 15
+
+
+@pytest.mark.asyncio
+async def test_summary_returns_recommended_actions(client, db_session, monkeypatch):
+    headers, _ = await _org_for(db_session, "actions@test.com")
+
+    async def fake_narrative(period_label, data):
+        return f"Briefing for {period_label}."
+
+    async def fake_actions(period_label, data):
+        return [
+            {
+                "title": "Renew Acme COI",
+                "detail": "Expires in 10 days.",
+                "priority": "high",
+                "category": "insurance",
+            }
+        ]
+
+    monkeypatch.setattr(ai_service, "generate_summary_narrative", fake_narrative)
+    monkeypatch.setattr(ai_service, "generate_recommended_actions", fake_actions)
+
+    resp = await client.post(
+        "/api/v1/ai/reports/summary", headers=headers, json={"period": "weekly"}
+    )
+    assert resp.status_code == 200, resp.text
+    actions = resp.json()["recommended_actions"]
+    assert len(actions) == 1
+    assert actions[0]["title"] == "Renew Acme COI"
+    assert actions[0]["priority"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_summary_survives_actions_failure(client, db_session, monkeypatch):
+    """A failure generating actions must not fail the whole briefing."""
+    headers, _ = await _org_for(db_session, "actionsfail@test.com")
+
+    async def fake_narrative(period_label, data):
+        return "Narrative body."
+
+    async def boom(period_label, data):
+        raise ai_service.AIRequestError("model error")
+
+    monkeypatch.setattr(ai_service, "generate_summary_narrative", fake_narrative)
+    monkeypatch.setattr(ai_service, "generate_recommended_actions", boom)
+
+    resp = await client.post(
+        "/api/v1/ai/reports/summary", headers=headers, json={"period": "weekly"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["recommended_actions"] == []
+
+
+@pytest.mark.asyncio
+async def test_generate_recommended_actions_normalizes_output(monkeypatch):
+    """Malformed model output is coerced into clean, bounded action dicts."""
+
+    async def fake_generate(parts, **kwargs):
+        return (
+            '{"actions": [{"title": "Do X", "priority": "URGENT", "category": "lease"},'
+            ' {"detail": "no title"}, {"title": "Do Y"}]}'
+        )
+
+    monkeypatch.setattr(ai_service, "_generate", fake_generate)
+
+    actions = await ai_service.generate_recommended_actions("Week", {})
+    # second item dropped (no title); priorities normalised; defaults filled
+    assert len(actions) == 2
+    assert actions[0]["title"] == "Do X"
+    assert actions[0]["priority"] == "medium"  # unknown priority -> medium
+    assert actions[0]["category"] == "lease"
+    assert actions[1]["title"] == "Do Y"
+    assert actions[1]["category"] == "other"
+
+
+def test_actions_to_markdown_renders_section():
+    md = ai_service.actions_to_markdown(
+        [{"title": "Renew COI", "detail": "Soon.", "priority": "high", "category": "insurance"}]
+    )
+    assert "## AI-Recommended Actions" in md
+    assert "[HIGH] Renew COI" in md
+    assert "Soon." in md
+    assert ai_service.actions_to_markdown([]) == ""
