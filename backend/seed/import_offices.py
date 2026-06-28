@@ -2,7 +2,7 @@ from seed.helpers import get_workbook, safe_str, safe_int
 from app.models import Manager, Office
 
 
-def import_offices(session):
+def import_offices(session, organization_id=None):
     wb = get_workbook("Copy of Office Location Master List.xlsx")
     if not wb:
         return {}, {}
@@ -32,7 +32,7 @@ def import_offices(session):
         if existing:
             manager_map[name] = existing.id
         else:
-            mgr = Manager(name=name)
+            mgr = Manager(name=name, organization_id=organization_id)
             session.add(mgr)
             session.flush()
             manager_map[name] = mgr.id
@@ -66,6 +66,7 @@ def import_offices(session):
                 location_name=location_name,
                 manager_id=mgr_id,
                 is_active=True,
+                organization_id=organization_id,
                 mail_shipping=safe_str(row[5]),
                 notes=safe_str(row[6]),
                 address_line_1=safe_str(row[7]),
@@ -117,6 +118,7 @@ def import_offices(session):
                 location_name=location_name,
                 manager_id=mgr_id,
                 is_active=False,
+                organization_id=organization_id,
                 address_line_1=safe_str(row[5]),
                 address_line_2=safe_str(row[6]),
                 city=safe_str(row[7]),

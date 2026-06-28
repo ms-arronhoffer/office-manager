@@ -14,7 +14,15 @@ Required env vars:
 
 import os
 import sys
+import uuid
 from pathlib import Path
+
+# Default organization every seeded record is attached to. Matches the UUID
+# created by ``backend/start.py`` and Alembic migration 023 so the default admin
+# (whose ``organization_id`` is the same value) can actually see the data — the
+# API routers all filter by ``current_user.organization_id``, so records left
+# with a NULL ``organization_id`` are invisible in the app ("no data").
+DEFAULT_ORG_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 # ---------------------------------------------------------------------------
 # Path setup — must happen before any app/seed imports
@@ -32,6 +40,7 @@ from sqlalchemy import create_engine                            # noqa: E402
 from sqlalchemy.orm import Session                              # noqa: E402
 
 from app.models import Base, User, EmailReminderRule            # noqa: E402
+from app.models.organization import Organization               # noqa: E402
 from app.models.maintenance_ticket import TicketCategory        # noqa: E402
 from app.auth.password import hash_password                     # noqa: E402
 
@@ -47,9 +56,33 @@ from seed.import_hvac_contracts import import_hvac_contracts    # noqa: E402
 # Bootstrap helpers
 # ---------------------------------------------------------------------------
 
+def _ensure_default_org(session: Session) -> None:
+    """Ensure the default organization exists so seeded records can attach to it."""
+    existing = session.get(Organization, DEFAULT_ORG_ID)
+    if existing:
+        print(f"  Default organization already exists: {existing.name}")
+        return
+    org = Organization(
+        id=DEFAULT_ORG_ID,
+        name="Default Organization",
+        slug="default",
+        plan="starter",
+        is_active=True,
+        onboarding_complete=True,
+    )
+    session.add(org)
+    session.flush()
+    print("  Created default organization")
+
+
 def _create_default_admin(session: Session, admin_email: str, admin_password: str) -> None:
     existing = session.query(User).filter_by(email=admin_email).first()
     if existing:
+        # Heal an admin that predates org-scoped seeding so it can see the data.
+        if existing.organization_id != DEFAULT_ORG_ID:
+            existing.organization_id = DEFAULT_ORG_ID
+        if not existing.is_super_admin:
+            existing.is_super_admin = True
         print(f"  Admin user already exists: {admin_email}")
         return
     admin = User(
@@ -60,6 +93,7 @@ def _create_default_admin(session: Session, admin_email: str, admin_password: st
         role="admin",
         is_active=True,
         is_super_admin=True,
+        organization_id=DEFAULT_ORG_ID,
     )
     session.add(admin)
     session.flush()
@@ -164,44 +198,50 @@ def run_seed() -> None:
 
     with Session(engine) as session:
 
+        # 0 ── Ensure the default organization exists so every seeded record can
+        # be attached to it (the API filters all data by organization_id).
+        print("\n[1/8] Ensuring default organization...")
+        _ensure_default_org(session)
+        session.commit()
+
         # 1 ── Offices + managers (must be first; all other importers depend on maps)
-        print("\n[1/7] Importing offices and managers...")
-        manager_map, office_map = import_offices(session)
+        print("\n[2/8] Importing offices and managers...")
+        manager_map, office_map = import_offices(session, DEFAULT_ORG_ID)
         session.commit()
         print(f"  Done: {len(manager_map)} managers, {len(office_map)} offices")
 
         # 2 ── Leases (depends on manager_map + office_map)
-        print("\n[2/7] Importing leases...")
-        import_leases(session, manager_map, office_map)
+        print("\n[3/8] Importing leases...")
+        import_leases(session, manager_map, office_map, DEFAULT_ORG_ID)
         session.commit()
         print("  Done")
 
         # 3 ── Landlords (depends on office_map)
-        print("\n[3/7] Importing landlords...")
-        import_landlords(session, office_map)
+        print("\n[4/8] Importing landlords...")
+        import_landlords(session, office_map, DEFAULT_ORG_ID)
         session.commit()
         print("  Done")
 
         # 4 ── Office transitions (depends on office_map)
-        print("\n[4/7] Importing office transitions...")
-        import_transitions(session, office_map)
+        print("\n[5/8] Importing office transitions...")
+        import_transitions(session, office_map, DEFAULT_ORG_ID)
         session.commit()
         print("  Done")
 
         # 5 ── HQ HVAC (no FK dependencies)
-        print("\n[5/7] Importing HQ HVAC system data...")
+        print("\n[6/8] Importing HQ HVAC system data...")
         import_hq_hvac(session)
         session.commit()
         print("  Done")
 
         # 6 ── HVAC contracts (depends on manager_map + office_map)
-        print("\n[6/7] Importing HVAC contracts...")
-        import_hvac_contracts(session, manager_map, office_map)
+        print("\n[7/8] Importing HVAC contracts...")
+        import_hvac_contracts(session, manager_map, office_map, DEFAULT_ORG_ID)
         session.commit()
         print("  Done")
 
         # 7 ── Bootstrap: admin user, email reminder rules, ticket categories
-        print("\n[7/7] Creating default admin user, email reminder rules, and ticket categories...")
+        print("\n[8/8] Creating default admin user, email reminder rules, and ticket categories...")
         _create_default_admin(session, admin_email, admin_password)
         _create_email_reminder_rules(session, admin_email)
         _create_ticket_categories(session)

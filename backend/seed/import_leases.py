@@ -5,7 +5,7 @@ from app.models import Lease, LeaseNote, Manager
 from sqlalchemy import select
 
 
-def import_leases(session, manager_map, office_map):
+def import_leases(session, manager_map, office_map, organization_id=None):
     # Skip if already imported
     existing = session.query(Lease).count()
     if existing > 0:
@@ -48,7 +48,7 @@ def import_leases(session, manager_map, office_map):
                     mgr_id = existing.id
                     manager_map[manager_name] = mgr_id
                 else:
-                    mgr = Manager(name=manager_name)
+                    mgr = Manager(name=manager_name, organization_id=organization_id)
                     session.add(mgr)
                     session.flush()
                     mgr_id = mgr.id
@@ -79,6 +79,7 @@ def import_leases(session, manager_map, office_map):
                 office_id=office_id,
                 lease_name=lease_name,
                 manager_id=mgr_id,
+                organization_id=organization_id,
                 lease_expiration=lease_exp,
                 lessor_name=lessor,
                 notice_period=notice_period,
