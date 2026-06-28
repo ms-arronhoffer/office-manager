@@ -606,6 +606,24 @@ const entities: Record<string, EntityDef[]> = {
       ],
       relationships: ['Email Reminder Rule (many-to-one via rule_id)'],
     },
+    {
+      table: 'support_requests',
+      description: 'In-app support requests submitted by users. Surfaced on the Administration → Support Requests page, where admins can review them and forward them to the configured support email (site_settings.support_email).',
+      softDelete: false,
+      fields: [
+        { name: 'id', type: 'UUID', required: true, description: 'Primary key' },
+        { name: 'organization_id', type: 'UUID (FK → organizations)', required: false, description: 'Owning organization' },
+        { name: 'subject', type: 'String(255)', required: true, description: 'Short summary of the request' },
+        { name: 'message', type: 'Text', required: true, description: 'Full request details' },
+        { name: 'status', type: 'String(20)', required: true, description: 'Lifecycle status: open or resolved (default: open)' },
+        { name: 'requester_user_id', type: 'UUID (FK → users)', required: false, description: 'Submitting user (set null on delete)' },
+        { name: 'requester_name', type: 'String(255)', required: false, description: 'Submitter display name (snapshot)' },
+        { name: 'requester_email', type: 'String(320)', required: false, description: 'Submitter email (snapshot)' },
+        { name: 'created_at', type: 'DateTime', required: true, description: 'Record creation timestamp' },
+        { name: 'updated_at', type: 'DateTime', required: true, description: 'Last update timestamp' },
+      ],
+      relationships: ['User (many-to-one via requester_user_id)', 'Organization (many-to-one via organization_id)'],
+    },
   ],
 };
 
