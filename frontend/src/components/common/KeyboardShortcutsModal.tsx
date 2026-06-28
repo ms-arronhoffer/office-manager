@@ -11,6 +11,7 @@ interface KeyboardShortcutsModalProps {
 
 const SHORTCUTS = [
   { keys: 'Ctrl + K', description: 'Focus global search' },
+  { keys: 'Ctrl + J', description: 'Toggle the AI portfolio assistant' },
   { keys: '?', description: 'Show keyboard shortcuts' },
   { keys: 'Escape', description: 'Close modals and dialogs' },
 ];

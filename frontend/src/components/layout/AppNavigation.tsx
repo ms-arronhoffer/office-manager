@@ -10,12 +10,15 @@ import { useSiteSettings } from '@/context/SiteSettingsContext';
 import GlobalSearchBar from '@/components/common/GlobalSearchBar';
 import KeyboardShortcutsModal from '@/components/common/KeyboardShortcutsModal';
 import NotificationBell from '@/components/common/NotificationBell';
+import AIPortfolioAssistant from '@/components/common/AIPortfolioAssistant';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import './AppNavigation.css';
 
 interface AppNavigationProps {
   children: React.ReactNode;
 }
+
+const AI_ASSISTANT_DRAWER_ID = 'ai-portfolio-assistant';
 
 const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
   const navigate = useNavigate();
@@ -27,6 +30,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
 
   const [navigationOpen, setNavigationOpen] = useState(() => getNavigationOpen());
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [activeDrawerId, setActiveDrawerId] = useState<string | null>(null);
 
   // Sync sidebar state from prefs on load
   useEffect(() => {
@@ -40,7 +44,11 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
 
   // Keyboard shortcuts
   const onShowShortcuts = useCallback(() => setShortcutsOpen(true), []);
-  useKeyboardShortcuts(onShowShortcuts);
+  const toggleAssistant = useCallback(
+    () => setActiveDrawerId((id) => (id === AI_ASSISTANT_DRAWER_ID ? null : AI_ASSISTANT_DRAWER_ID)),
+    [],
+  );
+  useKeyboardShortcuts(onShowShortcuts, toggleAssistant);
 
   const isEditorOrAdmin = user?.role === 'admin' || user?.role === 'editor';
   const pinnedOffices = getPinnedOffices();
@@ -196,7 +204,24 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
         }
         navigationOpen={navigationOpen}
         onNavigationChange={handleNavigationChange}
-        toolsHide
+        drawers={[
+          {
+            id: AI_ASSISTANT_DRAWER_ID,
+            content: <AIPortfolioAssistant />,
+            trigger: { iconName: 'gen-ai' },
+            ariaLabels: {
+              drawerName: 'AI portfolio assistant',
+              closeButton: 'Close AI portfolio assistant',
+              triggerButton: 'Open AI portfolio assistant',
+              resizeHandle: 'Resize AI portfolio assistant',
+            },
+            resizable: true,
+            defaultSize: 420,
+            preserveInactiveContent: true,
+          },
+        ]}
+        activeDrawerId={activeDrawerId}
+        onDrawerChange={({ detail }) => setActiveDrawerId(detail.activeDrawerId)}
         content={children}
         headerSelector="#top-nav"
       />
