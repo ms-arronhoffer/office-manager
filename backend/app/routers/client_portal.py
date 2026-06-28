@@ -14,7 +14,7 @@ import logging
 import re
 import secrets
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, date, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
@@ -37,8 +38,11 @@ from app.models.client_portal_change_request import (
     CHANGE_REQUEST_STATUSES,
 )
 from app.models.entity_contact import EntityContact
-from app.models.landlord import Landlord
+from app.models.landlord import Landlord, landlord_offices
+from app.models.lease import Lease
+from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.management_company import ManagementCompany
+from app.models.office import Office
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.attachment import AttachmentResponse
@@ -122,6 +126,59 @@ class PortalProfileResponse(BaseModel):
     contact_phone: Optional[str] = None
     address: Optional[str] = None
     website: Optional[str] = None
+
+
+# Number of days within which an upcoming lease expiration is flagged as
+# "expiring soon" for the in-page portfolio widget.
+_EXPIRING_SOON_DAYS = 180
+
+
+class PortalOfficeResponse(BaseModel):
+    id: uuid.UUID
+    office_number: int
+    location_name: str
+    location_type: Optional[str] = None
+    is_active: bool
+    address_line_1: Optional[str] = None
+    address_line_2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    lease_count: int = 0
+
+
+class PortalLeaseResponse(BaseModel):
+    # Read-only lease summary. Deliberately excludes financial/AI fields
+    # (rent, escalation, borrowing rate, etc.) — only dates and status.
+    id: uuid.UUID
+    lease_name: str
+    office_id: Optional[uuid.UUID] = None
+    office_name: Optional[str] = None
+    lessor_name: Optional[str] = None
+    lease_commencement_date: Optional[date] = None
+    lease_expiration: Optional[date] = None
+    lease_notice_date: Optional[date] = None
+    notice_given_date: Optional[date] = None
+    notice_period: Optional[str] = None
+    expiring_soon: bool = False
+
+
+class PortalMaintenanceResponse(BaseModel):
+    id: uuid.UUID
+    subject: str
+    status: str
+    priority: str
+    office_id: Optional[uuid.UUID] = None
+    office_name: Optional[str] = None
+    scheduled_date: Optional[datetime] = None
+    created_at: datetime
+
+
+class PortalSummaryResponse(BaseModel):
+    office_count: int
+    lease_count: int
+    expiring_soon: int
+    open_tickets: int
 
 
 class ChangeRequestCreate(BaseModel):
@@ -263,6 +320,57 @@ def _entity_profile(entity_type: str, entity) -> PortalProfileResponse:
         address=address,
         website=getattr(entity, "website", None),
     )
+
+
+# ── Portfolio scoping ────────────────────────────────────────────────────────
+
+async def _scoped_office_ids(db: AsyncSession, account: ClientPortalAccount) -> list[uuid.UUID]:
+    """Return the office ids the portal account is entitled to see.
+
+    Landlords see only their *own* offices — both the directly-linked
+    ``landlord.office_id`` and any offices in the ``landlord_offices`` M2M.
+    Management companies see the offices owned by the landlords they manage.
+    Scoping always stays within the account's organization; soft-deleted
+    offices are excluded.
+    """
+    landlord_ids: list[uuid.UUID]
+    if account.entity_type == "management_company":
+        result = await db.execute(
+            select(Landlord.id).where(
+                Landlord.management_company_id == account.entity_id,
+                Landlord.organization_id == account.organization_id,
+                Landlord.is_deleted.is_(False),
+            )
+        )
+        landlord_ids = list(result.scalars().all())
+    else:  # landlord
+        landlord_ids = [account.entity_id]
+    if not landlord_ids:
+        return []
+
+    office_ids: set[uuid.UUID] = set()
+    direct = await db.execute(
+        select(Landlord.office_id).where(
+            Landlord.id.in_(landlord_ids), Landlord.office_id.is_not(None)
+        )
+    )
+    office_ids.update(o for o in direct.scalars().all() if o is not None)
+    linked = await db.execute(
+        select(landlord_offices.c.office_id).where(
+            landlord_offices.c.landlord_id.in_(landlord_ids)
+        )
+    )
+    office_ids.update(linked.scalars().all())
+    if not office_ids:
+        return []
+    valid = await db.execute(
+        select(Office.id).where(
+            Office.id.in_(office_ids),
+            Office.organization_id == account.organization_id,
+            Office.is_deleted.is_(False),
+        )
+    )
+    return list(valid.scalars().all())
 
 
 # ── Auth dependency (portal token) ───────────────────────────────────────────
@@ -633,6 +741,166 @@ async def portal_delete_document(
         pass
     await db.delete(attachment)
     await db.commit()
+
+
+# ── Portal: portfolio (read-only) ────────────────────────────────────────────
+
+def _lease_expiring_soon(expiration: date | None) -> bool:
+    if expiration is None:
+        return False
+    today = date.today()
+    return today <= expiration <= today + timedelta(days=_EXPIRING_SOON_DAYS)
+
+
+@router.get("/client-portal/offices", response_model=list[PortalOfficeResponse])
+async def portal_list_offices(
+    account: ClientPortalAccount = Depends(get_portal_account),
+    db: AsyncSession = Depends(get_db),
+):
+    office_ids = await _scoped_office_ids(db, account)
+    if not office_ids:
+        return []
+    result = await db.execute(
+        select(Office)
+        .options(selectinload(Office.leases))
+        .where(Office.id.in_(office_ids))
+        .order_by(Office.office_number)
+    )
+    offices = result.scalars().all()
+    return [
+        PortalOfficeResponse(
+            id=o.id,
+            office_number=o.office_number,
+            location_name=o.location_name,
+            location_type=o.location_type,
+            is_active=o.is_active,
+            address_line_1=o.address_line_1,
+            address_line_2=o.address_line_2,
+            city=o.city,
+            state=o.state,
+            zip_code=o.zip_code,
+            lease_count=sum(1 for lease in o.leases if not lease.is_deleted),
+        )
+        for o in offices
+    ]
+
+
+def _portal_lease_response(lease: Lease, office: Office | None) -> PortalLeaseResponse:
+    return PortalLeaseResponse(
+        id=lease.id,
+        lease_name=lease.lease_name,
+        office_id=lease.office_id,
+        office_name=office.location_name if office else None,
+        lessor_name=lease.lessor_name,
+        lease_commencement_date=lease.lease_commencement_date,
+        lease_expiration=lease.lease_expiration,
+        lease_notice_date=lease.lease_notice_date,
+        notice_given_date=lease.notice_given_date,
+        notice_period=lease.notice_period,
+        expiring_soon=_lease_expiring_soon(lease.lease_expiration),
+    )
+
+
+@router.get("/client-portal/leases", response_model=list[PortalLeaseResponse])
+async def portal_list_leases(
+    account: ClientPortalAccount = Depends(get_portal_account),
+    db: AsyncSession = Depends(get_db),
+):
+    office_ids = await _scoped_office_ids(db, account)
+    if not office_ids:
+        return []
+    result = await db.execute(
+        select(Lease)
+        .options(selectinload(Lease.office))
+        .where(Lease.office_id.in_(office_ids), Lease.is_deleted.is_(False))
+        .order_by(Lease.lease_expiration.asc().nullslast())
+    )
+    return [_portal_lease_response(l, l.office) for l in result.scalars().all()]
+
+
+@router.get("/client-portal/leases/{lease_id}", response_model=PortalLeaseResponse)
+async def portal_get_lease(
+    lease_id: uuid.UUID,
+    account: ClientPortalAccount = Depends(get_portal_account),
+    db: AsyncSession = Depends(get_db),
+):
+    office_ids = await _scoped_office_ids(db, account)
+    if not office_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
+    result = await db.execute(
+        select(Lease)
+        .options(selectinload(Lease.office))
+        .where(
+            Lease.id == lease_id,
+            Lease.office_id.in_(office_ids),
+            Lease.is_deleted.is_(False),
+        )
+    )
+    lease = result.scalar_one_or_none()
+    if not lease:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
+    return _portal_lease_response(lease, lease.office)
+
+
+@router.get("/client-portal/maintenance", response_model=list[PortalMaintenanceResponse])
+async def portal_list_maintenance(
+    account: ClientPortalAccount = Depends(get_portal_account),
+    db: AsyncSession = Depends(get_db),
+):
+    office_ids = await _scoped_office_ids(db, account)
+    if not office_ids:
+        return []
+    result = await db.execute(
+        select(MaintenanceTicket)
+        .options(selectinload(MaintenanceTicket.office))
+        .where(
+            MaintenanceTicket.office_id.in_(office_ids),
+            MaintenanceTicket.is_deleted.is_(False),
+        )
+        .order_by(MaintenanceTicket.created_at.desc())
+    )
+    return [
+        PortalMaintenanceResponse(
+            id=t.id,
+            subject=t.subject,
+            status=t.status,
+            priority=t.priority,
+            office_id=t.office_id,
+            office_name=t.office.location_name if t.office else None,
+            scheduled_date=t.scheduled_date,
+            created_at=t.created_at,
+        )
+        for t in result.scalars().all()
+    ]
+
+
+@router.get("/client-portal/summary", response_model=PortalSummaryResponse)
+async def portal_summary(
+    account: ClientPortalAccount = Depends(get_portal_account),
+    db: AsyncSession = Depends(get_db),
+):
+    office_ids = await _scoped_office_ids(db, account)
+    if not office_ids:
+        return PortalSummaryResponse(office_count=0, lease_count=0, expiring_soon=0, open_tickets=0)
+    leases = await db.execute(
+        select(Lease.lease_expiration).where(
+            Lease.office_id.in_(office_ids), Lease.is_deleted.is_(False)
+        )
+    )
+    expirations = leases.scalars().all()
+    tickets = await db.execute(
+        select(MaintenanceTicket.id).where(
+            MaintenanceTicket.office_id.in_(office_ids),
+            MaintenanceTicket.is_deleted.is_(False),
+            MaintenanceTicket.status != "closed",
+        )
+    )
+    return PortalSummaryResponse(
+        office_count=len(office_ids),
+        lease_count=len(expirations),
+        expiring_soon=sum(1 for e in expirations if _lease_expiring_soon(e)),
+        open_tickets=len(tickets.scalars().all()),
+    )
 
 
 # ── Portal: profile change requests ──────────────────────────────────────────

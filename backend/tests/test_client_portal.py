@@ -388,3 +388,86 @@ async def test_portal_rotate_issues_new_token(client, admin_user):
     assert (
         await client.get("/api/v1/client-portal/me", headers={"X-Portal-Token": old_token})
     ).status_code == 401
+
+
+# ─── Phase 5: portfolio (offices / leases / maintenance) ─────────────────────
+
+async def _seed_portfolio(db_session, landlord_id, *, expiration_days=30):
+    """Attach an office, lease and ticket to a landlord; return office_id."""
+    import uuid as _uuid
+    from datetime import date, timedelta
+    from app.models.office import Office
+    from app.models.lease import Lease
+    from app.models.landlord import Landlord, landlord_offices
+    from app.models.maintenance_ticket import MaintenanceTicket, TicketCategory
+    from app.models.user import User
+    from sqlalchemy import select as _select
+
+    office = Office(office_number=42, location_type="lease", location_name="Metro Tower")
+    db_session.add(office)
+    await db_session.commit()
+    await db_session.refresh(office)
+
+    await db_session.execute(
+        landlord_offices.insert().values(landlord_id=_uuid.UUID(landlord_id), office_id=office.id)
+    )
+    lease = Lease(
+        office_id=office.id,
+        lease_name="HQ Lease",
+        expiration_year=date.today().year,
+        lease_expiration=date.today() + timedelta(days=expiration_days),
+        payment_amount=99999,
+    )
+    db_session.add(lease)
+    cat = TicketCategory(name="Plumbing")
+    db_session.add(cat)
+    await db_session.commit()
+    await db_session.refresh(cat)
+    creator = (await db_session.execute(
+        _select(User).limit(1)
+    )).scalars().first()
+    ticket = MaintenanceTicket(
+        subject="Leak", priority="high", status="open",
+        category_id=cat.id, office_id=office.id, description="x", created_by_id=creator.id,
+    )
+    db_session.add(ticket)
+    await db_session.commit()
+    return str(office.id)
+
+
+@pytest.mark.asyncio
+async def test_portal_portfolio_scoped_and_no_financials(client, admin_user, db_session):
+    landlord_id = await _create_landlord(client, admin_user, company="Owner LLC")
+    token = await _activate_portal(client, admin_user, landlord_id)
+    office_id = await _seed_portfolio(db_session, landlord_id)
+    h = {"X-Portal-Token": token}
+
+    offices = await client.get("/api/v1/client-portal/offices", headers=h)
+    assert offices.status_code == 200, offices.text
+    assert [o["id"] for o in offices.json()] == [office_id]
+    assert offices.json()[0]["lease_count"] == 1
+
+    leases = await client.get("/api/v1/client-portal/leases", headers=h)
+    assert leases.status_code == 200
+    assert len(leases.json()) == 1
+    assert leases.json()[0]["expiring_soon"] is True
+    # Financial fields are never exposed.
+    assert "payment_amount" not in leases.json()[0]
+
+    tickets = await client.get("/api/v1/client-portal/maintenance", headers=h)
+    assert tickets.status_code == 200
+    assert len(tickets.json()) == 1
+
+    summary = await client.get("/api/v1/client-portal/summary", headers=h)
+    assert summary.json() == {"office_count": 1, "lease_count": 1, "expiring_soon": 1, "open_tickets": 1}
+
+
+@pytest.mark.asyncio
+async def test_portal_portfolio_cross_entity_isolation(client, admin_user, db_session):
+    a = await _create_landlord(client, admin_user, company="A LLC")
+    b = await _create_landlord(client, admin_user, company="B LLC")
+    token_b = await _activate_portal(client, admin_user, b)
+    await _seed_portfolio(db_session, a)
+
+    assert (await client.get("/api/v1/client-portal/offices", headers={"X-Portal-Token": token_b})).json() == []
+    assert (await client.get("/api/v1/client-portal/leases", headers={"X-Portal-Token": token_b})).json() == []
