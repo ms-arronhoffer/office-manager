@@ -13,6 +13,8 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.tasks.job_status import registry as job_registry
 from app.tasks.scheduler import scheduler
+from app.services import revenue_service
+from app.services import entitlements as ent
 
 router = APIRouter()
 
@@ -37,14 +39,18 @@ class PlatformMetrics(BaseModel):
     # Revenue estimates based on plan tiers (starter=$99, pro=$299, enterprise=$999)
     mrr_cents: int
     arr_cents: int
+    # True if mrr/arr are derived from the persisted billing ledger (real Stripe
+    # data) rather than the plan-count price estimate.
+    mrr_from_ledger: bool = False
     # At-risk breakdowns
     at_risk_trial_expiring: int
     at_risk_past_due: int
     at_risk_canceled: int
     at_risk_inactive: int
 
-# Per-plan monthly price in cents (active + past_due orgs only)
-_PLAN_PRICE_CENTS = {"starter": 9900, "pro": 29900, "enterprise": 99900}
+# Per-plan monthly price in cents (active + past_due orgs only). Sourced from
+# the canonical catalog in app.services.entitlements.
+_PLAN_PRICE_CENTS = ent.PLAN_PRICE_CENTS
 
 
 @router.get("", response_model=PlatformMetrics)
@@ -128,6 +134,12 @@ async def get_metrics(
         + org_agg.rev_pro * _PLAN_PRICE_CENTS["pro"]
         + org_agg.rev_enterprise * _PLAN_PRICE_CENTS["enterprise"]
     )
+    # Prefer real ledger-derived MRR when the billing ledger has data; otherwise
+    # fall back to the plan-count price estimate above.
+    ledger_mrr = await revenue_service.mrr_from_ledger(db)
+    from_ledger = ledger_mrr > 0
+    if from_ledger:
+        mrr_cents = ledger_mrr
 
     return PlatformMetrics(
         total_orgs=org_agg.total,
@@ -146,6 +158,7 @@ async def get_metrics(
         open_tickets=ticket_agg.open,
         mrr_cents=mrr_cents,
         arr_cents=mrr_cents * 12,
+        mrr_from_ledger=from_ledger,
         at_risk_trial_expiring=org_agg.trial_expiring_7d,
         at_risk_past_due=org_agg.at_risk_past_due,
         at_risk_canceled=org_agg.at_risk_canceled,
@@ -196,3 +209,40 @@ async def get_scheduled_jobs(
         for jid in job_ids
     ]
     return ScheduledJobsResponse(scheduler_running=scheduler.running, jobs=jobs)
+
+
+class RevenueMetrics(BaseModel):
+    mrr_cents: int
+    arr_cents: int
+    collected_cents: int
+    refunded_cents: int
+    failed_cents: int
+    net_cents: int
+    window_days: int
+    plan_breakdown: list[dict]
+    timeseries: list[dict]
+
+
+@router.get("/revenue", response_model=RevenueMetrics)
+async def get_revenue(
+    window_days: int = 30,
+    months: int = 12,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_super_admin()),
+):
+    """Ledger-driven revenue analytics: real MRR/ARR, collected/refunded/failed
+    over a window, plan mix, and a monthly collected time-series. Sourced from
+    the persisted billing ledger (Stripe-synced), not plan-count estimates."""
+    mrr = await revenue_service.mrr_from_ledger(db)
+    summary = await revenue_service.collected_summary(db, days=window_days)
+    return RevenueMetrics(
+        mrr_cents=mrr,
+        arr_cents=mrr * 12,
+        collected_cents=summary["collected_cents"],
+        refunded_cents=summary["refunded_cents"],
+        failed_cents=summary["failed_cents"],
+        net_cents=summary["net_cents"],
+        window_days=summary["window_days"],
+        plan_breakdown=await revenue_service.plan_breakdown(db),
+        timeseries=await revenue_service.revenue_timeseries(db, months=months),
+    )

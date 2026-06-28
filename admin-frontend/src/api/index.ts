@@ -5,10 +5,12 @@ import type {
   AdminUser,
   AuditEntry,
   BillingRow,
+  BillingDetail,
   ImpersonateResponse,
   OrgPatch,
   Paginated,
   PlatformMetrics,
+  RevenueMetrics,
 } from "../types";
 
 const api = axios.create({ baseURL: "" });
@@ -224,6 +226,26 @@ export async function cancelSubscription(orgId: string): Promise<BillingRow> {
 
 export async function restoreSubscription(orgId: string): Promise<BillingRow> {
   const res = await api.post<BillingRow>(`/admin/v1/billing/${orgId}/restore`);
+  return res.data;
+}
+
+export async function getRevenue(params?: { window_days?: number; months?: number }): Promise<RevenueMetrics> {
+  const res = await api.get<RevenueMetrics>("/admin/v1/metrics/revenue", { params });
+  return res.data;
+}
+
+export async function getBillingDetail(orgId: string): Promise<BillingDetail> {
+  const res = await api.get<BillingDetail>(`/admin/v1/billing/${orgId}/detail`);
+  return res.data;
+}
+
+export async function issueCredit(orgId: string, amount_cents: number, reason?: string): Promise<{ id: string }> {
+  const res = await api.post(`/admin/v1/billing/${orgId}/credit`, { amount_cents, reason });
+  return res.data;
+}
+
+export async function extendTrial(orgId: string, days: number): Promise<BillingRow> {
+  const res = await api.post<BillingRow>(`/admin/v1/billing/${orgId}/extend-trial`, { days });
   return res.data;
 }
 

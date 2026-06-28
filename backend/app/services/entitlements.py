@@ -61,6 +61,21 @@ DEFAULT_PLAN = "starter"
 # Number of days an org may remain in 'past_due' before access is locked out.
 PAST_DUE_GRACE_DAYS = 10
 
+# Canonical monthly list price per plan in integer cents. Single source of truth
+# for revenue estimates (admin metrics) and admin plan-change pricing, replacing
+# the formerly hardcoded copy in app.routers.admin.metrics.
+PLAN_PRICE_CENTS: dict[str, int] = {
+    "starter": 9900,
+    "pro": 29900,
+    "enterprise": 99900,
+}
+
+
+def plan_price_cents(plan: str | None) -> int:
+    """Monthly list price (cents) for ``plan``; 0 for unknown plans."""
+    return PLAN_PRICE_CENTS.get(plan or "", 0)
+
+
 # Per-plan default entitlements. Keep in sync with the landing-page pricing copy.
 PLAN_CATALOG: dict[str, dict[str, Any]] = {
     "starter": {
