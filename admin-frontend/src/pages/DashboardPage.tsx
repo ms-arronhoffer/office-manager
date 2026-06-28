@@ -4,8 +4,8 @@ import { Alert, AlertDescription } from "../components/ui/alert"
 import { Button } from "../components/ui/button"
 import { AlertCircle, TrendingUp } from "lucide-react"
 
-import { getMetrics, getPlatformTokens } from "../api"
-import type { PlatformMetrics, PlatformTokensResponse } from "../types"
+import { getMetrics, getPlatformTokens, getScheduledJobs } from "../api"
+import type { PlatformMetrics, PlatformTokensResponse, ScheduledJobsResponse } from "../types"
 
 interface KpiCardProps {
   label: string
@@ -41,6 +41,7 @@ function KpiCard({ label, value, sub, onClick, status }: KpiCardProps) {
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState<PlatformMetrics | null>(null)
   const [tokens, setTokens] = useState<PlatformTokensResponse | null>(null)
+  const [jobs, setJobs] = useState<ScheduledJobsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
@@ -54,6 +55,11 @@ export default function DashboardPage() {
           setTokens(await getPlatformTokens({ limit: 5 }))
         } catch {
           setTokens(null)
+        }
+        try {
+          setJobs(await getScheduledJobs())
+        } catch {
+          setJobs(null)
         }
       } catch {
         setError("Failed to load metrics")
@@ -173,6 +179,90 @@ export default function DashboardPage() {
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Scheduled Jobs */}
+          {jobs && (
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  Background jobs{" "}
+                  <span
+                    className={
+                      jobs.scheduler_running ? "text-green-600" : "text-red-600"
+                    }
+                  >
+                    ({jobs.scheduler_running ? "scheduler running" : "scheduler stopped"})
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {jobs.jobs.length === 0 ? (
+                  <p className="text-sm text-slate-500">No jobs registered.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-slate-500 border-b">
+                          <th className="py-2 pr-4 font-medium">Job</th>
+                          <th className="py-2 pr-4 font-medium">Last status</th>
+                          <th className="py-2 pr-4 font-medium">Last finished</th>
+                          <th className="py-2 pr-4 font-medium">Next run</th>
+                          <th className="py-2 pr-4 font-medium">Failures</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {jobs.jobs.map((job) => {
+                          const statusColor =
+                            job.last_status === "success"
+                              ? "text-green-600"
+                              : job.last_status === "failed"
+                                ? "text-red-600"
+                                : job.last_status === "running"
+                                  ? "text-blue-600"
+                                  : "text-slate-500"
+                          return (
+                            <tr key={job.job_id} className="border-b last:border-0">
+                              <td className="py-2 pr-4 text-slate-800">{job.job_id}</td>
+                              <td className={`py-2 pr-4 font-medium ${statusColor}`}>
+                                {job.last_status || "—"}
+                                {job.last_error && (
+                                  <span
+                                    className="block text-xs text-red-500 truncate max-w-xs"
+                                    title={job.last_error}
+                                  >
+                                    {job.last_error}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2 pr-4 text-slate-600">
+                                {job.last_finished_at
+                                  ? new Date(job.last_finished_at).toLocaleString()
+                                  : "—"}
+                              </td>
+                              <td className="py-2 pr-4 text-slate-600">
+                                {job.next_run_at
+                                  ? new Date(job.next_run_at).toLocaleString()
+                                  : "—"}
+                              </td>
+                              <td
+                                className={`py-2 pr-4 ${
+                                  job.failure_count > 0
+                                    ? "text-red-600 font-medium"
+                                    : "text-slate-600"
+                                }`}
+                              >
+                                {job.failure_count}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </CardContent>

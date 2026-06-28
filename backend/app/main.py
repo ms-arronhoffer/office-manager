@@ -4,20 +4,26 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from app.config import settings
-from app.tasks.scheduler import start_scheduler, stop_scheduler
+from app.tasks.scheduler import start_scheduler, stop_scheduler, scheduler
 from app.database import async_session
 from app.seeds.wizard_seed import seed_default_wizard_config
 from app.utils.rate_limit import org_limiter
+from app.utils.logging_config import configure_logging, init_sentry
 
 
 APP_VERSION = "1.0.0"
 BUILD_SHA = os.environ.get("BUILD_SHA", "dev")
 STARTED_AT = datetime.now(timezone.utc)
+
+configure_logging()
+init_sentry()
 
 
 @asynccontextmanager
@@ -153,3 +159,30 @@ async def health():
         "started_at": STARTED_AT.isoformat(),
         "uptime_seconds": int((datetime.now(timezone.utc) - STARTED_AT).total_seconds()),
     }
+
+
+@app.get("/api/v1/readyz")
+async def readyz():
+    """Readiness probe: verifies the app can serve traffic.
+
+    Unlike ``/health`` (liveness — "the process is up"), this checks the
+    dependencies required to actually handle requests: database connectivity
+    and a running background scheduler. Returns HTTP 503 when not ready so
+    orchestrators hold traffic until the app is healthy.
+    """
+    checks: dict[str, str] = {}
+
+    try:
+        async with async_session() as db:
+            await db.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception as exc:  # noqa: BLE001 - report, don't crash the probe
+        checks["database"] = f"error: {exc.__class__.__name__}"
+
+    checks["scheduler"] = "ok" if scheduler.running else "stopped"
+
+    ready = checks["database"] == "ok" and checks["scheduler"] == "ok"
+    payload = {"status": "ready" if ready else "not_ready", "checks": checks}
+    if not ready:
+        return JSONResponse(status_code=503, content=payload)
+    return payload

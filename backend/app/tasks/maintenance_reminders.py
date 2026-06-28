@@ -6,6 +6,7 @@ assigned vendor's contact email. De-duplicates via :class:`EmailLog` so a task i
 only emailed once per due cycle.
 """
 from datetime import date, timedelta
+import logging
 
 from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import select
@@ -17,6 +18,8 @@ from app.models.maintenance import MAINTENANCE_CATEGORIES
 from app.utils.email_client import send_email
 
 template_env = Environment(loader=FileSystemLoader("app/templates"))
+
+logger = logging.getLogger(__name__)
 
 
 def _category_label(category: str) -> str:
@@ -93,4 +96,6 @@ async def check_maintenance_reminders():
                 sent_count += 1
 
         await db.commit()
-        print(f"[MAINTENANCE REMINDERS] {len(tasks)} due tasks, {sent_count} emails sent")
+        logger.info(
+            "Maintenance reminders: %s due tasks, %s emails sent", len(tasks), sent_count
+        )

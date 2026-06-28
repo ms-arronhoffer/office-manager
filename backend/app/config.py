@@ -42,6 +42,20 @@ class Settings(BaseSettings):
     # Trial period
     TRIAL_DAYS: int = 30
 
+    # ── Observability ────────────────────────────────────────────────────
+    # Deployment environment label (e.g. "production", "staging", "dev").
+    # Used to tag logs and Sentry events.
+    APP_ENV: str = "development"
+    # Root log level: DEBUG / INFO / WARNING / ERROR.
+    LOG_LEVEL: str = "INFO"
+    # Log output format: "json" for structured logs (recommended in prod) or
+    # "plain" for human-readable console output.
+    LOG_FORMAT: str = "plain"
+    # Error tracking. When SENTRY_DSN is empty, Sentry is disabled and the app
+    # degrades gracefully (mirroring SMTP/Stripe/Gemini optional integrations).
+    SENTRY_DSN: str = ""
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
+
     # Slack webhook for internal ops alerts (billing events, etc.). Optional.
     SLACK_WEBHOOK_URL: str = ""
 

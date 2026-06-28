@@ -1,4 +1,5 @@
 """Super-admin: organization management + impersonation."""
+import logging
 import io
 import math
 import uuid
@@ -24,6 +25,8 @@ from app.services.activity_service import log_activity
 from app.services import entitlements as ent
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -447,7 +450,7 @@ async def delete_org(
             stripe.api_key = settings.STRIPE_SECRET_KEY
             stripe.Subscription.delete(org.stripe_subscription_id)
         except Exception as e:
-            print(f"[STRIPE] Failed to cancel subscription on org delete: {e}")
+            logger.warning("Failed to cancel Stripe subscription on org delete: %s", e)
 
     org.is_active = False
     org.payment_status = "canceled"

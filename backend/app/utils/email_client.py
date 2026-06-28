@@ -1,14 +1,18 @@
+import logging
+
 import aiosmtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 from app.config import settings
 
+logger = logging.getLogger(__name__)
+
 
 async def _send(message: MIMEMultipart) -> bool:
     """Send a MIME message via the configured SMTP server."""
     if not settings.SMTP_HOST:
-        print(f"[EMAIL SKIPPED] SMTP not configured. Would send: {message['Subject']}")
+        logger.info("Email skipped (SMTP not configured): %s", message["Subject"])
         return False
 
     kwargs: dict = {
@@ -30,7 +34,7 @@ async def _send(message: MIMEMultipart) -> bool:
         await aiosmtplib.send(message, **kwargs)
         return True
     except Exception as e:
-        print(f"[EMAIL ERROR] Failed to send to {message['To']}: {e}")
+        logger.warning("Failed to send email to %s: %s", message["To"], e)
         return False
 
 

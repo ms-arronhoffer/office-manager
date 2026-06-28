@@ -1,3 +1,4 @@
+import logging
 import math
 import uuid
 
@@ -16,6 +17,8 @@ from app.schemas.user import RegisterRequest, UserResponse, UserUpdateRequest
 from app.services import entitlements as ent
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 async def _sync_stripe_seats(org: Organization, db: AsyncSession) -> None:
@@ -37,7 +40,7 @@ async def _sync_stripe_seats(org: Organization, db: AsyncSession) -> None:
         item_id = sub["items"]["data"][0]["id"]
         stripe.SubscriptionItem.modify(item_id, quantity=max(1, seat_count))
     except Exception as e:
-        print(f"[STRIPE] Failed to sync seat quantity: {e}")
+        logger.warning("Failed to sync Stripe seat quantity: %s", e)
 
 
 @router.get("", response_model=PaginatedResponse[UserResponse])

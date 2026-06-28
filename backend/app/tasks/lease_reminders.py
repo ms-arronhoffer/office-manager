@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+import logging
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from jinja2 import Environment, FileSystemLoader
@@ -16,6 +17,8 @@ from app.services.email_rule_engine import (
 )
 
 template_env = Environment(loader=FileSystemLoader("app/templates"))
+
+logger = logging.getLogger(__name__)
 
 
 async def check_lease_reminders():
@@ -147,4 +150,6 @@ async def check_lease_reminders():
                 await digest.flush(subject=f"[Digest] {rule.rule_name}", intro=intro)
 
             await db.commit()
-            print(f"[LEASE REMINDERS] Processed rule '{rule.rule_name}': {processed} notices sent")
+            logger.info(
+                "Lease reminders: rule '%s' sent %s notices", rule.rule_name, processed
+            )

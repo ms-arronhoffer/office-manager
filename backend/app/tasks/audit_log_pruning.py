@@ -8,6 +8,7 @@ Processing is done in batches to avoid long-running transactions.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
@@ -17,6 +18,8 @@ from app.database import async_session
 from app.models.activity_log import ActivityLog
 from app.models.organization import Organization
 from app.services import entitlements as ent
+
+logger = logging.getLogger(__name__)
 
 _BATCH_SIZE = 500
 
@@ -67,9 +70,13 @@ async def run_audit_log_pruning() -> None:
             try:
                 count = await _prune_org(db, org)
                 if count:
-                    print(f"[AUDIT PRUNE] Deleted {count} rows for org '{org.name}'")
+                    logger.info("Pruned %s audit-log rows for org '%s'", count, org.name)
                 total_deleted += count
             except Exception as e:
-                print(f"[AUDIT PRUNE] Failed for org '{org.name}': {e}")
+                logger.warning("Audit-log pruning failed for org '%s': %s", org.name, e)
 
-        print(f"[AUDIT PRUNE] Completed — {total_deleted} rows deleted across {org_count} orgs")
+        logger.info(
+            "Audit-log pruning complete: %s rows deleted across %s orgs",
+            total_deleted,
+            org_count,
+        )
