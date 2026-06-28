@@ -4,12 +4,15 @@ from sqlalchemy import func, select, cast, Integer, extract
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from app.database import get_db
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_feature
 from app.models.user import User
+from app.models.organization import Organization
 from app.models.hq_hvac import HqHvacIssue
 from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.site_settings import SiteSettings
 from app.services.report_service import ReportService, DATASET_CONFIGS
+from app.services import entitlements as ent
+from app.services import usage_service
 from app.utils.email_client import send_email_with_attachment
 from datetime import date
 
@@ -78,6 +81,18 @@ async def generate_report(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # PDF/XLSX export requires the pdf_export feature; CSV is available on all plans.
+    # An inline check is used here instead of a route-level Depends(require_feature(...))
+    # because the same endpoint serves all formats and we want CSV to remain free.
+    if request.format in ("pdf", "xlsx"):
+        org_result = await db.execute(select(Organization).where(Organization.id == user.organization_id))
+        org = org_result.scalar_one_or_none()
+        if org and not ent.has_feature(org, "pdf_export"):
+            raise HTTPException(
+                status_code=402,
+                detail="The 'pdf_export' feature is not included in your plan. Upgrade to enable it.",
+            )
+
     service = ReportService(db)
     buffer, content_type = await service.generate(
         dataset=request.dataset,
@@ -93,6 +108,12 @@ async def generate_report(
     ext = ext_map.get(request.format, "csv")
     filename = f"{request.dataset}_report.{ext}"
 
+    if request.format in ("pdf", "xlsx"):
+        await usage_service.record_event(
+            db, user.organization_id, "report_export",
+            meta={"dataset": request.dataset, "format": request.format},
+        )
+
     return StreamingResponse(
         buffer,
         media_type=content_type,
@@ -105,6 +126,7 @@ async def email_report(
     request: ReportEmailRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    _pdf: User = Depends(require_feature("pdf_export")),
 ):
     if not request.recipients:
         raise HTTPException(status_code=400, detail="At least one recipient is required")
@@ -146,6 +168,7 @@ async def email_report(
 async def hvac_cost_analytics(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    _aa: User = Depends(require_feature("advanced_analytics")),
 ):
     """Aggregate HQ HVAC issue costs by year."""
     result = await db.execute(
@@ -173,6 +196,7 @@ async def hvac_cost_analytics(
 async def ticket_resolution_analytics(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    _aa: User = Depends(require_feature("advanced_analytics")),
 ):
     """Average days to close tickets by priority and category."""
     from sqlalchemy.orm import joinedload
@@ -219,6 +243,7 @@ async def ticket_resolution_analytics(
 async def sla_analytics(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    _aa: User = Depends(require_feature("advanced_analytics")),
 ):
     """SLA breach rates for open/in_progress tickets by priority and office."""
     from datetime import datetime, timezone
@@ -415,6 +440,7 @@ async def export_amortization_schedule(
     lease_id: str,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    _pdf: User = Depends(require_feature("pdf_export")),
 ):
     """
     Export the full ASC 842 / IFRS 16 amortization schedule for a single lease as CSV.
@@ -503,6 +529,7 @@ async def export_amortization_schedule(
 async def export_maturity_analysis(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
+    _pdf: User = Depends(require_feature("pdf_export")),
 ):
     """
     Export the portfolio-wide maturity analysis disclosure as CSV (ASC 842 / IFRS 16 Note).

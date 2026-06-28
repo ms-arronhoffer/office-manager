@@ -18,6 +18,7 @@ const plans = [
       'Email notifications',
       'Basic reporting & CSV export',
       'AI lease detail extraction',
+      'Monthly AI token allowance',
       '90-day audit log',
     ],
   },
@@ -38,6 +39,7 @@ const plans = [
       'Advanced SLA rules & escalations',
       'Transition project management',
       'AI abstracts & summary reports',
+      'Higher monthly AI token allowance',
       'Digital waivers & e-signatures',
       'Advanced analytics dashboard',
       'PDF report export',
@@ -62,6 +64,7 @@ const plans = [
       'SSO / SAML integration',
       'API access & webhooks',
       'Custom fields & workflows',
+      'Unlimited AI token usage',
       'Dedicated success manager',
       'Custom data retention policies',
       'SLA-backed uptime guarantee',
@@ -96,7 +99,7 @@ const plans = [
           </div>
 
           {plan.demoEmail ? (
-            <a href="#" data-demo-email class={`block text-center font-semibold py-3 px-6 rounded-xl transition-colors mb-8 ${plan.featured ? 'bg-white text-slate-900 hover:bg-slate-100' : 'bg-slate-900 text-white hover:bg-slate-700'}`}>
+            <a href="/contact" class={`block text-center font-semibold py-3 px-6 rounded-xl transition-colors mb-8 ${plan.featured ? 'bg-white text-slate-900 hover:bg-slate-100' : 'bg-slate-900 text-white hover:bg-slate-700'}`}>
               {plan.cta}
             </a>
           ) : (

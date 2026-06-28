@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html>
+<body style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
+<h2>Your SwiftLease trial expires in {{ days_remaining }} day{{ 's' if days_remaining != 1 else '' }}</h2>
+<p>Hi {{ org_name }} team,</p>
+<p>Your free trial ends on <strong>{{ trial_ends_at }}</strong>. After that, you'll need a paid plan to keep access.</p>
+<p>Upgrade now to avoid any interruption to your workflow.</p>
+<p><a href="{{ upgrade_url }}" style="background:#2563eb;color:#fff;padding:10px 20px;border-radius:5px;text-decoration:none;">Upgrade now &rarr;</a></p>
+<p style="font-size:12px;color:#666;margin-top:32px;">You're receiving this because you have an active SwiftLease trial.</p>
+</body>
+</html>

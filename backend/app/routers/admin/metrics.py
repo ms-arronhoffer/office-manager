@@ -35,6 +35,11 @@ class PlatformMetrics(BaseModel):
     # Revenue estimates based on plan tiers (starter=$99, pro=$299, enterprise=$999)
     mrr_cents: int
     arr_cents: int
+    # At-risk breakdowns
+    at_risk_trial_expiring: int
+    at_risk_past_due: int
+    at_risk_canceled: int
+    at_risk_inactive: int
 
 # Per-plan monthly price in cents (active + past_due orgs only)
 _PLAN_PRICE_CENTS = {"starter": 9900, "pro": 29900, "enterprise": 99900}
@@ -75,6 +80,22 @@ async def get_metrics(
                 Organization.plan == "enterprise",
                 Organization.payment_status.in_(["active", "past_due"]),
             ).label("rev_enterprise"),
+            # At-risk breakdowns
+            func.count(Organization.id).filter(
+                Organization.trial_ends_at.is_not(None),
+                Organization.trial_ends_at >= now,
+                Organization.trial_ends_at <= now + timedelta(days=7),
+                Organization.stripe_subscription_id.is_(None),
+            ).label("trial_expiring_7d"),
+            func.count(Organization.id).filter(
+                Organization.payment_status == "past_due",
+            ).label("at_risk_past_due"),
+            func.count(Organization.id).filter(
+                Organization.payment_status == "canceled",
+            ).label("at_risk_canceled"),
+            func.count(Organization.id).filter(
+                Organization.is_active.is_(False),
+            ).label("at_risk_inactive"),
         )
     )
     org_agg = org_rows.one()
@@ -123,4 +144,8 @@ async def get_metrics(
         open_tickets=ticket_agg.open,
         mrr_cents=mrr_cents,
         arr_cents=mrr_cents * 12,
+        at_risk_trial_expiring=org_agg.trial_expiring_7d,
+        at_risk_past_due=org_agg.at_risk_past_due,
+        at_risk_canceled=org_agg.at_risk_canceled,
+        at_risk_inactive=org_agg.at_risk_inactive,
     )

@@ -24,8 +24,11 @@ AI output.
 from __future__ import annotations
 
 import base64
+import contextvars
+import hashlib
 import json
 import logging
+from collections import OrderedDict
 from typing import Any
 
 import httpx
@@ -37,6 +40,108 @@ logger = logging.getLogger(__name__)
 # Hard caps to protect against oversized prompts / documents.
 MAX_DOCUMENT_BYTES = 15 * 1024 * 1024  # 15 MB of raw document bytes
 MAX_TEXT_CHARS = 200_000
+
+# Bump whenever a parse prompt/field-spec changes so cached results from an
+# older prompt version are invalidated rather than served stale.
+PROMPT_VERSION = "1"
+
+# ── Per-request token accounting ──────────────────────────────────────────────
+#
+# Gemini returns ``usageMetadata`` with prompt (input) and candidate (output)
+# token counts. We accumulate these per request in a ``ContextVar`` so the
+# router can read the total tokens spent across however many model calls an
+# endpoint made (e.g. an AI feature that calls ``_generate`` once, or embeddings
+# plus a generation) without threading return values through every helper. The
+# router resets the accumulator at the start of each request and collects the
+# total when recording the usage event.
+
+_token_usage_var: contextvars.ContextVar[list[int] | None] = contextvars.ContextVar(
+    "ai_token_usage", default=None
+)
+
+
+def reset_token_usage() -> None:
+    """Start a fresh token-usage accumulator for the current request context."""
+    _token_usage_var.set([0, 0])
+
+
+def record_token_usage(input_tokens: int, output_tokens: int) -> None:
+    """Add provider-reported token counts to the current accumulator."""
+    acc = _token_usage_var.get()
+    if acc is None:
+        acc = [0, 0]
+        _token_usage_var.set(acc)
+    acc[0] += max(int(input_tokens or 0), 0)
+    acc[1] += max(int(output_tokens or 0), 0)
+
+
+def collect_token_usage() -> tuple[int, int]:
+    """Return ``(input_tokens, output_tokens)`` accumulated this request."""
+    acc = _token_usage_var.get()
+    if acc is None:
+        return (0, 0)
+    return (acc[0], acc[1])
+
+
+def _record_usage_metadata(data: dict[str, Any]) -> None:
+    """Extract prompt/candidate token counts from a Gemini response body."""
+    meta = data.get("usageMetadata") or {}
+    prompt_tokens = meta.get("promptTokenCount") or 0
+    # Embedding/older responses may omit candidates; fall back to total - prompt.
+    candidate_tokens = meta.get("candidatesTokenCount")
+    if candidate_tokens is None:
+        total = meta.get("totalTokenCount") or 0
+        candidate_tokens = max(total - prompt_tokens, 0)
+    try:
+        record_token_usage(int(prompt_tokens), int(candidate_tokens))
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        pass
+
+
+# ── Response cache (document parses) ──────────────────────────────────────────
+#
+# Document extraction is deterministic enough that re-parsing the *same* bytes
+# with the *same* prompt is wasted latency and Gemini spend. We keep a small,
+# in-process LRU cache keyed on a hash of (parser, prompt version, model,
+# document bytes / extracted text). The cache is best-effort: it never changes
+# behaviour, only short-circuits an identical repeat call within a single
+# process. It deliberately stores only parsed JSON (no raw document bytes).
+
+CACHE_MAX_ENTRIES = 256
+_parse_cache: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
+
+
+def _cache_key(parser: str, payload: bytes) -> str:
+    digest = hashlib.sha256(payload).hexdigest()
+    return f"{parser}:{PROMPT_VERSION}:{settings.GEMINI_MODEL}:{digest}"
+
+
+def _cache_get(key: str) -> dict[str, Any] | None:
+    value = _parse_cache.get(key)
+    if value is not None:
+        _parse_cache.move_to_end(key)
+        # Return a copy so callers can't mutate the cached object.
+        return dict(value)
+    return None
+
+
+def _cache_put(key: str, value: dict[str, Any]) -> None:
+    _parse_cache[key] = dict(value)
+    _parse_cache.move_to_end(key)
+    while len(_parse_cache) > CACHE_MAX_ENTRIES:
+        _parse_cache.popitem(last=False)
+
+
+def _cache_payload(content: bytes, text_content: str | None) -> bytes:
+    """Build the bytes a cache key hashes over for a document parse."""
+    if text_content is not None:
+        return text_content.encode("utf-8", "ignore")
+    return content
+
+
+def clear_parse_cache() -> None:
+    """Empty the in-process parse cache (used by tests)."""
+    _parse_cache.clear()
 
 
 class AIError(Exception):
@@ -118,6 +223,8 @@ async def _generate(
     except (KeyError, IndexError, ValueError) as exc:
         logger.warning("Unexpected Gemini response shape: %s", exc)
         raise AIRequestError("AI provider returned an unexpected response") from exc
+
+    _record_usage_metadata(data)
 
     if not text.strip():
         raise AIRequestError("AI provider returned an empty response")
@@ -217,6 +324,53 @@ LEASE_PARSE_FIELDS = {
 }
 
 
+async def _parse_fields_from_document(
+    *,
+    parser: str,
+    system_instruction: str,
+    field_spec_map: dict[str, str],
+    intro: str,
+    document_label: str,
+    content: bytes,
+    mime_type: str,
+    text_content: str | None = None,
+) -> dict[str, Any]:
+    """Extract a fixed set of structured fields from a document.
+
+    Shared engine behind the per-entity ``parse_*`` helpers. For PDFs and images
+    the raw bytes are sent inline (Gemini reads them natively); for formats
+    Gemini cannot parse directly (e.g. Word documents) the caller extracts plain
+    text first and passes it as ``text_content``.
+
+    Identical (parser, prompt version, model, document) calls are served from a
+    small in-process cache to cut latency and provider spend.
+    """
+    payload = _cache_payload(content, text_content)
+    key = _cache_key(parser, payload)
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+
+    field_spec = "\n".join(f"- {k}: {v}" for k, v in field_spec_map.items())
+    prompt = f"{intro}\n{field_spec}\n"
+    if text_content is not None:
+        document = text_content[:MAX_TEXT_CHARS].strip()
+        if not document:
+            raise AIRequestError("The document did not contain any readable text.")
+        parts = [
+            {"text": prompt},
+            {"text": f"\n\n{document_label}:\n" + document},
+        ]
+    else:
+        parts = [{"text": prompt}, _document_part(content, mime_type)]
+    text = await _generate(
+        parts, system_instruction=system_instruction, json_response=True
+    )
+    result = _parse_json_object(text)
+    _cache_put(key, result)
+    return result
+
+
 async def parse_lease_document(
     content: bytes,
     mime_type: str,
@@ -232,26 +386,320 @@ async def parse_lease_document(
 
     Returns a dict whose keys are a subset of :class:`LeaseCreate` fields.
     """
-    field_spec = "\n".join(f"- {k}: {v}" for k, v in LEASE_PARSE_FIELDS.items())
+    return await _parse_fields_from_document(
+        parser="lease",
+        system_instruction=LEASE_PARSE_SYSTEM,
+        field_spec_map=LEASE_PARSE_FIELDS,
+        intro=(
+            "Extract the following fields from the lease document and "
+            "return a single JSON object with exactly these keys:"
+        ),
+        document_label="LEASE DOCUMENT TEXT",
+        content=content,
+        mime_type=mime_type,
+        text_content=text_content,
+    )
+
+
+# ── Vendor bill / AP invoice extraction (maps onto BillCreate) ────────────────
+
+VENDOR_BILL_PARSE_SYSTEM = (
+    "You are an accounts-payable assistant. Extract the header details of a "
+    "vendor invoice / bill from the supplied document. Respond ONLY with a JSON "
+    "object. Use null for any field you cannot determine. Dates must be ISO 8601 "
+    "(YYYY-MM-DD). Do not invent values.\n"
+    "\n"
+    "- Return all monetary amounts as plain numbers (no currency symbols, "
+    "commas, or thousands separators), e.g. 12500.50 not \"$12,500.50\".\n"
+    "- total_amount is the invoice grand total (amount due).\n"
+    "- vendor_name is the company that issued the invoice (the payee), not the "
+    "bill-to / customer."
+)
+
+VENDOR_BILL_PARSE_FIELDS = {
+    "vendor_name": "Name of the vendor / supplier that issued the invoice",
+    "bill_number": "Invoice or bill number / reference as printed",
+    "bill_date": "Invoice date (YYYY-MM-DD)",
+    "due_date": "Payment due date if stated (YYYY-MM-DD)",
+    "total_amount": "Invoice grand total / amount due as a plain number",
+    "currency": "ISO 4217 currency code of the amounts, e.g. USD",
+    "memo": "Short description of what the invoice is for",
+}
+
+
+async def parse_vendor_bill_document(
+    content: bytes,
+    mime_type: str,
+    *,
+    text_content: str | None = None,
+) -> dict[str, Any]:
+    """Extract suggested vendor-bill header fields from an invoice document."""
+    return await _parse_fields_from_document(
+        parser="vendor_bill",
+        system_instruction=VENDOR_BILL_PARSE_SYSTEM,
+        field_spec_map=VENDOR_BILL_PARSE_FIELDS,
+        intro=(
+            "Extract the following fields from the vendor invoice / bill and "
+            "return a single JSON object with exactly these keys:"
+        ),
+        document_label="VENDOR INVOICE TEXT",
+        content=content,
+        mime_type=mime_type,
+        text_content=text_content,
+    )
+
+
+# ── Insurance certificate (COI) extraction (maps onto CertCreate) ─────────────
+
+INSURANCE_PARSE_SYSTEM = (
+    "You are an insurance compliance assistant. Extract the key details from a "
+    "Certificate of Insurance (ACORD or similar). Respond ONLY with a JSON "
+    "object. Use null for any field you cannot determine. Dates must be ISO 8601 "
+    "(YYYY-MM-DD). Do not invent values.\n"
+    "\n"
+    "- insurer is the insurance carrier / underwriting company.\n"
+    "- certificate_holder is the entity the certificate is issued to (the holder "
+    "box), not the insured.\n"
+    "- limits should be a short human-readable summary of the coverage limits, "
+    "e.g. 'GL $1M/$2M; Auto $1M; Umbrella $5M'."
+)
+
+INSURANCE_PARSE_FIELDS = {
+    "certificate_type": "Type of coverage, e.g. 'General Liability', 'Workers Comp', 'Auto', 'Umbrella'",
+    "insurer": "Insurance carrier / underwriting company name",
+    "policy_number": "Policy number as printed",
+    "effective_date": "Policy effective date (YYYY-MM-DD)",
+    "expiration_date": "Policy expiration date (YYYY-MM-DD)",
+    "limits": "Short human-readable summary of coverage limits",
+    "certificate_holder": "Entity the certificate is issued to (the certificate holder)",
+    "notes": "Any other relevant notes, e.g. additional insured / waiver of subrogation",
+}
+
+
+async def parse_insurance_certificate(
+    content: bytes,
+    mime_type: str,
+    *,
+    text_content: str | None = None,
+) -> dict[str, Any]:
+    """Extract suggested certificate-of-insurance fields from a document."""
+    return await _parse_fields_from_document(
+        parser="insurance",
+        system_instruction=INSURANCE_PARSE_SYSTEM,
+        field_spec_map=INSURANCE_PARSE_FIELDS,
+        intro=(
+            "Extract the following fields from the certificate of insurance and "
+            "return a single JSON object with exactly these keys:"
+        ),
+        document_label="CERTIFICATE OF INSURANCE TEXT",
+        content=content,
+        mime_type=mime_type,
+        text_content=text_content,
+    )
+
+
+# ── HVAC contract extraction (maps onto HvacContractCreate) ───────────────────
+
+HVAC_CONTRACT_PARSE_SYSTEM = (
+    "You are a facilities-management assistant. Extract the key details from an "
+    "HVAC service / maintenance contract or agreement. Respond ONLY with a JSON "
+    "object. Use null for any field you cannot determine. Dates must be ISO 8601 "
+    "(YYYY-MM-DD). Do not invent values.\n"
+    "\n"
+    "- hvac_company is the contractor / service provider performing the work.\n"
+    "- frequency is the service cadence if stated, e.g. 'Monthly', 'Quarterly', "
+    "'Bi-Annual', 'Annual', 'On-Demand'.\n"
+    "- landlord_handles is true only if the document indicates the landlord (not "
+    "the tenant) is responsible for HVAC maintenance."
+)
+
+HVAC_CONTRACT_PARSE_FIELDS = {
+    "hvac_company": "Name of the HVAC contractor / service provider",
+    "contact": "Primary contact name, phone, or email for the contractor",
+    "frequency": "Service cadence, e.g. Monthly, Quarterly, Bi-Annual, Annual, On-Demand",
+    "next_service_date": "Next scheduled service date if stated (YYYY-MM-DD)",
+    "last_serviced_date": "Most recent service date if stated (YYYY-MM-DD)",
+    "office_name": "Office / site name or location covered by the contract",
+    "landlord_handles": "true if the landlord is responsible for HVAC maintenance (boolean)",
+    "comments": "Any other relevant notes about scope, term, or pricing",
+}
+
+
+async def parse_hvac_contract(
+    content: bytes,
+    mime_type: str,
+    *,
+    text_content: str | None = None,
+) -> dict[str, Any]:
+    """Extract suggested HVAC-contract fields from a document."""
+    return await _parse_fields_from_document(
+        parser="hvac_contract",
+        system_instruction=HVAC_CONTRACT_PARSE_SYSTEM,
+        field_spec_map=HVAC_CONTRACT_PARSE_FIELDS,
+        intro=(
+            "Extract the following fields from the HVAC service contract and "
+            "return a single JSON object with exactly these keys:"
+        ),
+        document_label="HVAC CONTRACT TEXT",
+        content=content,
+        mime_type=mime_type,
+        text_content=text_content,
+    )
+
+
+# ── Maintenance ticket intelligence (Phase 2) ────────────────────────────────
+#
+# Unlike the document parsers above, ticket triage and email drafting work from
+# short free-text inputs rather than uploaded files, so they don't go through
+# ``_parse_fields_from_document``. They still reuse ``_generate`` /
+# ``_parse_json_object`` and the in-process cache (keyed on the JSON-serialised
+# input) to cut latency and provider spend on identical repeat calls.
+
+TICKET_TRIAGE_SYSTEM = (
+    "You are a commercial-property facilities dispatcher. Given a maintenance "
+    "request, classify it so a property manager can triage it quickly. Respond "
+    "ONLY with a JSON object. Use null when you cannot determine a value. Never "
+    "invent a category or vendor that is not in the provided lists.\n"
+    "\n"
+    "- category MUST be EXACTLY one of the provided category names, or null.\n"
+    "- priority MUST be one of: low, medium, high. Use high for safety hazards, "
+    "security issues, loss of heat/AC, water leaks, power loss, or anything "
+    "blocking business operations; low for cosmetic or non-urgent issues; medium "
+    "otherwise.\n"
+    "- vendor MUST be EXACTLY one of the provided vendor names whose services "
+    "best match the work, or null if none clearly fit.\n"
+    "- reasoning is ONE short sentence explaining the suggestion."
+)
+
+
+async def triage_ticket(
+    subject: str,
+    description: str,
+    *,
+    categories: list[str],
+    vendors: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Suggest a category, priority, and vendor for a maintenance request.
+
+    ``categories`` is the list of the org's category names. ``vendors`` is a
+    list of ``{"name": ..., "services": ...}`` dicts. The model is constrained to
+    pick only from those lists (mirroring the abstract-catalog approach); the
+    caller maps the returned names back onto ids. Returns a dict with keys
+    ``category``, ``priority``, ``vendor``, and ``reasoning``.
+    """
+    cache_input = json.dumps(
+        {
+            "subject": subject,
+            "description": description,
+            "categories": sorted(categories),
+            "vendors": sorted(
+                (v.get("name", ""), v.get("services") or "") for v in vendors
+            ),
+        },
+        sort_keys=True,
+    ).encode("utf-8", "ignore")
+    key = _cache_key("ticket_triage", cache_input)
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+
+    cat_list = "\n".join(f"- {c}" for c in categories) or "(none defined)"
+    ven_list = (
+        "\n".join(
+            f"- {v.get('name', '')}: {v.get('services') or 'general maintenance'}"
+            for v in vendors
+        )
+        or "(none available)"
+    )
     prompt = (
-        "Extract the following fields from the lease document and "
-        "return a single JSON object with exactly these keys:\n"
-        f"{field_spec}\n"
+        "Maintenance request to triage:\n"
+        f"Subject: {subject}\n"
+        f"Description: {description}\n"
+        "\n"
+        "Available categories:\n"
+        f"{cat_list}\n"
+        "\n"
+        "Available vendors (name: services):\n"
+        f"{ven_list}\n"
+        "\n"
+        "Return a single JSON object with exactly these keys: category, "
+        "priority, vendor, reasoning."
     )
-    if text_content is not None:
-        document = text_content[:MAX_TEXT_CHARS].strip()
-        if not document:
-            raise AIRequestError("The document did not contain any readable text.")
-        parts = [
-            {"text": prompt},
-            {"text": "\n\nLEASE DOCUMENT TEXT:\n" + document},
-        ]
-    else:
-        parts = [{"text": prompt}, _document_part(content, mime_type)]
     text = await _generate(
-        parts, system_instruction=LEASE_PARSE_SYSTEM, json_response=True
+        [{"text": prompt}], system_instruction=TICKET_TRIAGE_SYSTEM, json_response=True
     )
-    return _parse_json_object(text)
+    result = _parse_json_object(text)
+    _cache_put(key, result)
+    return result
+
+
+TICKET_EMAIL_DRAFT_SYSTEM = (
+    "You are a facilities intake assistant. Convert a free-text maintenance "
+    "request email into a structured ticket draft for human review. Respond ONLY "
+    "with a JSON object. Use null for any field you cannot determine. Never "
+    "invent details that are not in the email.\n"
+    "\n"
+    "- subject is a short (max ~80 chars) summary of the problem.\n"
+    "- description is a clear, concise restatement of the reported issue.\n"
+    "- priority MUST be one of: low, medium, high (high for safety/operational "
+    "emergencies, low for cosmetic/non-urgent, medium otherwise).\n"
+    "- category MUST be EXACTLY one of the provided category names, or null.\n"
+    "- location_hint is any building/suite/site reference mentioned, or null."
+)
+
+TICKET_EMAIL_DRAFT_FIELDS = {
+    "subject": "Short summary of the problem (max ~80 characters)",
+    "description": "Clear, concise restatement of the reported issue",
+    "priority": "One of: low, medium, high",
+    "category": "EXACTLY one of the provided category names, or null",
+    "location_hint": "Any building / suite / site reference mentioned, or null",
+}
+
+
+async def draft_ticket_from_email(
+    email_text: str,
+    *,
+    categories: list[str],
+) -> dict[str, Any]:
+    """Draft structured ticket fields from a free-text request email.
+
+    Returns a dict with keys ``subject``, ``description``, ``priority``,
+    ``category``, and ``location_hint`` for the form to apply after review.
+    """
+    body = (email_text or "").strip()
+    if not body:
+        raise AIRequestError("The email did not contain any readable text.")
+    body = body[:MAX_TEXT_CHARS]
+
+    cache_input = json.dumps(
+        {"email": body, "categories": sorted(categories)}, sort_keys=True
+    ).encode("utf-8", "ignore")
+    key = _cache_key("ticket_email_draft", cache_input)
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+
+    field_spec = "\n".join(f"- {k}: {v}" for k, v in TICKET_EMAIL_DRAFT_FIELDS.items())
+    cat_list = "\n".join(f"- {c}" for c in categories) or "(none defined)"
+    prompt = (
+        "Convert the following maintenance request email into a single JSON "
+        "object with exactly these keys:\n"
+        f"{field_spec}\n"
+        "\n"
+        "Available categories:\n"
+        f"{cat_list}\n"
+        "\n"
+        "REQUEST EMAIL TEXT:\n"
+        f"{body}"
+    )
+    text = await _generate(
+        [{"text": prompt}],
+        system_instruction=TICKET_EMAIL_DRAFT_SYSTEM,
+        json_response=True,
+    )
+    result = _parse_json_object(text)
+    _cache_put(key, result)
+    return result
 
 
 ABSTRACT_SUGGEST_SYSTEM = (
@@ -738,76 +1186,6 @@ def _normalize_classification(parsed: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-TICKET_TRIAGE_SYSTEM = (
-    "You are a dispatcher for a commercial property maintenance team. Given a "
-    "maintenance request (subject + description) and the lists of available "
-    "ticket categories and vendors, recommend how to triage the request. "
-    "Respond ONLY with a JSON object. Do not invent categories, vendors, or "
-    "values that are not provided.\n"
-    "\n"
-    "Rules:\n"
-    "- category_id must be the id of the single best-matching category from the "
-    "supplied list, or null if none clearly fit. category_name must be that "
-    "category's name (or null).\n"
-    "- priority must be exactly one of: low, medium, high. Use high for safety "
-    "issues, security, no heat/AC, water leaks, power loss, or anything blocking "
-    "business operations; medium for problems that impair use but are not "
-    "urgent; low for cosmetic or routine requests.\n"
-    "- vendor_id must be the id of the most suitable vendor from the supplied "
-    "list based on the vendor's services/trade, or null if none clearly fit. "
-    "Prefer a vendor marked preferred when two are equally suitable. vendor_name "
-    "must be that vendor's company name (or null).\n"
-    "- reasoning must be one short sentence explaining the recommendation.\n"
-    "- draft_response must be a brief, professional acknowledgement message the "
-    "team could send to the requester, confirming the issue and next steps."
-)
-
-
-async def triage_ticket(
-    subject: str,
-    description: str,
-    categories: list[dict[str, Any]],
-    vendors: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Recommend triage details for a maintenance ticket.
-
-    ``categories`` is a list of ``{"id", "name"}`` dicts and ``vendors`` a list
-    of ``{"id", "name", "services", "preferred"}`` dicts (both organization
-    scoped by the caller). Returns a dict with the keys ``category_id``,
-    ``category_name``, ``priority``, ``vendor_id``, ``vendor_name``,
-    ``reasoning`` and ``draft_response``. All values are *suggestions* for human
-    review; callers never auto-assign.
-    """
-    cat_lines = "\n".join(f"- {c['id']}: {c['name']}" for c in categories) or "(none)"
-    vendor_lines = (
-        "\n".join(
-            "- {id}: {name}{services}{preferred}".format(
-                id=v["id"],
-                name=v["name"],
-                services=f" — services: {v['services']}" if v.get("services") else "",
-                preferred=" [preferred]" if v.get("preferred") else "",
-            )
-            for v in vendors
-        )
-        or "(none)"
-    )
-    prompt = (
-        "Triage this maintenance request and return a single JSON object with "
-        "exactly these keys: category_id, category_name, priority, vendor_id, "
-        "vendor_name, reasoning, draft_response.\n\n"
-        f"SUBJECT:\n{(subject or '').strip()[:2000]}\n\n"
-        f"DESCRIPTION:\n{(description or '').strip()[:MAX_TEXT_CHARS]}\n\n"
-        f"AVAILABLE CATEGORIES (id: name):\n{cat_lines}\n\n"
-        f"AVAILABLE VENDORS (id: name — services):\n{vendor_lines}\n"
-    )
-    text = await _generate(
-        [{"text": prompt}],
-        system_instruction=TICKET_TRIAGE_SYSTEM,
-        json_response=True,
-    )
-    return _parse_json_object(text)
-
-
 SUMMARY_SYSTEM = (
     "You are an operations analyst for a commercial property management team. "
     "Write a concise, professional briefing in Markdown from the structured data "
@@ -949,6 +1327,28 @@ PORTFOLIO_QA_SYSTEM = (
 # stays bounded regardless of how many chunks were retrieved.
 MAX_QA_CONTEXT_CHUNKS = 12
 MAX_QA_CHUNK_CHARS = 4000
+
+# ── Portfolio assistant (RAG Q&A, Phase 3) ────────────────────────────────────
+
+PORTFOLIO_ASSISTANT_SYSTEM = (
+    "You are a portfolio assistant for a commercial property management team. "
+    "Answer the user's question using ONLY the numbered context passages "
+    "provided. The context is drawn from the team's own leases, maintenance "
+    "tickets, and lease abstracts.\n"
+    "\n"
+    "Rules:\n"
+    "- Base every statement on the context. Never invent facts, figures, names, "
+    "or dates that are not present in the passages.\n"
+    "- Cite the passages you rely on inline using square-bracket numbers that "
+    "match the passage numbers, e.g. [1] or [2][3].\n"
+    "- If the context does not contain enough information to answer, say so "
+    "plainly rather than guessing.\n"
+    "- Be concise and factual. Use Markdown when it aids readability."
+)
+
+# Bound the context assembled into the assistant prompt.
+MAX_ASSISTANT_CONTEXT_CHARS = 24_000
+MAX_ASSISTANT_PASSAGE_CHARS = 2_000
 
 
 async def answer_portfolio_question(
@@ -1190,6 +1590,51 @@ async def parse_assistant_intent(prompt: str) -> dict[str, Any]:
     return _normalize_intent(_parse_json_object(text))
 
 
+async def answer_assistant_question(
+    question: str,
+    context_blocks: list[dict[str, Any]],
+) -> str:
+    """Answer ``question`` grounded in the supplied retrieved ``context_blocks``.
+
+    Each block is a dict with at least ``title`` and ``content`` keys (as
+    returned by :func:`app.services.knowledge_service.retrieve`). Passages are
+    numbered so the model can cite them; the answer is returned as Markdown text.
+    Raises :class:`AIUnavailableError` when Gemini is not configured.
+    """
+    question = (question or "").strip()
+    if not question:
+        raise AIRequestError("The question was empty.")
+
+    lines: list[str] = []
+    used = 0
+    for idx, block in enumerate(context_blocks, start=1):
+        title = _clean_inline(str(block.get("title") or "Untitled"))
+        body = _clean_inline(str(block.get("content") or ""))[:MAX_ASSISTANT_PASSAGE_CHARS]
+        passage = f"[{idx}] {title}\n{body}"
+        if used + len(passage) > MAX_ASSISTANT_CONTEXT_CHARS:
+            break
+        lines.append(passage)
+        used += len(passage)
+
+    context = "\n\n".join(lines) if lines else "(no relevant context found)"
+    prompt = (
+        "Context passages:\n"
+        f"{context}\n"
+        "\n"
+        f"Question: {question}\n"
+        "\n"
+        "Answer the question using only the context above, citing passages by "
+        "their number."
+    )
+    return await _generate(
+        [{"text": prompt}], system_instruction=PORTFOLIO_ASSISTANT_SYSTEM, temperature=0.2
+    )
+
+
+def _clean_inline(text: str) -> str:
+    return " ".join((text or "").split())
+
+
 # ── Embeddings (semantic document search) ─────────────────────────────────────
 
 # Cap the number of texts embedded in a single batch request.
@@ -1249,5 +1694,9 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
         except (KeyError, TypeError, ValueError) as exc:
             logger.warning("Unexpected Gemini embed response shape: %s", exc)
             raise AIRequestError("AI provider returned an unexpected response") from exc
+
+        # batchEmbedContents may report token usage; account for it when present
+        # (input tokens only — embeddings have no generated output).
+        _record_usage_metadata(data)
 
     return vectors

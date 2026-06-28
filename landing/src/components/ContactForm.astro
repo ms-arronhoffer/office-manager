@@ -1,0 +1,169 @@
+---
+// Spam-resistant contact form.
+//
+// Anti-harvesting / anti-spam measures (no mailto: anywhere in the HTML):
+//   1. The destination email is never rendered in markup. It is assembled at
+//      runtime from SITE_CONFIG parts only when a human reveals/sends it.
+//   2. A hidden honeypot field ("company_website") that real users never see;
+//      any submission that fills it is silently dropped.
+//   3. A render-time timestamp; submissions faster than a few seconds (bots)
+//      are rejected.
+//   4. Progressive enhancement: posts JSON to SITE_CONFIG.CONTACT_ENDPOINT when
+//      configured; otherwise falls back to a JS-built mailto opened on submit.
+---
+<form id="contact-form" class="space-y-5" novalidate>
+  <div class="grid sm:grid-cols-2 gap-5">
+    <div>
+      <label for="cf-name" class="block text-sm font-medium text-slate-700 mb-1.5">Full name</label>
+      <input id="cf-name" name="name" type="text" required autocomplete="name"
+        class="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
+        placeholder="Jane Doe" />
+    </div>
+    <div>
+      <label for="cf-company" class="block text-sm font-medium text-slate-700 mb-1.5">Company</label>
+      <input id="cf-company" name="company" type="text" autocomplete="organization"
+        class="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
+        placeholder="Acme Corp." />
+    </div>
+  </div>
+
+  <div class="grid sm:grid-cols-2 gap-5">
+    <div>
+      <label for="cf-email" class="block text-sm font-medium text-slate-700 mb-1.5">Work email</label>
+      <input id="cf-email" name="email" type="email" required autocomplete="email"
+        class="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
+        placeholder="jane@company.com" />
+    </div>
+    <div>
+      <label for="cf-topic" class="block text-sm font-medium text-slate-700 mb-1.5">I'm interested in</label>
+      <select id="cf-topic" name="topic"
+        class="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition">
+        <option>Booking a demo</option>
+        <option>Pricing &amp; plans</option>
+        <option>Migrating my portfolio</option>
+        <option>Enterprise / SSO</option>
+        <option>Support</option>
+        <option>Something else</option>
+      </select>
+    </div>
+  </div>
+
+  <div>
+    <label for="cf-message" class="block text-sm font-medium text-slate-700 mb-1.5">How can we help?</label>
+    <textarea id="cf-message" name="message" rows="5" required
+      class="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition resize-y"
+      placeholder="Tell us about your portfolio — number of offices, what you're using today, and what you'd like to improve."></textarea>
+  </div>
+
+  <!-- Honeypot: hidden from humans, irresistible to bots. Must stay empty. -->
+  <div aria-hidden="true" class="absolute left-[-9999px] top-[-9999px] h-0 w-0 overflow-hidden" tabindex="-1">
+    <label>Company website<input type="text" name="company_website" tabindex="-1" autocomplete="off" /></label>
+  </div>
+  <!-- Render timestamp for the time-to-submit heuristic. -->
+  <input type="hidden" name="rendered_at" id="cf-rendered-at" value="" />
+
+  <div class="flex flex-col sm:flex-row sm:items-center gap-4 pt-2">
+    <button type="submit" id="cf-submit"
+      class="inline-flex items-center justify-center gap-2 bg-slate-900 text-white font-semibold px-7 py-3 rounded-xl hover:bg-slate-700 transition-colors disabled:opacity-60">
+      Send message
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+    <p class="text-xs text-slate-400">We reply within one business day. Your details are never sold or shared.</p>
+  </div>
+
+  <p id="cf-status" class="hidden text-sm font-medium" role="status" aria-live="polite"></p>
+</form>
+
+<script is:inline>
+  (function () {
+    var form = document.getElementById('contact-form');
+    if (!form) return;
+    var status = document.getElementById('cf-status');
+    var submit = document.getElementById('cf-submit');
+    document.getElementById('cf-rendered-at').value = String(Date.now());
+
+    function show(msg, ok) {
+      status.textContent = msg;
+      status.className = 'text-sm font-medium ' + (ok ? 'text-green-600' : 'text-red-600');
+    }
+
+    // Build the destination address from parts at runtime so it never appears
+    // in the static HTML for harvesters to scrape.
+    function destEmail() {
+      var cfg = window.SITE_CONFIG || {};
+      return cfg.SUPPORT_EMAIL || cfg.DEMO_EMAIL || '';
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var data = new FormData(form);
+
+      // Honeypot tripped -> pretend success, drop silently.
+      if ((data.get('company_website') || '').trim() !== '') {
+        show('Thanks! Your message has been sent.', true);
+        form.reset();
+        return;
+      }
+      // Too-fast submission -> almost certainly a bot.
+      var elapsed = Date.now() - Number(data.get('rendered_at') || 0);
+      if (elapsed < 2500) {
+        show('Please take a moment to complete the form, then try again.', false);
+        return;
+      }
+      if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+      }
+
+      var payload = {
+        name: data.get('name'),
+        company: data.get('company'),
+        email: data.get('email'),
+        topic: data.get('topic'),
+        message: data.get('message'),
+      };
+
+      var cfg = window.SITE_CONFIG || {};
+      submit.disabled = true;
+
+      if (cfg.CONTACT_ENDPOINT) {
+        fetch(cfg.CONTACT_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(payload),
+        })
+          .then(function (r) {
+            if (!r.ok) throw new Error('bad status');
+            show('Thanks, ' + (payload.name || 'there') + '! Your message has been sent.', true);
+            form.reset();
+            document.getElementById('cf-rendered-at').value = String(Date.now());
+          })
+          .catch(function () {
+            show('Something went wrong sending your message. Please try again shortly.', false);
+          })
+          .finally(function () { submit.disabled = false; });
+        return;
+      }
+
+      // No endpoint configured: fall back to a mailto built in JS (never in the
+      // page source) so the form still works on purely static hosting.
+      var to = destEmail();
+      if (!to) {
+        show('Thank you. Please reach us through your account manager to continue.', true);
+        submit.disabled = false;
+        return;
+      }
+      var subject = encodeURIComponent('[Website] ' + payload.topic + ' — ' + (payload.company || payload.name));
+      var body = encodeURIComponent(
+        'Name: ' + payload.name + '\n' +
+        'Company: ' + (payload.company || '') + '\n' +
+        'Email: ' + payload.email + '\n' +
+        'Topic: ' + payload.topic + '\n\n' +
+        payload.message
+      );
+      window.location.href = 'mailto:' + to + '?subject=' + subject + '&body=' + body;
+      show('Opening your email client to finish sending…', true);
+      submit.disabled = false;
+    });
+  })();
+</script>

@@ -1,0 +1,76 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Navbar from '../components/Navbar.astro';
+import Footer from '../components/Footer.astro';
+import PageHero from '../components/PageHero.astro';
+import ContactForm from '../components/ContactForm.astro';
+
+const reasons = [
+  {
+    icon: '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>',
+    title: 'Talk to a specialist',
+    desc: 'Get a guided walkthrough tailored to your portfolio size and workflows — not a generic sales pitch.',
+  },
+  {
+    icon: '<path d="M12 2v6M12 16v6M2 12h6M16 12h6"/><circle cx="12" cy="12" r="3"/>',
+    title: 'Plan your migration',
+    desc: 'Bring your spreadsheets and lease PDFs. We will map a path to get your data live the same week.',
+  },
+  {
+    icon: '<path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/>',
+    title: 'One business day reply',
+    desc: 'A real person responds within one business day. No call-center queues, no auto-responders.',
+  },
+];
+---
+<Layout
+  title="Contact Office Manager — Book a Demo or Talk to Sales"
+  description="Get in touch with the Office Manager team. Book a demo, plan a migration, or ask about Enterprise plans — using a secure, spam-resistant form (no email to harvest)."
+>
+  <Navbar />
+  <main>
+    <PageHero
+      eyebrow="Contact"
+      title="Let's bring order to your portfolio"
+      subtitle="Tell us a little about your team and we'll show you exactly how Office Manager fits. No pressure, no spam."
+    />
+
+    <section class="py-16 lg:py-24">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 grid lg:grid-cols-5 gap-12">
+        <!-- Reasons -->
+        <div class="lg:col-span-2 space-y-8">
+          {reasons.map(r => (
+            <div class="flex gap-4">
+              <div class="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" set:html={r.icon} />
+              </div>
+              <div>
+                <h3 class="font-semibold text-slate-900">{r.title}</h3>
+                <p class="text-sm text-slate-500 leading-relaxed mt-1">{r.desc}</p>
+              </div>
+            </div>
+          ))}
+
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-6">
+            <div class="flex items-center gap-2 text-slate-700 font-semibold text-sm mb-2">
+              <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3l8 4v5c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V7l8-4z"/></svg>
+              Privacy-first contact
+            </div>
+            <p class="text-sm text-slate-500 leading-relaxed">
+              We deliberately don't publish a clickable email address — it only feeds spam bots.
+              This form reaches the same team, and your details are never sold or shared.
+            </p>
+          </div>
+        </div>
+
+        <!-- Form -->
+        <div class="lg:col-span-3">
+          <div class="rounded-2xl border border-slate-200 bg-white shadow-sm p-6 sm:p-8">
+            <ContactForm />
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Layout>

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import require_super_admin
 from app.config import settings
 from app.database import get_db
+from app.models.impersonation_session import ImpersonationSession
 from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.office import Office
 from app.models.organization import Organization
@@ -39,6 +40,7 @@ class OrgListItem(BaseModel):
     ticket_count: int
     trial_ends_at: datetime | None
     created_at: datetime
+    risk_label: str
 
     model_config = {"from_attributes": True}
 
@@ -218,6 +220,7 @@ async def list_orgs(
             ticket_count=stats.get(o.id, {}).get("ticket_count", 0),
             trial_ends_at=o.trial_ends_at,
             created_at=o.created_at,
+            risk_label=_risk_label(o, stats.get(o.id, {})),
         )
         for o in orgs
     ]
@@ -397,6 +400,17 @@ async def impersonate_org(
         algorithm=settings.JWT_ALGORITHM,
     )
 
+    # Persist impersonation audit record
+    session_record = ImpersonationSession(
+        admin_user_id=current_user.id,
+        target_org_id=org_id,
+        target_user_id=target.id,
+        target_user_email=target.email,
+        expires_at=expire,
+    )
+    db.add(session_record)
+    await db.commit()
+
     await log_activity(
         db,
         user=current_user,
@@ -411,4 +425,38 @@ async def impersonate_org(
         token=token,
         impersonated_user_id=str(target.id),
         impersonated_user_email=target.email,
+    )
+
+
+@router.delete("/{org_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_org(
+    org_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_super_admin()),
+):
+    """Super-admin: permanently deactivate an org and cancel its Stripe subscription."""
+    org = (await db.execute(select(Organization).where(Organization.id == org_id))).scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    # Cancel Stripe subscription best-effort
+    if org.stripe_subscription_id and settings.STRIPE_SECRET_KEY:
+        try:
+            import stripe
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            stripe.Subscription.delete(org.stripe_subscription_id)
+        except Exception as e:
+            print(f"[STRIPE] Failed to cancel subscription on org delete: {e}")
+
+    org.is_active = False
+    org.payment_status = "canceled"
+    await db.commit()
+    await log_activity(
+        db,
+        user=current_user,
+        action="deleted",
+        entity_type="organization",
+        entity_id=org_id,
+        entity_label=org.name,
+        changes={"is_active": False, "payment_status": "canceled"},
     )

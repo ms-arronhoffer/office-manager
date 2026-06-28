@@ -12,6 +12,7 @@ from app.config import settings
 from app.tasks.scheduler import start_scheduler, stop_scheduler
 from app.database import async_session
 from app.seeds.wizard_seed import seed_default_wizard_config
+from app.utils.rate_limit import org_limiter
 
 
 APP_VERSION = "1.0.0"
@@ -36,6 +37,7 @@ app = FastAPI(
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 app.state.limiter = limiter
+app.state.org_limiter = org_limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
@@ -62,7 +64,7 @@ from app.routers import (  # noqa: E402
     lease_abstract, management_companies, contacts, client_portal,
     ai, waivers, document_search, maintenance, saved_reports, assistant,
 )
-from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit  # noqa: E402
+from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit, usage as admin_usage  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature  # noqa: E402
 from fastapi import Depends  # noqa: E402
 
@@ -121,7 +123,7 @@ app.include_router(gl.router, prefix="/api/v1/gl", tags=["General Ledger"], depe
 app.include_router(cam.router, prefix="/api/v1/cam", tags=["CAM Reconciliation"], dependencies=_org_guard)
 app.include_router(lifecycle.router, prefix="/api/v1/lifecycle", tags=["Lease Lifecycle Accounting"], dependencies=_org_guard)
 app.include_router(ap.router, prefix="/api/v1/ap", tags=["Accounts Payable"], dependencies=_org_guard)
-app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Assist"], dependencies=_org_guard)
+app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Assist"], dependencies=[Depends(enforce_org_access), Depends(ai.reset_ai_usage)])
 app.include_router(
     waivers.router,
     prefix="/api/v1/waivers",
@@ -136,6 +138,7 @@ app.include_router(admin_users.router, prefix="/admin/v1/users", tags=["Admin - 
 app.include_router(admin_metrics.router, prefix="/admin/v1/metrics", tags=["Admin - Metrics"])
 app.include_router(admin_billing.router, prefix="/admin/v1/billing", tags=["Admin - Billing"])
 app.include_router(admin_audit.router, prefix="/admin/v1/audit", tags=["Admin - Audit"])
+app.include_router(admin_usage.router, prefix="/admin/v1/usage", tags=["Admin - Usage"])
 
 
 @app.get("/api/v1/health")

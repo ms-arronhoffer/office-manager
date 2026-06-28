@@ -27,12 +27,13 @@ import {
 } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
 import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
+import AITicketAssist from '@/components/common/AITicketAssist';
 import {
   OfficeQuickCreate,
   ManagerQuickCreate,
   TicketCategoryQuickCreate,
 } from '@/components/common/QuickCreateForms';
-import type { Office, TicketCategory, Manager, TicketTemplate, Vendor } from '@/types';
+import type { Office, TicketCategory, Manager, TicketTemplate, Vendor, TicketTriageSuggestion } from '@/types';
 
 type SelectOption = { label: string; value: string };
 
@@ -237,6 +238,18 @@ const MaintenanceTicketFormPage: React.FC = () => {
       }
     } finally {
       setTriaging(false);
+    }
+  };
+
+  const applyTriage = (s: TicketTriageSuggestion) => {
+    if (s.priority && ['low', 'medium', 'high'].includes(s.priority)) {
+      setPriority(s.priority);
+    }
+    if (s.category_id && s.category_name) {
+      setSelectedCategory({ label: s.category_name, value: String(s.category_id) });
+    }
+    if (s.vendor_id && s.vendor_name) {
+      setSelectedVendor({ label: s.vendor_name, value: String(s.vendor_id) });
     }
   };
 
@@ -515,6 +528,13 @@ const MaintenanceTicketFormPage: React.FC = () => {
                 )}
               </SpaceBetween>
             )}
+
+            <AITicketAssist
+              subject={subject}
+              description={description}
+              excludeId={isEditing && id ? id : undefined}
+              onApply={applyTriage}
+            />
 
             <FormField label="Assigned To">
               <EntityQuickCreateSelect

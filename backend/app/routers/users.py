@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_role
 from app.auth.password import hash_password
+from app.config import settings
 from app.database import get_db
 from app.models.organization import Organization
 from app.models.user import User
@@ -15,6 +16,28 @@ from app.schemas.user import RegisterRequest, UserResponse, UserUpdateRequest
 from app.services import entitlements as ent
 
 router = APIRouter()
+
+
+async def _sync_stripe_seats(org: Organization, db: AsyncSession) -> None:
+    """Best-effort: update the Stripe subscription quantity to match active seat count."""
+    if not org or not org.stripe_subscription_id or not settings.STRIPE_SECRET_KEY:
+        return
+    try:
+        import stripe
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        seat_count = (
+            await db.execute(
+                select(func.count()).select_from(User).where(
+                    User.organization_id == org.id,
+                    User.is_active.is_(True),
+                )
+            )
+        ).scalar_one()
+        sub = stripe.Subscription.retrieve(org.stripe_subscription_id)
+        item_id = sub["items"]["data"][0]["id"]
+        stripe.SubscriptionItem.modify(item_id, quantity=max(1, seat_count))
+    except Exception as e:
+        print(f"[STRIPE] Failed to sync seat quantity: {e}")
 
 
 @router.get("", response_model=PaginatedResponse[UserResponse])
@@ -92,6 +115,8 @@ async def create_user(
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
+    # Update Stripe subscription quantity (best-effort)
+    await _sync_stripe_seats(org, db)
     return new_user
 
 
@@ -132,3 +157,7 @@ async def deactivate_user(
 
     target.is_active = False
     await db.commit()
+    # Update Stripe subscription quantity (best-effort)
+    org_result = await db.execute(select(Organization).where(Organization.id == current_user.organization_id))
+    org = org_result.scalar_one_or_none()
+    await _sync_stripe_seats(org, db)

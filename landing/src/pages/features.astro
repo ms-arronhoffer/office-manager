@@ -1,0 +1,99 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Navbar from '../components/Navbar.astro';
+import Footer from '../components/Footer.astro';
+import PageHero from '../components/PageHero.astro';
+import Features from '../components/Features.astro';
+import Cta from '../components/Cta.astro';
+import DashboardScreen from '../components/screens/DashboardScreen.astro';
+import LeaseAbstractScreen from '../components/screens/LeaseAbstractScreen.astro';
+import MaintenanceScreen from '../components/screens/MaintenanceScreen.astro';
+import WaiversScreen from '../components/screens/WaiversScreen.astro';
+import AnalyticsScreen from '../components/screens/AnalyticsScreen.astro';
+
+const sections = [
+  {
+    eyebrow: 'AI Automation',
+    title: 'Let AI read the lease for you',
+    desc: 'Upload a lease and Google Gemini extracts the tenant, dates, rent, escalations, options, and notice windows in seconds — then drafts an abstract and writes your weekly portfolio briefing.',
+    points: ['Key-term extraction from PDFs', 'Auto-drafted lease abstracts', 'Weekly & monthly AI briefings'],
+    screen: 'lease',
+  },
+  {
+    eyebrow: 'Maintenance Tickets',
+    title: 'Work orders that never slip',
+    desc: 'Submit, assign, and resolve tickets in one thread. SLA timers count down in real time, vendors are assigned in a click, and every photo and note is captured for the record.',
+    points: ['Live SLA timers & escalations', 'Vendor assignment & notifications', 'Full photo and note history'],
+    screen: 'maintenance',
+  },
+  {
+    eyebrow: 'Digital Waivers',
+    title: 'e-Signatures with a real audit trail',
+    desc: 'Send pre-built or custom waivers to contacts — or let visitors self-serve at a kiosk. Every signature captures consent, attribution, and a tamper-evident, ESIGN/UETA-compliant record.',
+    points: ['Reusable waiver templates', 'Self-serve visitor signing', 'Tamper-evident audit trail'],
+    screen: 'waivers',
+  },
+  {
+    eyebrow: 'Analytics & Reporting',
+    title: 'Board-ready insight in one click',
+    desc: 'Portfolio dashboards track SLA compliance, cost per square foot, and maintenance backlog. Export polished PDF and CSV reports for leadership whenever you need them.',
+    points: ['Portfolio-level dashboards', 'SLA & cost trending', 'One-click PDF / CSV export'],
+    screen: 'analytics',
+  },
+];
+---
+<Layout
+  title="Features — Everything Your Facilities Team Needs"
+  description="Explore Office Manager features with real product screenshots: AI lease automation, maintenance tickets, digital waivers, analytics, vendor management, and more."
+>
+  <Navbar />
+  <main>
+    <PageHero
+      eyebrow="Features"
+      title="See the product, not just the pitch"
+      subtitle="Real screenshots of the workflows your team uses every day — purpose-built for corporate real estate and facilities management."
+    />
+
+    <!-- Hero screenshot -->
+    <section class="py-16 lg:py-20 bg-white">
+      <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="relative">
+          <DashboardScreen />
+          <div class="absolute -inset-4 -z-10 bg-blue-100/40 rounded-3xl blur-3xl"></div>
+        </div>
+        <p class="text-center text-sm text-slate-400 mt-4">The portfolio dashboard — KPIs, expiring leases, and open tickets at a glance.</p>
+      </div>
+    </section>
+
+    <!-- Alternating feature sections -->
+    {sections.map((s, i) => (
+      <section class={i % 2 === 1 ? 'py-16 lg:py-20 bg-slate-50 border-y border-slate-100' : 'py-16 lg:py-20'}>
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="max-w-3xl mb-10">
+            <p class="text-sm font-semibold text-blue-600 uppercase tracking-widest mb-3">{s.eyebrow}</p>
+            <h2 class="text-3xl lg:text-4xl font-extrabold text-slate-900">{s.title}</h2>
+            <p class="mt-4 text-lg text-slate-500 leading-relaxed">{s.desc}</p>
+            <ul class="mt-6 grid sm:grid-cols-3 gap-3">
+              {s.points.map(p => (
+                <li class="flex items-start gap-2.5 text-slate-700">
+                  <svg class="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                  <span class="text-sm">{p}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div class="relative">
+            {s.screen === 'lease' && <LeaseAbstractScreen />}
+            {s.screen === 'maintenance' && <MaintenanceScreen />}
+            {s.screen === 'waivers' && <WaiversScreen />}
+            {s.screen === 'analytics' && <AnalyticsScreen />}
+          </div>
+        </div>
+      </section>
+    ))}
+
+    <Features />
+  </main>
+  <Cta />
+  <Footer />
+</Layout>

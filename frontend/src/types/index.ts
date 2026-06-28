@@ -1714,6 +1714,12 @@ export interface NotificationItem {
 export interface AIStatus {
   configured: boolean;
   model: string;
+  period?: string;
+  input_tokens_used?: number;
+  output_tokens_used?: number;
+  input_token_limit?: number | null;
+  output_token_limit?: number | null;
+  token_limit_reached?: boolean;
 }
 
 export interface LeaseParseResult {
@@ -1763,6 +1769,11 @@ export interface AIRecommendedAction {
   category: string;
 }
 
+export interface DocumentParseResult {
+  suggested: Record<string, unknown>;
+  model: string;
+}
+
 export interface AISummaryResult {
   period: string;
   period_label: string;
@@ -1771,6 +1782,41 @@ export interface AISummaryResult {
   recommended_actions: AIRecommendedAction[];
   data: Record<string, unknown>;
   model: string;
+}
+
+export interface SimilarTicketMatch {
+  id: string;
+  subject: string;
+  status: string;
+  priority: string;
+  score: number;
+  created_at: string;
+}
+
+export interface SimilarTicketsResult {
+  matches: SimilarTicketMatch[];
+  mode: 'semantic' | 'keyword';
+}
+
+export interface AssistantCitation {
+  index: number;
+  source_type: string;
+  source_id: string | null;
+  title: string;
+  reference: string | null;
+  snippet: string;
+  score: number;
+}
+
+export interface AssistantQueryResult {
+  answer: string;
+  citations: AssistantCitation[];
+  mode: 'semantic' | 'keyword';
+  model: string;
+}
+
+export interface AssistantReindexResult {
+  indexed: number;
 }
 
 export interface LeaseDocumentSearchMatch {

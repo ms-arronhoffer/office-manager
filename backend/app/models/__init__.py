@@ -54,6 +54,9 @@ from app.models.waiver import (
 )
 from app.models.lease_document_chunk import LeaseDocumentChunk
 from app.models.saved_report import SavedReport, ReportSchedule, REPORT_FORMATS
+from app.models.knowledge_chunk import KnowledgeChunk
+from app.models.usage_event import UsageEvent
+from app.models.impersonation_session import ImpersonationSession
 
 __all__ = [
     "Base", "Organization", "User", "Manager", "Office",
@@ -91,4 +94,7 @@ __all__ = [
     "WaiverTemplate", "WaiverRequest", "WaiverSignature",
     "LeaseDocumentChunk",
     "SavedReport", "ReportSchedule", "REPORT_FORMATS",
+    "KnowledgeChunk",
+    "UsageEvent",
+    "ImpersonationSession",
 ]

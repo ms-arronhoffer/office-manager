@@ -29,7 +29,13 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 UNLIMITED: None = None
 
 # Limit keys (numeric, ``None`` == unlimited).
-LIMIT_KEYS: tuple[str, ...] = ("max_offices", "max_seats", "audit_retention_days")
+LIMIT_KEYS: tuple[str, ...] = (
+    "max_offices",
+    "max_seats",
+    "audit_retention_days",
+    "monthly_ai_input_tokens",
+    "monthly_ai_output_tokens",
+)
 
 # Feature flag keys (boolean).
 FEATURE_KEYS: tuple[str, ...] = (
@@ -60,6 +66,8 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "max_offices": 10,
         "max_seats": UNLIMITED,
         "audit_retention_days": 90,
+        "monthly_ai_input_tokens": 200_000,
+        "monthly_ai_output_tokens": 50_000,
         "hvac": False,
         "maintenance": False,
         "transitions": False,
@@ -76,6 +84,8 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "max_offices": 50,
         "max_seats": UNLIMITED,
         "audit_retention_days": UNLIMITED,
+        "monthly_ai_input_tokens": 2_000_000,
+        "monthly_ai_output_tokens": 500_000,
         "hvac": True,
         "maintenance": True,
         "transitions": True,
@@ -92,6 +102,8 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "max_offices": UNLIMITED,
         "max_seats": UNLIMITED,
         "audit_retention_days": UNLIMITED,
+        "monthly_ai_input_tokens": UNLIMITED,
+        "monthly_ai_output_tokens": UNLIMITED,
         "hvac": True,
         "maintenance": True,
         "transitions": True,
@@ -193,10 +205,31 @@ ACCESS_BLOCKED_INACTIVE = "blocked_inactive"
 ACCESS_BLOCKED_CANCELED = "blocked_canceled"
 ACCESS_BLOCKED_PAST_DUE = "blocked_past_due"
 ACCESS_GRACE_PAST_DUE = "grace_past_due"
+ACCESS_TRIAL_EXPIRED = "trial_expired"
 
 _BLOCKED_STATES = frozenset(
-    {ACCESS_BLOCKED_INACTIVE, ACCESS_BLOCKED_CANCELED, ACCESS_BLOCKED_PAST_DUE}
+    {ACCESS_BLOCKED_INACTIVE, ACCESS_BLOCKED_CANCELED, ACCESS_BLOCKED_PAST_DUE, ACCESS_TRIAL_EXPIRED}
 )
+
+
+def _as_utc(dt: "datetime") -> "datetime":
+    """Return *dt* with UTC timezone attached; adds UTC if the datetime is naive."""
+    from app.utils.datetime_utils import as_utc
+    return as_utc(dt)
+
+
+def _is_expired_trial(org: "Organization", now: "datetime") -> bool:
+    """Return True when the org's free trial has ended with no paid subscription.
+
+    Evaluates to False when the org has a Stripe subscription (they upgraded),
+    or when ``trial_ends_at`` is unset, or when the trial has not yet ended.
+    """
+    trial_ends_at = getattr(org, "trial_ends_at", None)
+    if trial_ends_at is None:
+        return False
+    if getattr(org, "stripe_subscription_id", None) is not None:
+        return False
+    return now > _as_utc(trial_ends_at)
 
 
 def org_access_state(org: "Organization", now: "datetime | None" = None) -> str:
@@ -218,14 +251,17 @@ def org_access_state(org: "Organization", now: "datetime | None" = None) -> str:
     if payment_status == "canceled":
         return ACCESS_BLOCKED_CANCELED
 
+    # Trial expiry: org is on "active" payment status but has no paid subscription
+    # and the trial window has closed.
+    if payment_status == "active" and _is_expired_trial(org, now or _dt.now(_tz.utc)):
+        return ACCESS_TRIAL_EXPIRED
+
     if payment_status == "past_due":
         since = getattr(org, "past_due_since", None)
         if since is None:
             return ACCESS_GRACE_PAST_DUE
         current = now or _dt.now(_tz.utc)
-        if since.tzinfo is None:
-            since = since.replace(tzinfo=_tz.utc)
-        if current - since > _td(days=PAST_DUE_GRACE_DAYS):
+        if current - _as_utc(since) > _td(days=PAST_DUE_GRACE_DAYS):
             return ACCESS_BLOCKED_PAST_DUE
         return ACCESS_GRACE_PAST_DUE
 
@@ -245,6 +281,9 @@ def access_denied_message(state: str) -> str:
         ACCESS_BLOCKED_PAST_DUE: (
             "This organization's payment is past due and the grace period has "
             "expired. Update your billing details to restore access."
+        ),
+        ACCESS_TRIAL_EXPIRED: (
+            "Your free trial has ended. Upgrade to a paid plan to restore full access."
         ),
     }.get(state, "Access to this organization is currently restricted.")
 

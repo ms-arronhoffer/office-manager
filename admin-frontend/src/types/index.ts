@@ -93,6 +93,67 @@ export interface PlatformMetrics {
   arr_cents: number;
 }
 
+// ── Usage & token monitoring ────────────────────────────────────────────────
+
+export interface FeatureAdoptionRow {
+  feature: string;
+  label: string;
+  events: number;
+  org_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  value_signal: number;
+  removal_candidate: boolean;
+}
+
+export interface FeatureAdoptionResponse {
+  months: number;
+  periods: string[];
+  features: FeatureAdoptionRow[];
+}
+
+export interface TopTokenOrg {
+  organization_id: string;
+  organization_name: string | null;
+  plan: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
+export interface PlatformTokensResponse {
+  period: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  top_orgs: TopTokenOrg[];
+}
+
+export interface TokenWindow {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
+export interface OrgFeatureRow {
+  feature: string;
+  label: string;
+  events: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+export interface OrgUsageResponse {
+  organization_id: string;
+  period: string;
+  previous_period: string;
+  current: TokenWindow;
+  previous: TokenWindow;
+  input_token_limit: number | null;
+  output_token_limit: number | null;
+  by_feature: OrgFeatureRow[];
+}
+
 // ── Billing ───────────────────────────────────────────────────────────────────
 
 export interface BillingRow {
