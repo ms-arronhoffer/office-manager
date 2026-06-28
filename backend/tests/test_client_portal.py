@@ -401,6 +401,7 @@ async def _seed_portfolio(db_session, landlord_id, *, expiration_days=30):
     from app.models.landlord import Landlord, landlord_offices
     from app.models.maintenance_ticket import MaintenanceTicket, TicketCategory
     from app.models.user import User
+    from sqlalchemy import select as _select
 
     office = Office(office_number=42, location_type="lease", location_name="Metro Tower")
     db_session.add(office)
@@ -423,7 +424,7 @@ async def _seed_portfolio(db_session, landlord_id, *, expiration_days=30):
     await db_session.commit()
     await db_session.refresh(cat)
     creator = (await db_session.execute(
-        __import__("sqlalchemy").select(User).limit(1)
+        _select(User).limit(1)
     )).scalars().first()
     ticket = MaintenanceTicket(
         subject="Leak", priority="high", status="open",
