@@ -787,3 +787,116 @@ def test_actions_to_markdown_renders_section():
     assert "[HIGH] Renew COI" in md
     assert "Soon." in md
     assert ai_service.actions_to_markdown([]) == ""
+
+
+# ── Inbound document classification & routing ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_document_classify_gated_for_starter(client, db_session):
+    """Inbound classification is a Pro+ (ai_assist) feature."""
+    headers = await _make_org_user(db_session, "starter", "classify-starter@test.com")
+    resp = await client.post(
+        "/api/v1/ai/documents/classify", headers=headers, files={"file": _doc()}
+    )
+    assert resp.status_code == 402, resp.text
+
+
+@pytest.mark.asyncio
+async def test_document_classify_routes_invoice_to_vendor(client, db_session, monkeypatch):
+    """A vendor invoice is classified and matched to the org's vendor."""
+    from sqlalchemy import select as _select
+
+    from app.models.user import User
+    from app.models.vendor import Vendor
+
+    email = "classify-invoice@test.com"
+    headers = await _make_org_user(db_session, "pro", email)
+    user = (
+        await db_session.execute(_select(User).where(User.email == email))
+    ).scalar_one()
+    org_uuid = user.organization_id
+
+    db_session.add(Vendor(company_name="Acme Plumbing LLC", organization_id=org_uuid))
+    await db_session.commit()
+
+    async def fake_classify(content, mime_type, *, text_content=None):
+        return {
+            "document_type": "vendor_invoice",
+            "confidence": "high",
+            "reasoning": "Has an invoice number and total.",
+            "fields": {"vendor_name": "Acme Plumbing", "total_amount": 1200},
+        }
+
+    monkeypatch.setattr(ai_service, "classify_document", fake_classify)
+
+    resp = await client.post(
+        "/api/v1/ai/documents/classify", headers=headers, files={"file": _doc()}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["document_type"] == "vendor_invoice"
+    assert body["confidence"] == "high"
+    matches = body["suggested_matches"]
+    assert any(
+        m["entity_type"] == "vendor" and m["name"] == "Acme Plumbing LLC"
+        for m in matches
+    )
+
+
+@pytest.mark.asyncio
+async def test_document_classify_degrades_when_unconfigured(client, db_session, monkeypatch):
+    headers = await _make_org_user(db_session, "pro", "classify-degrade@test.com")
+
+    async def fake_classify(content, mime_type, *, text_content=None):
+        raise ai_service.AIUnavailableError("not configured")
+
+    monkeypatch.setattr(ai_service, "classify_document", fake_classify)
+
+    resp = await client.post(
+        "/api/v1/ai/documents/classify", headers=headers, files={"file": _doc()}
+    )
+    assert resp.status_code == 503, resp.text
+
+
+@pytest.mark.asyncio
+async def test_normalize_classification_restricts_fields_and_type():
+    """Unknown types collapse to 'unknown' and stray fields are dropped."""
+    result = ai_service._normalize_classification(
+        {
+            "document_type": "vendor_invoice",
+            "confidence": "VERY HIGH",
+            "reasoning": "x",
+            "fields": {"vendor_name": "Acme", "not_a_field": "drop me"},
+        }
+    )
+    assert result["document_type"] == "vendor_invoice"
+    assert result["confidence"] == "low"  # invalid confidence -> low
+    assert result["fields"] == {"vendor_name": "Acme"}
+
+    bogus = ai_service._normalize_classification({"document_type": "spaceship"})
+    assert bogus["document_type"] == "unknown"
+    assert bogus["fields"] == {}
+
+
+@pytest.mark.asyncio
+async def test_classify_document_prompt_lists_all_types(monkeypatch):
+    """The classification prompt must enumerate every supported document type."""
+    captured: dict[str, object] = {}
+
+    async def fake_generate(parts, **kwargs):
+        captured["parts"] = parts
+        return (
+            '{"document_type": "insurance_certificate", "confidence": "medium",'
+            ' "reasoning": "ACORD form", "fields": {"insurer": "Hartford"}}'
+        )
+
+    monkeypatch.setattr(ai_service, "_generate", fake_generate)
+
+    result = await ai_service.classify_document(
+        b"", "application/pdf", text_content="Certificate of Liability Insurance"
+    )
+    assert result["document_type"] == "insurance_certificate"
+    prompt_text = " ".join(p.get("text", "") for p in captured["parts"])
+    for doc_type in ("vendor_invoice", "insurance_certificate", "lease_amendment"):
+        assert doc_type in prompt_text

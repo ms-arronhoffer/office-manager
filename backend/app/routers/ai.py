@@ -57,6 +57,21 @@ class LeaseParseResponse(BaseModel):
     model: str
 
 
+class EntityMatch(BaseModel):
+    entity_type: str  # 'vendor' | 'landlord' | 'lease'
+    id: str
+    name: str
+
+
+class DocumentClassifyResponse(BaseModel):
+    document_type: str
+    confidence: str
+    reasoning: str = ""
+    fields: dict
+    suggested_matches: list[EntityMatch] = Field(default_factory=list)
+    model: str
+
+
 class AbstractSuggestResponse(BaseModel):
     suggested: dict
     model: str
@@ -234,7 +249,137 @@ async def parse_lease(
     return LeaseParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)
 
 
-# ── Lease abstract suggestions (Pro+) ─────────────────────────────────────────
+# ── Inbound document classification & routing (Pro+) ──────────────────────────
+
+def _norm_name(value: str | None) -> str:
+    """Normalise an entity name for fuzzy matching (case/space-insensitive)."""
+    return " ".join((value or "").lower().split())
+
+
+def _name_matches(needle: str, candidate: str) -> bool:
+    """Return whether two normalised names plausibly refer to the same entity."""
+    if not needle or not candidate:
+        return False
+    return needle == candidate or needle in candidate or candidate in needle
+
+
+async def _route_classification(
+    db: AsyncSession, org_id, result: dict
+) -> list[EntityMatch]:
+    """Find existing org records that the classified document likely belongs to.
+
+    Matching is intentionally conservative (exact or substring on normalised
+    names) and returns *suggestions* only — nothing is auto-linked.
+    """
+    doc_type = result.get("document_type")
+    fields = result.get("fields") or {}
+    matches: list[EntityMatch] = []
+
+    # Vendor invoices and COIs route to the vendor that issued/holds them.
+    vendor_name = _norm_name(
+        fields.get("vendor_name") or fields.get("insured_name")
+    )
+    if doc_type in ("vendor_invoice", "insurance_certificate") and vendor_name:
+        rows = (
+            await db.execute(
+                select(Vendor.id, Vendor.company_name).where(
+                    Vendor.organization_id == org_id,
+                    Vendor.is_deleted.is_(False),
+                )
+            )
+        ).all()
+        for vid, name in rows:
+            if _name_matches(vendor_name, _norm_name(name)):
+                matches.append(
+                    EntityMatch(entity_type="vendor", id=str(vid), name=name)
+                )
+
+    # COIs may instead (or also) cover a landlord; amendments/leases name a lessor.
+    landlord_name = _norm_name(
+        fields.get("insured_name") or fields.get("lessor_name")
+    )
+    if doc_type in (
+        "insurance_certificate",
+        "lease_amendment",
+        "lease",
+    ) and landlord_name:
+        rows = (
+            await db.execute(
+                select(Landlord.id, Landlord.landlord_company).where(
+                    Landlord.organization_id == org_id,
+                    Landlord.is_deleted.is_(False),
+                )
+            )
+        ).all()
+        for lid, name in rows:
+            if _name_matches(landlord_name, _norm_name(name)):
+                matches.append(
+                    EntityMatch(entity_type="landlord", id=str(lid), name=name)
+                )
+
+    # Amendments route to the existing lease they modify.
+    if doc_type in ("lease_amendment", "lease"):
+        lease_needle = _norm_name(fields.get("lease_name"))
+        lessor_needle = _norm_name(fields.get("lessor_name"))
+        if lease_needle or lessor_needle:
+            rows = (
+                await db.execute(
+                    select(Lease.id, Lease.lease_name, Lease.lessor_name).where(
+                        Lease.organization_id == org_id,
+                        Lease.is_deleted.is_(False),
+                    )
+                )
+            ).all()
+            for lid, lease_name, lessor_name in rows:
+                if (lease_needle and _name_matches(lease_needle, _norm_name(lease_name))) or (
+                    lessor_needle and _name_matches(lessor_needle, _norm_name(lessor_name))
+                ):
+                    matches.append(
+                        EntityMatch(entity_type="lease", id=str(lid), name=lease_name)
+                    )
+
+    return matches
+
+
+@router.post(
+    "/documents/classify",
+    response_model=DocumentClassifyResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def classify_document(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Classify an inbound document and suggest the record/entity to route it to.
+
+    Extends the lease-parse pattern to vendor invoices (AP), certificates of
+    insurance (COIs), and lease amendments: the model determines the document
+    type, extracts the type's fields for pre-fill, and the org's existing
+    vendors/landlords/leases are searched for likely matches. Everything is
+    returned for human review — nothing is auto-committed.
+    """
+    content, mime_type = await _read_document(file)
+    text_content = _maybe_extract_text(file.filename, content)
+
+    try:
+        result = await ai_service.classify_document(
+            content, mime_type, text_content=text_content
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    suggested_matches = await _route_classification(
+        db, current_user.organization_id, result
+    )
+    return DocumentClassifyResponse(
+        document_type=result["document_type"],
+        confidence=result["confidence"],
+        reasoning=result["reasoning"],
+        fields=result["fields"],
+        suggested_matches=suggested_matches,
+        model=settings.GEMINI_MODEL,
+    )
 
 @router.post(
     "/leases/{lease_id}/abstract/suggest",

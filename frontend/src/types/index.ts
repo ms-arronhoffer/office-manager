@@ -1678,6 +1678,21 @@ export interface AbstractSuggestResult {
   model: string;
 }
 
+export interface DocumentClassifyEntityMatch {
+  entity_type: 'vendor' | 'landlord' | 'lease';
+  id: string;
+  name: string;
+}
+
+export interface DocumentClassifyResult {
+  document_type: 'vendor_invoice' | 'insurance_certificate' | 'lease_amendment' | 'lease' | 'unknown';
+  confidence: 'high' | 'medium' | 'low';
+  reasoning: string;
+  fields: Record<string, unknown>;
+  suggested_matches: DocumentClassifyEntityMatch[];
+  model: string;
+}
+
 export interface TicketTriageSuggestion {
   category_id?: string | null;
   category_name?: string | null;

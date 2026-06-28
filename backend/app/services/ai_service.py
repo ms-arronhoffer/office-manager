@@ -334,6 +334,169 @@ async def suggest_abstract_clauses(
     return _parse_json_object(text)
 
 
+# ── Inbound document classification & routing ────────────────────────────────
+
+# The document types we can classify inbound items into. ``unknown`` is the
+# catch-all when the model cannot confidently place a document.
+INBOUND_DOCUMENT_TYPES = (
+    "vendor_invoice",
+    "insurance_certificate",
+    "lease_amendment",
+    "lease",
+    "unknown",
+)
+
+_CLASSIFY_CONFIDENCES = ("high", "medium", "low")
+
+# Per-type field schemas the model extracts to pre-fill the matching record.
+# These map onto VendorBill, InsuranceCertificate, and Lease fields respectively.
+INBOUND_CLASSIFY_FIELDS: dict[str, dict[str, str]] = {
+    "vendor_invoice": {
+        "vendor_name": "Name of the vendor / supplier that issued the invoice",
+        "bill_number": "The vendor's invoice or bill number as printed",
+        "bill_date": "Invoice/bill date (YYYY-MM-DD)",
+        "due_date": "Payment due date (YYYY-MM-DD)",
+        "total_amount": "Invoice total as a plain number (no symbols/commas)",
+        "currency": "ISO 4217 currency code of the amount, e.g. USD",
+        "memo": "Short description of what the invoice is for",
+    },
+    "insurance_certificate": {
+        "insured_name": "The named insured the certificate covers (usually the vendor or landlord)",
+        "certificate_type": "One of: general_liability, workers_comp, auto, umbrella, other",
+        "insurer": "The insurance carrier / company providing coverage",
+        "policy_number": "The policy number as printed",
+        "effective_date": "Coverage effective date (YYYY-MM-DD)",
+        "expiration_date": "Coverage expiration date (YYYY-MM-DD)",
+        "limits": "Coverage limits as written, e.g. '$1,000,000 each occurrence'",
+        "certificate_holder": "The certificate holder named on the COI",
+    },
+    "lease_amendment": {
+        "lease_name": "Short name of the lease being amended (tenant/suite if present)",
+        "lessor_name": "The landlord / lessor legal name on the amendment",
+        "amendment_type": "Nature of the amendment: one of extension, rent_change, expansion, contraction, termination, other",
+        "effective_date": "Date the amendment takes effect (YYYY-MM-DD)",
+        "new_expiration_date": "New lease expiration date if the amendment changes it (YYYY-MM-DD)",
+        "new_payment_amount": "New periodic base rent if the amendment changes it, as a plain number",
+        "summary": "One or two sentence factual summary of what the amendment changes",
+    },
+    "lease": {
+        "lease_name": "Short human name for the lease, e.g. tenant or suite",
+        "lessor_name": "The landlord / lessor legal name",
+        "lease_commencement_date": "Commencement date (YYYY-MM-DD)",
+        "lease_expiration": "Expiration / termination date (YYYY-MM-DD)",
+        "payment_amount": "Base rent for a SINGLE payment period as a plain number",
+        "payment_frequency": "Billing cadence of the base rent: one of monthly, quarterly, annually",
+    },
+}
+
+INBOUND_CLASSIFY_SYSTEM = (
+    "You are a back-office assistant for a commercial property management team "
+    "that triages inbound documents (emails and their attachments). Determine "
+    "which single type best describes the document, then extract that type's "
+    "fields so a human can route and pre-fill the matching record. Respond ONLY "
+    "with a JSON object. Do not invent values.\n"
+    "\n"
+    "Document types:\n"
+    "- vendor_invoice: a bill/invoice received from a vendor or supplier (AP).\n"
+    "- insurance_certificate: a certificate of insurance (COI / ACORD form).\n"
+    "- lease_amendment: an amendment, addendum, extension, or modification to an "
+    "existing lease.\n"
+    "- lease: a new/original lease agreement.\n"
+    "- unknown: none of the above, or too ambiguous to classify confidently.\n"
+    "\n"
+    "Rules:\n"
+    "- document_type must be exactly one of: vendor_invoice, "
+    "insurance_certificate, lease_amendment, lease, unknown.\n"
+    "- confidence must be exactly one of: high, medium, low.\n"
+    "- reasoning must be one short sentence explaining the classification.\n"
+    "- fields must be a JSON object containing ONLY the keys listed for the "
+    "chosen document_type (an empty object for 'unknown'). Use null for any "
+    "field you cannot determine.\n"
+    "- Dates must be ISO 8601 (YYYY-MM-DD). Return monetary amounts as plain "
+    "numbers with no currency symbols, commas, or thousands separators."
+)
+
+
+def _format_classify_fields() -> str:
+    """Render the per-type field schema as a prompt block."""
+    blocks: list[str] = []
+    for doc_type, fields in INBOUND_CLASSIFY_FIELDS.items():
+        lines = "\n".join(f"    - {k}: {v}" for k, v in fields.items())
+        blocks.append(f"- {doc_type}:\n{lines}")
+    return "\n".join(blocks)
+
+
+async def classify_document(
+    content: bytes,
+    mime_type: str,
+    *,
+    text_content: str | None = None,
+) -> dict[str, Any]:
+    """Classify an inbound document and extract type-specific fields.
+
+    Returns a dict with the keys ``document_type`` (one of
+    :data:`INBOUND_DOCUMENT_TYPES`), ``confidence`` (high/medium/low),
+    ``reasoning`` (a short string) and ``fields`` (the extracted values for the
+    detected type). All values are *suggestions* for human review; callers never
+    auto-commit.
+
+    For PDFs and images the raw bytes are sent inline (Gemini reads them
+    natively). For formats Gemini cannot parse directly (e.g. Word/text
+    documents), the caller extracts plain text first and passes it as
+    ``text_content``; that text is sent in place of the inline document.
+    """
+    prompt = (
+        "Classify the following inbound document and extract the fields for the "
+        "detected type. Return a single JSON object with exactly these keys: "
+        "document_type, confidence, reasoning, fields.\n\n"
+        "DOCUMENT TYPES AND THEIR FIELDS:\n"
+        f"{_format_classify_fields()}\n"
+    )
+    if text_content is not None:
+        document = text_content[:MAX_TEXT_CHARS].strip()
+        if not document:
+            raise AIRequestError("The document did not contain any readable text.")
+        parts = [
+            {"text": prompt},
+            {"text": "\n\nDOCUMENT TEXT:\n" + document},
+        ]
+    else:
+        parts = [{"text": prompt}, _document_part(content, mime_type)]
+    text = await _generate(
+        parts, system_instruction=INBOUND_CLASSIFY_SYSTEM, json_response=True
+    )
+    return _normalize_classification(_parse_json_object(text))
+
+
+def _normalize_classification(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Coerce raw model output into a clean classification result.
+
+    Unknown/invalid document types collapse to ``unknown`` and the returned
+    ``fields`` are restricted to the keys defined for the detected type so
+    callers can map them onto the right record without surprises.
+    """
+    doc_type = str(parsed.get("document_type") or "").strip().lower()
+    if doc_type not in INBOUND_DOCUMENT_TYPES:
+        doc_type = "unknown"
+
+    confidence = str(parsed.get("confidence") or "").strip().lower()
+    if confidence not in _CLASSIFY_CONFIDENCES:
+        confidence = "low"
+
+    allowed = INBOUND_CLASSIFY_FIELDS.get(doc_type, {})
+    raw_fields = parsed.get("fields")
+    fields: dict[str, Any] = {}
+    if isinstance(raw_fields, dict):
+        fields = {k: raw_fields.get(k) for k in allowed if k in raw_fields}
+
+    return {
+        "document_type": doc_type,
+        "confidence": confidence,
+        "reasoning": str(parsed.get("reasoning") or "").strip()[:500],
+        "fields": fields,
+    }
+
+
 TICKET_TRIAGE_SYSTEM = (
     "You are a dispatcher for a commercial property maintenance team. Given a "
     "maintenance request (subject + description) and the lists of available "

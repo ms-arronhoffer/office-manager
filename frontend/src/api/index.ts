@@ -1134,6 +1134,7 @@ import type {
   AIStatus,
   LeaseParseResult,
   AbstractSuggestResult,
+  DocumentClassifyResult,
   TicketTriageResult,
   AISummaryResult,
   LeaseDocumentSearchResult,
@@ -1165,6 +1166,14 @@ export const ai = {
     const form = new FormData();
     form.append('file', file);
     return client.post<AbstractSuggestResult>(`/ai/leases/${leaseId}/abstract/suggest`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  classifyDocument: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post<DocumentClassifyResult>('/ai/documents/classify', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
