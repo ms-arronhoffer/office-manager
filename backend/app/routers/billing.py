@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 
 from datetime import datetime, timezone
 
@@ -18,6 +19,8 @@ from app.models.user import User
 from app.utils.email_client import send_email
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 async def _get_org_admin_emails(db: AsyncSession, org_id) -> list[str]:
@@ -52,7 +55,7 @@ async def _send_billing_email(
         for email in recipients:
             await send_email(to=email, subject=subject, html_body=html_body)
     except Exception as e:
-        print(f"[BILLING EMAIL] Failed to send {template_name} for {org.name}: {e}")
+        logger.warning("Failed to send billing email %s for %s: %s", template_name, org.name, e)
 
 
 async def _notify_super_admins(
@@ -78,7 +81,7 @@ async def _notify_super_admins(
             db.add(notif)
         await db.commit()
     except Exception as e:
-        print(f"[BILLING NOTIFICATION] Failed: {e}")
+        logger.warning("Billing notification failed: %s", e)
         await db.rollback()
 
 
@@ -91,7 +94,7 @@ async def _notify_slack(message: str) -> None:
         async with httpx.AsyncClient(timeout=5) as client:
             await client.post(settings.SLACK_WEBHOOK_URL, json={"text": message})
     except Exception as e:
-        print(f"[SLACK] Failed to send notification: {e}")
+        logger.warning("Slack notification failed: %s", e)
 
 
 def _mark_active(org: Organization) -> None:

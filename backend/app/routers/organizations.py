@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -22,6 +23,8 @@ from app.schemas.organization import (
 from app.services import entitlements as ent
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 def _slug_from_name(name: str) -> str:
@@ -252,7 +255,7 @@ async def delete_my_organization(
             stripe.api_key = settings.STRIPE_SECRET_KEY
             stripe.Subscription.delete(org.stripe_subscription_id)
         except Exception as e:
-            print(f"[STRIPE] Failed to cancel subscription on org self-delete: {e}")
+            logger.warning("Failed to cancel Stripe subscription on org self-delete: %s", e)
 
     org.is_active = False
     org.payment_status = "canceled"

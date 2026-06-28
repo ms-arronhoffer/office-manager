@@ -1,10 +1,13 @@
 from datetime import date, timedelta
+import logging
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from jinja2 import Environment, FileSystemLoader
 from app.database import async_session
 from app.models import HvacContract, HqPmTask, EmailReminderRule, EmailLog
 from app.utils.email_client import send_email
+
+logger = logging.getLogger(__name__)
 
 template_env = Environment(loader=FileSystemLoader("app/templates"))
 
@@ -68,7 +71,11 @@ async def check_hvac_reminders():
                     db.add(log)
 
             await db.commit()
-            print(f"[HVAC REMINDERS] Processed rule '{rule.rule_name}': {len(contracts)} contracts found")
+            logger.info(
+                "HVAC reminders: rule '%s' processed %s contracts",
+                rule.rule_name,
+                len(contracts),
+            )
 
 
 async def check_hq_pm_reminders():
@@ -130,4 +137,8 @@ async def check_hq_pm_reminders():
                     db.add(log)
 
             await db.commit()
-            print(f"[HQ PM REMINDERS] Processed rule '{rule.rule_name}': {len(tasks)} tasks found")
+            logger.info(
+                "HQ PM reminders: rule '%s' processed %s tasks",
+                rule.rule_name,
+                len(tasks),
+            )

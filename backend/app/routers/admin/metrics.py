@@ -11,6 +11,8 @@ from app.database import get_db
 from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.organization import Organization
 from app.models.user import User
+from app.tasks.job_status import registry as job_registry
+from app.tasks.scheduler import scheduler
 
 router = APIRouter()
 
@@ -149,3 +151,48 @@ async def get_metrics(
         at_risk_canceled=org_agg.at_risk_canceled,
         at_risk_inactive=org_agg.at_risk_inactive,
     )
+
+
+class ScheduledJob(BaseModel):
+    job_id: str
+    next_run_at: str | None = None
+    last_started_at: str | None = None
+    last_finished_at: str | None = None
+    last_status: str | None = None
+    last_error: str | None = None
+    last_duration_ms: int | None = None
+    run_count: int = 0
+    failure_count: int = 0
+
+
+class ScheduledJobsResponse(BaseModel):
+    scheduler_running: bool
+    jobs: list[ScheduledJob]
+
+
+@router.get("/jobs", response_model=ScheduledJobsResponse)
+async def get_scheduled_jobs(
+    _: User = Depends(require_super_admin()),
+):
+    """Operational view of background scheduler jobs: their next scheduled run
+    plus the last execution outcome (status, error, duration) recorded by the
+    in-memory job-status registry. Lets operators confirm reminders, billing
+    hygiene, webhook retries, etc. are running and succeeding."""
+    status_by_id = {row["job_id"]: row for row in job_registry.snapshot()}
+
+    next_run_by_id: dict[str, str | None] = {}
+    for job in scheduler.get_jobs():
+        nrt = getattr(job, "next_run_time", None)
+        next_run_by_id[job.id] = nrt.isoformat() if nrt else None
+
+    # Union of jobs known to the scheduler and jobs that have recorded status.
+    job_ids = sorted(set(status_by_id) | set(next_run_by_id))
+    jobs = [
+        ScheduledJob(
+            job_id=jid,
+            next_run_at=next_run_by_id.get(jid),
+            **{k: v for k, v in status_by_id.get(jid, {}).items() if k != "job_id"},
+        )
+        for jid in job_ids
+    ]
+    return ScheduledJobsResponse(scheduler_running=scheduler.running, jobs=jobs)

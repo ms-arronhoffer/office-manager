@@ -9,6 +9,7 @@ duplicate emails when the job is retried or the scheduler restarts.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
@@ -21,6 +22,8 @@ from app.models.user import User
 from app.services import entitlements as ent
 from app.utils.datetime_utils import as_utc as _ensure_utc
 from app.utils.email_client import send_email
+
+logger = logging.getLogger(__name__)
 
 
 async def _already_sent(db: AsyncSession, email: str, template_name: str) -> bool:
@@ -99,7 +102,9 @@ async def _send_trial_email(
                 if sent:
                     await _log_sent(db, email, subject, template_name)
     except Exception as e:
-        print(f"[BILLING HYGIENE] Failed to send {template_name} for {org.name}: {e}")
+        logger.warning(
+            "Billing hygiene failed to send %s for %s: %s", template_name, org.name, e
+        )
 
 
 async def run_billing_hygiene() -> None:
@@ -206,6 +211,6 @@ async def run_billing_hygiene() -> None:
                             if sent:
                                 await _log_sent(db, email, subject, "billing_payment_failed.html")
                 except Exception as e:
-                    print(f"[BILLING HYGIENE] Dunning email failed for {org.name}: {e}")
+                    logger.warning("Dunning email failed for %s: %s", org.name, e)
 
-    print("[BILLING HYGIENE] Completed")
+    logger.info("Billing hygiene complete")

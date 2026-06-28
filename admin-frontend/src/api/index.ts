@@ -75,6 +75,15 @@ export async function getMetrics(): Promise<PlatformMetrics> {
   return res.data;
 }
 
+export async function getScheduledJobs(): Promise<
+  import("../types").ScheduledJobsResponse
+> {
+  const res = await api.get<import("../types").ScheduledJobsResponse>(
+    "/admin/v1/metrics/jobs",
+  );
+  return res.data;
+}
+
 // ── Usage & token monitoring ────────────────────────────────────────────────
 
 export async function getFeatureUsage(params: {

@@ -129,6 +129,23 @@ export interface PlatformTokensResponse {
   top_orgs: TopTokenOrg[];
 }
 
+export interface ScheduledJob {
+  job_id: string;
+  next_run_at: string | null;
+  last_started_at: string | null;
+  last_finished_at: string | null;
+  last_status: string | null;
+  last_error: string | null;
+  last_duration_ms: number | null;
+  run_count: number;
+  failure_count: number;
+}
+
+export interface ScheduledJobsResponse {
+  scheduler_running: boolean;
+  jobs: ScheduledJob[];
+}
+
 export interface TokenWindow {
   input_tokens: number;
   output_tokens: number;
