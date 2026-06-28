@@ -2143,3 +2143,259 @@ export interface GenerateWorkOrderResult {
   created: boolean;
   detail: string;
 }
+
+// ─── CAM Reconciliation (Phase 3) ────────────────────────────────────────────
+export interface CamLine {
+  id: string;
+  line_number: number;
+  category: string;
+  controllable: boolean;
+  gross_up_eligible: boolean;
+  actual_amount: number;
+  grossed_up_amount: number;
+}
+
+export interface CamReconciliation {
+  id: string;
+  organization_id: string | null;
+  lease_id: string;
+  year: number;
+  pro_rata_share: number | null;
+  rentable_sqft: number | null;
+  building_sqft: number | null;
+  gross_up_percent: number | null;
+  occupancy_percent: number | null;
+  base_year_amount: number | null;
+  expense_stop_psf: number | null;
+  cap_percent: number | null;
+  cap_type: string | null;
+  cap_base_year: number | null;
+  cap_base_amount: number | null;
+  estimated_paid: number;
+  total_pool: number;
+  controllable_pool: number;
+  noncontrollable_pool: number;
+  tenant_share_amount: number;
+  cap_applied: number;
+  offset_amount: number;
+  recoverable_amount: number;
+  balance_due: number;
+  status: string;
+  finalized_at: string | null;
+  journal_entry_id: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  lines: CamLine[];
+}
+
+export interface CamLineInput {
+  category: string;
+  actual_amount: number;
+  controllable?: boolean | null;
+  gross_up_eligible?: boolean | null;
+}
+
+export interface CamReconciliationCreate {
+  lease_id: string;
+  year: number;
+  pro_rata_share?: number | null;
+  rentable_sqft?: number | null;
+  building_sqft?: number | null;
+  gross_up_percent?: number | null;
+  occupancy_percent?: number | null;
+  base_year_amount?: number | null;
+  expense_stop_psf?: number | null;
+  cap_percent?: number | null;
+  cap_type?: string | null;
+  cap_base_year?: number | null;
+  cap_base_amount?: number | null;
+  estimated_paid?: number;
+  notes?: string | null;
+  lines?: CamLineInput[] | null;
+}
+
+export type CamReconciliationUpdate = Partial<Omit<CamReconciliationCreate, 'lease_id' | 'year'>>;
+
+export interface CamAnomaly {
+  category: string;
+  anomaly_type: string;
+  severity: string;
+  message: string;
+  recommendation: string;
+}
+
+export interface CamReviewResponse {
+  reconciliation_id: string;
+  year: number;
+  prior_year: number | null;
+  summary: string;
+  anomalies: CamAnomaly[];
+  model: string;
+}
+
+// ─── Accounts Payable (Phase 5) ──────────────────────────────────────────────
+export interface BillLine {
+  id: string;
+  account_id: string;
+  line_number: number;
+  description: string | null;
+  amount: number;
+}
+
+export interface BillPayment {
+  id: string;
+  bill_id: string;
+  payment_date: string;
+  amount: number;
+  method: string | null;
+  reference: string | null;
+  memo: string | null;
+  journal_entry_id: string | null;
+  created_at: string;
+}
+
+export interface VendorBill {
+  id: string;
+  organization_id: string | null;
+  vendor_id: string;
+  bill_number: string | null;
+  bill_date: string;
+  due_date: string | null;
+  currency: string;
+  memo: string | null;
+  total_amount: number;
+  amount_paid: number;
+  balance_due: number;
+  payment_state: string;
+  status: string;
+  finalized_at: string | null;
+  journal_entry_id: string | null;
+  created_at: string;
+  updated_at: string;
+  lines: BillLine[];
+  payments: BillPayment[];
+}
+
+export interface BillLineInput {
+  account_id: string;
+  amount: number;
+  description?: string | null;
+}
+
+export interface BillCreate {
+  vendor_id: string;
+  bill_date: string;
+  due_date?: string | null;
+  bill_number?: string | null;
+  currency?: string;
+  memo?: string | null;
+  lines: BillLineInput[];
+}
+
+export type BillUpdate = Partial<Omit<BillCreate, 'vendor_id'>>;
+
+export interface PaymentCreate {
+  payment_date: string;
+  amount: number;
+  method?: string | null;
+  reference?: string | null;
+  memo?: string | null;
+}
+
+// ─── Lease Lifecycle Accounting (Phase 4) ────────────────────────────────────
+export interface LifecycleEvent {
+  id: string;
+  organization_id: string | null;
+  lease_id: string;
+  event_type: string;
+  effective_date: string;
+  pre_liability: number;
+  pre_rou: number;
+  new_payment_amount: number | null;
+  new_payment_frequency: string | null;
+  new_annual_escalation_rate: number | null;
+  new_incremental_borrowing_rate: number | null;
+  remaining_term_months: number | null;
+  new_expiration: string | null;
+  remaining_percentage: number | null;
+  termination_penalty: number;
+  revised_liability: number;
+  liability_adjustment: number;
+  rou_adjustment: number;
+  post_liability: number;
+  post_rou: number;
+  gain_loss: number;
+  status: string;
+  finalized_at: string | null;
+  journal_entry_id: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LifecycleEventCreate {
+  lease_id: string;
+  event_type: string;
+  effective_date: string;
+  pre_liability?: number | null;
+  pre_rou?: number | null;
+  new_payment_amount?: number | null;
+  new_payment_frequency?: string | null;
+  new_annual_escalation_rate?: number | null;
+  new_incremental_borrowing_rate?: number | null;
+  remaining_term_months?: number | null;
+  new_expiration?: string | null;
+  remaining_percentage?: number | null;
+  termination_penalty?: number;
+  notes?: string | null;
+}
+
+export type LifecycleEventUpdate = Partial<Omit<LifecycleEventCreate, 'lease_id' | 'event_type'>>;
+
+// ─── Financial Statements (Phase 6/7) ────────────────────────────────────────
+export interface StatementLine {
+  account_id: string | null;
+  code: string;
+  name: string;
+  amount: number;
+}
+
+export interface IncomeStatementResponse {
+  start_date: string | null;
+  end_date: string | null;
+  revenue: StatementLine[];
+  total_revenue: number;
+  expenses: StatementLine[];
+  total_expenses: number;
+  net_income: number;
+}
+
+export interface BalanceSheetResponse {
+  as_of_date: string | null;
+  assets: StatementLine[];
+  total_assets: number;
+  liabilities: StatementLine[];
+  total_liabilities: number;
+  equity: StatementLine[];
+  total_equity: number;
+  liabilities_and_equity: number;
+  net_income: number;
+  balanced: boolean;
+}
+
+export interface CashFlowSection {
+  lines: StatementLine[];
+  total: number;
+}
+
+export interface CashFlowStatementResponse {
+  start_date: string | null;
+  end_date: string | null;
+  operating: CashFlowSection;
+  investing: CashFlowSection;
+  financing: CashFlowSection;
+  net_change_in_cash: number;
+  beginning_cash: number;
+  ending_cash: number;
+}

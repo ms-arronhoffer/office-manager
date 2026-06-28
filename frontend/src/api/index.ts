@@ -135,6 +135,20 @@ import type {
   JournalEntry,
   JournalEntryCreate,
   TrialBalanceRow,
+  CamReconciliation,
+  CamReconciliationCreate,
+  CamReconciliationUpdate,
+  CamReviewResponse,
+  VendorBill,
+  BillCreate,
+  BillUpdate,
+  PaymentCreate,
+  LifecycleEvent,
+  LifecycleEventCreate,
+  LifecycleEventUpdate,
+  IncomeStatementResponse,
+  BalanceSheetResponse,
+  CashFlowStatementResponse,
 } from '@/types';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -1209,6 +1223,92 @@ export const gl = {
 
   exportCsv: (params?: { year?: number; month?: number }) =>
     client.get('/gl/export', { params, responseType: 'blob' }),
+};
+
+// ─── CAM Reconciliation ──────────────────────────────────────────────────────
+export const cam = {
+  list: (params?: { lease_id?: string; year?: number }) =>
+    client.get<CamReconciliation[]>('/cam/reconciliations', { params }),
+
+  get: (id: string) =>
+    client.get<CamReconciliation>(`/cam/reconciliations/${id}`),
+
+  create: (data: CamReconciliationCreate) =>
+    client.post<CamReconciliation>('/cam/reconciliations', data),
+
+  update: (id: string, data: CamReconciliationUpdate) =>
+    client.patch<CamReconciliation>(`/cam/reconciliations/${id}`, data),
+
+  delete: (id: string) => client.delete(`/cam/reconciliations/${id}`),
+
+  finalize: (id: string) =>
+    client.post<CamReconciliation>(`/cam/reconciliations/${id}/finalize`),
+
+  postToGl: (id: string) =>
+    client.post(`/cam/reconciliations/${id}/post-to-gl`),
+
+  aiReview: (id: string) =>
+    client.post<CamReviewResponse>(`/cam/reconciliations/${id}/ai-review`),
+};
+
+// ─── Accounts Payable ────────────────────────────────────────────────────────
+export const ap = {
+  listBills: (params?: { vendor_id?: string; status?: string }) =>
+    client.get<VendorBill[]>('/ap/bills', { params }),
+
+  getBill: (id: string) => client.get<VendorBill>(`/ap/bills/${id}`),
+
+  createBill: (data: BillCreate) => client.post<VendorBill>('/ap/bills', data),
+
+  updateBill: (id: string, data: BillUpdate) =>
+    client.patch<VendorBill>(`/ap/bills/${id}`, data),
+
+  deleteBill: (id: string) => client.delete(`/ap/bills/${id}`),
+
+  finalizeBill: (id: string) =>
+    client.post<VendorBill>(`/ap/bills/${id}/finalize`),
+
+  voidBill: (id: string) => client.post<VendorBill>(`/ap/bills/${id}/void`),
+
+  createPayment: (billId: string, data: PaymentCreate) =>
+    client.post<VendorBill>(`/ap/bills/${billId}/payments`, data),
+
+  deletePayment: (paymentId: string) =>
+    client.delete<VendorBill>(`/ap/payments/${paymentId}`),
+};
+
+// ─── Lease Lifecycle Accounting ──────────────────────────────────────────────
+export const lifecycle = {
+  list: (params?: { lease_id?: string; event_type?: string }) =>
+    client.get<LifecycleEvent[]>('/lifecycle/events', { params }),
+
+  get: (id: string) => client.get<LifecycleEvent>(`/lifecycle/events/${id}`),
+
+  create: (data: LifecycleEventCreate) =>
+    client.post<LifecycleEvent>('/lifecycle/events', data),
+
+  update: (id: string, data: LifecycleEventUpdate) =>
+    client.patch<LifecycleEvent>(`/lifecycle/events/${id}`, data),
+
+  delete: (id: string) => client.delete(`/lifecycle/events/${id}`),
+
+  finalize: (id: string) =>
+    client.post<LifecycleEvent>(`/lifecycle/events/${id}/finalize`),
+
+  postToGl: (id: string) =>
+    client.post(`/lifecycle/events/${id}/post-to-gl`),
+};
+
+// ─── Financial Statements ────────────────────────────────────────────────────
+export const financials = {
+  incomeStatement: (params?: { year?: number; month?: number }) =>
+    client.get<IncomeStatementResponse>('/financials/income-statement', { params }),
+
+  balanceSheet: (params?: { year?: number; month?: number }) =>
+    client.get<BalanceSheetResponse>('/financials/balance-sheet', { params }),
+
+  cashFlowStatement: (params?: { year?: number; month?: number }) =>
+    client.get<CashFlowStatementResponse>('/financials/cash-flow-statement', { params }),
 };
 
 // ─── AI assist (Google Gemini) ───────────────────────────────────────────────

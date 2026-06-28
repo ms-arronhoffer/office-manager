@@ -135,6 +135,10 @@ const App: React.FC = () => {
                         <Route path="finance" element={<FinancePage />} />
                         <Route path="finance/operating-expenses" element={<RoleGuard allowedRoles={['admin', 'editor']}><FinancePage /></RoleGuard>} />
                         <Route path="finance/general-ledger" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
+                        <Route path="finance/financial-statements" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
+                        <Route path="finance/cam" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
+                        <Route path="finance/accounts-payable" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
+                        <Route path="finance/lease-lifecycle" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="leases/new" element={<LeaseFormPage />} />
                         <Route path="leases/:id" element={<LeaseDetailPage />} />
                         <Route path="leases/:id/edit" element={<LeaseFormPage />} />
