@@ -12,13 +12,14 @@ import Modal from '@cloudscape-design/components/modal';
 import FormField from '@cloudscape-design/components/form-field';
 import Textarea from '@cloudscape-design/components/textarea';
 import Input from '@cloudscape-design/components/input';
+import Select from '@cloudscape-design/components/select';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import Alert from '@cloudscape-design/components/alert';
 import Spinner from '@cloudscape-design/components/spinner';
 import Flashbar from '@cloudscape-design/components/flashbar';
 import Tabs from '@cloudscape-design/components/tabs';
 import { vendorPortal } from '@/api';
-import type { PortalTicket, VendorPortalProfile, EntityContact, EntityContactCreate } from '@/types';
+import type { PortalTicket, VendorPortalProfile, VendorPortalCOI, EntityContact, EntityContactCreate } from '@/types';
 
 const priorityColor = (p: string) =>
   p === 'high' ? 'red' : p === 'medium' ? 'blue' : 'grey';
@@ -30,6 +31,21 @@ const statusColor = (s: string) => {
   return 'grey';
 };
 
+const coiStatusBadge = (s: string) => {
+  if (s === 'expired') return <Badge color="red">EXPIRED</Badge>;
+  if (s === 'expiring_soon') return <Badge color="blue">EXPIRING SOON</Badge>;
+  if (s === 'active') return <Badge color="green">ACTIVE</Badge>;
+  return <Badge color="grey">UNKNOWN</Badge>;
+};
+
+const COI_TYPES = [
+  { label: 'General Liability', value: 'general_liability' },
+  { label: "Worker's Comp", value: 'workers_comp' },
+  { label: 'Auto', value: 'auto' },
+  { label: 'Umbrella', value: 'umbrella' },
+  { label: 'Other', value: 'other' },
+];
+
 const VendorPortalPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token') ?? '';
@@ -37,6 +53,8 @@ const VendorPortalPage: React.FC = () => {
   const [profile, setProfile] = useState<VendorPortalProfile | null>(null);
   const [tickets, setTickets] = useState<PortalTicket[]>([]);
   const [contacts, setContacts] = useState<EntityContact[]>([]);
+  const [cois, setCois] = useState<VendorPortalCOI[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string>(searchParams.get('tab') ?? 'tickets');
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(false);
   const [flash, setFlash] = useState<{ type: 'success' | 'error'; content: string } | null>(null);
@@ -81,6 +99,30 @@ const VendorPortalPage: React.FC = () => {
   const [profileForm, setProfileForm] = useState<Partial<VendorPortalProfile>>({});
   const [savingProfile, setSavingProfile] = useState(false);
 
+  // COI re-upload modal
+  const [reuploadOpen, setReuploadOpen] = useState(false);
+  const [reuploadCert, setReuploadCert] = useState<VendorPortalCOI | null>(null);
+  const [coiForm, setCoiForm] = useState<{
+    certificate_type: string;
+    insurer: string;
+    policy_number: string;
+    effective_date: string;
+    expiration_date: string;
+    limits: string;
+    notes: string;
+    file: File | null;
+  }>({
+    certificate_type: 'general_liability',
+    insurer: '',
+    policy_number: '',
+    effective_date: '',
+    expiration_date: '',
+    limits: '',
+    notes: '',
+    file: null,
+  });
+  const [savingCoi, setSavingCoi] = useState(false);
+
   const load = useCallback(async () => {
     if (!token) {
       setAuthError(true);
@@ -88,14 +130,16 @@ const VendorPortalPage: React.FC = () => {
       return;
     }
     try {
-      const [profileRes, ticketsRes, contactsRes] = await Promise.all([
+      const [profileRes, ticketsRes, contactsRes, coisRes] = await Promise.all([
         vendorPortal.getProfile(token),
         vendorPortal.listTickets(token),
         vendorPortal.listContacts(token),
+        vendorPortal.listInsurance(token),
       ]);
       setProfile(profileRes.data);
       setTickets(ticketsRes.data);
       setContacts(contactsRes.data);
+      setCois(coisRes.data);
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status;
       if (status === 401) {
@@ -255,6 +299,49 @@ const VendorPortalPage: React.FC = () => {
     }
   };
 
+  const openReupload = (cert: VendorPortalCOI | null) => {
+    setReuploadCert(cert);
+    setCoiForm({
+      certificate_type: cert?.certificate_type ?? 'general_liability',
+      insurer: cert?.insurer ?? '',
+      policy_number: cert?.policy_number ?? '',
+      effective_date: cert?.effective_date ?? '',
+      expiration_date: cert?.expiration_date ?? '',
+      limits: cert?.limits ?? '',
+      notes: cert?.notes ?? '',
+      file: null,
+    });
+    setReuploadOpen(true);
+  };
+
+  const handleReupload = async () => {
+    if (!coiForm.file) return;
+    setSavingCoi(true);
+    try {
+      const fd = new FormData();
+      if (reuploadCert) fd.append('cert_id', reuploadCert.id);
+      fd.append('certificate_type', coiForm.certificate_type);
+      if (coiForm.insurer) fd.append('insurer', coiForm.insurer);
+      if (coiForm.policy_number) fd.append('policy_number', coiForm.policy_number);
+      if (coiForm.effective_date) fd.append('effective_date', coiForm.effective_date);
+      if (coiForm.expiration_date) fd.append('expiration_date', coiForm.expiration_date);
+      if (coiForm.limits) fd.append('limits', coiForm.limits);
+      if (coiForm.notes) fd.append('notes', coiForm.notes);
+      fd.append('file', coiForm.file);
+      await vendorPortal.reuploadInsurance(token, fd);
+      setFlash({
+        type: 'success',
+        content: 'Certificate submitted. Your client will review it shortly.',
+      });
+      setReuploadOpen(false);
+      await load();
+    } catch {
+      setFlash({ type: 'error', content: 'Failed to submit certificate.' });
+    } finally {
+      setSavingCoi(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box textAlign="center" padding={{ top: 'xxxl' }}>
@@ -298,6 +385,8 @@ const VendorPortalPage: React.FC = () => {
         )}
 
         <Tabs
+          activeTabId={activeTabId}
+          onChange={({ detail }) => setActiveTabId(detail.activeTabId)}
           tabs={[
             {
               id: 'tickets',
@@ -423,6 +512,81 @@ const VendorPortalPage: React.FC = () => {
               ),
             },
             {
+              id: 'insurance',
+              label: `Insurance (${cois.length})`,
+              content: (
+                <Table
+                  items={cois}
+                  columnDefinitions={[
+                    {
+                      id: 'type',
+                      header: 'Type',
+                      cell: (c: VendorPortalCOI) => (
+                        <Badge color="blue">
+                          {COI_TYPES.find((t) => t.value === c.certificate_type)?.label ?? c.certificate_type}
+                        </Badge>
+                      ),
+                    },
+                    {
+                      id: 'policy',
+                      header: 'Policy #',
+                      cell: (c: VendorPortalCOI) => c.policy_number ?? '—',
+                    },
+                    {
+                      id: 'insurer',
+                      header: 'Insurer',
+                      cell: (c: VendorPortalCOI) => c.insurer ?? '—',
+                    },
+                    {
+                      id: 'expiration',
+                      header: 'Expires',
+                      cell: (c: VendorPortalCOI) => c.expiration_date ?? '—',
+                    },
+                    {
+                      id: 'status',
+                      header: 'Status',
+                      cell: (c: VendorPortalCOI) => coiStatusBadge(c.status),
+                      width: 150,
+                    },
+                    {
+                      id: 'verified',
+                      header: 'Reviewed',
+                      cell: (c: VendorPortalCOI) =>
+                        c.is_verified ? (
+                          <Badge color="green">VERIFIED</Badge>
+                        ) : (
+                          <Badge color="grey">PENDING REVIEW</Badge>
+                        ),
+                      width: 160,
+                    },
+                    {
+                      id: 'actions',
+                      header: '',
+                      cell: (c: VendorPortalCOI) => (
+                        <Button onClick={() => openReupload(c)}>Re-upload</Button>
+                      ),
+                      width: 140,
+                    },
+                  ]}
+                  empty={
+                    <Box textAlign="center" padding="l">
+                      <b>No certificates on file</b>
+                      <Box color="text-body-secondary" padding={{ bottom: 's' }}>
+                        Upload your certificate of insurance for your client to review.
+                      </Box>
+                    </Box>
+                  }
+                  header={
+                    <Header
+                      actions={<Button variant="primary" onClick={() => openReupload(null)}>Upload certificate</Button>}
+                    >
+                      Certificates of Insurance
+                    </Header>
+                  }
+                />
+              ),
+            },
+            {
               id: 'profile',
               label: 'Your Profile',
               content: profile ? (
@@ -490,6 +654,99 @@ const VendorPortalPage: React.FC = () => {
               onChange={({ detail }) => setCompletionNotes(detail.value)}
               placeholder="Describe the work completed..."
               rows={5}
+            />
+          </FormField>
+        </SpaceBetween>
+      </Modal>
+
+      {/* ── COI Re-upload Modal ── */}
+      <Modal
+        visible={reuploadOpen}
+        onDismiss={() => setReuploadOpen(false)}
+        header={reuploadCert ? 'Re-upload certificate of insurance' : 'Upload certificate of insurance'}
+        size="large"
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => setReuploadOpen(false)}>Cancel</Button>
+              <Button
+                variant="primary"
+                loading={savingCoi}
+                disabled={!coiForm.file}
+                onClick={handleReupload}
+              >
+                Submit certificate
+              </Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="m">
+          <Alert type="info">
+            Submitted certificates are marked for your client's review and will show as
+            "Pending review" until verified.
+          </Alert>
+          <SpaceBetween direction="horizontal" size="m">
+            <FormField label="Certificate type">
+              <Select
+                selectedOption={COI_TYPES.find((t) => t.value === coiForm.certificate_type) ?? null}
+                onChange={({ detail }) =>
+                  setCoiForm((f) => ({ ...f, certificate_type: detail.selectedOption?.value ?? 'general_liability' }))
+                }
+                options={COI_TYPES}
+              />
+            </FormField>
+            <FormField label="Policy number">
+              <Input
+                value={coiForm.policy_number}
+                onChange={({ detail }) => setCoiForm((f) => ({ ...f, policy_number: detail.value }))}
+                placeholder="e.g., GL-123456"
+              />
+            </FormField>
+          </SpaceBetween>
+          <FormField label="Insurer">
+            <Input
+              value={coiForm.insurer}
+              onChange={({ detail }) => setCoiForm((f) => ({ ...f, insurer: detail.value }))}
+              placeholder="e.g., Travelers Insurance"
+            />
+          </FormField>
+          <SpaceBetween direction="horizontal" size="m">
+            <FormField label="Effective date">
+              <Input
+                type="date"
+                value={coiForm.effective_date}
+                onChange={({ detail }) => setCoiForm((f) => ({ ...f, effective_date: detail.value }))}
+              />
+            </FormField>
+            <FormField label="Expiration date">
+              <Input
+                type="date"
+                value={coiForm.expiration_date}
+                onChange={({ detail }) => setCoiForm((f) => ({ ...f, expiration_date: detail.value }))}
+              />
+            </FormField>
+          </SpaceBetween>
+          <FormField label="Coverage limits">
+            <Input
+              value={coiForm.limits}
+              onChange={({ detail }) => setCoiForm((f) => ({ ...f, limits: detail.value }))}
+              placeholder="e.g., $1M/$2M"
+            />
+          </FormField>
+          <FormField label="Notes">
+            <Textarea
+              value={coiForm.notes}
+              onChange={({ detail }) => setCoiForm((f) => ({ ...f, notes: detail.value }))}
+              rows={2}
+            />
+          </FormField>
+          <FormField label="Certificate file" description="PDF or image of the certificate of insurance.">
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+              onChange={(e) => setCoiForm((f) => ({ ...f, file: e.target.files?.[0] ?? null }))}
+              style={{ display: 'block' }}
             />
           </FormField>
         </SpaceBetween>

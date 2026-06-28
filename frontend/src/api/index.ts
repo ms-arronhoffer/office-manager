@@ -97,6 +97,7 @@ import type {
   PortalTicket,
   PortalTicketUpdate,
   VendorPortalProfile,
+  VendorPortalCOI,
   ClientPortalEntityType,
   ClientPortalInviteResponse,
   ClientPortalSession,
@@ -973,6 +974,14 @@ export const vendorPortal = {
 
   deleteContact: (token: string, id: string) =>
     _portalClient(token).delete(`/vendor-portal/contacts/${id}`),
+
+  listInsurance: (token: string) =>
+    _portalClient(token).get<VendorPortalCOI[]>('/vendor-portal/insurance'),
+
+  reuploadInsurance: (token: string, formData: FormData) =>
+    _portalClient(token).post<VendorPortalCOI>('/vendor-portal/insurance/reupload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
 };
 
 // ─── Client Portal (internal: admin generates one-time signup invite) ────────

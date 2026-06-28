@@ -8,6 +8,27 @@ from app.models.base import Base, TimestampMixin
 
 CERT_TYPES = ("general_liability", "workers_comp", "auto", "umbrella", "other")
 
+# Number of days before expiration at which a certificate is "expiring soon".
+EXPIRING_SOON_DAYS = 30
+
+
+def certificate_status(expiration_date: date | None, today: date | None = None) -> str:
+    """Compute a COI's compliance status from its expiration date.
+
+    Shared by the admin certificates router and the vendor portal so both
+    surfaces report identical ``active``/``expiring_soon``/``expired``/``unknown``
+    states.
+    """
+    if expiration_date is None:
+        return "unknown"
+    if today is None:
+        today = date.today()
+    if expiration_date < today:
+        return "expired"
+    if (expiration_date - today).days <= EXPIRING_SOON_DAYS:
+        return "expiring_soon"
+    return "active"
+
 
 class InsuranceCertificate(TimestampMixin, Base):
     __tablename__ = "insurance_certificates"

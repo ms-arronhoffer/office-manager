@@ -1044,6 +1044,22 @@ export interface VendorPortalProfile {
   notes: string | null;
 }
 
+export interface VendorPortalCOI {
+  id: string;
+  certificate_type: string;
+  insurer: string | null;
+  policy_number: string | null;
+  effective_date: string | null;
+  expiration_date: string | null;
+  limits: string | null;
+  certificate_holder: string | null;
+  notes: string | null;
+  is_verified: boolean;
+  status: 'active' | 'expiring_soon' | 'expired' | 'unknown';
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Client Portal (landlord / management company self-service) ───────────────
 export type ClientPortalEntityType = 'landlord' | 'management_company';
 

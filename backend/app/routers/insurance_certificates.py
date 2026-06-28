@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
-from app.models.insurance_certificate import InsuranceCertificate
+from app.models.insurance_certificate import InsuranceCertificate, certificate_status
 from app.models.vendor import Vendor
 from app.models.landlord import Landlord
 
@@ -88,15 +88,7 @@ class CertResponse(BaseModel):
 
 
 def _compute_status(cert: InsuranceCertificate) -> str:
-    if cert.expiration_date is None:
-        return "unknown"
-    today = date.today()
-    if cert.expiration_date < today:
-        return "expired"
-    delta = (cert.expiration_date - today).days
-    if delta <= 30:
-        return "expiring_soon"
-    return "active"
+    return certificate_status(cert.expiration_date)
 
 
 def _to_response(cert: InsuranceCertificate) -> CertResponse:

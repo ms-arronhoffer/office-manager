@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head><style>
+body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+.container { max-width: 600px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.header { background: #232f3e; color: white; padding: 20px; text-align: center; }
+.content { padding: 20px; }
+.alert { background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin: 12px 0; border-radius: 4px; }
+.expired { background: #f8d7da; border-left-color: #dc3545; }
+.info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+.label { font-weight: bold; color: #555; }
+.cta { text-align: center; margin: 20px 0; }
+.cta a { background: #0972d3; color: white; text-decoration: none; padding: 10px 18px; border-radius: 6px; display: inline-block; }
+.footer { background: #f8f9fa; padding: 12px 20px; font-size: 12px; color: #888; text-align: center; }
+</style></head>
+<body>
+<div class="container">
+    <div class="header"><h2>Insurance Certificate Reminder</h2></div>
+    <div class="content">
+        <div class="alert {% if days_until < 0 %}expired{% endif %}">
+            {% if days_until < 0 %}
+            <strong>{{ holder_name }}</strong>'s {{ certificate_type }} certificate <strong>expired {{ -days_until }} days ago</strong>.
+            {% else %}
+            <strong>{{ holder_name }}</strong>'s {{ certificate_type }} certificate expires in <strong>{{ days_until }} days</strong>.
+            {% endif %}
+        </div>
+        <div class="info-row"><span class="label">Holder:</span><span>{{ holder_name }}</span></div>
+        <div class="info-row"><span class="label">Certificate Type:</span><span>{{ certificate_type }}</span></div>
+        <div class="info-row"><span class="label">Policy Number:</span><span>{{ policy_number }}</span></div>
+        <div class="info-row"><span class="label">Insurer:</span><span>{{ insurer }}</span></div>
+        <div class="info-row"><span class="label">Expiration Date:</span><span>{{ expiration_date }}</span></div>
+        {% if reupload_url %}
+        <div class="cta">
+            <a href="{{ reupload_url }}">Upload an updated certificate</a>
+        </div>
+        <p style="font-size:13px;color:#555;text-align:center">
+            Use the secure link above to submit a renewed certificate of insurance.
+            It will be marked for review by the office team.
+        </p>
+        {% endif %}
+    </div>
+    <div class="footer">Office Manager Application - Automated Reminder</div>
+</div>
+</body>
+</html>
