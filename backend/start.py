@@ -2,6 +2,7 @@
 import os
 import subprocess
 import sys
+import traceback
 import uuid
 
 from sqlalchemy import inspect, text
@@ -250,6 +251,62 @@ def _ensure_raw_tables() -> None:
 
 
 _ensure_raw_tables()
+
+
+def _run_initial_seed_once() -> None:
+    """Run the data seed exactly once against the existing database.
+
+    Imports the spreadsheet data for the default organization the first time the
+    container boots against a given database, then records a marker row so the
+    seed never runs again on subsequent restarts. The individual importers are
+    idempotent, but the marker guarantees the "one time" contract even if data
+    is later edited or removed. Best-effort: any failure is logged and never
+    prevents the application from starting.
+    """
+    marker = "initial_default_org_seed"
+    with sync_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS seed_runs ("
+                "name VARCHAR(255) PRIMARY KEY, "
+                "ran_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+            )
+        )
+        already_run = conn.execute(
+            text("SELECT 1 FROM seed_runs WHERE name = :name"), {"name": marker}
+        ).first()
+
+    if already_run:
+        print(f"[start] Initial data seed already applied ({marker}); skipping.")
+        return
+
+    print("[start] Running initial data seed for the default organization (one-time)...")
+    try:
+        from seed.run_seed import run_seed
+
+        run_seed()
+    except SystemExit as exc:
+        # run_seed guards on a missing schema by raising SystemExit; surface the
+        # message and leave the marker unset so it can retry on a later boot.
+        print(f"[start] Initial data seed skipped: {exc}")
+        return
+    except Exception as exc:  # noqa: BLE001 - best-effort; must never block startup
+        print(f"[start] WARNING: initial data seed failed and will be retried next boot: {exc!r}")
+        traceback.print_exc()
+        return
+
+    with sync_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO seed_runs (name) VALUES (:name) "
+                "ON CONFLICT (name) DO NOTHING"
+            ),
+            {"name": marker},
+        )
+    print(f"[start] Initial data seed complete; recorded marker '{marker}'.")
+
+
+_run_initial_seed_once()
 
 # Hand off to uvicorn.
 sys.exit(subprocess.call([

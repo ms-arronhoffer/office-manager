@@ -9,7 +9,10 @@ function isInputFocused(): boolean {
   );
 }
 
-export function useKeyboardShortcuts(onShowShortcuts: () => void) {
+export function useKeyboardShortcuts(
+  onShowShortcuts: () => void,
+  onToggleAssistant?: () => void,
+) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // Ctrl+K / Cmd+K: focus global search
@@ -27,6 +30,12 @@ export function useKeyboardShortcuts(onShowShortcuts: () => void) {
         }
       }
 
+      // Ctrl+J / Cmd+J: toggle the AI portfolio assistant drawer
+      if ((e.ctrlKey || e.metaKey) && e.key === 'j') {
+        e.preventDefault();
+        onToggleAssistant?.();
+      }
+
       // ? key: show shortcuts help (only when not typing in an input)
       if (e.key === '?' && !isInputFocused()) {
         e.preventDefault();
@@ -36,5 +45,5 @@ export function useKeyboardShortcuts(onShowShortcuts: () => void) {
 
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [onShowShortcuts]);
+  }, [onShowShortcuts, onToggleAssistant]);
 }

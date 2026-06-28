@@ -19,8 +19,6 @@ import ColumnLayout from '@cloudscape-design/components/column-layout';
 import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import { reports, leases as leasesApi } from '@/api';
 import AISummaryPanel from '@/components/common/AISummaryPanel';
-import AIPortfolioAskPanel from '@/components/common/AIPortfolioAskPanel';
-import AIPortfolioAssistant from '@/components/common/AIPortfolioAssistant';
 import type { ReportTemplate, FilterConfig, LeasePortfolioResponse, RentRollRow } from '@/types';
 
 type Format = 'pdf' | 'csv' | 'xlsx';
@@ -485,12 +483,6 @@ const ReportsPage: React.FC = () => {
 
         {/* AI-generated operations briefing (Pro+) */}
         <AISummaryPanel />
-
-        {/* Grounded portfolio Q&A over indexed lease documents (Pro+) */}
-        <AIPortfolioAskPanel />
-
-        {/* AI portfolio assistant — natural-language Q&A (Pro+) */}
-        <AIPortfolioAssistant />
 
         {/* Quick Export */}
         <Container
