@@ -50,6 +50,7 @@ FEATURE_KEYS: tuple[str, ...] = (
     "custom_fields",
     "ai_assist",
     "digital_waivers",
+    "client_portal",
 )
 
 # All keys that may appear in an entitlement override payload.
@@ -79,6 +80,7 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "custom_fields": False,
         "ai_assist": False,
         "digital_waivers": False,
+        "client_portal": False,
     },
     "pro": {
         "max_offices": 50,
@@ -97,6 +99,7 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "custom_fields": False,
         "ai_assist": True,
         "digital_waivers": True,
+        "client_portal": True,
     },
     "enterprise": {
         "max_offices": UNLIMITED,
@@ -115,6 +118,7 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "custom_fields": True,
         "ai_assist": True,
         "digital_waivers": True,
+        "client_portal": True,
     },
 }
 

@@ -22,6 +22,7 @@ import type { InputProps } from '@cloudscape-design/components/input';
 import { clientPortal } from '@/api';
 import type {
   ClientPortalProfile,
+  ClientPortalChangeRequest,
   EntityContact,
   EntityContactCreate,
   Attachment,
@@ -35,6 +36,36 @@ const formatBytes = (bytes: number) => {
 
 const entityLabel = (t?: string) =>
   t === 'management_company' ? 'Management Company' : 'Landlord';
+
+// Profile fields a client may propose corrections to (mirrors the backend
+// whitelist in client_portal.py).
+const CHANGE_REQUEST_FIELDS: { key: string; label: string }[] = [
+  { key: 'contact_name', label: 'Primary contact' },
+  { key: 'contact_email', label: 'Email' },
+  { key: 'contact_phone', label: 'Phone' },
+  { key: 'website', label: 'Website' },
+  { key: 'address_line_1', label: 'Address line 1' },
+  { key: 'address_line_2', label: 'Address line 2' },
+  { key: 'city', label: 'City' },
+  { key: 'state', label: 'State' },
+  { key: 'zip_code', label: 'ZIP code' },
+];
+
+const changeRequestStatusColor = (
+  s: ClientPortalChangeRequest['status'],
+): 'blue' | 'green' | 'red' => {
+  if (s === 'approved') return 'green';
+  if (s === 'rejected') return 'red';
+  return 'blue';
+};
+
+const fieldLabel = (key: string) =>
+  CHANGE_REQUEST_FIELDS.find((f) => f.key === key)?.label ?? key;
+
+const summarizeChanges = (changes: Record<string, string | null>) =>
+  Object.entries(changes)
+    .map(([k, v]) => `${fieldLabel(k)}: ${v ?? '(blank)'}`)
+    .join(', ');
 
 type ContactForm = {
   contact_name: string;
@@ -69,6 +100,7 @@ const ClientPortalPage: React.FC = () => {
   const [profile, setProfile] = useState<ClientPortalProfile | null>(null);
   const [contacts, setContacts] = useState<EntityContact[]>([]);
   const [documents, setDocuments] = useState<Attachment[]>([]);
+  const [changeRequests, setChangeRequests] = useState<ClientPortalChangeRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(false);
   const [flash, setFlash] = useState<{ type: 'success' | 'error'; content: string } | null>(null);
@@ -84,6 +116,13 @@ const ClientPortalPage: React.FC = () => {
 
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragActive, setDragActive] = useState(false);
+
+  // Change-request modal
+  const [crModal, setCrModal] = useState(false);
+  const [crFields, setCrFields] = useState<Record<string, string>>({});
+  const [crMessage, setCrMessage] = useState('');
+  const [savingCr, setSavingCr] = useState(false);
 
   // Redeem a one-time signup token (if present) before loading data.
   const redeemSignup = useCallback(async () => {
@@ -106,14 +145,16 @@ const ClientPortalPage: React.FC = () => {
 
   const loadData = useCallback(async (activeToken: string) => {
     try {
-      const [profileRes, contactsRes, docsRes] = await Promise.all([
+      const [profileRes, contactsRes, docsRes, crRes] = await Promise.all([
         clientPortal.getProfile(activeToken),
         clientPortal.listContacts(activeToken),
         clientPortal.listDocuments(activeToken),
+        clientPortal.listChangeRequests(activeToken),
       ]);
       setProfile(profileRes.data);
       setContacts(contactsRes.data);
       setDocuments(docsRes.data);
+      setChangeRequests(crRes.data);
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status;
       if (status === 401) {
@@ -208,9 +249,7 @@ const ClientPortalPage: React.FC = () => {
     }
   };
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const uploadFile = async (file: File) => {
     setUploading(true);
     try {
       await clientPortal.uploadDocument(token, file);
@@ -223,6 +262,80 @@ const ClientPortalPage: React.FC = () => {
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await uploadFile(file);
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragActive(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) await uploadFile(file);
+  };
+
+  const handleDownload = async (d: Attachment) => {
+    try {
+      const res = await clientPortal.downloadDocument(token, d.id);
+      const url = window.URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = d.original_filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setFlash({ type: 'error', content: 'Failed to download document.' });
+    }
+  };
+
+  const handleDeleteDocument = async (d: Attachment) => {
+    try {
+      await clientPortal.deleteDocument(token, d.id);
+      setDocuments((prev) => prev.filter((x) => x.id !== d.id));
+      setFlash({ type: 'success', content: 'Document removed.' });
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setFlash({ type: 'error', content: detail || 'Failed to remove document.' });
+    }
+  };
+
+  const openChangeRequest = () => {
+    setCrFields({});
+    setCrMessage('');
+    setCrModal(true);
+  };
+
+  const handleSubmitChangeRequest = async () => {
+    const proposed: Record<string, string | null> = {};
+    Object.entries(crFields).forEach(([key, value]) => {
+      const trimmed = value.trim();
+      if (trimmed) proposed[key] = trimmed;
+    });
+    if (Object.keys(proposed).length === 0) {
+      setFlash({ type: 'error', content: 'Enter at least one field to request a correction.' });
+      return;
+    }
+    setSavingCr(true);
+    try {
+      await clientPortal.createChangeRequest(token, {
+        proposed_changes: proposed,
+        message: crMessage.trim() || undefined,
+      });
+      setFlash({ type: 'success', content: 'Change request submitted for review.' });
+      setCrModal(false);
+      const res = await clientPortal.listChangeRequests(token);
+      setChangeRequests(res.data);
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setFlash({ type: 'error', content: detail || 'Failed to submit change request.' });
+    } finally {
+      setSavingCr(false);
     }
   };
 
@@ -273,23 +386,66 @@ const ClientPortalPage: React.FC = () => {
               id: 'profile',
               label: 'Profile',
               content: profile ? (
-                <Container header={<Header variant="h2" description="This information is managed by your property manager (read-only).">Your Information</Header>}>
-                  <ColumnLayout columns={3} variant="text-grid">
-                    {[
-                      ['Name', profile.name],
-                      ['Primary contact', profile.contact_name],
-                      ['Email', profile.contact_email],
-                      ['Phone', profile.contact_phone],
-                      ['Address', profile.address],
-                      ['Website', profile.website],
-                    ].map(([label, value]) => (
-                      <div key={label as string}>
-                        <Box variant="awsui-key-label">{label}</Box>
-                        <Box>{(value as string) || '—'}</Box>
-                      </div>
-                    ))}
-                  </ColumnLayout>
-                </Container>
+                <SpaceBetween size="l">
+                  <Container
+                    header={
+                      <Header
+                        variant="h2"
+                        description="This information is managed by your property manager. Spotted something out of date? Request a correction below."
+                        actions={
+                          <Button onClick={openChangeRequest}>Request a correction</Button>
+                        }
+                      >
+                        Your Information
+                      </Header>
+                    }
+                  >
+                    <ColumnLayout columns={3} variant="text-grid">
+                      {[
+                        ['Name', profile.name],
+                        ['Primary contact', profile.contact_name],
+                        ['Email', profile.contact_email],
+                        ['Phone', profile.contact_phone],
+                        ['Address', profile.address],
+                        ['Website', profile.website],
+                      ].map(([label, value]) => (
+                        <div key={label as string}>
+                          <Box variant="awsui-key-label">{label}</Box>
+                          <Box>{(value as string) || '—'}</Box>
+                        </div>
+                      ))}
+                    </ColumnLayout>
+                  </Container>
+                  {changeRequests.length > 0 && (
+                    <Table
+                      items={changeRequests}
+                      header={<Header variant="h2">Correction requests</Header>}
+                      columnDefinitions={[
+                        {
+                          id: 'submitted',
+                          header: 'Submitted',
+                          cell: (r: ClientPortalChangeRequest) =>
+                            new Date(r.created_at).toLocaleDateString(),
+                          width: 140,
+                        },
+                        {
+                          id: 'fields',
+                          header: 'Requested changes',
+                          cell: (r: ClientPortalChangeRequest) =>
+                            summarizeChanges(r.proposed_changes),
+                        },
+                        {
+                          id: 'status',
+                          header: 'Status',
+                          cell: (r: ClientPortalChangeRequest) => (
+                            <Badge color={changeRequestStatusColor(r.status)}>{r.status}</Badge>
+                          ),
+                          width: 120,
+                        },
+                      ]}
+                    />
+                  )}
+                </SpaceBetween>
               ) : null,
             },
             {
@@ -345,7 +501,7 @@ const ClientPortalPage: React.FC = () => {
                 <Container
                   header={
                     <Header
-                      description="Upload documents to share with your property manager."
+                      description="Upload documents to share with your property manager. You can remove documents you have uploaded."
                       actions={
                         <>
                           <input
@@ -368,25 +524,74 @@ const ClientPortalPage: React.FC = () => {
                     </Header>
                   }
                 >
-                  <Table
-                    items={documents}
-                    columnDefinitions={[
-                      { id: 'name', header: 'File', cell: (d: Attachment) => d.original_filename },
-                      { id: 'size', header: 'Size', cell: (d: Attachment) => formatBytes(d.file_size), width: 120 },
-                      {
-                        id: 'uploaded',
-                        header: 'Uploaded',
-                        cell: (d: Attachment) => new Date(d.created_at).toLocaleDateString(),
-                        width: 160,
-                      },
-                    ]}
-                    empty={
-                      <Box textAlign="center" padding="l">
-                        <b>No documents yet</b>
-                        <Box color="text-body-secondary">Uploaded documents will appear here.</Box>
+                  <SpaceBetween size="m">
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setDragActive(true);
+                      }}
+                      onDragLeave={() => setDragActive(false)}
+                      onDrop={handleDrop}
+                      style={{
+                        border: `1px dashed ${dragActive ? '#0972d3' : '#b6bec9'}`,
+                        borderRadius: 8,
+                        padding: '16px',
+                        textAlign: 'center',
+                        background: dragActive ? '#f0f8ff' : 'transparent',
+                      }}
+                    >
+                      <Box color="text-body-secondary">
+                        Drag &amp; drop a file here, or use the Upload document button above.
                       </Box>
-                    }
-                  />
+                    </div>
+                    <Table
+                      items={documents}
+                      columnDefinitions={[
+                        { id: 'name', header: 'File', cell: (d: Attachment) => d.original_filename },
+                        { id: 'size', header: 'Size', cell: (d: Attachment) => formatBytes(d.file_size), width: 120 },
+                        {
+                          id: 'uploaded',
+                          header: 'Uploaded',
+                          cell: (d: Attachment) => new Date(d.created_at).toLocaleDateString(),
+                          width: 160,
+                        },
+                        {
+                          id: 'actions',
+                          header: '',
+                          cell: (d: Attachment) => (
+                            <SpaceBetween direction="horizontal" size="xs">
+                              <Button variant="inline-link" onClick={() => handleDownload(d)}>
+                                Download
+                              </Button>
+                              {d.uploaded_by === 'client_portal' && (
+                                <Button
+                                  variant="inline-link"
+                                  onClick={() =>
+                                    confirmDelete({
+                                      itemName: d.original_filename,
+                                      description: (
+                                        <>Are you sure you want to remove <strong>{d.original_filename}</strong>?</>
+                                      ),
+                                      onConfirm: () => handleDeleteDocument(d),
+                                    })
+                                  }
+                                >
+                                  Remove
+                                </Button>
+                              )}
+                            </SpaceBetween>
+                          ),
+                          width: 200,
+                        },
+                      ]}
+                      empty={
+                        <Box textAlign="center" padding="l">
+                          <b>No documents yet</b>
+                          <Box color="text-body-secondary">Uploaded documents will appear here.</Box>
+                        </Box>
+                      }
+                    />
+                  </SpaceBetween>
                 </Container>
               ),
             },
@@ -451,6 +656,47 @@ const ClientPortalPage: React.FC = () => {
             <Textarea
               value={contactForm.notes}
               onChange={({ detail }) => setContactForm((f) => ({ ...f, notes: detail.value }))}
+              rows={3}
+            />
+          </FormField>
+        </SpaceBetween>
+      </Modal>
+
+      {/* ── Change-request Modal ── */}
+      <Modal
+        visible={crModal}
+        onDismiss={() => setCrModal(false)}
+        header="Request a correction"
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => setCrModal(false)}>Cancel</Button>
+              <Button variant="primary" loading={savingCr} onClick={handleSubmitChangeRequest}>
+                Submit request
+              </Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="m">
+          <Box color="text-body-secondary">
+            Fill in only the fields you want corrected. Your property manager will review and apply
+            approved changes.
+          </Box>
+          {CHANGE_REQUEST_FIELDS.map((f) => (
+            <FormField key={f.key} label={f.label}>
+              <Input
+                value={crFields[f.key] ?? ''}
+                onChange={({ detail }) =>
+                  setCrFields((prev) => ({ ...prev, [f.key]: detail.value }))
+                }
+              />
+            </FormField>
+          ))}
+          <FormField label="Note (optional)">
+            <Textarea
+              value={crMessage}
+              onChange={({ detail }) => setCrMessage(detail.value)}
               rows={3}
             />
           </FormField>

@@ -689,6 +689,7 @@ docker compose exec db psql -U office_admin -d office_manager
 ### Operations & Vendors
 - **Vendor Management** — vendor profiles, service categories, compliance tracking
 - **Vendor Portal** — self-service login for vendors to view/update assigned work orders and upload completion documents
+- **Client Portal** (Pro+) — self-service login for landlords and management companies to manage their secondary contacts, upload/download/remove their own documents, and submit profile change requests for staff approval; admins can revoke or rotate access and review pending requests
 - **Insurance Certificates** — COI tracking with expiration alerts for vendors and landlords
 - **Attachments** — file upload on any entity; extension whitelist enforced; server-generated storage filenames
 

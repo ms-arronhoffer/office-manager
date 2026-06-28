@@ -55,3 +55,14 @@ class ClientPortalAccount(TimestampMixin, Base):
     portal_token_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    # Last time the portal credential was successfully used (sliding-window
+    # activity tracking for the internal "portal status" view).
+    last_active_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # When set, the portal credential has been revoked by an internal admin and
+    # can no longer be used even if it has not yet expired.
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
