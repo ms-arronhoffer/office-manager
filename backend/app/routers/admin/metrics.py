@@ -14,6 +14,7 @@ from app.models.user import User
 from app.tasks.job_status import registry as job_registry
 from app.tasks.scheduler import scheduler
 from app.services import revenue_service
+from app.services import entitlements as ent
 
 router = APIRouter()
 
@@ -47,8 +48,9 @@ class PlatformMetrics(BaseModel):
     at_risk_canceled: int
     at_risk_inactive: int
 
-# Per-plan monthly price in cents (active + past_due orgs only)
-_PLAN_PRICE_CENTS = {"starter": 9900, "pro": 29900, "enterprise": 99900}
+# Per-plan monthly price in cents (active + past_due orgs only). Sourced from
+# the canonical catalog in app.services.entitlements.
+_PLAN_PRICE_CENTS = ent.PLAN_PRICE_CENTS
 
 
 @router.get("", response_model=PlatformMetrics)

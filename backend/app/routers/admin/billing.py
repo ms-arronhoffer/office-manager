@@ -1,7 +1,7 @@
 """Super-admin: billing oversight + Stripe cancel/restore."""
 import math
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -11,8 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import require_super_admin
 from app.config import settings
 from app.database import get_db
+from app.models.billing_ledger import (
+    BillingCharge, BillingCredit, BillingInvoice,
+    BillingRefund, BillingSubscription,
+)
 from app.models.organization import Organization
 from app.models.user import User
+from app.services import billing_ledger_service as ledger
 from app.services.activity_service import log_activity
 
 router = APIRouter()
@@ -194,3 +199,185 @@ async def restore_subscription(
         trial_ends_at=org.trial_ends_at,
         created_at=org.created_at,
     )
+
+
+# ─── Per-org billing detail ─────────────────────────────────────────────────────
+
+class LedgerRow(BaseModel):
+    id: uuid.UUID
+    status: str
+    amount_cents: int
+    currency: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class BillingDetail(BaseModel):
+    org_id: uuid.UUID
+    name: str
+    plan: str
+    payment_status: str
+    stripe_customer_id: str | None
+    subscriptions: list[dict]
+    invoices: list[dict]
+    charges: list[dict]
+    refunds: list[dict]
+    credits: list[dict]
+    credit_balance_cents: int
+
+
+async def _get_org_or_404(org_id: uuid.UUID, db: AsyncSession) -> Organization:
+    org = (await db.execute(select(Organization).where(Organization.id == org_id))).scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    return org
+
+
+@router.get("/{org_id}/detail", response_model=BillingDetail)
+async def billing_detail(
+    org_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_super_admin()),
+):
+    """Full per-org billing history from the persisted ledger: subscriptions,
+    invoices, charges, refunds, and manual credits with running credit balance."""
+    org = await _get_org_or_404(org_id, db)
+    cust = org.stripe_customer_id
+
+    subs = (await db.execute(
+        select(BillingSubscription).where(BillingSubscription.organization_id == org_id)
+        .order_by(BillingSubscription.created_at.desc())
+    )).scalars().all()
+    invs = (await db.execute(
+        select(BillingInvoice).where(BillingInvoice.organization_id == org_id)
+        .order_by(BillingInvoice.issued_at.desc().nullslast()).limit(100)
+    )).scalars().all()
+    charges = (await db.execute(
+        select(BillingCharge).where(BillingCharge.organization_id == org_id)
+        .order_by(BillingCharge.charged_at.desc().nullslast()).limit(100)
+    )).scalars().all()
+    refunds = (await db.execute(
+        select(BillingRefund).where(BillingRefund.organization_id == org_id)
+        .order_by(BillingRefund.refunded_at.desc().nullslast()).limit(100)
+    )).scalars().all()
+    credits = (await db.execute(
+        select(BillingCredit).where(BillingCredit.organization_id == org_id)
+        .order_by(BillingCredit.created_at.desc())
+    )).scalars().all()
+    credit_balance = sum(c.amount_cents for c in credits)
+
+    def _s(rows, fields):
+        return [{f: getattr(r, f) for f in fields} for r in rows]
+
+    return BillingDetail(
+        org_id=org.id, name=org.name, plan=org.plan, payment_status=org.payment_status,
+        stripe_customer_id=cust,
+        subscriptions=_s(subs, ["id", "status", "plan", "amount_cents", "quantity", "currency", "interval", "current_period_end"]),
+        invoices=_s(invs, ["id", "number", "status", "total_cents", "tax_cents", "amount_due_cents", "issued_at", "paid_at"]),
+        charges=_s(charges, ["id", "status", "amount_cents", "amount_refunded_cents", "currency", "charged_at"]),
+        refunds=_s(refunds, ["id", "status", "amount_cents", "currency", "reason", "refunded_at"]),
+        credits=_s(credits, ["id", "amount_cents", "currency", "reason", "created_at"]),
+        credit_balance_cents=credit_balance,
+    )
+
+
+# ─── Manual credit ──────────────────────────────────────────────────────────────
+
+class CreditRequest(BaseModel):
+    amount_cents: int
+    reason: str | None = None
+    currency: str = "usd"
+
+
+@router.post("/{org_id}/credit", status_code=status.HTTP_201_CREATED)
+async def issue_credit(
+    org_id: uuid.UUID,
+    payload: CreditRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_super_admin()),
+):
+    """Issue a manual account credit/adjustment (positive grants, negative debits)."""
+    org = await _get_org_or_404(org_id, db)
+    credit = BillingCredit(
+        organization_id=org.id, source="manual", amount_cents=payload.amount_cents,
+        currency=payload.currency[:3], reason=payload.reason, created_by_id=current_user.id,
+    )
+    db.add(credit)
+    await db.commit()
+    await log_activity(db, user=current_user, action="created", entity_type="organization",
+                       entity_id=org_id, entity_label=org.name,
+                       changes={"action": "billing_credit", "amount_cents": payload.amount_cents})
+    return {"id": str(credit.id), "amount_cents": credit.amount_cents}
+
+
+# ─── Extend trial ───────────────────────────────────────────────────────────────
+
+class ExtendTrialRequest(BaseModel):
+    days: int
+
+
+@router.post("/{org_id}/extend-trial", response_model=BillingRow)
+async def extend_trial(
+    org_id: uuid.UUID,
+    payload: ExtendTrialRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_super_admin()),
+):
+    """Extend (or set) an org's trial end date by ``days`` from the current end."""
+    if payload.days <= 0 or payload.days > 365:
+        raise HTTPException(status_code=400, detail="days must be 1-365")
+    org = await _get_org_or_404(org_id, db)
+    base = org.trial_ends_at or datetime.now(timezone.utc)
+    org.trial_ends_at = base + timedelta(days=payload.days)
+    await db.commit()
+    await log_activity(db, user=current_user, action="updated", entity_type="organization",
+                       entity_id=org_id, entity_label=org.name,
+                       changes={"action": "trial_extended", "days": payload.days})
+    seat_count = (await db.execute(
+        select(func.count(User.id)).where(User.organization_id == org_id, User.is_active.is_(True))
+    )).scalar_one()
+    return BillingRow(
+        id=org.id, name=org.name, plan=org.plan, payment_status=org.payment_status,
+        is_active=org.is_active, stripe_customer_id=org.stripe_customer_id,
+        stripe_subscription_id=org.stripe_subscription_id, max_seats=org.max_seats,
+        seat_count=seat_count, trial_ends_at=org.trial_ends_at, created_at=org.created_at,
+    )
+
+
+# ─── Refund a charge ────────────────────────────────────────────────────────────
+
+class RefundRequest(BaseModel):
+    stripe_charge_id: str
+    amount_cents: int | None = None
+    reason: str | None = None
+
+
+@router.post("/{org_id}/refund", status_code=status.HTTP_201_CREATED)
+async def issue_refund(
+    org_id: uuid.UUID,
+    payload: RefundRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_super_admin()),
+):
+    """Refund a charge via Stripe and mirror the result into the ledger."""
+    await _get_org_or_404(org_id, db)
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Billing is not configured on this server.")
+    import stripe
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    kwargs: dict = {"charge": payload.stripe_charge_id}
+    if payload.amount_cents:
+        kwargs["amount"] = payload.amount_cents
+    if payload.reason:
+        kwargs["reason"] = payload.reason
+    try:
+        refund = stripe.Refund.create(**kwargs)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Stripe refund failed: {exc}") from exc
+    await ledger.upsert_refund(db, dict(refund))
+    await db.commit()
+    await log_activity(db, user=current_user, action="created", entity_type="organization",
+                       entity_id=org_id, entity_label=str(org_id),
+                       changes={"action": "refund", "charge": payload.stripe_charge_id})
+    return {"refund_id": refund.get("id"), "amount_cents": refund.get("amount")}
