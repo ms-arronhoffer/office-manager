@@ -26,7 +26,7 @@ def start_scheduler():
     scheduler.add_job(send_scheduled_reports, "cron", hour=8, minute=15, id="scheduled_reports")
     scheduler.add_job(retry_failed_webhooks, "interval", minutes=2, id="webhook_retries")
     scheduler.start()
-    print("[SCHEDULER] Started with 11 jobs (10 daily/weekly + webhook retry every 2 min)")
+    print(f"[SCHEDULER] Started with {len(scheduler.get_jobs())} jobs")
 
 
 def stop_scheduler():
