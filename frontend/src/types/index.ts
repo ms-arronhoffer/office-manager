@@ -1847,6 +1847,7 @@ export interface AssistantCitation {
 
 export interface AssistantQueryResult {
   answer: string;
+  answer_html: string;
   citations: AssistantCitation[];
   mode: 'semantic' | 'keyword';
   model: string;
