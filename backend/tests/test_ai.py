@@ -523,7 +523,7 @@ def test_portfolio_system_prompts_carry_grounding_guidance():
     for prompt in (ai_service.PORTFOLIO_QA_SYSTEM, ai_service.PORTFOLIO_ASSISTANT_SYSTEM):
         lowered = prompt.lower()
         assert "cite" in lowered
-        assert "never invent" in lowered or "do not" in lowered
+        assert "never invent" in lowered
         assert "[1]" in prompt  # worked few-shot example with a citation id
 
 
