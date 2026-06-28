@@ -124,8 +124,65 @@ async def test_balance_sheet_as_of_cutoff(db_session, seeded_ledger):
     assert data["balanced"] is True
 
 
-# ─── API tests ───────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_cash_flow_statement_full_range(db_session, seeded_ledger):
+    data = await fin.cash_flow_statement(db_session, None)
+    # Operating: +1000 rental income received, -400 -100 operating cost paid.
+    assert data["operating"]["total"] == Decimal("500.00")
+    assert data["investing"]["total"] == Decimal("0.00")
+    assert data["financing"]["total"] == Decimal("0.00")
+    assert data["net_change_in_cash"] == Decimal("500.00")
+    assert data["beginning_cash"] == Decimal("0.00")
+    assert data["ending_cash"] == Decimal("500.00")
+    # Reconciles to the balance sheet cash line.
+    bs = await fin.balance_sheet(db_session, None)
+    assert data["ending_cash"] == bs["total_assets"]
 
+
+@pytest.mark.asyncio
+async def test_cash_flow_statement_single_month_carries_beginning(db_session, seeded_ledger):
+    # February only: just the 100 operating-cost cash payment.
+    data = await fin.cash_flow_statement(db_session, None, year=2026, month=2)
+    assert data["start_date"] == date(2026, 2, 1)
+    assert data["end_date"] == date(2026, 2, 28)
+    # January's net +600 cash is the opening balance for February.
+    assert data["beginning_cash"] == Decimal("600.00")
+    assert data["net_change_in_cash"] == Decimal("-100.00")
+    assert data["ending_cash"] == Decimal("500.00")
+    assert data["operating"]["total"] == Decimal("-100.00")
+
+
+@pytest.mark.asyncio
+async def test_cash_flow_statement_classifies_financing_and_investing(db_session, accounts):
+    # A non-cash entry (no cash movement) must be excluded entirely...
+    await _post(
+        db_session, accounts, date(2026, 3, 1),
+        "Right-of-Use Asset", "Lease Liability", Decimal("5000"),
+    )
+    # ...a cash purchase of an asset is investing (use of cash)...
+    await _post(
+        db_session, accounts, date(2026, 3, 2),
+        "Right-of-Use Asset", "Cash", Decimal("300"),
+    )
+    # ...and repaying the lease liability with cash is financing (use of cash).
+    await _post(
+        db_session, accounts, date(2026, 3, 3),
+        "Lease Liability", "Cash", Decimal("200"),
+    )
+    data = await fin.cash_flow_statement(db_session, None)
+    assert data["operating"]["total"] == Decimal("0.00")
+    assert data["investing"]["total"] == Decimal("-300.00")
+    assert data["financing"]["total"] == Decimal("-200.00")
+    assert data["net_change_in_cash"] == Decimal("-500.00")
+    assert data["ending_cash"] == Decimal("-500.00")
+    # The non-cash recognition entry produced no cash-flow lines.
+    assert all(
+        r["name"] != "Right-of-Use Asset" or r["amount"] != Decimal("5000.00")
+        for r in data["investing"]["lines"]
+    )
+
+
+# ─── API tests ───────────────────────────────────────────────────────────────
 @pytest.mark.asyncio
 async def test_viewer_cannot_access_financials(client, viewer_user):
     resp = await client.get(
@@ -164,3 +221,23 @@ async def test_balance_sheet_rejects_bad_month(client, accountant_user):
         params={"year": 2026, "month": 13},
     )
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_cash_flow_statement_endpoint(client, accountant_user, seeded_ledger):
+    resp = await client.get(
+        "/api/v1/financials/cash-flow-statement", headers=auth_headers(accountant_user)
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert Decimal(body["net_change_in_cash"]) == Decimal("500.00")
+    assert Decimal(body["ending_cash"]) == Decimal("500.00")
+    assert Decimal(body["operating"]["total"]) == Decimal("500.00")
+
+
+@pytest.mark.asyncio
+async def test_viewer_cannot_access_cash_flow_statement(client, viewer_user):
+    resp = await client.get(
+        "/api/v1/financials/cash-flow-statement", headers=auth_headers(viewer_user)
+    )
+    assert resp.status_code == 403

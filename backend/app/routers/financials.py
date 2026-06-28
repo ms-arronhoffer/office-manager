@@ -1,11 +1,13 @@
-"""Financial-statements API router (Phase 6) — `/api/v1/financials`.
+"""Financial-statements API router (Phase 6 + Phase 7) — `/api/v1/financials`.
 
 GAAP financial statements derived from the audit-grade general ledger:
 
   - ``GET /income-statement`` — revenue less expenses over a period (P&L).
   - ``GET /balance-sheet`` — assets, liabilities and equity as of a date.
+  - ``GET /cash-flow-statement`` — operating / investing / financing cash flows
+    over a period, reconciling beginning to ending cash.
 
-Both reports accept optional ``year`` and ``month`` query params (a single
+All reports accept optional ``year`` and ``month`` query params (a single
 month, a whole year, or — when omitted — all activity to date). Like the rest of
 the accounting surface, the endpoints are gated to the ``admin`` and
 ``accountant`` roles so finance data stays with finance staff.
@@ -64,6 +66,22 @@ class BalanceSheetResponse(BaseModel):
     balanced: bool
 
 
+class CashFlowSection(BaseModel):
+    lines: list[StatementLine]
+    total: Decimal
+
+
+class CashFlowStatementResponse(BaseModel):
+    start_date: date | None
+    end_date: date | None
+    operating: CashFlowSection
+    investing: CashFlowSection
+    financing: CashFlowSection
+    net_change_in_cash: Decimal
+    beginning_cash: Decimal
+    ending_cash: Decimal
+
+
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("/income-statement", response_model=IncomeStatementResponse)
@@ -102,3 +120,22 @@ async def get_balance_sheet(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         )
     return BalanceSheetResponse(**data)
+
+
+@router.get("/cash-flow-statement", response_model=CashFlowStatementResponse)
+async def get_cash_flow_statement(
+    year: int | None = Query(default=None),
+    month: int | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(FinanceUser),
+):
+    """Direct-method cash flows (operating/investing/financing) over a period."""
+    try:
+        data = await svc.cash_flow_statement(
+            db, current_user.organization_id, year=year, month=month
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        )
+    return CashFlowStatementResponse(**data)

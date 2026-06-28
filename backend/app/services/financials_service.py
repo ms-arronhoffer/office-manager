@@ -1,4 +1,4 @@
-"""Financial-statements service layer (Phase 6).
+"""Financial-statements service layer (Phase 6 + Phase 7).
 
 Derives GAAP financial statements straight from the audit-grade general ledger
 built in Phase 2, so they always tie back to the posted journal entries:
@@ -11,6 +11,12 @@ built in Phase 2, so they always tie back to the posted journal entries:
     net income since inception is rolled into equity as a synthetic
     *Net income (current period)* line so the statement balances
     (``assets == liabilities + equity``).
+  - ``cash_flow_statement`` (Phase 7) — the third core statement. Built with the
+    *direct* method straight off the cash account(s): every journal entry that
+    moves cash is decomposed into its non-cash contra lines, which are bucketed
+    into operating / investing / financing activities by account type. By
+    construction ``beginning_cash + net_change == ending_cash``, so the
+    statement always reconciles to the cash balance on the balance sheet.
 
 This is pure reporting on top of the Phase 2 GL — it introduces no new tables
 and reuses the same posted entries as the trial balance, CAM, lifecycle, and AP
@@ -21,7 +27,7 @@ from __future__ import annotations
 
 import calendar
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import select
@@ -42,6 +48,20 @@ BALANCE_TOLERANCE = TWO
 # Section ordering for the balance sheet and income statement.
 _BALANCE_SHEET_SECTIONS = ("asset", "liability", "equity")
 _INCOME_STATEMENT_SECTIONS = ("revenue", "expense")
+
+# Cash-flow activity sections (Phase 7), in presentation order.
+_CASH_FLOW_SECTIONS = ("operating", "investing", "financing")
+# Non-cash contra accounts are mapped to a cash-flow activity by their GL
+# account type. This is the conventional GAAP mapping: revenue/expense activity
+# is operating, non-cash asset movements are investing, and liability/equity
+# movements are financing.
+_ACTIVITY_BY_ACCOUNT_TYPE = {
+    "revenue": "operating",
+    "expense": "operating",
+    "asset": "investing",
+    "liability": "financing",
+    "equity": "financing",
+}
 
 
 def _q(value) -> Decimal:
@@ -254,4 +274,136 @@ async def balance_sheet(
         "liabilities_and_equity": liabilities_and_equity,
         "net_income": net_income,
         "balanced": balanced,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Statement of cash flows (Phase 7)
+# ---------------------------------------------------------------------------
+
+def _is_cash_account(name: str, type_: str) -> bool:
+    """Heuristic for a cash / cash-equivalent account.
+
+    The default chart of accounts seeds a single ``Cash`` account, but an org may
+    add others (e.g. "Petty Cash", "Cash - Operating"). Any asset account whose
+    name contains the word "cash" is treated as cash for the cash-flow statement.
+    """
+    return type_ == "asset" and "cash" in (name or "").lower()
+
+
+async def _cash_account_balance(
+    db: AsyncSession,
+    organization_id: uuid.UUID | None,
+    *,
+    end: date | None,
+) -> Decimal:
+    """Net cash balance (debit minus credit) across all cash accounts up to ``end``."""
+    totals = await _account_sums(db, organization_id, start=None, end=end)
+    balance = Decimal("0")
+    for row in totals.values():
+        if _is_cash_account(row["name"], row["type"]):
+            balance += _q(row["debit"]) - _q(row["credit"])
+    return _q(balance)
+
+
+async def cash_flow_statement(
+    db: AsyncSession,
+    organization_id: uuid.UUID | None,
+    *,
+    year: int | None = None,
+    month: int | None = None,
+) -> dict:
+    """Direct-method statement of cash flows over the requested period.
+
+    Every journal entry that touches a cash account is decomposed into its
+    non-cash contra lines. Each contra line's cash impact (``credit - debit`` —
+    a credit to a contra account is a source of cash, a debit is a use) is
+    bucketed into operating / investing / financing activities by the contra
+    account's type. Entries that never touch cash (e.g. depreciation, or the
+    initial right-of-use asset / lease-liability recognition) are excluded, so
+    only real cash movements appear.
+
+    Because each entry is balanced, the sum of the non-cash contra impacts equals
+    the cash lines' net movement; the three activity sections therefore always
+    sum to the period's change in cash, and
+    ``beginning_cash + net_change == ending_cash`` ties back to the balance
+    sheet's cash line.
+    """
+    start, end = period_bounds(year, month)
+
+    stmt = (
+        select(JournalEntry)
+        .where(JournalEntry.organization_id == organization_id)
+        .options(
+            selectinload(JournalEntry.lines).selectinload(JournalEntryLine.account)
+        )
+    )
+    if start is not None:
+        stmt = stmt.where(JournalEntry.entry_date >= start)
+    if end is not None:
+        stmt = stmt.where(JournalEntry.entry_date <= end)
+    entries = (await db.execute(stmt)).scalars().unique().all()
+
+    # Accumulate each activity section as a map of account-id → line dict so
+    # repeated postings to the same contra account collapse into one line.
+    buckets: dict[str, dict[uuid.UUID, dict]] = {
+        section: {} for section in _CASH_FLOW_SECTIONS
+    }
+    for entry in entries:
+        touches_cash = any(
+            _is_cash_account(line.account.name, line.account.type)
+            for line in entry.lines
+        )
+        if not touches_cash:
+            continue
+        for line in entry.lines:
+            acct = line.account
+            if _is_cash_account(acct.name, acct.type):
+                continue
+            section = _ACTIVITY_BY_ACCOUNT_TYPE.get(acct.type)
+            if section is None:
+                continue
+            impact = _q(line.credit) - _q(line.debit)
+            row = buckets[section].setdefault(
+                acct.id,
+                {
+                    "account_id": acct.id,
+                    "code": acct.code,
+                    "name": acct.name,
+                    "amount": Decimal("0"),
+                },
+            )
+            row["amount"] += impact
+
+    sections: dict[str, dict] = {}
+    net_change = Decimal("0")
+    for section in _CASH_FLOW_SECTIONS:
+        rows = [r for r in buckets[section].values() if _q(r["amount"]) != 0]
+        for r in rows:
+            r["amount"] = _q(r["amount"])
+        rows.sort(key=lambda r: r["code"])
+        section_total = _q(sum((r["amount"] for r in rows), Decimal("0")))
+        sections[section] = {"lines": rows, "total": section_total}
+        net_change += section_total
+    net_change = _q(net_change)
+
+    # Beginning cash is everything posted strictly before the period start; with
+    # an open-ended (since-inception) period it is zero.
+    if start is None:
+        beginning_cash = Decimal("0.00")
+    else:
+        beginning_cash = await _cash_account_balance(
+            db, organization_id, end=start - timedelta(days=1)
+        )
+    ending_cash = _q(beginning_cash + net_change)
+
+    return {
+        "start_date": start,
+        "end_date": end,
+        "operating": sections["operating"],
+        "investing": sections["investing"],
+        "financing": sections["financing"],
+        "net_change_in_cash": net_change,
+        "beginning_cash": beginning_cash,
+        "ending_cash": ending_cash,
     }
