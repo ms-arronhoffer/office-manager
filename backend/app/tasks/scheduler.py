@@ -14,6 +14,7 @@ from app.tasks.pm_work_orders import generate_pm_work_orders
 from app.tasks.scheduled_reports import send_scheduled_reports
 from app.tasks.knowledge_index import reindex_knowledge
 from app.tasks.billing_hygiene import run_billing_hygiene
+from app.tasks.billing_reconcile import reconcile_billing_ledger
 from app.tasks.audit_log_pruning import run_audit_log_pruning
 from app.tasks.job_status import run_tracked
 
@@ -40,6 +41,7 @@ _JOBS = [
     ("webhook_retries", retry_failed_webhooks, "interval", {"minutes": 2}),
     ("knowledge_reindex", reindex_knowledge, "cron", {"hour": 3, "minute": 0}),
     ("billing_hygiene", run_billing_hygiene, "cron", {"hour": 6, "minute": 0}),
+    ("billing_reconcile", reconcile_billing_ledger, "cron", {"hour": 5, "minute": 0}),
     ("audit_log_pruning", run_audit_log_pruning, "cron", {"hour": 2, "minute": 0}),
 ]
 

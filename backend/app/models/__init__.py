@@ -63,6 +63,10 @@ from app.models.saved_report import SavedReport, ReportSchedule, REPORT_FORMATS
 from app.models.knowledge_chunk import KnowledgeChunk
 from app.models.usage_event import UsageEvent
 from app.models.impersonation_session import ImpersonationSession
+from app.models.billing_ledger import (
+    BillingSubscription, BillingInvoice, BillingCharge,
+    BillingRefund, BillingCredit, BillingCoupon,
+)
 
 __all__ = [
     "Base", "Organization", "User", "AuthLockout", "Manager", "Office",    "Lease", "LeaseNote", "LeaseRenewal", "LeaseOption",
@@ -104,4 +108,6 @@ __all__ = [
     "KnowledgeChunk",
     "UsageEvent",
     "ImpersonationSession",
+    "BillingSubscription", "BillingInvoice", "BillingCharge",
+    "BillingRefund", "BillingCredit", "BillingCoupon",
 ]

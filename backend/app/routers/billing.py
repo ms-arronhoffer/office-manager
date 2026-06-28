@@ -16,6 +16,7 @@ from app.database import get_db
 from app.models.notification import Notification
 from app.models.organization import Organization
 from app.models.user import User
+from app.services import billing_ledger_service as ledger
 from app.utils.email_client import send_email
 
 router = APIRouter()
@@ -368,5 +369,24 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                     "billing_payment_recovered.html",
                     f"Payment successful — {org.name} account restored",
                 )
+
+    # ── Persist into the billing ledger (best-effort, idempotent) ──────────────
+    try:
+        if event_type in ("customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"):
+            await ledger.upsert_subscription(db, dict(obj))
+        elif event_type in ("invoice.created", "invoice.finalized", "invoice.paid", "invoice.payment_succeeded", "invoice.payment_failed"):
+            await ledger.upsert_invoice(db, dict(obj))
+        elif event_type in ("charge.succeeded", "charge.failed", "charge.refunded", "charge.updated"):
+            await ledger.upsert_charge(db, dict(obj))
+            for r in (obj.get("refunds", {}) or {}).get("data", []) or []:
+                await ledger.upsert_refund(db, dict(r))
+        elif event_type in ("charge.refund.updated", "refund.created", "refund.updated"):
+            await ledger.upsert_refund(db, dict(obj))
+        elif event_type in ("coupon.created", "coupon.updated", "coupon.deleted"):
+            await ledger.upsert_coupon(db, dict(obj))
+        await db.commit()
+    except Exception:  # best-effort: never fail the webhook on ledger drift
+        await db.rollback()
+        logger.exception("billing ledger upsert failed for %s", event_type)
 
     return {"received": True}
