@@ -43,7 +43,7 @@ MAX_TEXT_CHARS = 200_000
 
 # Bump whenever a parse prompt/field-spec changes so cached results from an
 # older prompt version are invalidated rather than served stale.
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 
 # ── Per-request token accounting ──────────────────────────────────────────────
 #
@@ -1315,12 +1315,30 @@ def actions_to_markdown(actions: list[dict[str, Any]]) -> str:
 PORTFOLIO_QA_SYSTEM = (
     "You are a commercial real-estate portfolio analyst assistant. Answer the "
     "user's question using ONLY the supplied lease document excerpts. Each "
-    "excerpt is prefixed with a numbered citation id like [1], [2]. Ground every "
-    "factual claim in the excerpts and cite the supporting excerpt id(s) inline "
-    "in square brackets, e.g. 'the lease expires in 2026 [2].'. Cite only "
-    "excerpts you actually relied on. If the excerpts do not contain enough "
-    "information to answer the question, say so plainly — do not speculate or "
-    "invent lease terms, dates, or figures. Be concise and use Markdown."
+    "excerpt is prefixed with a numbered citation id like [1], [2].\n"
+    "\n"
+    "Rules:\n"
+    "- Ground every factual claim in the excerpts and cite the supporting "
+    "excerpt id(s) inline in square brackets, e.g. 'the lease expires in 2026 "
+    "[2].'. Cite only excerpts you actually relied on; never cite an id that was "
+    "not provided.\n"
+    "- NEVER invent or guess lease terms, dates, figures, party names, or "
+    "clauses. Only state what the excerpts support. If you are unsure, say so.\n"
+    "- If the excerpts do not contain enough information to answer, say that "
+    "plainly and, when useful, name what is missing — do not speculate.\n"
+    "- Do not perform arithmetic or aggregation (totals, averages, counts) "
+    "unless every value needed is present in the excerpts; if some are missing, "
+    "report the figures you can cite and note the result is incomplete.\n"
+    "- When excerpts conflict, surface the discrepancy and cite each side rather "
+    "than silently picking one.\n"
+    "- Quote amounts, dates, and rates exactly as written in the excerpts "
+    "(including currency and units); do not reformat or round them.\n"
+    "- Be concise and use Markdown.\n"
+    "\n"
+    "Example:\n"
+    "Excerpt [1] 'Base rent is $42,000 per year through 2026.'\n"
+    "Question: 'What is the annual base rent?'\n"
+    "Answer: 'The annual base rent is $42,000 [1].'"
 )
 
 # Cap how many excerpts (and how much of each) we feed the model so the prompt
@@ -1340,12 +1358,26 @@ PORTFOLIO_ASSISTANT_SYSTEM = (
     "\n"
     "Rules:\n"
     "- Base every statement on the context. Never invent facts, figures, names, "
-    "or dates that are not present in the passages.\n"
+    "or dates that are not present in the passages, and never rely on outside "
+    "knowledge.\n"
     "- Cite the passages you rely on inline using square-bracket numbers that "
-    "match the passage numbers, e.g. [1] or [2][3].\n"
+    "match the passage numbers, e.g. [1] or [2][3]. Cite only passages you "
+    "actually used and never cite a number that was not provided.\n"
     "- If the context does not contain enough information to answer, say so "
-    "plainly rather than guessing.\n"
-    "- Be concise and factual. Use Markdown when it aids readability."
+    "plainly and, when useful, name what is missing rather than guessing.\n"
+    "- Do not compute totals, averages, or counts unless every value needed "
+    "appears in the passages; when some are missing, report the values you can "
+    "cite and note the answer is partial.\n"
+    "- When passages disagree, surface the conflict and cite each side instead "
+    "of silently choosing one.\n"
+    "- Quote amounts, dates, and identifiers exactly as written; do not reformat "
+    "or round them.\n"
+    "- Be concise and factual. Use Markdown when it aids readability.\n"
+    "\n"
+    "Example:\n"
+    "Passage [1] 'Office 42 (Galaxy Tower) is managed by Orbit Realty.'\n"
+    "Question: 'Who manages office 42?'\n"
+    "Answer: 'Office 42 (Galaxy Tower) is managed by Orbit Realty [1].'"
 )
 
 # Bound the context assembled into the assistant prompt.

@@ -64,6 +64,19 @@ MAX_CHUNK_CHARS = 4000
 # Bound how many source records of each kind are indexed per org per run.
 MAX_RECORDS_PER_KIND = 5000
 
+# ── Semantic ranking quality knobs ────────────────────────────────────────────
+# Cosine similarities below this absolute floor are treated as noise and dropped
+# so clearly-irrelevant chunks never pollute the model's context. The top match
+# is always kept regardless, so a thin-but-real result set is never emptied.
+SEMANTIC_RELEVANCE_FLOOR = 0.15
+# A chunk is also dropped when it scores far below the best match for the query
+# (best * this ratio), which keeps a long tail of weak, loosely-related chunks
+# out of the prompt even when their absolute score clears the floor.
+SEMANTIC_RELATIVE_FLOOR_RATIO = 0.6
+# Cap how many chunks may come from a single source record so one verbose lease
+# or document cannot crowd out coverage of other relevant records (diversity).
+MAX_CHUNKS_PER_SOURCE = 3
+
 
 def _cosine(a: list[float], b: list[float]) -> float:
     if not a or not b or len(a) != len(b):
@@ -790,6 +803,52 @@ async def _lease_names(db: AsyncSession, lease_ids: set[uuid.UUID]) -> dict:
     return {lease.id: lease.lease_name for lease in leases}
 
 
+def _source_key(kind: str, chunk: object) -> tuple:
+    """Stable identifier for the source record a scored chunk belongs to.
+
+    Used to enforce per-source diversity so a single verbose lease/document does
+    not dominate the retrieved context. Knowledge chunks are keyed by their
+    originating entity, document chunks by their lease.
+    """
+    if kind == "document":
+        return ("document", getattr(chunk, "lease_id", None))
+    return ("knowledge", getattr(chunk, "source_type", None), getattr(chunk, "source_id", None))
+
+
+def _select_relevant(
+    scored: list[tuple[float, str, object]], *, limit: int
+) -> list[tuple[float, str, object]]:
+    """Pick the best, diverse, high-signal chunks from scored candidates.
+
+    Applies an absolute and a best-relative similarity floor to drop weak
+    chunks, then caps how many chunks any single source may contribute so the
+    final context covers more distinct records. The single top-scoring chunk is
+    always retained so a genuine-but-thin result set is never emptied.
+    """
+    if not scored:
+        return []
+
+    ranked = sorted(scored, key=lambda x: x[0], reverse=True)
+    best_score = ranked[0][0]
+    threshold = max(SEMANTIC_RELEVANCE_FLOOR, best_score * SEMANTIC_RELATIVE_FLOOR_RATIO)
+
+    selected: list[tuple[float, str, object]] = []
+    per_source: dict[tuple, int] = {}
+    for score, kind, chunk in ranked:
+        if len(selected) >= limit:
+            break
+        # Always keep the single best match; gate everything else on the floor.
+        if selected and score < threshold:
+            continue
+        key = _source_key(kind, chunk)
+        if per_source.get(key, 0) >= MAX_CHUNKS_PER_SOURCE:
+            continue
+        per_source[key] = per_source.get(key, 0) + 1
+        selected.append((score, kind, chunk))
+
+    return selected
+
+
 async def _semantic_retrieve(
     db: AsyncSession,
     *,
@@ -823,8 +882,7 @@ async def _semantic_retrieve(
 
     if not scored:
         return []
-    scored.sort(key=lambda x: x[0], reverse=True)
-    top = scored[:limit]
+    top = _select_relevant(scored, limit=limit)
     return await _hydrate(db, top, mode="semantic")
 
 

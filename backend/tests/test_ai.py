@@ -517,6 +517,59 @@ async def test_answer_portfolio_question_builds_cited_prompt(monkeypatch):
     assert "cite" in (captured["system"] or "").lower()
 
 
+def test_portfolio_system_prompts_carry_grounding_guidance():
+    """Both RAG system prompts must enforce citation discipline and forbid
+    invention so answers stay grounded in retrieved context."""
+    for prompt in (ai_service.PORTFOLIO_QA_SYSTEM, ai_service.PORTFOLIO_ASSISTANT_SYSTEM):
+        lowered = prompt.lower()
+        assert "cite" in lowered
+        assert "never invent" in lowered
+        assert "[1]" in prompt  # worked few-shot example with a citation id
+
+
+class _FakeChunk:
+    """Minimal stand-in for a scored chunk used by retrieval selection tests."""
+
+    def __init__(self, *, lease_id=None, source_type=None, source_id=None):
+        self.lease_id = lease_id
+        self.source_type = source_type
+        self.source_id = source_id
+
+
+def test_select_relevant_drops_weak_chunks_below_floor():
+    from app.services import knowledge_service as ks
+
+    strong = (0.9, "knowledge", _FakeChunk(source_type="office", source_id="a"))
+    weak = (0.05, "knowledge", _FakeChunk(source_type="office", source_id="b"))
+    selected = ks._select_relevant([strong, weak], limit=8)
+    assert strong in selected
+    assert weak not in selected  # below the absolute + relative floor
+
+
+def test_select_relevant_always_keeps_top_match():
+    from app.services import knowledge_service as ks
+
+    # Even an only-weak result set must still surface its single best chunk.
+    only = (0.01, "knowledge", _FakeChunk(source_type="office", source_id="a"))
+    selected = ks._select_relevant([only], limit=8)
+    assert selected == [only]
+
+
+def test_select_relevant_caps_chunks_per_source():
+    from app.services import knowledge_service as ks
+
+    lease_id = "lease-1"
+    same_source = [
+        (0.9 - i * 0.01, "document", _FakeChunk(lease_id=lease_id))
+        for i in range(6)
+    ]
+    other = (0.7, "document", _FakeChunk(lease_id="lease-2"))
+    selected = ks._select_relevant(same_source + [other], limit=8)
+    from_lease_1 = [s for s in selected if s[2].lease_id == lease_id]
+    assert len(from_lease_1) == ks.MAX_CHUNKS_PER_SOURCE
+    assert other in selected  # diversity keeps room for the other source
+
+
 # ── Broadened summary inputs + AI-recommended actions ─────────────────────────
 
 
