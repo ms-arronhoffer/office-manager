@@ -271,6 +271,7 @@ class AssistantCitation(BaseModel):
 
 class AssistantQueryResponse(BaseModel):
     answer: str
+    answer_html: str
     citations: list[AssistantCitation]
     mode: str  # 'semantic' | 'keyword'
     model: str
@@ -1449,7 +1450,11 @@ async def assistant_query(
         for idx, chunk in enumerate(chunks, start=1)
     ]
     return AssistantQueryResponse(
-        answer=answer, citations=citations, mode=mode, model=settings.GEMINI_MODEL
+        answer=answer,
+        answer_html=report_export.markdown_to_html(answer),
+        citations=citations,
+        mode=mode,
+        model=settings.GEMINI_MODEL,
     )
 
 

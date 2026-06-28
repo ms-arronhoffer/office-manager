@@ -51,6 +51,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
   useKeyboardShortcuts(onShowShortcuts, toggleAssistant);
 
   const isEditorOrAdmin = user?.role === 'admin' || user?.role === 'editor';
+  const isFinance = user?.role === 'admin' || user?.role === 'accountant';
   const pinnedOffices = getPinnedOffices();
 
   const navItems = useMemo(() => [
@@ -106,9 +107,19 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       ],
     },
     {
-      type: 'link' as const,
+      type: 'section' as const,
       text: 'Finance',
-      href: '/finance',
+      items: [
+        { type: 'link' as const, text: 'Rent Roll', href: '/finance' },
+        ...(isEditorOrAdmin ? [{ type: 'link' as const, text: 'Operating Expenses', href: '/finance/operating-expenses' }] : []),
+        ...(isFinance ? [
+          { type: 'link' as const, text: 'General Ledger', href: '/finance/general-ledger' },
+          { type: 'link' as const, text: 'Financial Statements', href: '/finance/financial-statements' },
+          { type: 'link' as const, text: 'CAM', href: '/finance/cam' },
+          { type: 'link' as const, text: 'Accounts Payable', href: '/finance/accounts-payable' },
+          { type: 'link' as const, text: 'Lease Lifecycle', href: '/finance/lease-lifecycle' },
+        ] : []),
+      ],
     },
     ...(isEditorOrAdmin ? [{
       type: 'link' as const,
@@ -125,7 +136,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       text: 'Settings',
       href: '/settings',
     },
-  ], [isEditorOrAdmin, pinnedOffices]);
+  ], [isEditorOrAdmin, isFinance, pinnedOffices]);
 
   return (
     <>

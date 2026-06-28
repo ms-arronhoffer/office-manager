@@ -1435,6 +1435,8 @@ async def test_assistant_query_returns_answer_with_citations(client, db_session,
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert "2027-05-31" in body["answer"]
+    assert "2027-05-31" in body["answer_html"]
+    assert body["answer_html"].strip().startswith("<")
     assert body["mode"] == "semantic"
     assert len(body["citations"]) == 1
     citation = body["citations"][0]

@@ -9,6 +9,7 @@ import Box from '@cloudscape-design/components/box';
 import Alert from '@cloudscape-design/components/alert';
 import Badge from '@cloudscape-design/components/badge';
 import ExpandableSection from '@cloudscape-design/components/expandable-section';
+import DOMPurify from 'dompurify';
 import { ai } from '@/api';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import type { AssistantQueryResult } from '@/types';
@@ -110,9 +111,31 @@ const AIPortfolioAssistant: React.FC = () => {
         {result && (
           <Box>
             <Box variant="awsui-key-label">Answer</Box>
-            <div style={{ paddingTop: '8px', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-              {result.answer}
-            </div>
+            {result.answer_html ? (
+              <div
+                style={{ paddingTop: '8px', lineHeight: 1.5 }}
+                // answer_html is server-rendered Markdown; sanitize defensively
+                // against any HTML the model may have emitted before injecting it.
+                dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(result.answer_html, {
+                    ALLOWED_TAGS: [
+                      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                      'p', 'br', 'hr',
+                      'ul', 'ol', 'li',
+                      'strong', 'em', 'b', 'i', 'code', 'pre', 'blockquote',
+                      'table', 'thead', 'tbody', 'tr', 'th', 'td',
+                    ],
+                    ALLOWED_ATTR: [],
+                  }),
+                }}
+              />
+            ) : (
+              // Fallback to the raw answer text when the server did not provide
+              // rendered HTML, so the answer is never blank.
+              <div style={{ paddingTop: '8px', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                {result.answer}
+              </div>
+            )}
             {result.citations.length > 0 && (
               <Box padding={{ top: 'm' }}>
                 <ExpandableSection
