@@ -900,3 +900,171 @@ async def test_classify_document_prompt_lists_all_types(monkeypatch):
     prompt_text = " ".join(p.get("text", "") for p in captured["parts"])
     for doc_type in ("vendor_invoice", "insurance_certificate", "lease_amendment"):
         assert doc_type in prompt_text
+
+
+# ─── Lease abstract gap-detection (Feature 6) ────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_abstract_gaps_gated_for_starter(client, db_session):
+    headers = await _make_org_user(db_session, "starter", "gaps-starter@test.com")
+    import uuid
+
+    resp = await client.post(
+        f"/api/v1/ai/leases/{uuid.uuid4()}/abstract/gaps", headers=headers
+    )
+    assert resp.status_code == 402, resp.text
+
+
+@pytest.mark.asyncio
+async def test_abstract_gaps_missing_lease(client, db_session):
+    headers = await _make_org_user(db_session, "pro", "gaps-404@test.com")
+    import uuid
+
+    resp = await client.post(
+        f"/api/v1/ai/leases/{uuid.uuid4()}/abstract/gaps", headers=headers
+    )
+    assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
+async def test_abstract_gaps_enriches_and_passes_captured_content(
+    client, db_session, monkeypatch
+):
+    """The endpoint forwards captured clause content and enriches findings with
+    the category name/group from the catalog."""
+    headers = await _make_org_user(db_session, "pro", "gaps-ok@test.com")
+    lease_id = await _create_lease(client, headers)
+
+    # Capture content for one clause so the reviewer can judge completeness.
+    put = await client.put(
+        f"/api/v1/leases/{lease_id}/abstract/lease_options",
+        headers=headers,
+        json={"content": {"option_type": "renewal"}},
+    )
+    assert put.status_code == 200, put.text
+
+    captured: dict = {}
+
+    async def fake_gaps(categories, captured_clauses, *, content=b"", mime_type="", text_content=None):
+        captured["categories"] = categories
+        captured["captured"] = captured_clauses
+        return [
+            {
+                "category_key": "sublease_assignment",
+                "gap_type": "missing",
+                "severity": "high",
+                "message": "No assignment clause found",
+                "recommendation": "Confirm whether the lease permits assignment.",
+            },
+            {
+                "category_key": "lease_options",
+                "gap_type": "incomplete",
+                "severity": "medium",
+                "message": "Renewal option terms incomplete",
+                "recommendation": "Capture the notice period and exercise window.",
+            },
+            # Unknown category keys are dropped by normalization upstream; an
+            # already-known one with no message would be dropped too.
+        ]
+
+    monkeypatch.setattr(ai_service, "detect_abstract_gaps", fake_gaps)
+
+    resp = await client.post(
+        f"/api/v1/ai/leases/{lease_id}/abstract/gaps", headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    gaps = {g["category_key"]: g for g in body["gaps"]}
+    assert gaps["sublease_assignment"]["name"] == "Sublease/Assignment"
+    assert gaps["sublease_assignment"]["group"] == "rights"
+    assert gaps["lease_options"]["gap_type"] == "incomplete"
+
+    # The captured lease_options content reached the service.
+    assert captured["captured"]["lease_options"]["content"] == {"option_type": "renewal"}
+
+
+@pytest.mark.asyncio
+async def test_abstract_gaps_extracts_uploaded_document_text(
+    client, db_session, monkeypatch
+):
+    headers = await _make_org_user(db_session, "pro", "gaps-doc@test.com")
+    lease_id = await _create_lease(client, headers)
+
+    captured: dict = {}
+
+    async def fake_gaps(categories, captured_clauses, *, content=b"", mime_type="", text_content=None):
+        captured["text_content"] = text_content
+        return []
+
+    monkeypatch.setattr(ai_service, "detect_abstract_gaps", fake_gaps)
+
+    files = {"file": ("lease.txt", io.BytesIO(b"This lease has no assignment provision."), "text/plain")}
+    resp = await client.post(
+        f"/api/v1/ai/leases/{lease_id}/abstract/gaps", headers=headers, files=files
+    )
+    assert resp.status_code == 200, resp.text
+    assert captured["text_content"] is not None
+    assert "assignment" in captured["text_content"]
+
+
+@pytest.mark.asyncio
+async def test_detect_abstract_gaps_normalizes_model_output(monkeypatch):
+    """Unknown category keys / messageless items are dropped; bad enums default."""
+    async def fake_generate(parts, **kwargs):
+        return (
+            '{"gaps": ['
+            '{"category_key": "sublease_assignment", "gap_type": "weird", '
+            '"severity": "urgent", "message": "No assignment clause found"},'
+            '{"category_key": "not_a_real_key", "gap_type": "missing", '
+            '"severity": "high", "message": "x"},'
+            '{"category_key": "lease_options", "gap_type": "missing", '
+            '"severity": "high", "message": ""}'
+            ']}'
+        )
+
+    monkeypatch.setattr(ai_service, "_generate", fake_generate)
+
+    categories = [
+        {"key": "sublease_assignment", "name": "Sublease/Assignment", "fields": []},
+        {"key": "lease_options", "name": "Lease Options", "fields": []},
+    ]
+    gaps = await ai_service.detect_abstract_gaps(categories, {})
+    assert len(gaps) == 1
+    gap = gaps[0]
+    assert gap["category_key"] == "sublease_assignment"
+    # Invalid enums fall back to safe defaults.
+    assert gap["gap_type"] == "incomplete"
+    assert gap["severity"] == "medium"
+
+
+@pytest.mark.asyncio
+async def test_review_cam_reconciliation_normalizes_anomalies(monkeypatch):
+    captured: dict = {}
+
+    async def fake_generate(parts, **kwargs):
+        captured["parts"] = parts
+        return (
+            '{"summary": "ok", "anomalies": ['
+            '{"category": "marketing", "anomaly_type": "bogus", '
+            '"severity": "critical", "message": "Not permitted"},'
+            '{"anomaly_type": "year_over_year", "severity": "high", "message": ""}'
+            ']}'
+        )
+
+    monkeypatch.setattr(ai_service, "_generate", fake_generate)
+
+    result = await ai_service.review_cam_reconciliation(
+        year=2025,
+        lines=[{"category": "marketing", "actual_amount": 50000}],
+        prior_year=2024,
+        prior_lines=[{"category": "cam", "actual_amount": 100000}],
+        lease_clauses={"Expense/Recoverables": {"content": {"recoverable_expenses": "CAM only"}}},
+    )
+    assert result["summary"] == "ok"
+    assert len(result["anomalies"]) == 1
+    anomaly = result["anomalies"][0]
+    assert anomaly["anomaly_type"] == "other"  # bogus -> other
+    assert anomaly["severity"] == "medium"  # critical -> medium
+    # Prior-year data is embedded in the prompt.
+    prompt_text = " ".join(p["text"] for p in captured["parts"] if "text" in p)
+    assert "2024" in prompt_text

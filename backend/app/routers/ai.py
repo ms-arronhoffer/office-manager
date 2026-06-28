@@ -29,6 +29,7 @@ from app.database import get_db
 from app.models.hvac_contract import HvacContract
 from app.models.insurance_certificate import InsuranceCertificate
 from app.models.lease import Lease
+from app.models.lease_abstract import LeaseAbstractClause
 from app.models.maintenance_ticket import MaintenanceTicket, TicketCategory
 from app.models.user import User
 from app.models.vendor import Vendor
@@ -40,7 +41,7 @@ from app.services import (
     document_search_service,
     report_export,
 )
-from app.services.lease_abstract_catalog import CLAUSE_CATEGORIES
+from app.services.lease_abstract_catalog import CATEGORY_BY_KEY, CLAUSE_CATEGORIES
 
 router = APIRouter()
 
@@ -74,6 +75,21 @@ class DocumentClassifyResponse(BaseModel):
 
 class AbstractSuggestResponse(BaseModel):
     suggested: dict
+    model: str
+
+
+class AbstractGapFinding(BaseModel):
+    category_key: str
+    name: str
+    group: str
+    gap_type: str  # 'missing' | 'ambiguous' | 'incomplete'
+    severity: str  # 'high' | 'medium' | 'low'
+    message: str
+    recommendation: str = ""
+
+
+class AbstractGapResponse(BaseModel):
+    gaps: list[AbstractGapFinding] = Field(default_factory=list)
     model: str
 
 
@@ -417,6 +433,83 @@ async def suggest_abstract(
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
     return AbstractSuggestResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+
+
+@router.post(
+    "/leases/{lease_id}/abstract/gaps",
+    response_model=AbstractGapResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def detect_abstract_gaps(
+    lease_id: uuid.UUID,
+    file: UploadFile | None = File(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Flag missing / ambiguous / incomplete clauses in a lease's abstract.
+
+    Cross-references the clause content already captured for the lease (and, when
+    a lease document is uploaded, its source text) to turn the abstraction into a
+    QA tool. Findings are returned for human review — nothing is auto-changed.
+    """
+    result = await db.execute(
+        select(Lease).where(
+            Lease.id == lease_id,
+            Lease.is_deleted.is_(False),
+            Lease.organization_id == current_user.organization_id,
+        )
+    )
+    lease = result.scalar_one_or_none()
+    if not lease:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
+
+    stored_rows = await db.execute(
+        select(LeaseAbstractClause).where(LeaseAbstractClause.lease_id == lease_id)
+    )
+    captured = {
+        clause.category_key: {
+            "status": clause.status,
+            "content": clause.content,
+            "notes": clause.notes,
+        }
+        for clause in stored_rows.scalars().all()
+    }
+
+    content: bytes = b""
+    mime_type = ""
+    text_content: str | None = None
+    if file is not None and file.filename:
+        content, mime_type = await _read_document(file)
+        text_content = _maybe_extract_text(file.filename, content)
+
+    categories = [
+        {"key": c["key"], "name": c["name"], "fields": c["fields"]}
+        for c in CLAUSE_CATEGORIES
+    ]
+    try:
+        findings = await ai_service.detect_abstract_gaps(
+            categories,
+            captured,
+            content=content,
+            mime_type=mime_type,
+            text_content=text_content,
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    gaps = [
+        AbstractGapFinding(
+            category_key=f["category_key"],
+            name=CATEGORY_BY_KEY[f["category_key"]]["name"],
+            group=CATEGORY_BY_KEY[f["category_key"]]["group"],
+            gap_type=f["gap_type"],
+            severity=f["severity"],
+            message=f["message"],
+            recommendation=f["recommendation"],
+        )
+        for f in findings
+    ]
+    return AbstractGapResponse(gaps=gaps, model=settings.GEMINI_MODEL)
 
 
 # ── Maintenance ticket triage (Pro+) ──────────────────────────────────────────

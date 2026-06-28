@@ -334,6 +334,247 @@ async def suggest_abstract_clauses(
     return _parse_json_object(text)
 
 
+# ── Lease abstract gap-detection (QA pass) ───────────────────────────────────
+
+ABSTRACT_GAP_SYSTEM = (
+    "You are a commercial real-estate lease abstraction QA reviewer. You are "
+    "given a lease's clause-abstraction catalog, the content captured so far for "
+    "each clause category, and (when available) the lease document text. Your job "
+    "is to flag GAPS a reviewer should resolve before relying on the abstract:\n"
+    "- missing: the lease appears not to address the category, or nothing was "
+    "captured for it.\n"
+    "- ambiguous: the captured content or the lease language is unclear, "
+    "conflicting, or open to interpretation.\n"
+    "- incomplete: a material term for the category was not captured (e.g. a "
+    "renewal option with no exercise window or notice period).\n"
+    "\n"
+    "Respond ONLY with a JSON object of the form "
+    '{"gaps": [{"category_key": "...", "gap_type": "missing|ambiguous|incomplete", '
+    '"severity": "high|medium|low", "message": "...", "recommendation": "..."}]}.\n'
+    "Rules:\n"
+    "- category_key must be one of the supplied category keys.\n"
+    "- Only include a category when there is a genuine gap; omit categories that "
+    "are adequately captured.\n"
+    "- Use high severity for legally or financially significant omissions (e.g. "
+    "assignment/sublease, renewal options, security deposit, indemnification, "
+    "expense recoveries), medium for material but lower-risk gaps, and low for "
+    "minor or informational gaps.\n"
+    "- message states the gap in one short sentence (e.g. 'No assignment clause "
+    "found', 'Renewal option terms incomplete: no notice period captured').\n"
+    "- recommendation states the concrete next step for the reviewer.\n"
+    "- Do not invent lease terms. Base ambiguity/incompleteness on the supplied "
+    "captured content and document text only."
+)
+
+_GAP_TYPES = ("missing", "ambiguous", "incomplete")
+_GAP_SEVERITIES = ("high", "medium", "low")
+
+
+def _format_captured_clause(category: dict[str, Any], captured: dict[str, Any] | None) -> str:
+    """Render a category, its schema, and any captured content for the prompt."""
+    lines = [f"- {category['key']}: {category['name']}"]
+    fields = _format_category_fields(category)
+    if fields:
+        lines.append("  fields:\n" + fields)
+    if captured:
+        status = captured.get("status") or "needs_content"
+        content = captured.get("content") or {}
+        notes = (captured.get("notes") or "").strip()
+        filled = {
+            k: v for k, v in content.items() if v not in (None, "", [], {})
+        }
+        lines.append(f"  captured_status: {status}")
+        if filled:
+            lines.append(f"  captured_content: {json.dumps(filled, default=str)}")
+        if notes:
+            lines.append(f"  captured_notes: {notes[:1000]}")
+        if not filled and not notes:
+            lines.append("  captured_content: (nothing captured)")
+    else:
+        lines.append("  captured_content: (nothing captured)")
+    return "\n".join(lines)
+
+
+async def detect_abstract_gaps(
+    categories: list[dict[str, Any]],
+    captured: dict[str, dict[str, Any]],
+    *,
+    content: bytes = b"",
+    mime_type: str = "",
+    text_content: str | None = None,
+) -> list[dict[str, Any]]:
+    """Flag missing / ambiguous / incomplete clauses in a lease abstract.
+
+    ``categories`` is the clause catalog (each ``{"key", "name", "fields"}``) and
+    ``captured`` maps a category key to its stored ``{"status", "content",
+    "notes"}``. When the lease document is supplied (inline ``content`` or
+    extracted ``text_content``) the model also grounds gaps in the source text.
+
+    Returns a list of ``{"category_key", "gap_type", "severity", "message",
+    "recommendation"}`` findings for human review.
+    """
+    blocks = [_format_captured_clause(c, captured.get(c["key"])) for c in categories]
+    prompt = (
+        "Review this lease abstract for gaps. For each clause category below you "
+        "are given its field schema and the content captured so far. Identify "
+        "categories that are missing, ambiguous, or incomplete and return them as "
+        "JSON gaps:\n"
+        f"{chr(10).join(blocks)}\n"
+    )
+    parts: list[dict[str, Any]] = [{"text": prompt}]
+    if text_content is not None:
+        document = text_content[:MAX_TEXT_CHARS].strip()
+        if document:
+            parts.append({"text": "\n\nLEASE DOCUMENT TEXT:\n" + document})
+    elif content:
+        parts.append(_document_part(content, mime_type))
+    raw = await _generate(
+        parts, system_instruction=ABSTRACT_GAP_SYSTEM, json_response=True
+    )
+    parsed = _parse_json_object(raw)
+    return _normalize_gaps(parsed.get("gaps"), {c["key"] for c in categories})
+
+
+def _normalize_gaps(gaps: Any, valid_keys: set[str]) -> list[dict[str, Any]]:
+    """Coerce model output into a clean list of gap findings."""
+    if not isinstance(gaps, list):
+        return []
+    cleaned: list[dict[str, Any]] = []
+    for item in gaps:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("category_key") or "").strip()
+        if key not in valid_keys:
+            continue
+        gap_type = str(item.get("gap_type") or "").strip().lower()
+        if gap_type not in _GAP_TYPES:
+            gap_type = "incomplete"
+        severity = str(item.get("severity") or "").strip().lower()
+        if severity not in _GAP_SEVERITIES:
+            severity = "medium"
+        message = str(item.get("message") or "").strip()
+        if not message:
+            continue
+        cleaned.append(
+            {
+                "category_key": key,
+                "gap_type": gap_type,
+                "severity": severity,
+                "message": message[:500],
+                "recommendation": str(item.get("recommendation") or "").strip()[:500],
+            }
+        )
+    return cleaned
+
+
+# ── CAM reconciliation anomaly review ────────────────────────────────────────
+
+CAM_REVIEW_SYSTEM = (
+    "You are a commercial real-estate CAM (common-area-maintenance) "
+    "reconciliation auditor. You review a tenant's CAM reconciliation line items "
+    "for a given year against (a) the prior year's reconciliation line items and "
+    "(b) the lease's abstracted recovery clauses. Flag anomalies a human should "
+    "investigate before finalizing the statement.\n"
+    "\n"
+    "Look for:\n"
+    "- year_over_year: a line whose amount changed materially versus the prior "
+    "year, or a category that newly appeared or disappeared.\n"
+    "- not_permitted: a charged category that is not within the expenses the "
+    "lease permits the landlord to recover, or that the lease excludes.\n"
+    "- cap_or_term: a charge that appears to conflict with a lease term such as a "
+    "cap on increases, gross-up, base year, or expense stop.\n"
+    "- other: any other clearly anomalous item.\n"
+    "\n"
+    "Respond ONLY with a JSON object of the form "
+    '{"summary": "...", "anomalies": [{"category": "...", "anomaly_type": '
+    '"year_over_year|not_permitted|cap_or_term|other", "severity": '
+    '"high|medium|low", "message": "...", "recommendation": "..."}]}.\n'
+    "Rules:\n"
+    "- Only flag genuine anomalies; if everything looks consistent, return an "
+    "empty anomalies list and a one-line summary.\n"
+    "- Base 'not_permitted' findings strictly on the supplied lease clauses; if "
+    "the lease does not clearly restrict recoverable categories, do not guess a "
+    "violation.\n"
+    "- message is one short sentence; recommendation is the concrete next step.\n"
+    "- Do not invent figures; reason only from the supplied amounts and clauses."
+)
+
+_CAM_ANOMALY_TYPES = ("year_over_year", "not_permitted", "cap_or_term", "other")
+_CAM_ANOMALY_SEVERITIES = ("high", "medium", "low")
+
+
+async def review_cam_reconciliation(
+    *,
+    year: int,
+    lines: list[dict[str, Any]],
+    prior_year: int | None = None,
+    prior_lines: list[dict[str, Any]] | None = None,
+    lease_clauses: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Flag anomalous CAM reconciliation line items for human review.
+
+    ``lines`` (and ``prior_lines``) are line dicts with at least ``category`` and
+    ``actual_amount``/``grossed_up_amount``. ``lease_clauses`` maps a clause label
+    to the abstracted content that constrains recoveries (permitted categories,
+    caps, gross-up, base year, etc). Returns ``{"summary", "anomalies"}`` where
+    each anomaly is ``{"category", "anomaly_type", "severity", "message",
+    "recommendation"}``.
+    """
+    payload = {
+        "year": year,
+        "current_lines": lines,
+        "prior_year": prior_year,
+        "prior_lines": prior_lines or [],
+        "lease_clauses": lease_clauses or {},
+    }
+    blob = json.dumps(payload, default=str)
+    if len(blob) > MAX_TEXT_CHARS:
+        blob = blob[:MAX_TEXT_CHARS]
+    prompt = (
+        "Review this CAM reconciliation for anomalies and return a single JSON "
+        "object with the keys 'summary' and 'anomalies'.\n"
+        "Data (JSON):\n"
+        f"{blob}\n"
+    )
+    raw = await _generate(
+        [{"text": prompt}], system_instruction=CAM_REVIEW_SYSTEM, json_response=True
+    )
+    parsed = _parse_json_object(raw)
+    return {
+        "summary": str(parsed.get("summary") or "").strip()[:1000],
+        "anomalies": _normalize_cam_anomalies(parsed.get("anomalies")),
+    }
+
+
+def _normalize_cam_anomalies(anomalies: Any) -> list[dict[str, Any]]:
+    """Coerce model output into a clean list of CAM anomaly findings."""
+    if not isinstance(anomalies, list):
+        return []
+    cleaned: list[dict[str, Any]] = []
+    for item in anomalies:
+        if not isinstance(item, dict):
+            continue
+        message = str(item.get("message") or "").strip()
+        if not message:
+            continue
+        anomaly_type = str(item.get("anomaly_type") or "").strip().lower()
+        if anomaly_type not in _CAM_ANOMALY_TYPES:
+            anomaly_type = "other"
+        severity = str(item.get("severity") or "").strip().lower()
+        if severity not in _CAM_ANOMALY_SEVERITIES:
+            severity = "medium"
+        cleaned.append(
+            {
+                "category": str(item.get("category") or "").strip()[:120],
+                "anomaly_type": anomaly_type,
+                "severity": severity,
+                "message": message[:500],
+                "recommendation": str(item.get("recommendation") or "").strip()[:500],
+            }
+        )
+    return cleaned
+
+
 # ── Inbound document classification & routing ────────────────────────────────
 
 # The document types we can classify inbound items into. ``unknown`` is the

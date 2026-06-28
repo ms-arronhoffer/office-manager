@@ -24,18 +24,35 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.auth.dependencies import require_role
+from app.auth.dependencies import require_feature, require_role
+from app.config import settings
 from app.database import get_db
 from app.models.cam_reconciliation import CamReconciliation
 from app.models.lease import Lease
+from app.models.lease_abstract import LeaseAbstractClause
 from app.models.user import User
-from app.services import cam_service
+from app.services import ai_service, cam_service
 from app.services.cam_service import CamError
+from app.services.lease_abstract_catalog import CATEGORY_BY_KEY
 
 router = APIRouter()
 
 # Finance staff only.
 FinanceUser = require_role("admin", "accountant")
+
+# Abstracted clause categories that constrain what CAM may recover. These are
+# fed to the AI reviewer so it can flag charges outside the lease-permitted
+# categories or in conflict with recovery terms (caps, gross-up, base year).
+CAM_REVIEW_CLAUSE_KEYS = (
+    "expense_recoverables",
+    "expense_schedule",
+    "cpi",
+    "improvements",
+    "lease_audit_rights",
+    "exclusivity_permitted_use",
+    "utilities_services",
+    "maintenance_repairs",
+)
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
@@ -131,6 +148,23 @@ class CamReconciliationResponse(BaseModel):
     lines: list[CamLineResponse]
 
     model_config = {"from_attributes": True}
+
+
+class CamAnomaly(BaseModel):
+    category: str = ""
+    anomaly_type: str  # 'year_over_year' | 'not_permitted' | 'cap_or_term' | 'other'
+    severity: str  # 'high' | 'medium' | 'low'
+    message: str
+    recommendation: str = ""
+
+
+class CamReviewResponse(BaseModel):
+    reconciliation_id: uuid.UUID
+    year: int
+    prior_year: int | None
+    summary: str
+    anomalies: list[CamAnomaly] = Field(default_factory=list)
+    model: str
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
@@ -479,3 +513,114 @@ async def post_reconciliation(
         "journal_entry_id": entry.id if entry else None,
         "posted": entry is not None,
     }
+
+
+def _review_lines(recon: CamReconciliation) -> list[dict]:
+    """Project a reconciliation's lines into the shape sent to the AI reviewer."""
+    return [
+        {
+            "category": line.category,
+            "controllable": line.controllable,
+            "gross_up_eligible": line.gross_up_eligible,
+            "actual_amount": line.actual_amount,
+            "grossed_up_amount": line.grossed_up_amount,
+        }
+        for line in sorted(recon.lines, key=lambda r: r.line_number)
+    ]
+
+
+def _ai_error_response(exc: ai_service.AIError) -> HTTPException:
+    if isinstance(exc, ai_service.AIUnavailableError):
+        return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
+@router.post(
+    "/reconciliations/{recon_id}/ai-review",
+    response_model=CamReviewResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def ai_review_reconciliation(
+    recon_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(FinanceUser),
+):
+    """Flag anomalous CAM line items for human review.
+
+    Cross-references the prior year's reconciliation (year-over-year variance)
+    and the lease's abstracted recovery clauses (charges outside lease-permitted
+    categories or in conflict with caps/gross-up/base-year terms). Findings are
+    advisory only — nothing is changed on the statement.
+    """
+    org_id = current_user.organization_id
+    recon = (
+        await db.execute(
+            select(CamReconciliation)
+            .where(
+                CamReconciliation.id == recon_id,
+                CamReconciliation.organization_id == org_id,
+            )
+            .options(selectinload(CamReconciliation.lines))
+        )
+    ).scalar_one_or_none()
+    if not recon:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reconciliation not found")
+
+    # Prior-year reconciliation for the same lease (year-over-year variance).
+    prior = (
+        await db.execute(
+            select(CamReconciliation)
+            .where(
+                CamReconciliation.organization_id == org_id,
+                CamReconciliation.lease_id == recon.lease_id,
+                CamReconciliation.year == recon.year - 1,
+            )
+            .options(selectinload(CamReconciliation.lines))
+        )
+    ).scalar_one_or_none()
+
+    # Abstracted lease clauses that constrain recoverable expenses.
+    clause_rows = (
+        await db.execute(
+            select(LeaseAbstractClause).where(
+                LeaseAbstractClause.lease_id == recon.lease_id,
+                LeaseAbstractClause.category_key.in_(CAM_REVIEW_CLAUSE_KEYS),
+            )
+        )
+    ).scalars().all()
+    lease_clauses: dict = {}
+    for clause in clause_rows:
+        category = CATEGORY_BY_KEY.get(clause.category_key)
+        if not category:
+            continue
+        content = {
+            k: v for k, v in (clause.content or {}).items() if v not in (None, "", [], {})
+        }
+        if not content and not (clause.notes or "").strip():
+            continue
+        entry: dict = {}
+        if content:
+            entry["content"] = content
+        if (clause.notes or "").strip():
+            entry["notes"] = clause.notes
+        lease_clauses[category["name"]] = entry
+
+    try:
+        review = await ai_service.review_cam_reconciliation(
+            year=recon.year,
+            lines=_review_lines(recon),
+            prior_year=prior.year if prior else None,
+            prior_lines=_review_lines(prior) if prior else None,
+            lease_clauses=lease_clauses,
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    return CamReviewResponse(
+        reconciliation_id=recon.id,
+        year=recon.year,
+        prior_year=prior.year if prior else None,
+        summary=review["summary"],
+        anomalies=[CamAnomaly(**a) for a in review["anomalies"]],
+        model=settings.GEMINI_MODEL,
+    )
