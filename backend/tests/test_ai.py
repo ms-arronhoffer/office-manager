@@ -1566,3 +1566,54 @@ async def test_assistant_index_covers_whole_portfolio(client, db_session):
         db_session, organization_id=org.id, query="Nebula Plumbing", limit=5
     )
     assert any(m["source_type"] == SOURCE_VENDOR for m in vendor_matches)
+
+@pytest.mark.asyncio
+async def test_assistant_index_includes_portfolio_summary_totals(client, db_session):
+    """A "how many ... in total" question retrieves an org-wide summary chunk.
+
+    Aggregate/count questions can't be answered from the handful of individual
+    record chunks retrieval returns, so the index now includes one synthetic
+    portfolio-summary chunk stating the totals. It must surface (and rank first)
+    for count questions so the model can answer "how many offices in total".
+    """
+    from app.models.knowledge_chunk import SOURCE_PORTFOLIO_SUMMARY
+    from app.models.office import Office
+    from app.services import knowledge_service
+
+    headers, user, org = await _make_org_user_full(
+        db_session, "pro", "assist-summary@test.com"
+    )
+    for n in range(3):
+        db_session.add(
+            Office(
+                office_number=100 + n,
+                location_type="branch",
+                location_name=f"Summary Office {n}",
+                is_active=True,
+                organization_id=org.id,
+            )
+        )
+    await db_session.commit()
+
+    resp = await client.post("/api/v1/ai/assistant/reindex", headers=headers)
+    assert resp.status_code == 200, resp.text
+
+    matches = await knowledge_service.retrieve(
+        db_session, organization_id=org.id, query="how many offices in total?", limit=5
+    )
+    summary = next(
+        (m for m in matches if m["source_type"] == SOURCE_PORTFOLIO_SUMMARY), None
+    )
+    assert summary is not None
+    assert "Total offices: 3" in summary["content"]
+    # The summary covers every entity type, not just offices.
+    for label in (
+        "Total leases:",
+        "Total landlords:",
+        "Total vendors:",
+        "Total maintenance tickets:",
+        "Total HVAC contracts:",
+    ):
+        assert label in summary["content"]
+    # The summary must rank first for an aggregate question.
+    assert matches[0]["source_type"] == SOURCE_PORTFOLIO_SUMMARY

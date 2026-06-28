@@ -36,6 +36,10 @@ SOURCE_MANAGEMENT_COMPANY = "management_company"
 SOURCE_HVAC_CONTRACT = "hvac_contract"
 SOURCE_TRANSITION = "office_transition"
 SOURCE_INSURANCE_CERTIFICATE = "insurance_certificate"
+# Synthetic, organization-level rollup of portfolio totals (one per org). It lets
+# the assistant answer aggregate "how many" / "count" questions that individual
+# record chunks cannot, since retrieval only ever returns a handful of records.
+SOURCE_PORTFOLIO_SUMMARY = "portfolio_summary"
 # ``lease_document`` chunks live in their own (pre-existing) table and are merged
 # into retrieval at query time rather than copied here.
 KNOWLEDGE_SOURCE_TYPES = frozenset({
@@ -49,6 +53,7 @@ KNOWLEDGE_SOURCE_TYPES = frozenset({
     SOURCE_HVAC_CONTRACT,
     SOURCE_TRANSITION,
     SOURCE_INSURANCE_CERTIFICATE,
+    SOURCE_PORTFOLIO_SUMMARY,
 })
 
 

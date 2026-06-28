@@ -37,6 +37,7 @@ from app.models.knowledge_chunk import (
     SOURCE_LEASE_ABSTRACT,
     SOURCE_MANAGEMENT_COMPANY,
     SOURCE_OFFICE,
+    SOURCE_PORTFOLIO_SUMMARY,
     SOURCE_TICKET,
     SOURCE_TRANSITION,
     SOURCE_VENDOR,
@@ -77,6 +78,38 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 def _clean(text: str | None) -> str:
     return " ".join((text or "").split())
+
+
+# Common English/question stopwords stripped from keyword queries so meaningful
+# terms (e.g. "offices", "total") dominate ranking instead of filler words like
+# "how", "many", "in" that match almost every chunk and drown out real signal.
+_STOPWORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "do", "does", "for",
+    "from", "has", "have", "how", "i", "in", "is", "it", "its", "list", "many",
+    "me", "much", "my", "of", "on", "or", "our", "show", "tell", "that", "the",
+    "their", "there", "this", "to", "us", "was", "we", "were", "what", "when",
+    "where", "which", "who", "whom", "whose", "why", "with", "you", "your",
+})
+
+
+def _keyword_terms(query: str) -> list[str]:
+    """Tokenize ``query`` into lowercased, de-duplicated content terms.
+
+    Strips surrounding punctuation and drops stopwords and 1-character tokens.
+    Falls back to the raw lowercased tokens when filtering would leave nothing
+    (e.g. a query made entirely of stopwords) so retrieval never returns empty.
+    """
+    raw = [w.strip(".,!?;:'\"()[]{}").lower() for w in (query or "").split()]
+    raw = [w for w in raw if w]
+    terms = [w for w in raw if w not in _STOPWORDS and len(w) > 1]
+    chosen = terms or raw
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for w in chosen:
+        if w not in seen:
+            seen.add(w)
+            deduped.append(w)
+    return deduped
 
 
 # ── Source → text builders ────────────────────────────────────────────────────
@@ -315,6 +348,39 @@ def _insurance_text(
 
 
 # ── Indexing ──────────────────────────────────────────────────────────────────
+
+def _portfolio_summary_text(counts: dict[str, int]) -> str:
+    """Build a single rollup chunk of portfolio totals for aggregate questions.
+
+    Retrieval only ever returns a handful of individual record chunks, so a
+    question like "how many offices in total?" cannot be answered from them. This
+    chunk states the organization-wide counts explicitly and repeats the entity
+    words ("offices", "leases", …) so both keyword and semantic retrieval surface
+    it for "how many"/"count"/"total" questions.
+    """
+    parts = [
+        "Portfolio summary: organization-wide totals and counts.",
+        f"Total offices: {counts['offices']} "
+        f"(active offices: {counts['offices_active']}, "
+        f"inactive offices: {counts['offices_inactive']}).",
+        f"Total leases: {counts['leases']}.",
+        f"Total landlords: {counts['landlords']}.",
+        f"Total vendors: {counts['vendors']}.",
+        f"Total management companies: {counts['management_companies']}.",
+        f"Total maintenance tickets: {counts['tickets']} "
+        f"(open tickets: {counts['tickets_open']}, "
+        f"in-progress tickets: {counts['tickets_in_progress']}, "
+        f"closed tickets: {counts['tickets_closed']}).",
+        f"Total HVAC contracts: {counts['hvac_contracts']}.",
+        f"Total office transitions: {counts['transitions']}.",
+        f"Total insurance certificates: {counts['insurance_certificates']}.",
+        "Use these totals to answer how many / count / total questions about "
+        "offices, leases, landlords, vendors, maintenance tickets, management "
+        "companies, HVAC contracts, office transitions, and insurance "
+        "certificates across the portfolio.",
+    ]
+    return _clean(" ".join(parts))[:MAX_CHUNK_CHARS]
+
 
 async def _collect_chunks(
     db: AsyncSession, organization_id: uuid.UUID
@@ -564,6 +630,38 @@ async def _collect_chunks(
             }
         )
 
+    # ── Portfolio summary (organization-level rollup of totals) ────────────
+    # Prepended so aggregate "how many"/"count" questions are answerable even
+    # though retrieval only returns a few individual record chunks.
+    summary_counts = {
+        "offices": len(offices),
+        "offices_active": sum(1 for o in offices if o.is_active),
+        "offices_inactive": sum(1 for o in offices if not o.is_active),
+        "leases": len(leases),
+        "landlords": len(landlords),
+        "vendors": len(vendors),
+        "management_companies": len(companies),
+        "tickets": len(tickets),
+        "tickets_open": sum(1 for t in tickets if t.status == "open"),
+        "tickets_in_progress": sum(1 for t in tickets if t.status == "in_progress"),
+        "tickets_closed": sum(
+            1 for t in tickets if t.status in ("closed", "completed")
+        ),
+        "hvac_contracts": len(contracts),
+        "transitions": len(transitions),
+        "insurance_certificates": len(certificates),
+    }
+    chunks.insert(
+        0,
+        {
+            "source_type": SOURCE_PORTFOLIO_SUMMARY,
+            "source_id": organization_id,
+            "title": "Portfolio summary (totals)",
+            "reference": "dashboard",
+            "content": _portfolio_summary_text(summary_counts),
+        },
+    )
+
     # Drop empty-content chunks (nothing useful to embed or match).
     return [c for c in chunks if c["content"]]
 
@@ -737,8 +835,8 @@ async def _keyword_retrieve(
     query: str,
     limit: int,
 ) -> list[dict]:
-    words = query.split()
-    terms = [w.lower() for w in words] or [query.lower()]
+    words = _keyword_terms(query)
+    terms = words or [query.lower()]
 
     def keyword_score(content: str) -> int:
         lowered = (content or "").lower()
@@ -746,7 +844,7 @@ async def _keyword_retrieve(
 
     scored: list[tuple[float, str, object]] = []
 
-    k_filters = [KnowledgeChunk.content.ilike(f"%{w}%") for w in (words or [query])]
+    k_filters = [KnowledgeChunk.content.ilike(f"%{w}%") for w in terms]
     k_chunks = (
         await db.execute(
             select(KnowledgeChunk)
@@ -760,7 +858,7 @@ async def _keyword_retrieve(
     for chunk in k_chunks:
         scored.append((keyword_score(chunk.content), "knowledge", chunk))
 
-    d_filters = [LeaseDocumentChunk.content.ilike(f"%{w}%") for w in (words or [query])]
+    d_filters = [LeaseDocumentChunk.content.ilike(f"%{w}%") for w in terms]
     d_chunks = (
         await db.execute(
             select(LeaseDocumentChunk)
