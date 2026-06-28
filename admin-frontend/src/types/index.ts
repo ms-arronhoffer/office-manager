@@ -91,6 +91,19 @@ export interface PlatformMetrics {
   open_tickets: number;
   mrr_cents: number;
   arr_cents: number;
+  mrr_from_ledger?: boolean;
+}
+
+export interface RevenueMetrics {
+  mrr_cents: number;
+  arr_cents: number;
+  collected_cents: number;
+  refunded_cents: number;
+  failed_cents: number;
+  net_cents: number;
+  window_days: number;
+  plan_breakdown: { plan: string; count: number; mrr_cents: number }[];
+  timeseries: { period: string; collected_cents: number }[];
 }
 
 // ── Usage & token monitoring ────────────────────────────────────────────────
@@ -185,6 +198,20 @@ export interface BillingRow {
   seat_count: number;
   trial_ends_at: string | null;
   created_at: string;
+}
+
+export interface BillingDetail {
+  org_id: string;
+  name: string;
+  plan: string;
+  payment_status: string;
+  stripe_customer_id: string | null;
+  subscriptions: Record<string, unknown>[];
+  invoices: Record<string, unknown>[];
+  charges: Record<string, unknown>[];
+  refunds: Record<string, unknown>[];
+  credits: Record<string, unknown>[];
+  credit_balance_cents: number;
 }
 
 // ── Audit ─────────────────────────────────────────────────────────────────────

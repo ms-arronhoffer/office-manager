@@ -8,13 +8,43 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select"
 import { AlertCircle } from "lucide-react"
 
-import { getBilling, cancelSubscription, restoreSubscription } from "../api"
-import type { BillingRow } from "../types"
+import { getBilling, cancelSubscription, restoreSubscription, getRevenue, issueCredit, extendTrial } from "../api"
+import type { BillingRow, RevenueMetrics } from "../types"
 
 const BILLING_PER_PAGE = 20
 
 const PAYMENT_STATUS_OPTIONS = ["active", "past_due", "canceled", "trial"]
 const PLAN_OPTIONS = ["starter", "pro", "enterprise"]
+
+const fmtUsd = (cents: number) => `$${((cents || 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+
+function RevenueDashboard() {
+  const [rev, setRev] = useState<RevenueMetrics | null>(null)
+  const [err, setErr] = useState("")
+  useEffect(() => {
+    getRevenue().then(setRev).catch(() => setErr("Revenue metrics unavailable"))
+  }, [])
+  if (err) return null
+  if (!rev) return <div className="mb-6 text-slate-500 text-sm">Loading revenue…</div>
+  const cards: [string, string][] = [
+    ["MRR", fmtUsd(rev.mrr_cents)],
+    ["ARR", fmtUsd(rev.arr_cents)],
+    [`Collected (${rev.window_days}d)`, fmtUsd(rev.collected_cents)],
+    ["Refunded", fmtUsd(rev.refunded_cents)],
+    ["Failed", fmtUsd(rev.failed_cents)],
+    ["Net", fmtUsd(rev.net_cents)],
+  ]
+  return (
+    <div className="mb-6 grid grid-cols-2 md:grid-cols-6 gap-4">
+      {cards.map(([label, value]) => (
+        <Card key={label} className="p-4">
+          <p className="text-xs text-slate-500">{label}</p>
+          <p className="text-2xl font-bold text-slate-900">{value}</p>
+        </Card>
+      ))}
+    </div>
+  )
+}
 
 export default function BillingPage() {
   const [rows, setRows] = useState<BillingRow[]>([])
@@ -97,6 +127,8 @@ export default function BillingPage() {
         <p className="text-slate-600">Manage subscription and payment status for all organizations</p>
       </div>
 
+      <RevenueDashboard />
+
       {error && (
         <Alert variant="destructive" className="mb-6">
           <AlertCircle className="h-4 w-4" />
@@ -167,29 +199,63 @@ export default function BillingPage() {
                         {new Date(row.created_at).toLocaleDateString()}
                       </TableCell>
                       <TableCell>
-                        {row.payment_status === "canceled" ? (
+                        <div className="flex gap-2">
+                          {row.payment_status === "canceled" ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setConfirmOrg(row)
+                                setConfirmAction("restore")
+                              }}
+                            >
+                              Restore
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => {
+                                setConfirmOrg(row)
+                                setConfirmAction("cancel")
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          )}
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => {
-                              setConfirmOrg(row)
-                              setConfirmAction("restore")
+                            onClick={async () => {
+                              const v = window.prompt(`Issue credit to ${row.name} (USD)`, "0")
+                              const dollars = v ? parseFloat(v) : 0
+                              if (!dollars) return
+                              try {
+                                await issueCredit(row.id, Math.round(dollars * 100), "admin credit")
+                              } catch {
+                                setError("Failed to issue credit")
+                              }
                             }}
                           >
-                            Restore
+                            Credit
                           </Button>
-                        ) : (
                           <Button
-                            variant="destructive"
+                            variant="outline"
                             size="sm"
-                            onClick={() => {
-                              setConfirmOrg(row)
-                              setConfirmAction("cancel")
+                            onClick={async () => {
+                              const v = window.prompt(`Extend trial for ${row.name} by days`, "14")
+                              const days = v ? parseInt(v, 10) : 0
+                              if (!days) return
+                              try {
+                                await extendTrial(row.id, days)
+                              } catch {
+                                setError("Failed to extend trial")
+                              }
                             }}
                           >
-                            Cancel
+                            +Trial
                           </Button>
-                        )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

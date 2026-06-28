@@ -1,9 +1,12 @@
 """Super-admin: billing oversight + Stripe cancel/restore."""
+import csv
+import io
 import math
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -381,3 +384,60 @@ async def issue_refund(
                        entity_id=org_id, entity_label=str(org_id),
                        changes={"action": "refund", "charge": payload.stripe_charge_id})
     return {"refund_id": refund.get("id"), "amount_cents": refund.get("amount")}
+
+
+# ─── Financial CSV exports ──────────────────────────────────────────────────────
+
+@router.get("/export/invoices")
+async def export_invoices(
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_super_admin()),
+):
+    """Export invoices (incl. tax) to CSV for finance reconciliation (max 10k)."""
+    stmt = select(BillingInvoice)
+    if date_from:
+        stmt = stmt.where(BillingInvoice.issued_at >= date_from)
+    if date_to:
+        stmt = stmt.where(BillingInvoice.issued_at <= date_to)
+    rows = (await db.execute(stmt.order_by(BillingInvoice.issued_at.desc().nullslast()).limit(10_000))).scalars().all()
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["id", "number", "organization_id", "status", "currency", "subtotal_cents",
+                "tax_cents", "total_cents", "amount_paid_cents", "amount_due_cents", "issued_at", "paid_at"])
+    for r in rows:
+        w.writerow([r.id, r.number, r.organization_id, r.status, r.currency, r.subtotal_cents,
+                    r.tax_cents, r.total_cents, r.amount_paid_cents, r.amount_due_cents, r.issued_at, r.paid_at])
+    out.seek(0)
+    return StreamingResponse(iter([out.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=invoices.csv"})
+
+
+@router.get("/reconcile", response_model=dict)
+async def reconcile_report(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_super_admin()),
+):
+    """Detect drift between org payment_status and the latest ledger subscription
+    status. Read-only; surfaces orgs whose snapshot disagrees with the ledger."""
+    subs = (await db.execute(
+        select(BillingSubscription).where(BillingSubscription.organization_id.is_not(None))
+    )).scalars().all()
+    latest: dict = {}
+    for s in subs:
+        cur = latest.get(s.organization_id)
+        if not cur or (s.current_period_end and (not cur.current_period_end or s.current_period_end > cur.current_period_end)):
+            latest[s.organization_id] = s
+    drift = []
+    if latest:
+        orgs = (await db.execute(select(Organization).where(Organization.id.in_(latest.keys())))).scalars().all()
+        active = {"active", "trialing"}
+        for o in orgs:
+            sub = latest[o.id]
+            sub_active = sub.status in active
+            org_active = o.payment_status == "active"
+            if sub_active != org_active:
+                drift.append({"org_id": str(o.id), "name": o.name,
+                              "ledger_status": sub.status, "org_status": o.payment_status})
+    return {"orgs_with_subscriptions": len(latest), "drift_count": len(drift), "drift": drift}
