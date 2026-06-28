@@ -60,7 +60,7 @@ from app.routers import (  # noqa: E402
     webhooks, operating_expenses, vendor_portal, insurance_certificates, ws, work_order_costs,
     space, gl, cam, lifecycle, ap,
     lease_abstract, management_companies, contacts, client_portal,
-    ai, waivers, document_search, maintenance, saved_reports,
+    ai, waivers, document_search, maintenance, saved_reports, assistant,
 )
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature  # noqa: E402
@@ -94,6 +94,7 @@ app.include_router(ticket_categories.router, prefix="/api/v1/ticket-categories",
 app.include_router(maintenance_tickets.router, prefix="/api/v1/maintenance-tickets", tags=["Maintenance Tickets"], dependencies=_org_guard)
 app.include_router(activity_log.router, prefix="/api/v1/activity-log", tags=["Activity Log"], dependencies=_org_guard)
 app.include_router(search.router, prefix="/api/v1/search", tags=["Search"], dependencies=_org_guard)
+app.include_router(assistant.router, prefix="/api/v1/assistant", tags=["Assistant"], dependencies=[Depends(enforce_org_access), Depends(require_feature("ai_assist"))])
 app.include_router(preferences.router, prefix="/api/v1/users", tags=["Preferences"], dependencies=_org_guard)
 app.include_router(wizard_configs.router, prefix="/api/v1/wizard-configs", tags=["Wizard Configs"], dependencies=_org_guard)
 app.include_router(vendors.router, prefix="/api/v1/vendors", tags=["Vendors"], dependencies=_org_guard)

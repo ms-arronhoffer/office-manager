@@ -1360,6 +1360,7 @@ export interface SearchResult {
   entity_id: string;
   label: string;
   sublabel: string;
+  route?: string;
 }
 
 // ─── User Preferences ───────────────────────────────────────────────────────

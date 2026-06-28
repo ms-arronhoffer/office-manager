@@ -1085,6 +1085,111 @@ async def build_report_spec(
     return {"dataset": dataset, "columns": columns, "filters": filters}
 
 
+# ── In-app assistant: intent parsing (Pro+) ───────────────────────────────────
+
+# The constrained set of intents the assistant can recognise, mapped to the
+# parameter keys each one accepts. The model MUST choose one of these intents
+# and never invent new ones; execution always happens through existing typed
+# endpoints, never raw actions.
+ASSISTANT_INTENTS: dict[str, list[str]] = {
+    "create_ticket": ["subject", "office_number", "priority"],
+    "navigate": ["destination"],
+    "search": ["query"],
+    "unknown": [],
+}
+
+# Allowed navigation destinations (intent="navigate" → params.destination).
+ASSISTANT_NAV_DESTINATIONS = (
+    "offices",
+    "leases",
+    "leases_expiring",
+    "maintenance_tickets",
+    "vendors",
+    "landlords",
+    "transitions",
+    "hvac_contracts",
+    "reports",
+    "saved_reports",
+)
+
+ASSISTANT_PRIORITIES = ("low", "medium", "high")
+
+ASSISTANT_SYSTEM = (
+    "You are an in-app assistant for a commercial property management system. "
+    "Map the user's request onto ONE recognised intent and return a JSON object "
+    "with exactly these keys: intent, params.\n"
+    "\n"
+    "Recognised intents and their params:\n"
+    "- create_ticket: { subject (string), office_number (integer or null), "
+    "priority (one of low|medium|high) } — for requests to open a maintenance "
+    "ticket/work order.\n"
+    "- navigate: { destination } where destination is exactly one of: "
+    f"{', '.join(ASSISTANT_NAV_DESTINATIONS)}. Use leases_expiring for requests "
+    "about leases expiring soon/this quarter/this year.\n"
+    "- search: { query (string) } — for finding a specific named record.\n"
+    "- unknown: { } — when the request matches none of the above.\n"
+    "\n"
+    "Rules:\n"
+    "- intent MUST be one of: create_ticket, navigate, search, unknown.\n"
+    "- Only include params for the chosen intent. Never invent destinations, "
+    "priorities, routes, or SQL."
+)
+
+
+def _normalize_intent(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Coerce raw model output into a clean ``{intent, params}`` result."""
+    intent = str(parsed.get("intent") or "").strip().lower()
+    if intent not in ASSISTANT_INTENTS:
+        intent = "unknown"
+
+    raw_params = parsed.get("params")
+    raw_params = raw_params if isinstance(raw_params, dict) else {}
+    allowed = ASSISTANT_INTENTS[intent]
+    params: dict[str, Any] = {}
+
+    if intent == "create_ticket":
+        subject = raw_params.get("subject")
+        params["subject"] = str(subject).strip() if subject else ""
+        office_number = raw_params.get("office_number")
+        try:
+            params["office_number"] = int(office_number) if office_number is not None else None
+        except (TypeError, ValueError):
+            params["office_number"] = None
+        priority = str(raw_params.get("priority") or "").strip().lower()
+        params["priority"] = priority if priority in ASSISTANT_PRIORITIES else "medium"
+    elif intent == "navigate":
+        destination = str(raw_params.get("destination") or "").strip().lower()
+        if destination not in ASSISTANT_NAV_DESTINATIONS:
+            # Unknown destination collapses the whole intent to unknown.
+            return {"intent": "unknown", "params": {}}
+        params["destination"] = destination
+    elif intent == "search":
+        params["query"] = str(raw_params.get("query") or "").strip()
+    else:
+        params = {k: raw_params.get(k) for k in allowed if k in raw_params}
+
+    return {"intent": intent, "params": params}
+
+
+async def parse_assistant_intent(prompt: str) -> dict[str, Any]:
+    """Map a plain-English request onto a constrained ``{intent, params}`` result.
+
+    The returned intent is always one of :data:`ASSISTANT_INTENTS`. Callers map
+    it onto an existing typed endpoint/route and enforce the caller's own
+    permissions — this function never executes anything itself.
+    """
+    clean_prompt = (prompt or "").strip()
+    if not clean_prompt:
+        raise AIRequestError("An assistant prompt is required.")
+
+    text = await _generate(
+        [{"text": clean_prompt[:MAX_TEXT_CHARS]}],
+        system_instruction=ASSISTANT_SYSTEM,
+        json_response=True,
+    )
+    return _normalize_intent(_parse_json_object(text))
+
+
 # ── Embeddings (semantic document search) ─────────────────────────────────────
 
 # Cap the number of texts embedded in a single batch request.
