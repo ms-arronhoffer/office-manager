@@ -8,6 +8,7 @@ from app.tasks.sla_escalation import check_sla_breaches
 from app.tasks.webhook_retry import retry_failed_webhooks
 from app.tasks.insurance_reminders import check_insurance_expirations
 from app.tasks.maintenance_reminders import check_maintenance_reminders
+from app.tasks.pm_work_orders import generate_pm_work_orders
 from app.tasks.scheduled_reports import send_scheduled_reports
 from app.tasks.knowledge_index import reindex_knowledge
 from app.tasks.billing_hygiene import run_billing_hygiene
@@ -21,6 +22,7 @@ def start_scheduler():
     scheduler.add_job(check_hvac_reminders, "cron", hour=7, minute=15, id="hvac_reminders")
     scheduler.add_job(check_hq_pm_reminders, "cron", hour=7, minute=30, id="hq_pm_reminders")
     scheduler.add_job(check_maintenance_reminders, "cron", hour=7, minute=35, id="maintenance_reminders")
+    scheduler.add_job(generate_pm_work_orders, "cron", hour=6, minute=30, id="pm_work_orders")
     scheduler.add_job(send_weekly_summary, "cron", day_of_week="mon", hour=7, minute=45, id="weekly_summary")
     scheduler.add_job(send_ai_briefings, "cron", day_of_week="mon", hour=7, minute=50, id="ai_briefing")
     scheduler.add_job(create_recurring_tickets, "cron", hour=8, minute=0, id="recurring_tickets")

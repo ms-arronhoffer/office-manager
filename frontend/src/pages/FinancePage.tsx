@@ -4,16 +4,22 @@ import TabbedPage, { TabbedPageTab } from '@/components/layout/TabbedPage';
 import RentRollPage from '@/pages/RentRollPage';
 import OperatingExpensesPage from '@/pages/OperatingExpensesPage';
 import GeneralLedgerPage from '@/pages/GeneralLedgerPage';
+import FinancialStatementsPage from '@/pages/FinancialStatementsPage';
+import CamReconciliationsPage from '@/pages/CamReconciliationsPage';
+import AccountsPayablePage from '@/pages/AccountsPayablePage';
+import LeaseLifecyclePage from '@/pages/LeaseLifecyclePage';
 
 /**
  * Finance hub — merges the operational finance tools (Rent Roll, Operating
- * Expenses, General Ledger) into a single tabbed destination.
+ * Expenses, General Ledger) and the audit-grade accounting surface (Financial
+ * Statements, CAM, Accounts Payable, Lease Lifecycle) into a single tabbed
+ * destination.
  *
  * The executive Financial Dashboard and Reports now live in the Dashboard hub.
  *
  * Role-gated tabs are hidden (not just route-guarded) so users never see an
- * empty panel: Operating Expenses requires admin/editor and General Ledger
- * requires admin/accountant, matching the route guards in `App.tsx`.
+ * empty panel: Operating Expenses requires admin/editor and the accounting tabs
+ * require admin/accountant, matching the route guards in `App.tsx`.
  */
 const FinancePage: React.FC = () => {
   const { user } = useAuth();
@@ -26,7 +32,13 @@ const FinancePage: React.FC = () => {
       ? [{ id: 'operating-expenses', label: 'Operating Expenses', href: '/finance/operating-expenses', content: <OperatingExpensesPage /> }]
       : []),
     ...(isFinance
-      ? [{ id: 'general-ledger', label: 'General Ledger', href: '/finance/general-ledger', content: <GeneralLedgerPage /> }]
+      ? [
+          { id: 'general-ledger', label: 'General Ledger', href: '/finance/general-ledger', content: <GeneralLedgerPage /> },
+          { id: 'financial-statements', label: 'Financial Statements', href: '/finance/financial-statements', content: <FinancialStatementsPage /> },
+          { id: 'cam', label: 'CAM', href: '/finance/cam', content: <CamReconciliationsPage /> },
+          { id: 'accounts-payable', label: 'Accounts Payable', href: '/finance/accounts-payable', content: <AccountsPayablePage /> },
+          { id: 'lease-lifecycle', label: 'Lease Lifecycle', href: '/finance/lease-lifecycle', content: <LeaseLifecyclePage /> },
+        ]
       : []),
   ];
 

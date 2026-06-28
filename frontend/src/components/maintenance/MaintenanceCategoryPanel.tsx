@@ -69,6 +69,8 @@ const emptyTaskForm = (category: string) => ({
   reminder_enabled: false,
   reminder_days_before: '14',
   reminder_recipients: '',
+  auto_generate_work_order: false,
+  work_order_lead_days: '0',
   notes: '',
 });
 
@@ -174,6 +176,8 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
       reminder_enabled: t.reminder_enabled,
       reminder_days_before: String(t.reminder_days_before ?? 14),
       reminder_recipients: (t.reminder_recipients ?? []).join(', '),
+      auto_generate_work_order: t.auto_generate_work_order ?? false,
+      work_order_lead_days: String(t.work_order_lead_days ?? 0),
       notes: t.notes ?? '',
     });
     setTaskModalOpen(true);
@@ -204,6 +208,8 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
           .split(',')
           .map((e) => e.trim())
           .filter(Boolean),
+        auto_generate_work_order: taskForm.auto_generate_work_order,
+        work_order_lead_days: Number(taskForm.work_order_lead_days) || 0,
         notes: taskForm.notes || null,
       };
       if (taskForm.id) {
@@ -229,6 +235,23 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
       refresh();
     } catch {
       addFlash({ type: 'error', content: 'Failed to delete task.' });
+    }
+  };
+
+  const generateWorkOrder = async (t: MaintenanceTask) => {
+    try {
+      const res = await maintApi.generateWorkOrder(t.id);
+      if (res.data.created) {
+        addFlash({ type: 'success', content: 'Work order created.' });
+      } else {
+        addFlash({ type: 'info', content: res.data.detail });
+      }
+      refresh();
+    } catch (err: any) {
+      addFlash({
+        type: 'error',
+        content: err?.response?.data?.detail ?? 'Failed to generate work order.',
+      });
     }
   };
 
@@ -435,6 +458,7 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
             { id: 'next_due', header: 'Next Due', cell: (r) => fmtDate(r.next_due_date) },
             { id: 'status', header: 'Status', cell: (r) => taskStatusBadge(r.computed_status || r.status) },
             { id: 'reminder', header: 'Reminder', cell: (r) => (r.reminder_enabled ? `${r.reminder_days_before}d` : 'Off') },
+            { id: 'automation', header: 'Auto WO', cell: (r) => (r.auto_generate_work_order ? `${r.work_order_lead_days}d lead` : 'Off') },
             {
               id: 'actions',
               header: '',
@@ -442,6 +466,7 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
                 canEdit ? (
                   <SpaceBetween size="xs" direction="horizontal">
                     <Button variant="inline-link" onClick={() => openLog(r)}>Log</Button>
+                    <Button variant="inline-link" onClick={() => generateWorkOrder(r)}>Work order</Button>
                     <Button variant="inline-link" onClick={() => openEditTask(r)}>Edit</Button>
                     <Button variant="inline-link" onClick={() => deleteTask(r.id)}>Delete</Button>
                   </SpaceBetween>
@@ -561,6 +586,26 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
                 <Input value={taskForm.reminder_recipients} onChange={({ detail }) => setTaskForm((f) => ({ ...f, reminder_recipients: detail.value }))} />
               </FormField>
             </ColumnLayout>
+          )}
+          <FormField
+            label="Auto-generate work order"
+            description="Automatically open a maintenance work order before each due date."
+          >
+            <Toggle
+              checked={taskForm.auto_generate_work_order}
+              onChange={({ detail }) => setTaskForm((f) => ({ ...f, auto_generate_work_order: detail.checked }))}
+            >
+              Generate a work order automatically
+            </Toggle>
+          </FormField>
+          {taskForm.auto_generate_work_order && (
+            <FormField label="Lead time (days before due)" description="0 generates the work order on the due date.">
+              <Input
+                type="number"
+                value={taskForm.work_order_lead_days}
+                onChange={({ detail }) => setTaskForm((f) => ({ ...f, work_order_lead_days: detail.value }))}
+              />
+            </FormField>
           )}
           <FormField label="Notes">
             <Textarea value={taskForm.notes} onChange={({ detail }) => setTaskForm((f) => ({ ...f, notes: detail.value }))} />

@@ -244,6 +244,15 @@ class MaintenanceTask(TimestampMixin, Base):
     reminder_recipients: Mapped[list[str]] = mapped_column(
         PG_ARRAY(String(255)), nullable=False, default=list
     )
+    # Preventive-maintenance automation: when enabled, the scheduler spawns a
+    # work-order ticket ``work_order_lead_days`` ahead of ``next_due_date``.
+    # ``last_generated_due_date`` records the due cycle a ticket was last
+    # generated for, so a task is only auto-generated once per cycle.
+    auto_generate_work_order: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    work_order_lead_days: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_generated_due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     asset: Mapped["MaintenanceAsset | None"] = relationship(

@@ -29,7 +29,10 @@ async def create_category(
     current_user: User = Depends(require_role("admin", "editor")),
 ):
     existing = await db.execute(
-        select(TicketCategory).where(TicketCategory.name == payload.name.strip())
+        select(TicketCategory).where(
+            TicketCategory.name == payload.name.strip(),
+            TicketCategory.organization_id == current_user.organization_id,
+        )
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Category already exists")
