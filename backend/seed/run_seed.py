@@ -55,6 +55,8 @@ from seed.import_landlords import import_landlords              # noqa: E402
 from seed.import_transitions import import_transitions          # noqa: E402
 from seed.import_hq_hvac import import_hq_hvac                  # noqa: E402
 from seed.import_hvac_contracts import import_hvac_contracts    # noqa: E402
+from seed.import_vendors import import_vendors                  # noqa: E402
+from seed.import_maintenance_tickets import import_maintenance_tickets  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +209,7 @@ def run_seed(bootstrap_only: bool = False) -> None:
 
         # 0 ── Ensure the default organization exists so every seeded record can
         # be attached to it (the API filters all data by organization_id).
-        step = "1/2" if bootstrap_only else "1/8"
+        step = "1/2" if bootstrap_only else "1/10"
         print(f"\n[{step}] Ensuring default organization...")
         _ensure_default_org(session)
         session.commit()
@@ -226,46 +228,61 @@ def run_seed(bootstrap_only: bool = False) -> None:
             return
 
         # 1 ── Offices + managers (must be first; all other importers depend on maps)
-        print("\n[2/8] Importing offices and managers...")
+        print("\n[2/10] Importing offices and managers...")
         manager_map, office_map = import_offices(session, DEFAULT_ORG_ID)
         session.commit()
         print(f"  Done: {len(manager_map)} managers, {len(office_map)} offices")
 
         # 2 ── Leases (depends on manager_map + office_map)
-        print("\n[3/8] Importing leases...")
+        print("\n[3/10] Importing leases...")
         import_leases(session, manager_map, office_map, DEFAULT_ORG_ID)
         session.commit()
         print("  Done")
 
         # 3 ── Landlords (depends on office_map)
-        print("\n[4/8] Importing landlords...")
+        print("\n[4/10] Importing landlords...")
         import_landlords(session, office_map, DEFAULT_ORG_ID)
         session.commit()
         print("  Done")
 
         # 4 ── Office transitions (depends on office_map)
-        print("\n[5/8] Importing office transitions...")
+        print("\n[5/10] Importing office transitions...")
         import_transitions(session, office_map, DEFAULT_ORG_ID)
         session.commit()
         print("  Done")
 
         # 5 ── HQ HVAC (no FK dependencies)
-        print("\n[6/8] Importing HQ HVAC system data...")
+        print("\n[6/10] Importing HQ HVAC system data...")
         import_hq_hvac(session)
         session.commit()
         print("  Done")
 
         # 6 ── HVAC contracts (depends on manager_map + office_map)
-        print("\n[7/8] Importing HVAC contracts...")
+        print("\n[7/10] Importing HVAC contracts...")
         import_hvac_contracts(session, manager_map, office_map, DEFAULT_ORG_ID)
         session.commit()
         print("  Done")
 
-        # 7 ── Bootstrap: admin user, email reminder rules, ticket categories
-        print("\n[8/8] Creating default admin user, email reminder rules, and ticket categories...")
+        # 7 ── Vendors (depends on office_map for vendor-office links)
+        print("\n[8/10] Importing vendors...")
+        import_vendors(session, office_map, DEFAULT_ORG_ID)
+        session.commit()
+        print("  Done")
+
+        # 8 ── Bootstrap: admin user, email reminder rules, ticket categories
+        #      (must run before maintenance tickets, which need a creating user
+        #      and the ticket categories to exist).
+        print("\n[9/10] Creating default admin user, email reminder rules, and ticket categories...")
         _create_default_admin(session, admin_email, admin_password)
         _create_email_reminder_rules(session, admin_email)
         _create_ticket_categories(session)
+        session.commit()
+        print("  Done")
+
+        # 9 ── Maintenance tickets (depends on offices, categories, vendors,
+        #      managers, and the admin user created above)
+        print("\n[10/10] Importing maintenance tickets...")
+        import_maintenance_tickets(session, office_map, DEFAULT_ORG_ID)
         session.commit()
         print("  Done")
 

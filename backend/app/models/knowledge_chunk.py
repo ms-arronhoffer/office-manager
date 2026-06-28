@@ -2,8 +2,11 @@
 
 Phase 3 of the AI-automation roadmap (RAG portfolio assistant) generalizes the
 lease-document-only :class:`~app.models.lease_document_chunk.LeaseDocumentChunk`
-index to other entities — maintenance tickets, leases, and lease abstracts — so
-a single natural-language question can be answered against the whole portfolio.
+index to the rest of the portfolio — maintenance tickets, leases, lease
+abstracts, offices, landlords, vendors, management companies, HVAC contracts,
+office transitions, and insurance certificates — so a single natural-language
+question can be answered against the whole organization rather than a few
+specific topics.
 
 Each row is one searchable text chunk derived from a source record. As with
 lease document chunks, the ``embedding`` column stores the raw float vector as
@@ -26,9 +29,27 @@ from app.models.base import Base, TimestampMixin
 SOURCE_TICKET = "ticket"
 SOURCE_LEASE = "lease"
 SOURCE_LEASE_ABSTRACT = "lease_abstract"
+SOURCE_OFFICE = "office"
+SOURCE_LANDLORD = "landlord"
+SOURCE_VENDOR = "vendor"
+SOURCE_MANAGEMENT_COMPANY = "management_company"
+SOURCE_HVAC_CONTRACT = "hvac_contract"
+SOURCE_TRANSITION = "office_transition"
+SOURCE_INSURANCE_CERTIFICATE = "insurance_certificate"
 # ``lease_document`` chunks live in their own (pre-existing) table and are merged
 # into retrieval at query time rather than copied here.
-KNOWLEDGE_SOURCE_TYPES = frozenset({SOURCE_TICKET, SOURCE_LEASE, SOURCE_LEASE_ABSTRACT})
+KNOWLEDGE_SOURCE_TYPES = frozenset({
+    SOURCE_TICKET,
+    SOURCE_LEASE,
+    SOURCE_LEASE_ABSTRACT,
+    SOURCE_OFFICE,
+    SOURCE_LANDLORD,
+    SOURCE_VENDOR,
+    SOURCE_MANAGEMENT_COMPANY,
+    SOURCE_HVAC_CONTRACT,
+    SOURCE_TRANSITION,
+    SOURCE_INSURANCE_CERTIFICATE,
+})
 
 
 class KnowledgeChunk(TimestampMixin, Base):

@@ -1503,3 +1503,66 @@ async def test_assistant_reindex_builds_and_keyword_retrieves(client, db_session
     assert matches
     assert any("Riverside" in m["content"] for m in matches)
     assert matches[0]["match_type"] == "keyword"
+
+
+@pytest.mark.asyncio
+async def test_assistant_index_covers_whole_portfolio(client, db_session):
+    """The knowledge index spans offices, landlords and vendors, not just leases.
+
+    Regression for the assistant only being able to answer questions about a few
+    topics (leases/tickets/abstracts): a question like "how many offices" must
+    now find office, landlord and vendor records.
+    """
+    from app.models.knowledge_chunk import (
+        SOURCE_LANDLORD,
+        SOURCE_OFFICE,
+        SOURCE_VENDOR,
+    )
+    from app.models.landlord import Landlord
+    from app.models.office import Office
+    from app.models.vendor import Vendor
+    from app.services import knowledge_service
+
+    headers, user, org = await _make_org_user_full(
+        db_session, "pro", "assist-portfolio@test.com"
+    )
+    db_session.add(
+        Office(
+            office_number=42,
+            location_type="branch",
+            location_name="Galaxy Tower Office",
+            organization_id=org.id,
+        )
+    )
+    db_session.add(
+        Landlord(
+            landlord_company="Orbit Realty Holdings",
+            organization_id=org.id,
+        )
+    )
+    db_session.add(
+        Vendor(
+            company_name="Nebula Plumbing Services",
+            services="Plumbing",
+            organization_id=org.id,
+        )
+    )
+    await db_session.commit()
+
+    resp = await client.post("/api/v1/ai/assistant/reindex", headers=headers)
+    assert resp.status_code == 200, resp.text
+
+    office_matches = await knowledge_service.retrieve(
+        db_session, organization_id=org.id, query="Galaxy Tower Office", limit=5
+    )
+    assert any(m["source_type"] == SOURCE_OFFICE for m in office_matches)
+
+    landlord_matches = await knowledge_service.retrieve(
+        db_session, organization_id=org.id, query="Orbit Realty Holdings", limit=5
+    )
+    assert any(m["source_type"] == SOURCE_LANDLORD for m in landlord_matches)
+
+    vendor_matches = await knowledge_service.retrieve(
+        db_session, organization_id=org.id, query="Nebula Plumbing", limit=5
+    )
+    assert any(m["source_type"] == SOURCE_VENDOR for m in vendor_matches)

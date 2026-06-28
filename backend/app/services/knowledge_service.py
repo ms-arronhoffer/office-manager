@@ -27,17 +27,32 @@ import uuid
 
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.models.knowledge_chunk import (
+    SOURCE_HVAC_CONTRACT,
+    SOURCE_INSURANCE_CERTIFICATE,
+    SOURCE_LANDLORD,
     SOURCE_LEASE,
     SOURCE_LEASE_ABSTRACT,
+    SOURCE_MANAGEMENT_COMPANY,
+    SOURCE_OFFICE,
     SOURCE_TICKET,
+    SOURCE_TRANSITION,
+    SOURCE_VENDOR,
     KnowledgeChunk,
 )
+from app.models.hvac_contract import HvacContract
+from app.models.insurance_certificate import InsuranceCertificate
+from app.models.landlord import Landlord
 from app.models.lease import Lease
 from app.models.lease_abstract import LeaseAbstractClause
 from app.models.lease_document_chunk import LeaseDocumentChunk
 from app.models.maintenance_ticket import MaintenanceTicket
+from app.models.management_company import ManagementCompany
+from app.models.office import Office
+from app.models.transition import OfficeTransition
+from app.models.vendor import Vendor
 from app.services import ai_service
 
 logger = logging.getLogger(__name__)
@@ -121,6 +136,184 @@ def _abstract_text(clause: LeaseAbstractClause, lease_name: str | None) -> str:
     return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
 
 
+def _office_text(office: Office, manager_name: str | None) -> str:
+    status = "active" if office.is_active else "inactive"
+    parts = [
+        f"Office #{office.office_number}: {office.location_name}",
+        f"Status: {status}",
+    ]
+    if office.location_type:
+        parts.append(f"Location type: {office.location_type}")
+    if manager_name:
+        parts.append(f"Office manager: {manager_name}")
+    address = ", ".join(
+        p for p in [
+            office.address_line_1, office.address_line_2,
+            office.city, office.state, office.zip_code,
+        ] if p
+    )
+    if address:
+        parts.append(f"Address: {address}")
+    if office.phone_number:
+        parts.append(f"Phone: {office.phone_number}")
+    if office.email:
+        parts.append(f"Email: {office.email}")
+    if office.sector:
+        parts.append(f"Sector: {office.sector}")
+    if office.total_sqft is not None:
+        parts.append(f"Total square feet: {office.total_sqft}")
+    if office.usable_sqft is not None:
+        parts.append(f"Usable square feet: {office.usable_sqft}")
+    if office.current_headcount is not None:
+        parts.append(f"Current headcount: {office.current_headcount}")
+    if office.headcount_capacity is not None:
+        parts.append(f"Headcount capacity: {office.headcount_capacity}")
+    if office.notes:
+        parts.append(f"Notes: {office.notes}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _landlord_text(landlord: Landlord, office_name: str | None) -> str:
+    label = landlord.landlord_company or landlord.contact_name or "Landlord"
+    parts = [f"Landlord: {label}"]
+    if landlord.contact_name:
+        parts.append(f"Contact: {landlord.contact_name}")
+    if landlord.title:
+        parts.append(f"Title: {landlord.title}")
+    if landlord.contact_email:
+        parts.append(f"Email: {landlord.contact_email}")
+    if landlord.contact_phone:
+        parts.append(f"Phone: {landlord.contact_phone}")
+    if office_name or landlord.office_name:
+        parts.append(f"Associated office: {office_name or landlord.office_name}")
+    address = ", ".join(
+        p for p in [
+            landlord.address_line_1, landlord.address_line_2,
+            landlord.city, landlord.state, landlord.zip_code,
+        ] if p
+    ) or landlord.address
+    if address:
+        parts.append(f"Address: {address}")
+    if landlord.management_company:
+        parts.append(f"Management company: {landlord.management_company}")
+    if landlord.website:
+        parts.append(f"Website: {landlord.website}")
+    if landlord.notes:
+        parts.append(f"Notes: {landlord.notes}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _vendor_text(vendor: Vendor) -> str:
+    parts = [f"Vendor: {vendor.company_name}"]
+    if vendor.services:
+        parts.append(f"Services: {vendor.services}")
+    if vendor.is_preferred:
+        parts.append("Preferred vendor: yes")
+    if vendor.contact_name:
+        parts.append(f"Contact: {vendor.contact_name}")
+    if vendor.contact_email:
+        parts.append(f"Email: {vendor.contact_email}")
+    if vendor.contact_phone:
+        parts.append(f"Phone: {vendor.contact_phone}")
+    address = ", ".join(
+        p for p in [
+            vendor.address_line_1, vendor.address_line_2,
+            vendor.city, vendor.state, vendor.zip_code,
+        ] if p
+    ) or vendor.address
+    if address:
+        parts.append(f"Address: {address}")
+    if vendor.notes:
+        parts.append(f"Notes: {vendor.notes}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _management_company_text(company: ManagementCompany) -> str:
+    parts = [f"Management company: {company.name}"]
+    if company.contact_name:
+        parts.append(f"Contact: {company.contact_name}")
+    if company.contact_title:
+        parts.append(f"Title: {company.contact_title}")
+    if company.contact_email:
+        parts.append(f"Email: {company.contact_email}")
+    if company.contact_phone:
+        parts.append(f"Phone: {company.contact_phone}")
+    address = ", ".join(
+        p for p in [
+            company.address_line_1, company.address_line_2,
+            company.city, company.state, company.zip_code,
+        ] if p
+    )
+    if address:
+        parts.append(f"Address: {address}")
+    if company.website:
+        parts.append(f"Website: {company.website}")
+    if company.notes:
+        parts.append(f"Notes: {company.notes}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _hvac_contract_text(contract: HvacContract, office_name: str | None) -> str:
+    label = office_name or contract.office_name or (
+        f"office #{contract.office_number}" if contract.office_number else "office"
+    )
+    parts = [f"HVAC contract for {label}"]
+    if contract.hvac_company:
+        parts.append(f"HVAC company: {contract.hvac_company}")
+    if contract.contact:
+        parts.append(f"Contact: {contract.contact}")
+    if contract.frequency:
+        parts.append(f"Service frequency: {contract.frequency}")
+    if contract.comments:
+        parts.append(f"Comments: {contract.comments}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _transition_text(transition: OfficeTransition, office_name: str | None) -> str:
+    label = office_name or (
+        f"office #{transition.office_number}" if transition.office_number else "office"
+    )
+    parts = [
+        f"Office transition ({transition.transition_type}) for {label}",
+        f"Status: {transition.status}",
+    ]
+    if transition.address:
+        parts.append(f"Current address: {transition.address}")
+    if transition.new_address:
+        parts.append(f"New address: {transition.new_address}")
+    if transition.lease_expiration:
+        parts.append(f"Lease expiration: {transition.lease_expiration}")
+    if transition.estimated_date:
+        parts.append(f"Estimated date: {transition.estimated_date}")
+    if transition.notes:
+        parts.append(f"Notes: {transition.notes}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _insurance_text(
+    cert: InsuranceCertificate, holder_label: str | None
+) -> str:
+    parts = [f"Insurance certificate: {cert.certificate_type}"]
+    if holder_label:
+        parts.append(f"For: {holder_label}")
+    if cert.insurer:
+        parts.append(f"Insurer: {cert.insurer}")
+    if cert.policy_number:
+        parts.append(f"Policy number: {cert.policy_number}")
+    if cert.effective_date:
+        parts.append(f"Effective: {cert.effective_date}")
+    if cert.expiration_date:
+        parts.append(f"Expiration: {cert.expiration_date}")
+    if cert.limits:
+        parts.append(f"Limits: {cert.limits}")
+    if cert.certificate_holder:
+        parts.append(f"Certificate holder: {cert.certificate_holder}")
+    parts.append(f"Verified: {'yes' if cert.is_verified else 'no'}")
+    if cert.notes:
+        parts.append(f"Notes: {cert.notes}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
 # ── Indexing ──────────────────────────────────────────────────────────────────
 
 async def _collect_chunks(
@@ -132,6 +325,10 @@ async def _collect_chunks(
     tickets = (
         await db.execute(
             select(MaintenanceTicket)
+            .options(
+                joinedload(MaintenanceTicket.category),
+                joinedload(MaintenanceTicket.vendor),
+            )
             .where(
                 MaintenanceTicket.organization_id == organization_id,
                 MaintenanceTicket.is_deleted.is_(False),
@@ -192,6 +389,178 @@ async def _collect_chunks(
                 "title": title,
                 "reference": f"leases/{clause.lease_id}",
                 "content": text,
+            }
+        )
+
+    # ── Offices (with their managers) ──────────────────────────────────────
+    offices = (
+        await db.execute(
+            select(Office)
+            .options(joinedload(Office.manager))
+            .where(
+                Office.organization_id == organization_id,
+                Office.is_deleted.is_(False),
+            )
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    office_name_by_id = {o.id: o.location_name for o in offices}
+    manager_name_by_id: dict[uuid.UUID, str] = {}
+    for office in offices:
+        manager = getattr(office, "manager", None)
+        manager_name = getattr(manager, "name", None) if manager else None
+        if manager is not None and manager_name:
+            manager_name_by_id[office.manager_id] = manager_name
+        chunks.append(
+            {
+                "source_type": SOURCE_OFFICE,
+                "source_id": office.id,
+                "title": f"Office: {office.location_name}",
+                "reference": f"offices/{office.id}",
+                "content": _office_text(office, manager_name),
+            }
+        )
+
+    # ── Landlords ──────────────────────────────────────────────────────────
+    landlords = (
+        await db.execute(
+            select(Landlord)
+            .where(
+                Landlord.organization_id == organization_id,
+                Landlord.is_deleted.is_(False),
+            )
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for landlord in landlords:
+        office_name = office_name_by_id.get(landlord.office_id)
+        label = landlord.landlord_company or landlord.contact_name or "Landlord"
+        chunks.append(
+            {
+                "source_type": SOURCE_LANDLORD,
+                "source_id": landlord.id,
+                "title": f"Landlord: {label}",
+                "reference": f"landlords/{landlord.id}",
+                "content": _landlord_text(landlord, office_name),
+            }
+        )
+
+    # ── Vendors ────────────────────────────────────────────────────────────
+    vendors = (
+        await db.execute(
+            select(Vendor)
+            .where(
+                Vendor.organization_id == organization_id,
+                Vendor.is_deleted.is_(False),
+            )
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    vendor_name_by_id = {v.id: v.company_name for v in vendors}
+    for vendor in vendors:
+        chunks.append(
+            {
+                "source_type": SOURCE_VENDOR,
+                "source_id": vendor.id,
+                "title": f"Vendor: {vendor.company_name}",
+                "reference": f"vendors/{vendor.id}",
+                "content": _vendor_text(vendor),
+            }
+        )
+
+    # ── Management companies ───────────────────────────────────────────────
+    companies = (
+        await db.execute(
+            select(ManagementCompany)
+            .where(
+                ManagementCompany.organization_id == organization_id,
+                ManagementCompany.is_deleted.is_(False),
+            )
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for company in companies:
+        chunks.append(
+            {
+                "source_type": SOURCE_MANAGEMENT_COMPANY,
+                "source_id": company.id,
+                "title": f"Management company: {company.name}",
+                "reference": f"management-companies/{company.id}",
+                "content": _management_company_text(company),
+            }
+        )
+
+    # ── HVAC contracts ─────────────────────────────────────────────────────
+    contracts = (
+        await db.execute(
+            select(HvacContract)
+            .where(
+                HvacContract.organization_id == organization_id,
+                HvacContract.is_deleted.is_(False),
+            )
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for contract in contracts:
+        office_name = office_name_by_id.get(contract.office_id)
+        label = office_name or contract.office_name or "office"
+        chunks.append(
+            {
+                "source_type": SOURCE_HVAC_CONTRACT,
+                "source_id": contract.id,
+                "title": f"HVAC contract — {label}",
+                "reference": f"hvac-contracts/{contract.id}",
+                "content": _hvac_contract_text(contract, office_name),
+            }
+        )
+
+    # ── Office transitions ─────────────────────────────────────────────────
+    transitions = (
+        await db.execute(
+            select(OfficeTransition)
+            .where(
+                OfficeTransition.organization_id == organization_id,
+                OfficeTransition.is_deleted.is_(False),
+            )
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for transition in transitions:
+        office_name = office_name_by_id.get(transition.office_id)
+        label = office_name or (
+            f"office #{transition.office_number}"
+            if transition.office_number else "office"
+        )
+        chunks.append(
+            {
+                "source_type": SOURCE_TRANSITION,
+                "source_id": transition.id,
+                "title": f"Transition ({transition.transition_type}) — {label}",
+                "reference": f"transitions/{transition.id}",
+                "content": _transition_text(transition, office_name),
+            }
+        )
+
+    # ── Insurance certificates ─────────────────────────────────────────────
+    certificates = (
+        await db.execute(
+            select(InsuranceCertificate)
+            .where(InsuranceCertificate.organization_id == organization_id)
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for cert in certificates:
+        holder_label = (
+            vendor_name_by_id.get(cert.vendor_id)
+            if cert.vendor_id else None
+        )
+        chunks.append(
+            {
+                "source_type": SOURCE_INSURANCE_CERTIFICATE,
+                "source_id": cert.id,
+                "title": f"Insurance certificate: {cert.certificate_type}",
+                "reference": f"insurance/{cert.id}",
+                "content": _insurance_text(cert, holder_label),
             }
         )
 
