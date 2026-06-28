@@ -1,10 +1,12 @@
 """APScheduler task: auto-escalate maintenance tickets that have exceeded their SLA threshold."""
 
 import logging
+import uuid
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.database import async_session
@@ -20,8 +22,12 @@ _DEFAULT_SLA_DAYS = {"high": 1, "medium": 3, "low": 7}
 _PRIORITY_BUMP = {"low": "medium", "medium": "high", "high": "high"}
 
 
-async def _get_sla_days(db) -> dict[str, int]:
-    res = await db.execute(select(SiteSettings).where(SiteSettings.id == 1))
+async def _get_sla_days(db: AsyncSession, organization_id: uuid.UUID | None) -> dict[str, int]:
+    if organization_id is None:
+        return _DEFAULT_SLA_DAYS.copy()
+    res = await db.execute(
+        select(SiteSettings).where(SiteSettings.organization_id == organization_id)
+    )
     row = res.scalar_one_or_none()
     if row is None:
         return _DEFAULT_SLA_DAYS.copy()
@@ -38,19 +44,7 @@ async def check_sla_breaches() -> None:
     logger.info("Running SLA escalation check at %s", now.isoformat())
 
     async with async_session() as db:
-        try:
-            sla_days = await _get_sla_days(db)
-        except Exception:
-            logger.exception("Failed to load SLA thresholds")
-            return
-
-        # Build per-priority cutoff datetimes
-        cutoffs = {
-            priority: now - timedelta(days=days)
-            for priority, days in sla_days.items()
-        }
-
-        # Query breaching tickets with relationships needed for email/note
+        # Query open/in_progress tickets with relationships needed for email/note
         try:
             result = await db.execute(
                 select(MaintenanceTicket)
@@ -70,14 +64,28 @@ async def check_sla_breaches() -> None:
             logger.exception("Failed to query tickets for SLA escalation")
             return
 
-        breaching = [
-            t for t in tickets
-            if t.priority in cutoffs and t.created_at is not None
-            and (
-                t.created_at.replace(tzinfo=timezone.utc)
-                if t.created_at.tzinfo is None else t.created_at
-            ) < cutoffs[t.priority]
-        ]
+        # SLA thresholds are configured per organization (site_settings is
+        # keyed by organization_id), so load them per org rather than globally.
+        sla_days_by_org: dict[uuid.UUID | None, dict[str, int]] = {}
+        for org_id in {t.organization_id for t in tickets}:
+            try:
+                sla_days_by_org[org_id] = await _get_sla_days(db, org_id)
+            except Exception:
+                logger.exception("Failed to load SLA thresholds for org %s", org_id)
+                sla_days_by_org[org_id] = _DEFAULT_SLA_DAYS.copy()
+
+        def _is_breaching(ticket: MaintenanceTicket) -> bool:
+            sla_days = sla_days_by_org.get(ticket.organization_id, _DEFAULT_SLA_DAYS)
+            if ticket.priority not in sla_days or ticket.created_at is None:
+                return False
+            created = (
+                ticket.created_at.replace(tzinfo=timezone.utc)
+                if ticket.created_at.tzinfo is None
+                else ticket.created_at
+            )
+            return created < now - timedelta(days=sla_days[ticket.priority])
+
+        breaching = [t for t in tickets if _is_breaching(t)]
 
         if not breaching:
             logger.info("No SLA breaches found — skipping")
@@ -109,6 +117,8 @@ async def check_sla_breaches() -> None:
             old_priority = ticket.priority
             new_priority = _PRIORITY_BUMP.get(old_priority, old_priority)
             priority_changes[ticket.id] = (old_priority, new_priority)
+
+            sla_days = sla_days_by_org.get(ticket.organization_id, _DEFAULT_SLA_DAYS)
 
             if new_priority != old_priority:
                 ticket.priority = new_priority

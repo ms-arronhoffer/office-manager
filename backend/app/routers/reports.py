@@ -15,6 +15,7 @@ from app.services import entitlements as ent
 from app.services import usage_service
 from app.utils.email_client import send_email_with_attachment
 from datetime import date
+import uuid
 
 router = APIRouter()
 
@@ -37,8 +38,12 @@ class ReportEmailRequest(BaseModel):
 _DEFAULT_SLA_DAYS = {"high": 1, "medium": 3, "low": 7}
 
 
-async def _get_sla_days(db: AsyncSession) -> dict[str, int]:
-    res = await db.execute(select(SiteSettings).where(SiteSettings.id == 1))
+async def _get_sla_days(db: AsyncSession, organization_id: uuid.UUID | None) -> dict[str, int]:
+    if organization_id is None:
+        return _DEFAULT_SLA_DAYS.copy()
+    res = await db.execute(
+        select(SiteSettings).where(SiteSettings.organization_id == organization_id)
+    )
     row = res.scalar_one_or_none()
     if row is None:
         return _DEFAULT_SLA_DAYS.copy()
@@ -242,14 +247,14 @@ async def ticket_resolution_analytics(
 @router.get("/analytics/sla")
 async def sla_analytics(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     _aa: User = Depends(require_feature("advanced_analytics")),
 ):
     """SLA breach rates for open/in_progress tickets by priority and office."""
     from datetime import datetime, timezone
     from sqlalchemy.orm import joinedload
 
-    SLA_DAYS = await _get_sla_days(db)
+    SLA_DAYS = await _get_sla_days(db, user.organization_id)
 
     result = await db.execute(
         select(MaintenanceTicket)
