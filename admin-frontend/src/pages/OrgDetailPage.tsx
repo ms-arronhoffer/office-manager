@@ -12,14 +12,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table"
 import { AlertCircle, Copy, Check, RotateCcw } from "lucide-react"
 
-import { getOrg, patchOrg, impersonateOrg, getUsers } from "../api"
-import type { AdminOrgDetail, AdminUser } from "../types"
+import { getOrg, patchOrg, impersonateOrg, getUsers, getOrgUsage } from "../api"
+import type { AdminOrgDetail, AdminUser, OrgUsageResponse } from "../types"
 
 const PLAN_OPTIONS = ["starter", "pro", "enterprise"]
 const PAYMENT_OPTIONS = ["active", "past_due", "trial", "canceled"]
 
 // Catalog keys — keep in sync with backend app/services/entitlements.py
-const LIMIT_KEYS = ["max_offices", "max_seats", "audit_retention_days"] as const
+const LIMIT_KEYS = [
+  "max_offices",
+  "max_seats",
+  "audit_retention_days",
+  "monthly_ai_input_tokens",
+  "monthly_ai_output_tokens",
+] as const
 const FEATURE_KEYS = [
   "hvac",
   "transitions",
@@ -35,6 +41,8 @@ const LABELS: Record<string, string> = {
   max_offices: "Max offices",
   max_seats: "Max seats",
   audit_retention_days: "Audit retention (days)",
+  monthly_ai_input_tokens: "Monthly AI input tokens",
+  monthly_ai_output_tokens: "Monthly AI output tokens",
   hvac: "HVAC & equipment",
   transitions: "Transition management",
   advanced_analytics: "Advanced analytics",
@@ -61,11 +69,51 @@ function KV({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
+function TokenMeter({
+  label,
+  used,
+  limit,
+}: {
+  label: string
+  used: number
+  limit: number | null
+}) {
+  const unlimited = limit === null || limit === undefined
+  const pct = unlimited
+    ? 0
+    : limit === 0
+      ? used > 0
+        ? 100
+        : 0
+      : Math.min(100, Math.round((used / limit) * 100))
+  const over = !unlimited && (limit === 0 ? used > 0 : used >= (limit as number))
+  const near = !unlimited && !over && pct >= 80
+  const barColor = over ? "bg-red-600" : near ? "bg-amber-500" : "bg-blue-600"
+  return (
+    <div>
+      <div className="flex justify-between text-sm mb-1">
+        <span className="text-slate-600">{label}</span>
+        <span className="font-medium text-slate-900">
+          {used.toLocaleString()} / {unlimited ? "Unlimited" : (limit as number).toLocaleString()}{" "}
+          {over && <Badge variant="destructive">limit reached</Badge>}
+        </span>
+      </div>
+      <div className="h-2 w-full bg-slate-200 rounded">
+        <div
+          className={`h-2 rounded ${barColor}`}
+          style={{ width: `${unlimited ? 0 : pct}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 export default function OrgDetailPage() {
   const { orgId } = useParams()
   const navigate = useNavigate()
   const [org, setOrg] = useState<AdminOrgDetail | null>(null)
   const [users, setUsers] = useState<AdminUser[]>([])
+  const [usage, setUsage] = useState<OrgUsageResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -95,6 +143,13 @@ export default function OrgDetailPage() {
 
         const usersData = await getUsers({ page: 1, page_size: 100, org_id: orgId })
         setUsers(usersData.items || [])
+
+        try {
+          setUsage(await getOrgUsage(orgId))
+        } catch (err) {
+          console.error("Failed to load usage data", err)
+          setUsage(null)
+        }
       } catch {
         setError("Failed to load organization")
       } finally {
@@ -362,6 +417,61 @@ export default function OrgDetailPage() {
                   )
                 })()}
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>AI token usage</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {usage ? (
+                <div className="space-y-6">
+                  <p className="text-sm text-slate-600">
+                    Current period <span className="font-medium">{usage.period}</span>
+                    {" · "}previous period {usage.previous_period}:{" "}
+                    {usage.previous.total_tokens.toLocaleString()} tokens
+                  </p>
+                  <TokenMeter
+                    label="Input tokens"
+                    used={usage.current.input_tokens}
+                    limit={usage.input_token_limit}
+                  />
+                  <TokenMeter
+                    label="Output tokens"
+                    used={usage.current.output_tokens}
+                    limit={usage.output_token_limit}
+                  />
+                  {usage.by_feature.length > 0 && (
+                    <div>
+                      <p className="text-sm font-medium text-slate-700 mb-2">
+                        By feature (this period)
+                      </p>
+                      <div className="space-y-1">
+                        {usage.by_feature.map((f) => (
+                          <div
+                            key={f.feature}
+                            className="flex justify-between text-sm text-slate-600"
+                          >
+                            <span>{f.label}</span>
+                            <span>
+                              {f.events} calls ·{" "}
+                              {(f.input_tokens + f.output_tokens).toLocaleString()} tokens
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <p className="text-xs text-slate-500">
+                    Token limits follow the org's tier; raise or comp a single org's
+                    cap with the <strong>monthly_ai_input_tokens</strong> /{" "}
+                    <strong>monthly_ai_output_tokens</strong> overrides below.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">No token usage recorded.</p>
+              )}
             </CardContent>
           </Card>
 

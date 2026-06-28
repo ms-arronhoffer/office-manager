@@ -22,6 +22,7 @@ from app.database import get_db
 from app.models.lease import Lease
 from app.models.user import User
 from app.services import document_search_service
+from app.services import usage_service
 
 router = APIRouter()
 
@@ -103,6 +104,9 @@ async def search_all_lease_documents(
         query=payload.query,
         limit=payload.limit,
     )
+    await usage_service.record_event(
+        db, current_user.organization_id, "document_search"
+    )
     return DocumentSearchResponse(query=payload.query, matches=matches)
 
 
@@ -126,6 +130,9 @@ async def search_lease_documents(
         lease_id=lease_id,
         attachment_id=payload.attachment_id,
         limit=payload.limit,
+    )
+    await usage_service.record_event(
+        db, current_user.organization_id, "document_search"
     )
     return DocumentSearchResponse(query=payload.query, matches=matches)
 

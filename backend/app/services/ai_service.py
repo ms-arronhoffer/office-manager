@@ -24,6 +24,7 @@ AI output.
 from __future__ import annotations
 
 import base64
+import contextvars
 import hashlib
 import json
 import logging
@@ -43,6 +44,59 @@ MAX_TEXT_CHARS = 200_000
 # Bump whenever a parse prompt/field-spec changes so cached results from an
 # older prompt version are invalidated rather than served stale.
 PROMPT_VERSION = "1"
+
+# ── Per-request token accounting ──────────────────────────────────────────────
+#
+# Gemini returns ``usageMetadata`` with prompt (input) and candidate (output)
+# token counts. We accumulate these per request in a ``ContextVar`` so the
+# router can read the total tokens spent across however many model calls an
+# endpoint made (e.g. an AI feature that calls ``_generate`` once, or embeddings
+# plus a generation) without threading return values through every helper. The
+# router resets the accumulator at the start of each request and collects the
+# total when recording the usage event.
+
+_token_usage_var: contextvars.ContextVar[list[int] | None] = contextvars.ContextVar(
+    "ai_token_usage", default=None
+)
+
+
+def reset_token_usage() -> None:
+    """Start a fresh token-usage accumulator for the current request context."""
+    _token_usage_var.set([0, 0])
+
+
+def record_token_usage(input_tokens: int, output_tokens: int) -> None:
+    """Add provider-reported token counts to the current accumulator."""
+    acc = _token_usage_var.get()
+    if acc is None:
+        acc = [0, 0]
+        _token_usage_var.set(acc)
+    acc[0] += max(int(input_tokens or 0), 0)
+    acc[1] += max(int(output_tokens or 0), 0)
+
+
+def collect_token_usage() -> tuple[int, int]:
+    """Return ``(input_tokens, output_tokens)`` accumulated this request."""
+    acc = _token_usage_var.get()
+    if acc is None:
+        return (0, 0)
+    return (acc[0], acc[1])
+
+
+def _record_usage_metadata(data: dict[str, Any]) -> None:
+    """Extract prompt/candidate token counts from a Gemini response body."""
+    meta = data.get("usageMetadata") or {}
+    prompt_tokens = meta.get("promptTokenCount") or 0
+    # Embedding/older responses may omit candidates; fall back to total - prompt.
+    candidate_tokens = meta.get("candidatesTokenCount")
+    if candidate_tokens is None:
+        total = meta.get("totalTokenCount") or 0
+        candidate_tokens = max(total - prompt_tokens, 0)
+    try:
+        record_token_usage(int(prompt_tokens), int(candidate_tokens))
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        pass
+
 
 # ── Response cache (document parses) ──────────────────────────────────────────
 #
@@ -169,6 +223,8 @@ async def _generate(
     except (KeyError, IndexError, ValueError) as exc:
         logger.warning("Unexpected Gemini response shape: %s", exc)
         raise AIRequestError("AI provider returned an unexpected response") from exc
+
+    _record_usage_metadata(data)
 
     if not text.strip():
         raise AIRequestError("AI provider returned an empty response")
@@ -880,5 +936,9 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
         except (KeyError, TypeError, ValueError) as exc:
             logger.warning("Unexpected Gemini embed response shape: %s", exc)
             raise AIRequestError("AI provider returned an unexpected response") from exc
+
+        # batchEmbedContents may report token usage; account for it when present
+        # (input tokens only — embeddings have no generated output).
+        _record_usage_metadata(data)
 
     return vectors

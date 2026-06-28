@@ -1666,6 +1666,12 @@ export interface NotificationItem {
 export interface AIStatus {
   configured: boolean;
   model: string;
+  period?: string;
+  input_tokens_used?: number;
+  output_tokens_used?: number;
+  input_token_limit?: number | null;
+  output_token_limit?: number | null;
+  token_limit_reached?: boolean;
 }
 
 export interface LeaseParseResult {

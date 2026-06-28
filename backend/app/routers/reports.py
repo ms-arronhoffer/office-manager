@@ -12,6 +12,7 @@ from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.site_settings import SiteSettings
 from app.services.report_service import ReportService, DATASET_CONFIGS
 from app.services import entitlements as ent
+from app.services import usage_service
 from app.utils.email_client import send_email_with_attachment
 from datetime import date
 
@@ -106,6 +107,12 @@ async def generate_report(
     ext_map = {"pdf": "pdf", "xlsx": "xlsx"}
     ext = ext_map.get(request.format, "csv")
     filename = f"{request.dataset}_report.{ext}"
+
+    if request.format in ("pdf", "xlsx"):
+        await usage_service.record_event(
+            db, user.organization_id, "report_export",
+            meta={"dataset": request.dataset, "format": request.format},
+        )
 
     return StreamingResponse(
         buffer,

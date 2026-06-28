@@ -17,6 +17,7 @@ import OrgDetailPage from "./pages/OrgDetailPage";
 import BillingPage from "./pages/BillingPage";
 import UsersPage from "./pages/UsersPage";
 import AuditPage from "./pages/AuditPage";
+import UsagePage from "./pages/UsagePage";
 
 // ── Auth Guard ────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,7 @@ function Shell() {
   const navItems = [
     { text: "Dashboard", href: "/" },
     { text: "Organizations", href: "/orgs" },
+    { text: "Usage", href: "/usage" },
     { text: "Billing", href: "/billing" },
     { text: "Users", href: "/users" },
     { text: "Audit Log", href: "/audit" },
@@ -99,6 +101,7 @@ export default function App() {
             <Route path="/" element={<DashboardPage />} />
             <Route path="/orgs" element={<OrgsPage />} />
             <Route path="/orgs/:orgId" element={<OrgDetailPage />} />
+            <Route path="/usage" element={<UsagePage />} />
             <Route path="/billing" element={<BillingPage />} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="/audit" element={<AuditPage />} />
