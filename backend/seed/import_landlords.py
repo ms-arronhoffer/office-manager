@@ -2,7 +2,7 @@ from seed.helpers import get_workbook, safe_str
 from app.models import Landlord, LandlordAdditionalName, Office
 
 
-def import_landlords(session, office_map):
+def import_landlords(session, office_map, organization_id=None):
     """Import landlords and additional landlord names.
 
     Links landlords to offices by matching office_name (col 1) against
@@ -74,6 +74,7 @@ def import_landlords(session, office_map):
                 ern=ern,
                 office_name=office_name,
                 office_id=office_id,
+                organization_id=organization_id,
                 address=address,
                 landlord_company=landlord_company,
                 contact_name=contact_name,

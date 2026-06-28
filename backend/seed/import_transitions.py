@@ -29,7 +29,7 @@ def parse_office_num_from_sheet(sheet_name, b5_value):
     return None
 
 
-def import_transitions(session, office_map):
+def import_transitions(session, office_map, organization_id=None):
     # Skip if already imported
     existing = session.query(OfficeTransition).count()
     if existing > 0:
@@ -67,6 +67,7 @@ def import_transitions(session, office_map):
             address=address,
             status=status,
             sheet_name=sheet_name,
+            organization_id=organization_id,
         )
         session.add(transition)
         session.flush()

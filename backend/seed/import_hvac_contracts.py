@@ -3,7 +3,7 @@ from seed.helpers import get_workbook, safe_str, safe_int, safe_date
 from app.models import HvacContract, HvacOfficeDetail
 
 
-def import_hvac_contracts(session, manager_map, office_map):
+def import_hvac_contracts(session, manager_map, office_map, organization_id=None):
     # Skip if already imported
     existing = session.query(HvacContract).count()
     if existing > 0:
@@ -32,6 +32,7 @@ def import_hvac_contracts(session, manager_map, office_map):
                 office_id=office_map.get(office_num) if office_num else None,
                 office_number=office_num,
                 office_name=office_name,
+                organization_id=organization_id,
                 hvac_company=safe_str(row[2]),
                 contact=safe_str(row[3]),
                 comments=safe_str(row[4]),
@@ -61,6 +62,7 @@ def import_hvac_contracts(session, manager_map, office_map):
 
             contract = HvacContract(
                 office_name=office_name,
+                organization_id=organization_id,
                 hvac_company=safe_str(row[1]),
                 contact=safe_str(row[2]),
                 comments=safe_str(row[3]),
