@@ -34,40 +34,106 @@ from app.config import settings
 from app.database import get_db
 from app.models.lease import Lease
 from app.models.maintenance_ticket import MaintenanceTicket, TicketCategory
+from app.models.organization import Organization
 from app.models.user import User
 from app.models.vendor import Vendor
-from app.services import ai_service, document_extraction, knowledge_service, report_export
+from app.services import (
+    ai_service,
+    document_extraction,
+    entitlements as ent,
+    knowledge_service,
+    report_export,
+    usage_service,
+)
 from app.services.lease_abstract_catalog import CLAUSE_CATEGORIES
 
 router = APIRouter()
 
 
-# ── Usage logging ─────────────────────────────────────────────────────────────
+# ── Token budget + usage instrumentation ──────────────────────────────────────
+
+# Limit keys (in entitlements.py) that cap monthly AI token consumption.
+_INPUT_TOKEN_LIMIT_KEY = "monthly_ai_input_tokens"
+_OUTPUT_TOKEN_LIMIT_KEY = "monthly_ai_output_tokens"
+
+
+async def reset_ai_usage() -> None:
+    """Router dependency: start a fresh per-request token accumulator.
+
+    Runs before the path operation (and therefore before any ``_generate``
+    call) so :func:`ai_service.collect_token_usage` returns only the tokens this
+    request spent.
+    """
+    ai_service.reset_token_usage()
+
+
+async def _org_for_user(db: AsyncSession, user: User) -> Organization | None:
+    if user.organization_id is None:
+        return None
+    result = await db.execute(
+        select(Organization).where(Organization.id == user.organization_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def enforce_ai_token_budget(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Reject AI requests once the org has exhausted its monthly token budget.
+
+    Super-admins and org-less internal accounts bypass the check. The current
+    period's accumulated input/output tokens are compared against the org's
+    tier limits (``None`` == unlimited); exceeding either returns HTTP 429 with
+    an upgrade prompt, mirroring the ``require_feature`` 402 pattern.
+    """
+    if user.is_super_admin or user.organization_id is None:
+        return
+    org = await _org_for_user(db, user)
+    if org is None:
+        return
+
+    input_limit = ent.get_limit(org, _INPUT_TOKEN_LIMIT_KEY)
+    output_limit = ent.get_limit(org, _OUTPUT_TOKEN_LIMIT_KEY)
+    if input_limit is None and output_limit is None:
+        return  # unlimited on both axes
+
+    used_input, used_output = await usage_service.org_period_tokens(db, org.id)
+    over_input = input_limit is not None and used_input >= input_limit
+    over_output = output_limit is not None and used_output >= output_limit
+    if over_input or over_output:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "Monthly AI token limit reached for your "
+                f"{org.plan} plan. Upgrade your plan or wait until next month "
+                "to continue using AI features."
+            ),
+        )
+
 
 async def _log_ai_usage(
     db: AsyncSession,
     org_id,
     feature: str,
     quantity: int = 1,
-    meta: str | None = None,
+    meta: dict | None = None,
 ) -> None:
-    """Best-effort: record a usage event for metered AI feature tracking."""
-    from app.models.usage_event import UsageEvent
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc)
-    period = now.strftime("%Y-%m")
-    event = UsageEvent(
-        organization_id=org_id,
-        feature=feature,
+    """Best-effort: record a usage event including AI token consumption.
+
+    Token counts are pulled from the per-request accumulator populated by
+    :func:`ai_service._generate` / :func:`ai_service.embed_texts`.
+    """
+    input_tokens, output_tokens = ai_service.collect_token_usage()
+    await usage_service.record_event(
+        db,
+        org_id,
+        feature,
         quantity=quantity,
-        period_month=period,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
         meta=meta,
     )
-    db.add(event)
-    try:
-        await db.commit()
-    except Exception:
-        await db.rollback()
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -75,6 +141,13 @@ async def _log_ai_usage(
 class AIStatusResponse(BaseModel):
     configured: bool
     model: str
+    # Monthly AI token budget for the caller's org (None == unlimited).
+    period: str
+    input_tokens_used: int
+    output_tokens_used: int
+    input_token_limit: int | None
+    output_token_limit: int | None
+    token_limit_reached: bool
 
 
 class LeaseParseResponse(BaseModel):
@@ -212,16 +285,48 @@ def _ai_error_response(exc: ai_service.AIError) -> HTTPException:
 # ── Status ────────────────────────────────────────────────────────────────────
 
 @router.get("/status", response_model=AIStatusResponse)
-async def ai_status(current_user: User = Depends(get_current_user)):
-    """Report whether AI assist is configured (for the UI to show/hide actions)."""
-    return AIStatusResponse(configured=ai_service.is_configured(), model=settings.GEMINI_MODEL)
+async def ai_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Report whether AI assist is configured and the org's token headroom."""
+    period = usage_service.current_period()
+    used_input = used_output = 0
+    input_limit: int | None = None
+    output_limit: int | None = None
+    reached = False
+
+    org = await _org_for_user(db, current_user)
+    if org is not None and not current_user.is_super_admin:
+        input_limit = ent.get_limit(org, _INPUT_TOKEN_LIMIT_KEY)
+        output_limit = ent.get_limit(org, _OUTPUT_TOKEN_LIMIT_KEY)
+        used_input, used_output = await usage_service.org_period_tokens(db, org.id)
+        reached = (input_limit is not None and used_input >= input_limit) or (
+            output_limit is not None and used_output >= output_limit
+        )
+
+    return AIStatusResponse(
+        configured=ai_service.is_configured(),
+        model=settings.GEMINI_MODEL,
+        period=period,
+        input_tokens_used=used_input,
+        output_tokens_used=used_output,
+        input_token_limit=input_limit,
+        output_token_limit=output_limit,
+        token_limit_reached=reached,
+    )
 
 
 # ── Basic lease ingestion (all tiers) ─────────────────────────────────────────
 
-@router.post("/leases/parse", response_model=LeaseParseResponse)
+@router.post(
+    "/leases/parse",
+    response_model=LeaseParseResponse,
+    dependencies=[Depends(enforce_ai_token_budget)],
+)
 async def parse_lease(
     file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Extract suggested lease fields from an uploaded document.
@@ -238,6 +343,7 @@ async def parse_lease(
         )
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
+    await _log_ai_usage(db, current_user.organization_id, "ai_lease_parse")
     return LeaseParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)
 
 
@@ -251,6 +357,9 @@ class DocumentParseResponse(BaseModel):
 async def _parse_document_with(
     file: UploadFile,
     parser,
+    db: AsyncSession,
+    org_id,
+    feature: str,
 ) -> DocumentParseResponse:
     """Shared body for the per-entity document-extraction endpoints."""
     content, mime_type = await _read_document(file)
@@ -259,34 +368,59 @@ async def _parse_document_with(
         suggested = await parser(content, mime_type, text_content=text_content)
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
+    await _log_ai_usage(db, org_id, feature)
     return DocumentParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)
 
 
-@router.post("/ap/parse", response_model=DocumentParseResponse)
+@router.post(
+    "/ap/parse",
+    response_model=DocumentParseResponse,
+    dependencies=[Depends(enforce_ai_token_budget)],
+)
 async def parse_vendor_bill(
     file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Extract suggested vendor-bill header fields from an uploaded invoice."""
-    return await _parse_document_with(file, ai_service.parse_vendor_bill_document)
+    return await _parse_document_with(
+        file, ai_service.parse_vendor_bill_document, db,
+        current_user.organization_id, "ai_ap_parse",
+    )
 
 
-@router.post("/insurance/parse", response_model=DocumentParseResponse)
+@router.post(
+    "/insurance/parse",
+    response_model=DocumentParseResponse,
+    dependencies=[Depends(enforce_ai_token_budget)],
+)
 async def parse_insurance(
     file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Extract suggested certificate-of-insurance fields from an uploaded document."""
-    return await _parse_document_with(file, ai_service.parse_insurance_certificate)
+    return await _parse_document_with(
+        file, ai_service.parse_insurance_certificate, db,
+        current_user.organization_id, "ai_insurance_parse",
+    )
 
 
-@router.post("/hvac-contracts/parse", response_model=DocumentParseResponse)
+@router.post(
+    "/hvac-contracts/parse",
+    response_model=DocumentParseResponse,
+    dependencies=[Depends(enforce_ai_token_budget)],
+)
 async def parse_hvac_contract(
     file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Extract suggested HVAC-contract fields from an uploaded document."""
-    return await _parse_document_with(file, ai_service.parse_hvac_contract)
+    return await _parse_document_with(
+        file, ai_service.parse_hvac_contract, db,
+        current_user.organization_id, "ai_hvac_parse",
+    )
 
 
 # ── Maintenance ticket intelligence (Pro+) ────────────────────────────────────
@@ -365,7 +499,7 @@ def _keyword_tokens(text: str) -> set[str]:
 @router.post(
     "/tickets/triage",
     response_model=TicketTriageResponse,
-    dependencies=[Depends(require_feature("ai_assist"))],
+    dependencies=[Depends(require_feature("ai_assist")), Depends(enforce_ai_token_budget)],
 )
 async def triage_ticket(
     payload: TicketTriageRequest,
@@ -443,7 +577,7 @@ def _map_triage_result(result: dict, categories, vendors) -> TicketTriageSuggest
 @router.post(
     "/tickets/similar",
     response_model=SimilarTicketsResponse,
-    dependencies=[Depends(require_feature("ai_assist"))],
+    dependencies=[Depends(require_feature("ai_assist")), Depends(enforce_ai_token_budget)],
 )
 async def similar_tickets(
     payload: SimilarTicketsRequest,
@@ -519,7 +653,7 @@ async def similar_tickets(
 @router.post(
     "/tickets/draft-from-email",
     response_model=TicketEmailDraftResponse,
-    dependencies=[Depends(require_feature("ai_assist"))],
+    dependencies=[Depends(require_feature("ai_assist")), Depends(enforce_ai_token_budget)],
 )
 async def draft_ticket_from_email(
     payload: TicketEmailDraftRequest,
@@ -549,7 +683,7 @@ async def draft_ticket_from_email(
 @router.post(
     "/leases/{lease_id}/abstract/suggest",
     response_model=AbstractSuggestResponse,
-    dependencies=[Depends(require_feature("ai_assist"))],
+    dependencies=[Depends(require_feature("ai_assist")), Depends(enforce_ai_token_budget)],
 )
 async def suggest_abstract(
     lease_id: uuid.UUID,
@@ -681,7 +815,7 @@ async def _aggregate_summary(db: AsyncSession, org_id, horizon_days: int) -> dic
 @router.post(
     "/reports/summary",
     response_model=SummaryResponse,
-    dependencies=[Depends(require_feature("ai_assist"))],
+    dependencies=[Depends(require_feature("ai_assist")), Depends(enforce_ai_token_budget)],
 )
 async def summary_report(
     payload: SummaryRequest,
@@ -768,7 +902,7 @@ def _citation_snippet(content: str) -> str:
 @router.post(
     "/assistant/query",
     response_model=AssistantQueryResponse,
-    dependencies=[Depends(require_feature("ai_assist"))],
+    dependencies=[Depends(require_feature("ai_assist")), Depends(enforce_ai_token_budget)],
 )
 async def assistant_query(
     payload: AssistantQueryRequest,
@@ -815,7 +949,7 @@ async def assistant_query(
 @router.post(
     "/assistant/reindex",
     response_model=AssistantReindexResponse,
-    dependencies=[Depends(require_feature("ai_assist"))],
+    dependencies=[Depends(require_feature("ai_assist")), Depends(enforce_ai_token_budget)],
 )
 async def assistant_reindex(
     db: AsyncSession = Depends(get_db),
@@ -833,5 +967,6 @@ async def assistant_reindex(
         )
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
+    await _log_ai_usage(db, current_user.organization_id, "ai_reindex")
     return AssistantReindexResponse(indexed=indexed)
 

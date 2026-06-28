@@ -4,8 +4,8 @@ import { Alert, AlertDescription } from "../components/ui/alert"
 import { Button } from "../components/ui/button"
 import { AlertCircle, TrendingUp } from "lucide-react"
 
-import { getMetrics } from "../api"
-import type { PlatformMetrics } from "../types"
+import { getMetrics, getPlatformTokens } from "../api"
+import type { PlatformMetrics, PlatformTokensResponse } from "../types"
 
 interface KpiCardProps {
   label: string
@@ -40,6 +40,7 @@ function KpiCard({ label, value, sub, onClick, status }: KpiCardProps) {
 
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState<PlatformMetrics | null>(null)
+  const [tokens, setTokens] = useState<PlatformTokensResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
@@ -49,6 +50,11 @@ export default function DashboardPage() {
       try {
         const data = await getMetrics()
         setMetrics(data)
+        try {
+          setTokens(await getPlatformTokens({ limit: 5 }))
+        } catch {
+          setTokens(null)
+        }
       } catch {
         setError("Failed to load metrics")
       } finally {
@@ -118,6 +124,57 @@ export default function DashboardPage() {
                     </div>
                   ))}
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* AI Token Usage */}
+          {tokens && (
+            <Card>
+              <CardHeader>
+                <CardTitle>AI token usage ({tokens.period})</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                  <div className="p-4 bg-slate-50 rounded-lg">
+                    <p className="text-sm text-slate-600 mb-1">Input tokens</p>
+                    <p className="text-2xl font-bold text-slate-900">
+                      {tokens.input_tokens.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-lg">
+                    <p className="text-sm text-slate-600 mb-1">Output tokens</p>
+                    <p className="text-2xl font-bold text-slate-900">
+                      {tokens.output_tokens.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-lg">
+                    <p className="text-sm text-slate-600 mb-1">Total tokens</p>
+                    <p className="text-2xl font-bold text-slate-900">
+                      {tokens.total_tokens.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                {tokens.top_orgs.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium text-slate-700 mb-2">
+                      Top token-consuming organizations
+                    </p>
+                    <div className="space-y-1">
+                      {tokens.top_orgs.map((o) => (
+                        <div
+                          key={o.organization_id}
+                          className="flex justify-between text-sm text-slate-600"
+                        >
+                          <span>{o.organization_name || o.organization_id}</span>
+                          <span className="font-medium">
+                            {o.total_tokens.toLocaleString()} tokens
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}

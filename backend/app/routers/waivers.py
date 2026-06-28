@@ -40,6 +40,7 @@ from app.models.waiver import (
 )
 from app.seeds.waiver_seed import seed_prebuilt_templates_for_org
 from app.services import waiver_service
+from app.services import usage_service
 from app.utils.email_client import send_email
 
 logger = logging.getLogger(__name__)
@@ -486,6 +487,9 @@ async def send_waiver(
         logger.exception("Failed to write waiver EmailLog for request %s", req.id)
         await db.rollback()
 
+    await usage_service.record_event(
+        db, current_user.organization_id, "waiver_sent", success=sent
+    )
     return _request_response(req, include_url=True)
 
 

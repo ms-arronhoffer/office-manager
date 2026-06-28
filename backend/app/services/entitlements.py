@@ -29,7 +29,13 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 UNLIMITED: None = None
 
 # Limit keys (numeric, ``None`` == unlimited).
-LIMIT_KEYS: tuple[str, ...] = ("max_offices", "max_seats", "audit_retention_days")
+LIMIT_KEYS: tuple[str, ...] = (
+    "max_offices",
+    "max_seats",
+    "audit_retention_days",
+    "monthly_ai_input_tokens",
+    "monthly_ai_output_tokens",
+)
 
 # Feature flag keys (boolean).
 FEATURE_KEYS: tuple[str, ...] = (
@@ -60,6 +66,8 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "max_offices": 10,
         "max_seats": UNLIMITED,
         "audit_retention_days": 90,
+        "monthly_ai_input_tokens": 200_000,
+        "monthly_ai_output_tokens": 50_000,
         "hvac": False,
         "maintenance": False,
         "transitions": False,
@@ -76,6 +84,8 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "max_offices": 50,
         "max_seats": UNLIMITED,
         "audit_retention_days": UNLIMITED,
+        "monthly_ai_input_tokens": 2_000_000,
+        "monthly_ai_output_tokens": 500_000,
         "hvac": True,
         "maintenance": True,
         "transitions": True,
@@ -92,6 +102,8 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "max_offices": UNLIMITED,
         "max_seats": UNLIMITED,
         "audit_retention_days": UNLIMITED,
+        "monthly_ai_input_tokens": UNLIMITED,
+        "monthly_ai_output_tokens": UNLIMITED,
         "hvac": True,
         "maintenance": True,
         "transitions": True,

@@ -25,6 +25,7 @@ from app.schemas.transition import (
 )
 from app.services.activity_service import log_activity, compute_changes
 from app.services.webhook_service import dispatch_webhook
+from app.services import usage_service
 from app.utils.sorting import apply_sorting
 
 router = APIRouter()
@@ -127,6 +128,7 @@ async def create_transition(
     await db.commit()
     await db.refresh(transition)
     await log_activity(db, user=current_user, action="created", entity_type="transition", entity_id=transition.id, entity_label=transition.sheet_name or f"Office #{transition.office_number}")
+    await usage_service.record_event(db, current_user.organization_id, "transition_created")
 
     result = await db.execute(
         select(OfficeTransition)

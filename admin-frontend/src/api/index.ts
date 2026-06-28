@@ -75,6 +75,37 @@ export async function getMetrics(): Promise<PlatformMetrics> {
   return res.data;
 }
 
+// ── Usage & token monitoring ────────────────────────────────────────────────
+
+export async function getFeatureUsage(params: {
+  months?: number;
+  org_id?: string;
+} = {}): Promise<import("../types").FeatureAdoptionResponse> {
+  const res = await api.get<import("../types").FeatureAdoptionResponse>(
+    "/admin/v1/usage/features",
+    { params },
+  );
+  return res.data;
+}
+
+export async function getPlatformTokens(params: {
+  period?: string;
+  limit?: number;
+} = {}): Promise<import("../types").PlatformTokensResponse> {
+  const res = await api.get<import("../types").PlatformTokensResponse>(
+    "/admin/v1/usage/tokens",
+    { params },
+  );
+  return res.data;
+}
+
+export async function getOrgUsage(orgId: string): Promise<import("../types").OrgUsageResponse> {
+  const res = await api.get<import("../types").OrgUsageResponse>(
+    `/admin/v1/usage/orgs/${orgId}`,
+  );
+  return res.data;
+}
+
 // ── Orgs ──────────────────────────────────────────────────────────────────────
 
 export async function getOrgs(params: {
