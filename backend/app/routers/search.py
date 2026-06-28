@@ -56,16 +56,18 @@ async def global_search(
     q: str = Query(min_length=1, max_length=100),
     limit: int = Query(default=10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     results = []
     term = f"%{q}%"
+    org_id = current_user.organization_id
 
     # Offices — full-text with ilike fallback
     fts = (
         select(Office.id, Office.location_name, Office.city)
         .where(
             Office.is_deleted.is_(False),
+            Office.organization_id == org_id,
             text("offices.search_vector @@ plainto_tsquery('english', :q)").bindparams(q=q),
         )
         .order_by(text("ts_rank(offices.search_vector, plainto_tsquery('english', :q)) DESC").bindparams(q=q))
@@ -75,6 +77,7 @@ async def global_search(
         select(Office.id, Office.location_name, Office.city)
         .where(
             Office.is_deleted.is_(False),
+            Office.organization_id == org_id,
             or_(Office.location_name.ilike(term), Office.city.ilike(term)),
         )
         .limit(limit)
@@ -92,6 +95,7 @@ async def global_search(
         select(Lease.id, Lease.lease_name, Lease.lessor_name)
         .where(
             Lease.is_deleted.is_(False),
+            Lease.organization_id == org_id,
             text("leases.search_vector @@ plainto_tsquery('english', :q)").bindparams(q=q),
         )
         .order_by(text("ts_rank(leases.search_vector, plainto_tsquery('english', :q)) DESC").bindparams(q=q))
@@ -101,6 +105,7 @@ async def global_search(
         select(Lease.id, Lease.lease_name, Lease.lessor_name)
         .where(
             Lease.is_deleted.is_(False),
+            Lease.organization_id == org_id,
             or_(Lease.lease_name.ilike(term), Lease.lessor_name.ilike(term)),
         )
         .limit(limit)
@@ -118,6 +123,7 @@ async def global_search(
         select(MaintenanceTicket.id, MaintenanceTicket.subject)
         .where(
             MaintenanceTicket.is_deleted.is_(False),
+            MaintenanceTicket.organization_id == org_id,
             text("maintenance_tickets.search_vector @@ plainto_tsquery('english', :q)").bindparams(q=q),
         )
         .order_by(text("ts_rank(maintenance_tickets.search_vector, plainto_tsquery('english', :q)) DESC").bindparams(q=q))
@@ -127,6 +133,7 @@ async def global_search(
         select(MaintenanceTicket.id, MaintenanceTicket.subject)
         .where(
             MaintenanceTicket.is_deleted.is_(False),
+            MaintenanceTicket.organization_id == org_id,
             MaintenanceTicket.subject.ilike(term),
         )
         .limit(limit)
@@ -144,6 +151,7 @@ async def global_search(
         select(Landlord.id, Landlord.landlord_company, Landlord.contact_name)
         .where(
             Landlord.is_deleted.is_(False),
+            Landlord.organization_id == org_id,
             text("landlords.search_vector @@ plainto_tsquery('english', :q)").bindparams(q=q),
         )
         .order_by(text("ts_rank(landlords.search_vector, plainto_tsquery('english', :q)) DESC").bindparams(q=q))
@@ -153,6 +161,7 @@ async def global_search(
         select(Landlord.id, Landlord.landlord_company, Landlord.contact_name)
         .where(
             Landlord.is_deleted.is_(False),
+            Landlord.organization_id == org_id,
             or_(Landlord.landlord_company.ilike(term), Landlord.contact_name.ilike(term)),
         )
         .limit(limit)
@@ -168,7 +177,10 @@ async def global_search(
     # Vendors — ilike only (no FTS column)
     vendor_rows = await db.execute(
         select(Vendor.id, Vendor.company_name, Vendor.contact_name)
-        .where(or_(Vendor.company_name.ilike(term), Vendor.contact_name.ilike(term)))
+        .where(
+            Vendor.organization_id == org_id,
+            or_(Vendor.company_name.ilike(term), Vendor.contact_name.ilike(term)),
+        )
         .limit(limit)
     )
     for row in vendor_rows.all():
@@ -182,7 +194,10 @@ async def global_search(
     # Management companies
     mc_rows = await db.execute(
         select(ManagementCompany.id, ManagementCompany.name, ManagementCompany.contact_name)
-        .where(or_(ManagementCompany.name.ilike(term), ManagementCompany.contact_name.ilike(term)))
+        .where(
+            ManagementCompany.organization_id == org_id,
+            or_(ManagementCompany.name.ilike(term), ManagementCompany.contact_name.ilike(term)),
+        )
         .limit(limit)
     )
     for row in mc_rows.all():
@@ -196,7 +211,10 @@ async def global_search(
     # HVAC contracts
     hvac_rows = await db.execute(
         select(HvacContract.id, HvacContract.hvac_company, HvacContract.office_name)
-        .where(or_(HvacContract.hvac_company.ilike(term), HvacContract.office_name.ilike(term)))
+        .where(
+            HvacContract.organization_id == org_id,
+            or_(HvacContract.hvac_company.ilike(term), HvacContract.office_name.ilike(term)),
+        )
         .limit(limit)
     )
     for row in hvac_rows.all():
@@ -210,7 +228,10 @@ async def global_search(
     # Office transitions
     transition_rows = await db.execute(
         select(OfficeTransition.id, OfficeTransition.address, OfficeTransition.transition_type)
-        .where(or_(OfficeTransition.address.ilike(term), OfficeTransition.new_address.ilike(term)))
+        .where(
+            OfficeTransition.organization_id == org_id,
+            or_(OfficeTransition.address.ilike(term), OfficeTransition.new_address.ilike(term)),
+        )
         .limit(limit)
     )
     for row in transition_rows.all():
@@ -224,7 +245,10 @@ async def global_search(
     # Digital waiver requests
     waiver_rows = await db.execute(
         select(WaiverRequest.id, WaiverRequest.title, WaiverRequest.recipient_name)
-        .where(or_(WaiverRequest.title.ilike(term), WaiverRequest.recipient_name.ilike(term)))
+        .where(
+            WaiverRequest.organization_id == org_id,
+            or_(WaiverRequest.title.ilike(term), WaiverRequest.recipient_name.ilike(term)),
+        )
         .limit(limit)
     )
     for row in waiver_rows.all():
