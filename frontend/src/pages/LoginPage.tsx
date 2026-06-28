@@ -19,6 +19,30 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 type Mode = 'login' | 'forgot' | 'reset' | 'mfa';
 
+/**
+ * Build a user-facing error message from a request failure.
+ *
+ * Server outages (e.g. a 502 Bad Gateway from the reverse proxy when the API is
+ * down) and network failures must not be reported as "Invalid credentials" — that
+ * sends users chasing a password problem that does not exist. Only fall back to
+ * the credential-specific message for genuine client errors (4xx) that carry no
+ * explanatory detail.
+ */
+const getRequestErrorMessage = (err: unknown, fallback: string): string => {
+  const response = (err as { response?: { status?: number; data?: { detail?: string } } })?.response;
+  if (!response) {
+    return 'Unable to reach the server. Please check your connection and try again.';
+  }
+  const detail = response.data?.detail;
+  if (typeof detail === 'string' && detail) {
+    return detail;
+  }
+  if (typeof response.status === 'number' && response.status >= 500) {
+    return 'The server is temporarily unavailable. Please try again in a few moments.';
+  }
+  return fallback;
+};
+
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -91,10 +115,7 @@ const LoginPage: React.FC = () => {
         setError('Unexpected response. Please try again.');
       }
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-        'Invalid credentials. Please try again.';
-      setError(message);
+      setError(getRequestErrorMessage(err, 'Invalid credentials. Please try again.'));
     } finally {
       setIsLoading(false);
     }
@@ -149,10 +170,7 @@ const LoginPage: React.FC = () => {
       setNewPassword('');
       setConfirmPassword('');
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-        'Invalid or expired reset token.';
-      setError(message);
+      setError(getRequestErrorMessage(err, 'Invalid or expired reset token.'));
     } finally {
       setIsLoading(false);
     }
@@ -173,10 +191,12 @@ const LoginPage: React.FC = () => {
       reloadSiteSettings();
       navigate(from, { replace: true });
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-        (useBackupCode ? 'Invalid backup code.' : 'Invalid authentication code.');
-      setError(message);
+      setError(
+        getRequestErrorMessage(
+          err,
+          useBackupCode ? 'Invalid backup code.' : 'Invalid authentication code.',
+        ),
+      );
     } finally {
       setIsLoading(false);
     }
