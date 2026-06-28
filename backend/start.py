@@ -229,7 +229,10 @@ def _ensure_raw_tables() -> None:
     Safe to run on every startup — all statements use CREATE TABLE IF NOT EXISTS.
     """
     statements = [
-        # Persistent auth rate-limiting (migration 020)
+        # Persistent auth rate-limiting (migration 020). Also defined as the
+        # ``AuthLockout`` ORM model so ``create_all`` builds it on fresh
+        # databases; this CREATE TABLE IF NOT EXISTS is a belt-and-suspenders
+        # safeguard that remains harmless when the table already exists.
         """
         CREATE TABLE IF NOT EXISTS auth_lockouts (
             email        VARCHAR(255) PRIMARY KEY,
