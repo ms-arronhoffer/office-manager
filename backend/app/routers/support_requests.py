@@ -11,6 +11,7 @@ A lightweight in-app help channel:
 """
 from __future__ import annotations
 
+import html
 import logging
 import uuid
 from datetime import datetime
@@ -79,14 +80,21 @@ async def _support_email(db: AsyncSession, organization_id: uuid.UUID | None) ->
 
 
 def _format_body(req: SupportRequest) -> str:
-    requester = req.requester_name or "Unknown"
+    # The email is sent as HTML, so all user-provided values are HTML-escaped to
+    # avoid injecting markup. Angle brackets around the email are emitted as
+    # entities so they render literally as ``Name <email>``.
+    name = html.escape(req.requester_name or "Unknown")
+    requester = name
     if req.requester_email:
-        requester = f"{requester} &lt;{req.requester_email}&gt;"
+        requester = f"{name} &lt;{html.escape(req.requester_email)}&gt;"
+    subject = html.escape(req.subject)
+    # Preserve line breaks from the free-text message.
+    message = html.escape(req.message).replace("\n", "<br/>")
     return (
         f"<p>A new support request was submitted in the application.</p>"
         f"<p><strong>From:</strong> {requester}<br/>"
-        f"<strong>Subject:</strong> {req.subject}</p>"
-        f"<hr/><p>{req.message}</p>"
+        f"<strong>Subject:</strong> {subject}</p>"
+        f"<hr/><p>{message}</p>"
     )
 
 
