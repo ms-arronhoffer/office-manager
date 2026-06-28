@@ -109,7 +109,21 @@ def _validate_rule_payload(rule_type: str | None, delivery_mode: str | None, rol
 
 # ── Rule Types ────────────────────────────────────────────────────────
 
-VALID_RULE_TYPES = ["lease_expiration", "lease_notice_date", "lease_notice", "hvac_service", "hq_pm", "high_priority_ticket", "ai_briefing", "coi_expiration"]
+# Canonical rule types plus their human-readable labels. The /types endpoint
+# is derived from this single source so the dropdown can never drift from the
+# set the API actually accepts (a missing label previously hid lease_notice).
+RULE_TYPE_LABELS: dict[str, str] = {
+    "lease_expiration": "Lease Expiration",
+    "lease_notice_date": "Lease Notice Date",
+    "lease_notice": "Lease Notice",
+    "hvac_service": "HVAC Service Due",
+    "hq_pm": "HQ PM Task Due",
+    "high_priority_ticket": "High Priority Ticket Created",
+    "ai_briefing": "AI Operations Briefing (scheduled)",
+    "coi_expiration": "Insurance Certificate (COI) Expiration",
+}
+
+VALID_RULE_TYPES = list(RULE_TYPE_LABELS.keys())
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────
@@ -128,15 +142,7 @@ async def list_rules(
 async def list_rule_types(
     _=Depends(require_role("admin")),
 ):
-    return [
-        {"value": "lease_expiration", "label": "Lease Expiration"},
-        {"value": "lease_notice_date", "label": "Lease Notice Date"},
-        {"value": "hvac_service", "label": "HVAC Service Due"},
-        {"value": "hq_pm", "label": "HQ PM Task Due"},
-        {"value": "high_priority_ticket", "label": "High Priority Ticket Created"},
-        {"value": "ai_briefing", "label": "AI Operations Briefing (scheduled)"},
-        {"value": "coi_expiration", "label": "Insurance Certificate (COI) Expiration"},
-    ]
+    return [{"value": value, "label": label} for value, label in RULE_TYPE_LABELS.items()]
 
 
 @router.post("/", response_model=RuleResponse, status_code=201)
