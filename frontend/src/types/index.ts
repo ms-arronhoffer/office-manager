@@ -1363,6 +1363,25 @@ export interface SearchResult {
   route?: string;
 }
 
+export interface AssistantActionProposal {
+  method: string;
+  endpoint: string;
+  body: Record<string, unknown>;
+  description: string;
+}
+
+export interface AssistantResponse {
+  intent: string;
+  action_type: 'navigate' | 'search' | 'action' | 'none';
+  route?: string | null;
+  query?: string | null;
+  proposal?: AssistantActionProposal | null;
+  confirmation_required: boolean;
+  permitted: boolean;
+  message: string;
+  model: string;
+}
+
 // ─── User Preferences ───────────────────────────────────────────────────────
 export interface PinnedOffice {
   id: string;

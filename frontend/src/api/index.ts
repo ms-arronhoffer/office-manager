@@ -54,6 +54,7 @@ import type {
   MaintenanceTicketUpdate,
   ActivityLogEntry,
   SearchResult,
+  AssistantResponse,
   UserPreferences,
   WizardConfig,
   EmailReminderRule,
@@ -702,6 +703,12 @@ export const activityLog = {
 export const search = {
   query: (q: string, limit = 10) =>
     client.get<SearchResult[]>('/search', { params: { q, limit } }),
+};
+
+// ─── In-app assistant (search-to-action) ────────────────────────────────────
+export const assistant = {
+  ask: (prompt: string) =>
+    client.post<AssistantResponse>('/assistant', { prompt }),
 };
 
 // ─── User Preferences ──────────────────────────────────────────────────────
