@@ -308,6 +308,38 @@ def _run_initial_seed_once() -> None:
 
 _run_initial_seed_once()
 
+
+def _run_knowledge_reindex() -> None:
+    """Build the AI assistant's knowledge index at startup.
+
+    The portfolio knowledge index (:class:`~app.models.knowledge_chunk.
+    KnowledgeChunk`) that powers ``/ai/assistant/query`` is otherwise only
+    rebuilt by the 3 AM scheduler job, so a freshly seeded database has an empty
+    index until then and the assistant answers "the provided context does not
+    contain information" for data that is in fact present.
+
+    Rebuild it once on boot so the seeded portfolio is queryable immediately.
+    Indexing is idempotent (each org's chunks are replaced wholesale) and
+    degrades gracefully to keyword-only when Gemini is not configured, so this is
+    safe to run on every start. Best-effort: any failure is logged and never
+    prevents the application from starting.
+    """
+    print("[start] Building AI assistant knowledge index...")
+    try:
+        import asyncio
+
+        from app.tasks.knowledge_index import reindex_knowledge
+
+        asyncio.run(reindex_knowledge())
+    except Exception as exc:  # noqa: BLE001 - best-effort; must never block startup
+        print(f"[start] WARNING: knowledge index build failed: {exc!r}")
+        traceback.print_exc()
+        return
+    print("[start] AI assistant knowledge index built.")
+
+
+_run_knowledge_reindex()
+
 # Hand off to uvicorn.
 sys.exit(subprocess.call([
     "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
