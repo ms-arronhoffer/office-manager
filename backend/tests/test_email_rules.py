@@ -87,6 +87,18 @@ async def test_coi_rule_type_allowed(client, admin_user):
     assert r.status_code == 201
 
 
+@pytest.mark.asyncio
+async def test_rule_types_endpoint_covers_all_valid_types(client, admin_user):
+    """The dropdown must offer a label for every accepted rule_type, otherwise
+    a valid type (e.g. lease_notice) silently fails to display."""
+    from app.routers.email_rules import VALID_RULE_TYPES
+
+    r = await client.get("/api/v1/email-rules/types", headers=auth_headers(admin_user))
+    assert r.status_code == 200
+    returned = {opt["value"] for opt in r.json()}
+    assert returned == set(VALID_RULE_TYPES)
+
+
 # ── Recipient resolution ────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

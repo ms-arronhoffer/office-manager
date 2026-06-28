@@ -25,7 +25,17 @@ async def _send(message: MIMEMultipart) -> bool:
     if settings.SMTP_USER:
         kwargs["username"] = settings.SMTP_USER
         kwargs["password"] = settings.SMTP_PASSWORD
-        kwargs["start_tls"] = True
+        # Port 465 expects implicit TLS (connection wrapped in SSL from the
+        # start); every other port (587, 25) uses opportunistic STARTTLS.
+        # Sending STARTTLS to a 465 listener — or implicit TLS to a 587
+        # listener — fails the handshake, which is why authenticated providers
+        # silently weren't delivering mail.
+        if settings.SMTP_PORT == 465:
+            kwargs["use_tls"] = True
+            kwargs["start_tls"] = False
+        else:
+            kwargs["use_tls"] = False
+            kwargs["start_tls"] = True
     else:
         kwargs["use_tls"] = False
         kwargs["start_tls"] = False
