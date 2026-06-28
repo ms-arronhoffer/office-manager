@@ -1271,3 +1271,19 @@ export const waiverPublic = {
   decline: (token: string) =>
     axios.create({ baseURL: _waiverBase }).post<PublicWaiverView>(`/waivers/decline/${token}`),
 };
+
+// ─── Email reminders (public, token-based acknowledgement) ───────────────────
+export interface EmailAckView {
+  subject: string;
+  rule_name: string | null;
+  acknowledged: boolean;
+  acknowledged_at: string | null;
+}
+
+export const emailAckPublic = {
+  view: (token: string) =>
+    axios.create({ baseURL: _waiverBase }).get<EmailAckView>(`/email-rules/ack/${token}`),
+
+  confirm: (token: string) =>
+    axios.create({ baseURL: _waiverBase }).post<EmailAckView>(`/email-rules/ack/${token}`),
+};

@@ -98,6 +98,7 @@ app.include_router(wizard_configs.router, prefix="/api/v1/wizard-configs", tags=
 app.include_router(vendors.router, prefix="/api/v1/vendors", tags=["Vendors"], dependencies=_org_guard)
 app.include_router(imports.router, prefix="/api/v1/imports", tags=["Imports"], dependencies=_org_guard)
 app.include_router(email_rules.router, prefix="/api/v1/email-rules", tags=["Email Rules"], dependencies=_org_guard)
+app.include_router(email_rules.public_router, prefix="/api/v1/email-rules", tags=["Email Rules"])
 app.include_router(trash.router, prefix="/api/v1/admin/trash", tags=["Admin - Trash"], dependencies=_org_guard)
 app.include_router(site_settings.router, prefix="/api/v1/site-settings", tags=["Site Settings"], dependencies=_org_guard)
 app.include_router(ticket_templates.router, prefix="/api/v1/ticket-templates", tags=["Ticket Templates"], dependencies=_org_guard)

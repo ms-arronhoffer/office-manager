@@ -22,7 +22,7 @@ from app.models.maintenance import (
     MAINTENANCE_FREQUENCIES, MAINTENANCE_TASK_STATUSES,
     MAINTENANCE_ASSET_STATUSES, default_subtopics_for_category,
 )
-from app.models.email import EmailReminderRule, EmailLog
+from app.models.email import EmailReminderRule, EmailLog, EmailAcknowledgement
 from app.models.attachment import Attachment
 from app.models.maintenance_ticket import TicketCategory, MaintenanceTicket, TicketNote, WorkOrderCostLine
 from app.models.activity_log import ActivityLog
@@ -67,7 +67,7 @@ __all__ = [
     "HqTowerSprayLog", "HqBackflow",
     "HvacContract", "HvacOfficeDetail",
     "MaintenanceAsset", "MaintenanceTask", "MaintenanceLog", "MaintenanceCategoryTopicConfig",
-    "EmailReminderRule", "EmailLog",
+    "EmailReminderRule", "EmailLog", "EmailAcknowledgement",
     "Attachment",
     "TicketCategory", "MaintenanceTicket", "TicketNote", "WorkOrderCostLine",
     "ActivityLog",

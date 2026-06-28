@@ -1416,6 +1416,12 @@ export interface EmailReminderRule {
   rule_type: string;
   days_before: number;
   recipient_emails: string[];
+  recipient_roles?: string[] | null;
+  recipient_user_ids?: string[] | null;
+  delivery_mode: string;
+  escalation_offsets?: number[] | null;
+  escalation_recipient_emails?: string[] | null;
+  require_acknowledgement: boolean;
   is_active: boolean;
   last_triggered_at?: string;
   created_at: string;
@@ -1427,6 +1433,12 @@ export interface EmailReminderRuleCreate {
   rule_type: string;
   days_before: number;
   recipient_emails: string[];
+  recipient_roles?: string[] | null;
+  recipient_user_ids?: string[] | null;
+  delivery_mode?: string;
+  escalation_offsets?: number[] | null;
+  escalation_recipient_emails?: string[] | null;
+  require_acknowledgement?: boolean;
   is_active?: boolean;
 }
 
