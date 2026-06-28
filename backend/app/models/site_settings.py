@@ -14,6 +14,8 @@ class SiteSettings(Base):
     login_subtitle: Mapped[str | None] = mapped_column(Text, nullable=True)
     login_form_header: Mapped[str | None] = mapped_column(String(200), nullable=True)
     login_form_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Address that receives forwarded in-app support requests.
+    support_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     sla_high_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sla_medium_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sla_low_days: Mapped[int | None] = mapped_column(Integer, nullable=True)

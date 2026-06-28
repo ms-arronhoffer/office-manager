@@ -63,6 +63,7 @@ from app.routers import (  # noqa: E402
     space, gl, cam, lifecycle, ap, financials,
     lease_abstract, management_companies, contacts, client_portal,
     ai, waivers, document_search, maintenance, saved_reports, assistant,
+    support_requests,
 )
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit, usage as admin_usage  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature  # noqa: E402
@@ -105,6 +106,7 @@ app.include_router(email_rules.router, prefix="/api/v1/email-rules", tags=["Emai
 app.include_router(email_rules.public_router, prefix="/api/v1/email-rules", tags=["Email Rules"])
 app.include_router(trash.router, prefix="/api/v1/admin/trash", tags=["Admin - Trash"], dependencies=_org_guard)
 app.include_router(site_settings.router, prefix="/api/v1/site-settings", tags=["Site Settings"], dependencies=_org_guard)
+app.include_router(support_requests.router, prefix="/api/v1/support-requests", tags=["Support Requests"], dependencies=_org_guard)
 app.include_router(ticket_templates.router, prefix="/api/v1/ticket-templates", tags=["Ticket Templates"], dependencies=_org_guard)
 app.include_router(recurring_ticket_rules.router, prefix="/api/v1/recurring-ticket-rules", tags=["Recurring Ticket Rules"], dependencies=_org_guard)
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"], dependencies=_org_guard)
