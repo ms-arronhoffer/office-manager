@@ -63,6 +63,7 @@ const GROUPS: AdminGroup[] = [
     href: '/administration/system',
     links: [
       { text: 'Site Settings', href: '/admin/site-settings', description: 'Branding and global application settings.', roles: ['admin'] },
+      { text: 'Support Requests', href: '/support-requests', description: 'Review and forward in-app support requests.', roles: ['admin'] },
       { text: 'Data Dictionary', href: '/data-dictionary', description: 'Reference for data fields and meanings.', roles: ['admin'] },
       { text: 'Audit Log', href: '/activity-log', description: 'Review system and user activity.', roles: ['admin'] },
       { text: 'Trash', href: '/trash', description: 'Restore or purge deleted records.', roles: ['admin'] },

@@ -10,6 +10,7 @@ import { useSiteSettings } from '@/context/SiteSettingsContext';
 import GlobalSearchBar from '@/components/common/GlobalSearchBar';
 import KeyboardShortcutsModal from '@/components/common/KeyboardShortcutsModal';
 import NotificationBell from '@/components/common/NotificationBell';
+import SupportRequestModal from '@/components/common/SupportRequestModal';
 import AIPortfolioAssistant from '@/components/common/AIPortfolioAssistant';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import './AppNavigation.css';
@@ -30,6 +31,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
 
   const [navigationOpen, setNavigationOpen] = useState(() => getNavigationOpen());
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
   const [activeDrawerId, setActiveDrawerId] = useState<string | null>(null);
 
   // Sync sidebar state from prefs on load
@@ -154,6 +156,14 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
           utilities={[
             {
               type: 'button',
+              iconName: 'support',
+              text: 'Support',
+              title: 'Submit a support request',
+              ariaLabel: 'Submit a support request',
+              onClick: () => setSupportOpen(true),
+            },
+            {
+              type: 'button',
               iconName: mode === 'dark' ? 'status-positive' : 'status-negative',
               title: mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode',
               ariaLabel: mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode',
@@ -239,6 +249,10 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       <KeyboardShortcutsModal
         visible={shortcutsOpen}
         onDismiss={() => setShortcutsOpen(false)}
+      />
+      <SupportRequestModal
+        visible={supportOpen}
+        onDismiss={() => setSupportOpen(false)}
       />
     </>
   );

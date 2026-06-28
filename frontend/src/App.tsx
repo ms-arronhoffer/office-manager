@@ -60,6 +60,7 @@ const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 const ActivityLogPage = lazy(() => import('@/pages/ActivityLogPage'));
 const TrashPage = lazy(() => import('@/pages/TrashPage'));
 const SiteSettingsPage = lazy(() => import('@/pages/SiteSettingsPage'));
+const SupportRequestsPage = lazy(() => import('@/pages/SupportRequestsPage'));
 const LeaseCalendarPage = lazy(() => import('@/pages/LeaseCalendarPage'));
 const TicketTemplatesPage = lazy(() => import('@/pages/TicketTemplatesPage'));
 const RecurringTicketsPage = lazy(() => import('@/pages/RecurringTicketsPage'));
@@ -189,6 +190,7 @@ const App: React.FC = () => {
                         <Route path="activity-log" element={<RoleGuard allowedRoles={['admin']}><ActivityLogPage /></RoleGuard>} />
                         <Route path="trash" element={<RoleGuard allowedRoles={['admin']}><TrashPage /></RoleGuard>} />
                         <Route path="admin/site-settings" element={<RoleGuard allowedRoles={['admin']}><SiteSettingsPage /></RoleGuard>} />
+                        <Route path="support-requests" element={<RoleGuard allowedRoles={['admin']}><SupportRequestsPage /></RoleGuard>} />
                         <Route path="billing" element={<RoleGuard allowedRoles={['admin']}><BillingPage /></RoleGuard>} />
                         <Route path="api-keys" element={<RoleGuard allowedRoles={['admin']}><ApiKeysPage /></RoleGuard>} />
                         <Route path="webhooks" element={<RoleGuard allowedRoles={['admin']}><WebhooksPage /></RoleGuard>} />

@@ -820,6 +820,7 @@ export interface SiteSettings {
   login_subtitle: string;
   login_form_header: string;
   login_form_description: string;
+  support_email: string;
   sla_high_days: number;
   sla_medium_days: number;
   sla_low_days: number;
@@ -828,6 +829,37 @@ export interface SiteSettings {
 export const siteSettings = {
   get: () => client.get<SiteSettings>('/site-settings'),
   update: (data: SiteSettings) => client.put<SiteSettings>('/site-settings', data),
+};
+
+// ─── Support Requests ─────────────────────────────────────────────────────────
+export interface SupportRequest {
+  id: string;
+  subject: string;
+  message: string;
+  status: 'open' | 'resolved';
+  requester_user_id: string | null;
+  requester_name: string | null;
+  requester_email: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupportEmailResult {
+  sent: boolean;
+  support_email: string | null;
+  detail: string;
+}
+
+export const supportRequests = {
+  create: (data: { subject: string; message: string }) =>
+    client.post<SupportRequest>('/support-requests', data),
+  list: (params?: { status?: string }) =>
+    client.get<SupportRequest[]>('/support-requests', { params }),
+  updateStatus: (id: string, status: 'open' | 'resolved') =>
+    client.patch<SupportRequest>(`/support-requests/${id}`, { status }),
+  email: (id: string) =>
+    client.post<SupportEmailResult>(`/support-requests/${id}/email`),
+  remove: (id: string) => client.delete(`/support-requests/${id}`),
 };
 
 // ─── Ticket Templates ─────────────────────────────────────────────────────────
