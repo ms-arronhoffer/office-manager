@@ -122,8 +122,8 @@ def run_tracked(job_id: str, job_fn: JobFn) -> JobFn:
         # A dedicated AUTOCOMMIT connection holds the session-level advisory
         # lock for the duration of the job. The job itself opens its own
         # ``async_session`` (a separate connection), so this only gates execution.
-        async with engine.connect() as lock_conn:
-            lock_conn = await lock_conn.execution_options(isolation_level="AUTOCOMMIT")
+        async with engine.connect() as conn:
+            lock_conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
             got_lock = await lock_conn.scalar(
                 text("SELECT pg_try_advisory_lock(:k)"), {"k": key}
             )
