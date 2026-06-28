@@ -6,12 +6,17 @@ Run from the backend directory:
 or:
     python seed/run_seed.py
 
+Seed only the default organization (creates the default org + admin user +
+email reminder rules + ticket categories, skipping the spreadsheet imports):
+    python -m seed.run_seed --bootstrap-only
+
 Required env vars:
     DATABASE_URL_SYNC      - synchronous postgres URL
     DEFAULT_ADMIN_EMAIL    - (optional) defaults to admin@officemanager.local
     DEFAULT_ADMIN_PASSWORD - (optional) defaults to changeme123
 """
 
+import argparse
 import os
 import sys
 import uuid
@@ -165,7 +170,7 @@ def _create_ticket_categories(session: Session) -> None:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def run_seed() -> None:
+def run_seed(bootstrap_only: bool = False) -> None:
     from app.config import settings
     db_url = settings.DATABASE_URL_SYNC
     admin_email = settings.DEFAULT_ADMIN_EMAIL
@@ -173,6 +178,8 @@ def run_seed() -> None:
 
     print(f"\n=== SwiftLease Data Import ===")
     print(f"Database: {db_url.split('@')[-1]}")  # hide credentials
+    if bootstrap_only:
+        print("Mode: bootstrap-only (default organization, admin, rules, categories)")
 
     engine = create_engine(db_url, echo=False)
 
@@ -200,9 +207,23 @@ def run_seed() -> None:
 
         # 0 ── Ensure the default organization exists so every seeded record can
         # be attached to it (the API filters all data by organization_id).
-        print("\n[1/8] Ensuring default organization...")
+        step = "1/2" if bootstrap_only else "1/8"
+        print(f"\n[{step}] Ensuring default organization...")
         _ensure_default_org(session)
         session.commit()
+
+        if bootstrap_only:
+            # Bootstrap-only: skip the spreadsheet imports and just create the
+            # admin user, email reminder rules, and ticket categories so the
+            # default organization is usable out of the box.
+            print("\n[2/2] Creating default admin user, email reminder rules, and ticket categories...")
+            _create_default_admin(session, admin_email, admin_password)
+            _create_email_reminder_rules(session, admin_email)
+            _create_ticket_categories(session)
+            session.commit()
+            print("  Done")
+            print("\n=== Bootstrap Complete ===\n")
+            return
 
         # 1 ── Offices + managers (must be first; all other importers depend on maps)
         print("\n[2/8] Importing offices and managers...")
@@ -255,4 +276,14 @@ def run_seed() -> None:
 main = run_seed
 
 if __name__ == "__main__":
-    run_seed()
+    parser = argparse.ArgumentParser(
+        description="Seed SwiftLease data, or just the default organization.",
+    )
+    parser.add_argument(
+        "--bootstrap-only",
+        action="store_true",
+        help="Only create the default organization, admin user, email reminder "
+             "rules, and ticket categories; skip the spreadsheet imports.",
+    )
+    args = parser.parse_args()
+    run_seed(bootstrap_only=args.bootstrap_only)
