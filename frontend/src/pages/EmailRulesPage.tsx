@@ -9,6 +9,7 @@ import Modal from '@cloudscape-design/components/modal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
+import Multiselect from '@cloudscape-design/components/multiselect';
 import Toggle from '@cloudscape-design/components/toggle';
 import TokenGroup from '@cloudscape-design/components/token-group';
 import Alert from '@cloudscape-design/components/alert';
@@ -47,6 +48,11 @@ const EmailRulesPage: React.FC = () => {
     rule_type: '',
     days_before: 30,
     recipient_emails: [],
+    recipient_roles: [],
+    delivery_mode: 'immediate',
+    escalation_offsets: [],
+    escalation_recipient_emails: [],
+    require_acknowledgement: false,
     is_active: true,
   });
   const [emailInput, setEmailInput] = useState('');
@@ -113,7 +119,11 @@ const EmailRulesPage: React.FC = () => {
 
   const openCreateModal = () => {
     setEditingRule(null);
-    setFormData({ rule_name: '', rule_type: '', days_before: 30, recipient_emails: [], is_active: true });
+    setFormData({
+      rule_name: '', rule_type: '', days_before: 30, recipient_emails: [],
+      recipient_roles: [], delivery_mode: 'immediate', escalation_offsets: [],
+      escalation_recipient_emails: [], require_acknowledgement: false, is_active: true,
+    });
     setEmailInput('');
     setModalVisible(true);
   };
@@ -125,6 +135,11 @@ const EmailRulesPage: React.FC = () => {
       rule_type: rule.rule_type,
       days_before: rule.days_before,
       recipient_emails: [...rule.recipient_emails],
+      recipient_roles: [...(rule.recipient_roles ?? [])],
+      delivery_mode: rule.delivery_mode ?? 'immediate',
+      escalation_offsets: [...(rule.escalation_offsets ?? [])],
+      escalation_recipient_emails: [...(rule.escalation_recipient_emails ?? [])],
+      require_acknowledgement: rule.require_acknowledgement ?? false,
       is_active: rule.is_active,
     });
     setEmailInput('');
@@ -457,6 +472,85 @@ const EmailRulesPage: React.FC = () => {
                   />
                 )}
               </SpaceBetween>
+            </FormField>
+
+            <FormField label="Recipient Roles" description="Active users with these roles are emailed in addition to the addresses above.">
+              <Multiselect
+                selectedOptions={(formData.recipient_roles ?? []).map((r) => ({ value: r, label: r }))}
+                onChange={({ detail }) =>
+                  setFormData({ ...formData, recipient_roles: detail.selectedOptions.map((o) => o.value as string) })
+                }
+                options={[
+                  { value: 'admin', label: 'Admin' },
+                  { value: 'editor', label: 'Editor' },
+                  { value: 'viewer', label: 'Viewer' },
+                  { value: 'accountant', label: 'Accountant' },
+                ]}
+                placeholder="No roles selected"
+                deselectAriaLabel={(o) => `Remove ${o.label}`}
+              />
+            </FormField>
+
+            <FormField label="Delivery Mode" description="Immediate sends one email per event; digests batch multiple notices into one email per recipient.">
+              <Select
+                selectedOption={{
+                  value: formData.delivery_mode ?? 'immediate',
+                  label: { immediate: 'Immediate', daily_digest: 'Daily digest', weekly_digest: 'Weekly digest' }[formData.delivery_mode ?? 'immediate'] ?? 'Immediate',
+                }}
+                onChange={({ detail }) => setFormData({ ...formData, delivery_mode: detail.selectedOption.value })}
+                options={[
+                  { value: 'immediate', label: 'Immediate' },
+                  { value: 'daily_digest', label: 'Daily digest' },
+                  { value: 'weekly_digest', label: 'Weekly digest' },
+                ]}
+              />
+            </FormField>
+
+            <FormField
+              label="Escalation Day Offsets"
+              description="Comma-separated days after the first notice to re-send while unacknowledged (e.g. 3, 7). Leave blank for no escalation."
+            >
+              <Input
+                value={(formData.escalation_offsets ?? []).join(', ')}
+                onChange={({ detail }) =>
+                  setFormData({
+                    ...formData,
+                    escalation_offsets: detail.value
+                      .split(',')
+                      .map((s) => parseInt(s.trim(), 10))
+                      .filter((n) => Number.isFinite(n) && n > 0),
+                  })
+                }
+                placeholder="3, 7"
+              />
+            </FormField>
+
+            <FormField
+              label="Escalation Recipient Emails"
+              description="Comma-separated extra addresses added once a notice escalates (e.g. a manager or owner)."
+            >
+              <Input
+                value={(formData.escalation_recipient_emails ?? []).join(', ')}
+                onChange={({ detail }) =>
+                  setFormData({
+                    ...formData,
+                    escalation_recipient_emails: detail.value
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter((s) => s.length > 0),
+                  })
+                }
+                placeholder="manager@example.com"
+              />
+            </FormField>
+
+            <FormField label="Require Acknowledgement" description="Include an acknowledge link; escalation stops once a recipient confirms.">
+              <Toggle
+                checked={formData.require_acknowledgement ?? false}
+                onChange={({ detail }) => setFormData({ ...formData, require_acknowledgement: detail.checked })}
+              >
+                {formData.require_acknowledgement ? 'Required' : 'Not required'}
+              </Toggle>
             </FormField>
 
             <FormField label="Active">

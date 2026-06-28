@@ -62,7 +62,7 @@ from app.routers import (  # noqa: E402
     webhooks, operating_expenses, vendor_portal, insurance_certificates, ws, work_order_costs,
     space, gl, cam, lifecycle, ap,
     lease_abstract, management_companies, contacts, client_portal,
-    ai, waivers, document_search, maintenance,
+    ai, waivers, document_search, maintenance, saved_reports, assistant,
 )
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit, usage as admin_usage  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature  # noqa: E402
@@ -88,6 +88,7 @@ app.include_router(hq_hvac.router, prefix="/api/v1/hq-hvac", tags=["HQ HVAC"], d
 app.include_router(hvac_contracts.router, prefix="/api/v1/hvac-contracts", tags=["HVAC Contracts"], dependencies=[Depends(enforce_org_access), Depends(require_feature("hvac"))])
 app.include_router(maintenance.router, prefix="/api/v1/maintenance", tags=["Maintenance"], dependencies=[Depends(enforce_org_access), Depends(require_feature("maintenance"))])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"], dependencies=_org_guard)
+app.include_router(saved_reports.router, prefix="/api/v1/saved-reports", tags=["Saved Reports"], dependencies=_org_guard)
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"], dependencies=_org_guard)
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"], dependencies=_org_guard)
 app.include_router(attachments.router, prefix="/api/v1", tags=["Attachments"], dependencies=_org_guard)
@@ -95,11 +96,13 @@ app.include_router(ticket_categories.router, prefix="/api/v1/ticket-categories",
 app.include_router(maintenance_tickets.router, prefix="/api/v1/maintenance-tickets", tags=["Maintenance Tickets"], dependencies=_org_guard)
 app.include_router(activity_log.router, prefix="/api/v1/activity-log", tags=["Activity Log"], dependencies=_org_guard)
 app.include_router(search.router, prefix="/api/v1/search", tags=["Search"], dependencies=_org_guard)
+app.include_router(assistant.router, prefix="/api/v1/assistant", tags=["Assistant"], dependencies=[Depends(enforce_org_access), Depends(require_feature("ai_assist"))])
 app.include_router(preferences.router, prefix="/api/v1/users", tags=["Preferences"], dependencies=_org_guard)
 app.include_router(wizard_configs.router, prefix="/api/v1/wizard-configs", tags=["Wizard Configs"], dependencies=_org_guard)
 app.include_router(vendors.router, prefix="/api/v1/vendors", tags=["Vendors"], dependencies=_org_guard)
 app.include_router(imports.router, prefix="/api/v1/imports", tags=["Imports"], dependencies=_org_guard)
 app.include_router(email_rules.router, prefix="/api/v1/email-rules", tags=["Email Rules"], dependencies=_org_guard)
+app.include_router(email_rules.public_router, prefix="/api/v1/email-rules", tags=["Email Rules"])
 app.include_router(trash.router, prefix="/api/v1/admin/trash", tags=["Admin - Trash"], dependencies=_org_guard)
 app.include_router(site_settings.router, prefix="/api/v1/site-settings", tags=["Site Settings"], dependencies=_org_guard)
 app.include_router(ticket_templates.router, prefix="/api/v1/ticket-templates", tags=["Ticket Templates"], dependencies=_org_guard)

@@ -12,6 +12,8 @@ const ENTITY_ROUTES: Record<string, string> = {
   vendor: '/vendors',
   transition: '/transitions',
   hvac_contract: '/hvac-contracts',
+  management_company: '/management-companies',
+  waiver: '/waivers',
 };
 
 const GlobalSearchBar: React.FC = () => {
@@ -61,9 +63,17 @@ const GlobalSearchBar: React.FC = () => {
   const handleSelect = useCallback(
     (detail: { value: string }) => {
       const [entityType, entityId] = detail.value.split(':');
-      const base = ENTITY_ROUTES[entityType];
-      if (base && entityId) {
-        navigate(`${base}/${entityId}`);
+      // Phase (b): prefer the server-provided deep-link route when present.
+      const match = resultsRef.current.find(
+        (r) => `${r.entity_type}:${r.entity_id}` === detail.value,
+      );
+      const target =
+        match?.route ||
+        (ENTITY_ROUTES[entityType] && entityId
+          ? `${ENTITY_ROUTES[entityType]}/${entityId}`
+          : '');
+      if (target) {
+        navigate(target);
         setValue('');
         setOptions([]);
       }

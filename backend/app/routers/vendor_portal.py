@@ -1,11 +1,11 @@
 """Vendor portal — token-gated endpoints for external vendor access."""
 import secrets
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, status, Header, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, status, Header, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,11 @@ from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.attachment import Attachment
 from app.models.entity_contact import EntityContact
+from app.models.insurance_certificate import (
+    CERT_TYPES,
+    InsuranceCertificate,
+    certificate_status,
+)
 from app.models.user import User
 from app.models.vendor import Vendor
 from app.models.maintenance_ticket import MaintenanceTicket
@@ -109,6 +114,32 @@ class PortalTicketUpdate(BaseModel):
     scheduled_date: Optional[datetime] = None
     estimated_duration_minutes: Optional[int] = None
     vendor_completion_notes: Optional[str] = None
+
+
+class PortalCertResponse(BaseModel):
+    """Read-only view of a vendor's certificate of insurance."""
+    id: uuid.UUID
+    certificate_type: str
+    insurer: Optional[str] = None
+    policy_number: Optional[str] = None
+    effective_date: Optional[date] = None
+    expiration_date: Optional[date] = None
+    limits: Optional[str] = None
+    certificate_holder: Optional[str] = None
+    notes: Optional[str] = None
+    is_verified: bool
+    status: str = ""  # computed
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+def _cert_to_portal_response(cert: InsuranceCertificate) -> PortalCertResponse:
+    data = PortalCertResponse.model_validate(cert)
+    data.status = certificate_status(cert.expiration_date)
+    return data
 
 
 # ── Auth dependency ─────────────────────────────────────────────────────────
@@ -422,6 +453,155 @@ async def portal_upload_invoice(
     await db.commit()
     await db.refresh(attachment)
     return AttachmentResponse.model_validate(attachment, from_attributes=True)
+
+
+# ── Portal: insurance certificates (COIs) ───────────────────────────────────
+
+_ALLOWED_COI_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".doc", ".docx"}
+
+
+@router.get("/vendor-portal/insurance", response_model=list[PortalCertResponse])
+async def portal_list_insurance(
+    vendor: Vendor = Depends(get_portal_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    """List the vendor's certificates of insurance with expiration status."""
+    result = await db.execute(
+        select(InsuranceCertificate)
+        .where(
+            InsuranceCertificate.vendor_id == vendor.id,
+            InsuranceCertificate.organization_id == vendor.organization_id,
+        )
+        .order_by(InsuranceCertificate.expiration_date.asc().nulls_last())
+    )
+    return [_cert_to_portal_response(c) for c in result.scalars().all()]
+
+
+@router.post(
+    "/vendor-portal/insurance/reupload",
+    response_model=PortalCertResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def portal_reupload_insurance(
+    file: UploadFile = File(...),
+    cert_id: Optional[uuid.UUID] = Form(None),
+    certificate_type: str = Form("general_liability"),
+    insurer: Optional[str] = Form(None),
+    policy_number: Optional[str] = Form(None),
+    effective_date: Optional[str] = Form(None),
+    expiration_date: Optional[str] = Form(None),
+    limits: Optional[str] = Form(None),
+    notes: Optional[str] = Form(None),
+    vendor: Vendor = Depends(get_portal_vendor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Submit a renewed certificate of insurance.
+
+    Creates a new ``InsuranceCertificate`` (or updates ``cert_id`` when it
+    belongs to this vendor), stores the uploaded file as an attachment, and marks
+    the certificate ``is_verified=False`` so an admin reviews it.
+    """
+    if certificate_type not in CERT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid certificate_type. Must be one of: {list(CERT_TYPES)}",
+        )
+
+    def _parse_date(value: Optional[str]) -> Optional[date]:
+        if not value:
+            return None
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid date '{value}'. Use YYYY-MM-DD.",
+            )
+
+    eff = _parse_date(effective_date)
+    exp = _parse_date(expiration_date)
+
+    # Validate the uploaded file up front.
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No filename provided")
+    ext = Path(file.filename).suffix.lower()
+    if ext not in _ALLOWED_COI_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File type '{ext}' is not allowed for certificates.",
+        )
+    content = await file.read()
+    max_bytes = settings.MAX_FILE_SIZE_MB * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File too large. Maximum size is {settings.MAX_FILE_SIZE_MB} MB.",
+        )
+
+    if cert_id is not None:
+        result = await db.execute(
+            select(InsuranceCertificate).where(
+                InsuranceCertificate.id == cert_id,
+                InsuranceCertificate.vendor_id == vendor.id,
+                InsuranceCertificate.organization_id == vendor.organization_id,
+            )
+        )
+        cert = result.scalar_one_or_none()
+        if not cert:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Certificate not found")
+        cert.certificate_type = certificate_type
+        if insurer is not None:
+            cert.insurer = insurer
+        if policy_number is not None:
+            cert.policy_number = policy_number
+        if eff is not None:
+            cert.effective_date = eff
+        if exp is not None:
+            cert.expiration_date = exp
+        if limits is not None:
+            cert.limits = limits
+        if notes is not None:
+            cert.notes = notes
+    else:
+        cert = InsuranceCertificate(
+            organization_id=vendor.organization_id,
+            vendor_id=vendor.id,
+            certificate_type=certificate_type,
+            insurer=insurer,
+            policy_number=policy_number,
+            effective_date=eff,
+            expiration_date=exp,
+            limits=limits,
+            notes=notes,
+        )
+        db.add(cert)
+
+    # Re-uploaded certificates always require admin re-verification.
+    cert.is_verified = False
+    cert.verified_at = None
+
+    await db.flush()  # ensure cert.id is available for the attachment
+
+    upload_dir = Path(settings.UPLOAD_DIR) / "insurance_certificate"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid.uuid4()}{ext}"
+    (upload_dir / stored_name).write_bytes(content)
+
+    attachment = Attachment(
+        organization_id=vendor.organization_id,
+        entity_type="insurance_certificate",
+        entity_id=cert.id,
+        original_filename=Path(file.filename).name,
+        stored_filename=stored_name,
+        content_type=file.content_type or "application/octet-stream",
+        file_size=len(content),
+        uploaded_by=vendor.company_name,
+        description="coi",
+    )
+    db.add(attachment)
+    await db.commit()
+    await db.refresh(cert)
+    return _cert_to_portal_response(cert)
 
 
 # ── Portal: additional contacts (editable) ──────────────────────────────────

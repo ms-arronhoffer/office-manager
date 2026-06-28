@@ -18,6 +18,12 @@ const PERIODS = [
   { label: 'Monthly briefing', value: 'monthly' },
 ];
 
+const PRIORITY_BADGE: Record<string, 'red' | 'blue' | 'grey'> = {
+  high: 'red',
+  medium: 'blue',
+  low: 'grey',
+};
+
 /**
  * AI-generated operations briefing (Pro+). Summarizes upcoming lease
  * notice/notification deadlines, expirations and maintenance load into a
@@ -90,7 +96,9 @@ const AISummaryPanel: React.FC = () => {
       <Container header={<Header variant="h2">AI briefing <Badge color="blue">Pro</Badge></Header>}>
         <Alert type="info">
           Generate written weekly and monthly briefings of upcoming lease notice deadlines,
-          expirations and maintenance — powered by AI. Available on the Pro and Enterprise plans.
+          expirations, maintenance load, expiring insurance certificates, HVAC renewals and
+          past-due vendor bills — with AI-recommended actions. Available on the Pro and
+          Enterprise plans.
         </Alert>
       </Container>
     );
@@ -101,7 +109,7 @@ const AISummaryPanel: React.FC = () => {
       header={
         <Header
           variant="h2"
-          description="AI-written summary of upcoming notice deadlines, expirations and maintenance load."
+          description="AI-written summary of upcoming notice deadlines, expirations, maintenance, insurance, HVAC and past-due payables — with recommended actions."
           actions={
             <SpaceBetween direction="horizontal" size="xs">
               <Button onClick={generate} variant="primary" loading={loading}>
@@ -143,6 +151,26 @@ const AISummaryPanel: React.FC = () => {
                 }),
               }}
             />
+            {result.recommended_actions && result.recommended_actions.length > 0 && (
+              <Box padding={{ top: 'm' }}>
+                <Box variant="h3">AI-recommended actions</Box>
+                <SpaceBetween size="xs">
+                  {result.recommended_actions.map((action, idx) => (
+                    <Box key={idx} padding={{ top: 'xxs' }}>
+                      <SpaceBetween direction="horizontal" size="xs">
+                        <Badge color={PRIORITY_BADGE[action.priority] || 'grey'}>
+                          {action.priority.toUpperCase()}
+                        </Badge>
+                        <span>
+                          <strong>{action.title}</strong>
+                          {action.detail ? ` — ${action.detail}` : ''}
+                        </span>
+                      </SpaceBetween>
+                    </Box>
+                  ))}
+                </SpaceBetween>
+              </Box>
+            )}
             <SpaceBetween direction="horizontal" size="xs">
               <Button
                 iconName="download"

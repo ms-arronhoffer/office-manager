@@ -54,6 +54,7 @@ import type {
   MaintenanceTicketUpdate,
   ActivityLogEntry,
   SearchResult,
+  AssistantResponse,
   UserPreferences,
   WizardConfig,
   EmailReminderRule,
@@ -97,6 +98,7 @@ import type {
   PortalTicket,
   PortalTicketUpdate,
   VendorPortalProfile,
+  VendorPortalCOI,
   ClientPortalEntityType,
   ClientPortalInviteResponse,
   ClientPortalSession,
@@ -703,6 +705,12 @@ export const search = {
     client.get<SearchResult[]>('/search', { params: { q, limit } }),
 };
 
+// ─── In-app assistant (search-to-action) ────────────────────────────────────
+export const assistant = {
+  ask: (prompt: string) =>
+    client.post<AssistantResponse>('/assistant', { prompt }),
+};
+
 // ─── User Preferences ──────────────────────────────────────────────────────
 export const preferences = {
   get: () => client.get<UserPreferences>('/users/me/preferences'),
@@ -973,6 +981,14 @@ export const vendorPortal = {
 
   deleteContact: (token: string, id: string) =>
     _portalClient(token).delete(`/vendor-portal/contacts/${id}`),
+
+  listInsurance: (token: string) =>
+    _portalClient(token).get<VendorPortalCOI[]>('/vendor-portal/insurance'),
+
+  reuploadInsurance: (token: string, formData: FormData) =>
+    _portalClient(token).post<VendorPortalCOI>('/vendor-portal/insurance/reupload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
 };
 
 // ─── Client Portal (internal: admin generates one-time signup invite) ────────
@@ -1134,6 +1150,7 @@ import type {
   AIStatus,
   LeaseParseResult,
   AbstractSuggestResult,
+  DocumentClassifyResult,
   DocumentParseResult,
   AISummaryResult,
   TicketTriageResult,
@@ -1143,6 +1160,7 @@ import type {
   LeaseDocumentSearchResult,
   LeaseIndexedDocumentsResult,
   LeaseDocumentTextResult,
+  PortfolioAskResult,
   WaiverTemplateCreate,
   WaiverTemplateUpdate,
   WaiverRequestItem,
@@ -1168,6 +1186,14 @@ export const ai = {
     const form = new FormData();
     form.append('file', file);
     return client.post<AbstractSuggestResult>(`/ai/leases/${leaseId}/abstract/suggest`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  classifyDocument: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post<DocumentClassifyResult>('/ai/documents/classify', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
@@ -1258,6 +1284,9 @@ export const ai = {
     client.post<{ lease_id: string; chunks_indexed: number }>(
       `/leases/${leaseId}/reindex-documents`,
     ),
+
+  askPortfolio: (question: string, limit = 8) =>
+    client.post<PortfolioAskResult>('/ai/portfolio/ask', { question, limit }),
 };
 
 // ─── Digital Waivers (internal, gated) ───────────────────────────────────────
@@ -1307,4 +1336,20 @@ export const waiverPublic = {
 
   decline: (token: string) =>
     axios.create({ baseURL: _waiverBase }).post<PublicWaiverView>(`/waivers/decline/${token}`),
+};
+
+// ─── Email reminders (public, token-based acknowledgement) ───────────────────
+export interface EmailAckView {
+  subject: string;
+  rule_name: string | null;
+  acknowledged: boolean;
+  acknowledged_at: string | null;
+}
+
+export const emailAckPublic = {
+  view: (token: string) =>
+    axios.create({ baseURL: _waiverBase }).get<EmailAckView>(`/email-rules/ack/${token}`),
+
+  confirm: (token: string) =>
+    axios.create({ baseURL: _waiverBase }).post<EmailAckView>(`/email-rules/ack/${token}`),
 };

@@ -17,6 +17,7 @@ Gating:
 * ``POST /ai/assistant/query`` — **portfolio Q&A (RAG)**, Pro+ (``ai_assist``).
 * ``POST /ai/assistant/reindex`` — **rebuild the knowledge index**, Pro+ (``ai_assist``).
 * ``POST /ai/reports/summary`` — Pro+ (``ai_assist``).
+* ``POST /ai/portfolio/ask`` — Pro+ (``ai_assist``); grounded portfolio Q&A (RAG).
 """
 from __future__ import annotations
 
@@ -26,26 +27,36 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.auth.dependencies import get_current_user, require_feature
 from app.config import settings
 from app.database import get_db
+from app.models.hvac_contract import HvacContract
+from app.models.insurance_certificate import InsuranceCertificate
 from app.models.lease import Lease
+from app.models.lease_abstract import LeaseAbstractClause
+from app.models.landlord import Landlord
 from app.models.maintenance_ticket import MaintenanceTicket, TicketCategory
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.vendor import Vendor
+from app.models.vendor_bill import VendorBill
 from app.services import (
     ai_service,
+    ap_service,
     document_extraction,
+    document_search_service,
     entitlements as ent,
     knowledge_service,
     report_export,
+    report_service,
     usage_service,
 )
-from app.services.lease_abstract_catalog import CLAUSE_CATEGORIES
+from app.services.lease_abstract_catalog import CATEGORY_BY_KEY, CLAUSE_CATEGORIES
+from app.schemas.saved_report import ReportBuildRequest, ReportBuildResponse
 
 router = APIRouter()
 
@@ -155,8 +166,38 @@ class LeaseParseResponse(BaseModel):
     model: str
 
 
+class EntityMatch(BaseModel):
+    entity_type: str  # 'vendor' | 'landlord' | 'lease'
+    id: str
+    name: str
+
+
+class DocumentClassifyResponse(BaseModel):
+    document_type: str
+    confidence: str
+    reasoning: str = ""
+    fields: dict
+    suggested_matches: list[EntityMatch] = Field(default_factory=list)
+    model: str
+
+
 class AbstractSuggestResponse(BaseModel):
     suggested: dict
+    model: str
+
+
+class AbstractGapFinding(BaseModel):
+    category_key: str
+    name: str
+    group: str
+    gap_type: str  # 'missing' | 'ambiguous' | 'incomplete'
+    severity: str  # 'high' | 'medium' | 'low'
+    message: str
+    recommendation: str = ""
+
+
+class AbstractGapResponse(BaseModel):
+    gaps: list[AbstractGapFinding] = Field(default_factory=list)
     model: str
 
 
@@ -164,11 +205,19 @@ class SummaryRequest(BaseModel):
     period: str = "weekly"  # 'weekly' | 'monthly'
 
 
+class SummaryActionItem(BaseModel):
+    title: str
+    detail: str = ""
+    priority: str = "medium"
+    category: str = "other"
+
+
 class SummaryResponse(BaseModel):
     period: str
     period_label: str
     narrative: str
     narrative_html: str
+    recommended_actions: list[SummaryActionItem] = Field(default_factory=list)
     data: dict
     model: str
 
@@ -177,6 +226,32 @@ class SummaryExportRequest(BaseModel):
     narrative: str = Field(min_length=1)
     period_label: str = "Operations Briefing"
     format: str = "pdf"  # 'pdf' | 'docx'
+
+
+class PortfolioAskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+    limit: int = Field(default=8, ge=1, le=20)
+
+
+class PortfolioCitation(BaseModel):
+    index: int
+    lease_id: str
+    lease_name: str | None = None
+    attachment_id: str | None = None
+    source_filename: str
+    chunk_index: int | None = None
+    snippet: str
+    score: float
+    match_type: str
+
+
+class PortfolioAskResponse(BaseModel):
+    question: str
+    answer: str
+    answer_html: str
+    citations: list[PortfolioCitation]
+    grounded: bool
+    model: str
 
 
 class AssistantQueryRequest(BaseModel):
@@ -345,6 +420,139 @@ async def parse_lease(
         raise _ai_error_response(exc)
     await _log_ai_usage(db, current_user.organization_id, "ai_lease_parse")
     return LeaseParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+
+
+# ── Inbound document classification & routing (Pro+) ──────────────────────────
+
+def _norm_name(value: str | None) -> str:
+    """Normalise an entity name for fuzzy matching (case/space-insensitive)."""
+    return " ".join((value or "").lower().split())
+
+
+def _name_matches(needle: str, candidate: str) -> bool:
+    """Return whether two normalised names plausibly refer to the same entity."""
+    if not needle or not candidate:
+        return False
+    return needle == candidate or needle in candidate or candidate in needle
+
+
+async def _route_classification(
+    db: AsyncSession, org_id, result: dict
+) -> list[EntityMatch]:
+    """Find existing org records that the classified document likely belongs to.
+
+    Matching is intentionally conservative (exact or substring on normalised
+    names) and returns *suggestions* only — nothing is auto-linked.
+    """
+    doc_type = result.get("document_type")
+    fields = result.get("fields") or {}
+    matches: list[EntityMatch] = []
+
+    # Vendor invoices and COIs route to the vendor that issued/holds them.
+    vendor_name = _norm_name(
+        fields.get("vendor_name") or fields.get("insured_name")
+    )
+    if doc_type in ("vendor_invoice", "insurance_certificate") and vendor_name:
+        rows = (
+            await db.execute(
+                select(Vendor.id, Vendor.company_name).where(
+                    Vendor.organization_id == org_id,
+                    Vendor.is_deleted.is_(False),
+                )
+            )
+        ).all()
+        for vid, name in rows:
+            if _name_matches(vendor_name, _norm_name(name)):
+                matches.append(
+                    EntityMatch(entity_type="vendor", id=str(vid), name=name)
+                )
+
+    # COIs may instead (or also) cover a landlord; amendments/leases name a lessor.
+    landlord_name = _norm_name(
+        fields.get("insured_name") or fields.get("lessor_name")
+    )
+    if doc_type in (
+        "insurance_certificate",
+        "lease_amendment",
+        "lease",
+    ) and landlord_name:
+        rows = (
+            await db.execute(
+                select(Landlord.id, Landlord.landlord_company).where(
+                    Landlord.organization_id == org_id,
+                    Landlord.is_deleted.is_(False),
+                )
+            )
+        ).all()
+        for lid, name in rows:
+            if _name_matches(landlord_name, _norm_name(name)):
+                matches.append(
+                    EntityMatch(entity_type="landlord", id=str(lid), name=name)
+                )
+
+    # Amendments route to the existing lease they modify.
+    if doc_type in ("lease_amendment", "lease"):
+        lease_needle = _norm_name(fields.get("lease_name"))
+        lessor_needle = _norm_name(fields.get("lessor_name"))
+        if lease_needle or lessor_needle:
+            rows = (
+                await db.execute(
+                    select(Lease.id, Lease.lease_name, Lease.lessor_name).where(
+                        Lease.organization_id == org_id,
+                        Lease.is_deleted.is_(False),
+                    )
+                )
+            ).all()
+            for lid, lease_name, lessor_name in rows:
+                if (lease_needle and _name_matches(lease_needle, _norm_name(lease_name))) or (
+                    lessor_needle and _name_matches(lessor_needle, _norm_name(lessor_name))
+                ):
+                    matches.append(
+                        EntityMatch(entity_type="lease", id=str(lid), name=lease_name)
+                    )
+
+    return matches
+
+
+@router.post(
+    "/documents/classify",
+    response_model=DocumentClassifyResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def classify_document(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Classify an inbound document and suggest the record/entity to route it to.
+
+    Extends the lease-parse pattern to vendor invoices (AP), certificates of
+    insurance (COIs), and lease amendments: the model determines the document
+    type, extracts the type's fields for pre-fill, and the org's existing
+    vendors/landlords/leases are searched for likely matches. Everything is
+    returned for human review — nothing is auto-committed.
+    """
+    content, mime_type = await _read_document(file)
+    text_content = _maybe_extract_text(file.filename, content)
+
+    try:
+        result = await ai_service.classify_document(
+            content, mime_type, text_content=text_content
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    suggested_matches = await _route_classification(
+        db, current_user.organization_id, result
+    )
+    return DocumentClassifyResponse(
+        document_type=result["document_type"],
+        confidence=result["confidence"],
+        reasoning=result["reasoning"],
+        fields=result["fields"],
+        suggested_matches=suggested_matches,
+        model=settings.GEMINI_MODEL,
+    )
 
 
 # ── Document extraction for other entities (all tiers, like lease parse) ──────
@@ -719,6 +927,83 @@ async def suggest_abstract(
     return AbstractSuggestResponse(suggested=suggested, model=settings.GEMINI_MODEL)
 
 
+@router.post(
+    "/leases/{lease_id}/abstract/gaps",
+    response_model=AbstractGapResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def detect_abstract_gaps(
+    lease_id: uuid.UUID,
+    file: UploadFile | None = File(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Flag missing / ambiguous / incomplete clauses in a lease's abstract.
+
+    Cross-references the clause content already captured for the lease (and, when
+    a lease document is uploaded, its source text) to turn the abstraction into a
+    QA tool. Findings are returned for human review — nothing is auto-changed.
+    """
+    result = await db.execute(
+        select(Lease).where(
+            Lease.id == lease_id,
+            Lease.is_deleted.is_(False),
+            Lease.organization_id == current_user.organization_id,
+        )
+    )
+    lease = result.scalar_one_or_none()
+    if not lease:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
+
+    stored_rows = await db.execute(
+        select(LeaseAbstractClause).where(LeaseAbstractClause.lease_id == lease_id)
+    )
+    captured = {
+        clause.category_key: {
+            "status": clause.status,
+            "content": clause.content,
+            "notes": clause.notes,
+        }
+        for clause in stored_rows.scalars().all()
+    }
+
+    content: bytes = b""
+    mime_type = ""
+    text_content: str | None = None
+    if file is not None and file.filename:
+        content, mime_type = await _read_document(file)
+        text_content = _maybe_extract_text(file.filename, content)
+
+    categories = [
+        {"key": c["key"], "name": c["name"], "fields": c["fields"]}
+        for c in CLAUSE_CATEGORIES
+    ]
+    try:
+        findings = await ai_service.detect_abstract_gaps(
+            categories,
+            captured,
+            content=content,
+            mime_type=mime_type,
+            text_content=text_content,
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    gaps = [
+        AbstractGapFinding(
+            category_key=f["category_key"],
+            name=CATEGORY_BY_KEY[f["category_key"]]["name"],
+            group=CATEGORY_BY_KEY[f["category_key"]]["group"],
+            gap_type=f["gap_type"],
+            severity=f["severity"],
+            message=f["message"],
+            recommendation=f["recommendation"],
+        )
+        for f in findings
+    ]
+    return AbstractGapResponse(gaps=gaps, model=settings.GEMINI_MODEL)
+
+
 # ── Narrative summary report (Pro+) ───────────────────────────────────────────
 
 async def _aggregate_summary(db: AsyncSession, org_id, horizon_days: int) -> dict:
@@ -782,6 +1067,79 @@ async def _aggregate_summary(db: AsyncSession, org_id, horizon_days: int) -> dic
         )
     ).scalars().all()
 
+    # Certificates of insurance (COIs) expiring within the horizon. Already-expired
+    # certificates are surfaced too (a lapsed COI is a live risk), bounded to the
+    # recent past so the briefing stays actionable.
+    coi_floor = today - timedelta(days=horizon_days)
+    expiring_cois = (
+        await db.execute(
+            select(InsuranceCertificate)
+            .where(
+                InsuranceCertificate.organization_id == org_id,
+                InsuranceCertificate.expiration_date.is_not(None),
+                InsuranceCertificate.expiration_date <= horizon,
+                InsuranceCertificate.expiration_date >= coi_floor,
+            )
+            .options(
+                selectinload(InsuranceCertificate.vendor),
+                selectinload(InsuranceCertificate.landlord),
+            )
+            .order_by(InsuranceCertificate.expiration_date.asc())
+            .limit(25)
+        )
+    ).scalars().all()
+
+    # HVAC service / contract renewals coming due within the horizon.
+    hvac_renewals = (
+        await db.execute(
+            select(HvacContract)
+            .where(
+                HvacContract.organization_id == org_id,
+                HvacContract.next_service_date.is_not(None),
+                HvacContract.next_service_date <= horizon,
+                HvacContract.next_service_date >= today,
+                HvacContract.is_deleted.is_(False),
+            )
+            .order_by(HvacContract.next_service_date.asc())
+            .limit(25)
+        )
+    ).scalars().all()
+
+    # Past-due accounts-payable: finalized vendor bills whose due date has passed
+    # and still carry an outstanding balance (posted to the GL via the ``ap`` tag).
+    overdue_bills = (
+        await db.execute(
+            select(VendorBill)
+            .where(
+                VendorBill.organization_id == org_id,
+                VendorBill.status == "finalized",
+                VendorBill.due_date.is_not(None),
+                VendorBill.due_date < today,
+            )
+            .options(
+                selectinload(VendorBill.lines),
+                selectinload(VendorBill.payments),
+                selectinload(VendorBill.vendor),
+            )
+            .order_by(VendorBill.due_date.asc())
+            .limit(25)
+        )
+    ).scalars().all()
+    past_due_payables = []
+    for bill in overdue_bills:
+        balance = ap_service.balance_due(bill)
+        if balance <= 0:
+            continue
+        past_due_payables.append(
+            {
+                "vendor": bill.vendor.company_name if bill.vendor else None,
+                "bill_number": bill.bill_number,
+                "due_date": bill.due_date.isoformat() if bill.due_date else None,
+                "days_overdue": (today - bill.due_date).days if bill.due_date else None,
+                "balance_due": float(balance),
+            }
+        )
+
     return {
         "horizon_days": horizon_days,
         "open_tickets": int(open_tickets),
@@ -809,6 +1167,34 @@ async def _aggregate_summary(db: AsyncSession, org_id, horizon_days: int) -> dic
             }
             for l in upcoming_notices
         ],
+        "expiring_cois": [
+            {
+                "holder": c.vendor.company_name
+                if c.vendor
+                else (
+                    (c.landlord.landlord_company or c.landlord.office_name)
+                    if c.landlord
+                    else None
+                ),
+                "certificate_type": c.certificate_type,
+                "insurer": c.insurer,
+                "expires": c.expiration_date.isoformat() if c.expiration_date else None,
+                "expired": bool(c.expiration_date and c.expiration_date < today),
+            }
+            for c in expiring_cois
+        ],
+        "hvac_renewals": [
+            {
+                "office": h.office_name,
+                "hvac_company": h.hvac_company,
+                "frequency": h.frequency,
+                "next_service": h.next_service_date.isoformat()
+                if h.next_service_date
+                else None,
+            }
+            for h in hvac_renewals
+        ],
+        "past_due_payables": past_due_payables,
     }
 
 
@@ -836,12 +1222,23 @@ async def summary_report(
         narrative = await ai_service.generate_summary_narrative(period_label, data)
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
+
+    # Recommended actions are an additive, best-effort section: if that second
+    # generation fails we still return the narrative rather than 500 the request.
+    try:
+        recommended_actions = await ai_service.generate_recommended_actions(
+            period_label, data
+        )
+    except ai_service.AIError:
+        recommended_actions = []
+
     await _log_ai_usage(db, current_user.organization_id, "ai_summary")
     return SummaryResponse(
         period=period,
         period_label=period_label,
         narrative=narrative,
         narrative_html=report_export.markdown_to_html(narrative),
+        recommended_actions=[SummaryActionItem(**a) for a in recommended_actions],
         data=data,
         model=settings.GEMINI_MODEL,
     )
@@ -886,6 +1283,116 @@ async def export_summary_report(
     )
 
 
+# ── Portfolio Q&A (RAG "Ask your portfolio") (Pro+) ───────────────────────────
+
+@router.post(
+    "/portfolio/ask",
+    response_model=PortfolioAskResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def ask_portfolio(
+    payload: PortfolioAskRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Answer a natural-language question grounded in the org's lease documents.
+
+    Reuses the existing semantic/keyword document retrieval to pull the most
+    relevant lease document chunks, then adds a generation step that composes a
+    grounded answer citing those passages. Citations map back to the lease
+    document chunks the answer relied on. When no relevant documents are found
+    the answer reports that plainly without calling the model.
+    """
+    matches = await document_search_service.search_documents(
+        db,
+        organization_id=current_user.organization_id,
+        query=payload.question,
+        limit=payload.limit,
+    )
+
+    citations = [
+        PortfolioCitation(index=i, **match)
+        for i, match in enumerate(matches, start=1)
+    ]
+
+    if not matches:
+        answer = (
+            "I couldn't find any indexed lease documents relevant to that "
+            "question. Try rephrasing, or make sure the related lease documents "
+            "have been uploaded and indexed."
+        )
+        return PortfolioAskResponse(
+            question=payload.question,
+            answer=answer,
+            answer_html=report_export.markdown_to_html(answer),
+            citations=citations,
+            grounded=False,
+            model=settings.GEMINI_MODEL,
+        )
+
+    context_chunks = [c.model_dump() for c in citations]
+    try:
+        answer = await ai_service.answer_portfolio_question(
+            payload.question, context_chunks
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    return PortfolioAskResponse(
+        question=payload.question,
+        answer=answer,
+        answer_html=report_export.markdown_to_html(answer),
+        citations=citations,
+        grounded=True,
+        model=settings.GEMINI_MODEL,
+    )
+
+
+# ── Natural-language report builder (Pro+) ────────────────────────────────────
+
+@router.post(
+    "/reports/build",
+    response_model=ReportBuildResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def build_report(
+    payload: ReportBuildRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Draft a saved-report definition from a plain-English request.
+
+    Maps the prompt onto a ``{dataset, columns, filters}`` spec validated against
+    the existing dataset/template engine — it never executes free-form SQL. The
+    result is a *draft* the user confirms (and can tweak) before saving as a
+    SavedReport. Degrades gracefully when Gemini is not configured.
+    """
+    datasets = report_service.dataset_schema_for_prompt()
+    try:
+        raw = await ai_service.build_report_spec(payload.prompt, datasets)
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    try:
+        dataset, columns, filters = report_service.validate_report_spec(
+            raw.get("dataset", ""),
+            raw.get("columns"),
+            raw.get("filters"),
+            strict=False,
+        )
+    except report_service.ReportSpecError as exc:
+        # The model picked a dataset that doesn't exist — surface a clean 422.
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+    config = report_service.DATASET_CONFIGS.get(dataset, {})
+    return ReportBuildResponse(
+        dataset=dataset,
+        columns=columns,
+        filters=filters,
+        title=config.get("title", dataset),
+        model=settings.GEMINI_MODEL,
+    )
+
+
 # ── Portfolio assistant (RAG Q&A, Pro+) ───────────────────────────────────────
 
 # Cap the length of the citation preview returned to the client.
@@ -923,7 +1430,7 @@ async def assistant_query(
     )
 
     try:
-        answer = await ai_service.answer_portfolio_question(payload.question, chunks)
+        answer = await ai_service.answer_assistant_question(payload.question, chunks)
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
 
@@ -969,4 +1476,5 @@ async def assistant_reindex(
         raise _ai_error_response(exc)
     await _log_ai_usage(db, current_user.organization_id, "ai_reindex")
     return AssistantReindexResponse(indexed=indexed)
+
 

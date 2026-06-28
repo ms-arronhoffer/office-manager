@@ -176,6 +176,117 @@ _FILTERABLE_ATTRS = {
 }
 
 
+class ReportSpecError(ValueError):
+    """Raised when a report definition is invalid for its dataset."""
+
+
+def dataset_schema_for_prompt() -> list[dict]:
+    """Compact, serialisable description of every dataset for AI prompting.
+
+    Exposes only the safe building blocks (dataset id, title, available column
+    keys, and filter keys/types) so a model can map a plain-English request onto
+    a ``{dataset, columns, filters}`` spec without ever seeing SQL.
+    """
+    schema: list[dict] = []
+    for key, cfg in DATASET_CONFIGS.items():
+        filters = []
+        for f in cfg.get("filters_config", []):
+            entry = {"key": f["key"], "type": f.get("type", "text")}
+            if f.get("options"):
+                entry["options"] = [o["value"] for o in f["options"]]
+            filters.append(entry)
+        schema.append(
+            {
+                "dataset": key,
+                "title": cfg["title"],
+                "columns": list(cfg["columns"].keys()),
+                "filters": filters,
+            }
+        )
+    return schema
+
+
+def _coerce_filter_value(value, ftype: str):
+    """Best-effort coercion of a filter value to its declared type.
+
+    Returns the coerced value, or ``None`` if the value should be dropped.
+    """
+    if value is None or value == "":
+        return None
+    if ftype == "boolean":
+        if isinstance(value, bool):
+            return value
+        sval = str(value).strip().lower()
+        if sval in ("true", "1", "yes"):
+            return True
+        if sval in ("false", "0", "no"):
+            return False
+        return None
+    if ftype == "number":
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+    # text / select: keep as string
+    return str(value)
+
+
+def validate_report_spec(
+    dataset: str,
+    columns: list[str] | None = None,
+    filters: dict | None = None,
+    *,
+    strict: bool = True,
+) -> tuple[str, list[str] | None, dict]:
+    """Validate a report spec against :data:`DATASET_CONFIGS`.
+
+    Returns a cleaned ``(dataset, columns, filters)`` tuple where ``columns`` is
+    restricted to the dataset's known column keys and ``filters`` only contains
+    declared, type-coerced filter keys.
+
+    When ``strict`` is ``True`` an unknown dataset or unknown column raises
+    :class:`ReportSpecError`. When ``strict`` is ``False`` (used for AI-drafted
+    specs) unknown columns/filters are silently dropped instead, so a model's
+    near-miss still yields a usable draft.
+    """
+    config = DATASET_CONFIGS.get(dataset)
+    if not config:
+        raise ReportSpecError(f"Unknown dataset: {dataset}")
+
+    valid_columns = list(config["columns"].keys())
+    clean_columns: list[str] | None = None
+    if columns:
+        unknown = [c for c in columns if c not in valid_columns]
+        if unknown and strict:
+            raise ReportSpecError(
+                f"Unknown columns for dataset '{dataset}': {', '.join(unknown)}"
+            )
+        clean_columns = [c for c in columns if c in valid_columns]
+        if not clean_columns:
+            clean_columns = None
+
+    filter_types = {
+        f["key"]: f.get("type", "text") for f in config.get("filters_config", [])
+    }
+    clean_filters: dict = {}
+    if filters:
+        for key, raw in filters.items():
+            if key not in filter_types:
+                if strict:
+                    raise ReportSpecError(
+                        f"Unknown filter '{key}' for dataset '{dataset}'"
+                    )
+                continue
+            coerced = _coerce_filter_value(raw, filter_types[key])
+            if coerced is not None:
+                clean_filters[key] = coerced
+
+    return dataset, clean_columns, clean_filters
+
+
 class ReportService:
     def __init__(self, db: AsyncSession):
         self.db = db

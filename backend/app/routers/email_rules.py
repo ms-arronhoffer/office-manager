@@ -10,10 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.auth.dependencies import require_role
-from app.models.email import EmailReminderRule, EmailLog
+from app.models.email import EmailReminderRule, EmailLog, EmailAcknowledgement, DELIVERY_MODES
 from app.utils.email_client import send_email
 
 router = APIRouter()
+# Public, token-addressed acknowledgement surface (no JWT). Mounted alongside
+# the authenticated router in main.py.
+public_router = APIRouter()
 
 
 # ── Schemas ───────────────────────────────────────────────────────────
@@ -23,6 +26,12 @@ class RuleCreate(BaseModel):
     rule_type: str
     days_before: int
     recipient_emails: list[str]
+    recipient_roles: list[str] | None = None
+    recipient_user_ids: list[uuid.UUID] | None = None
+    delivery_mode: str = "immediate"
+    escalation_offsets: list[int] | None = None
+    escalation_recipient_emails: list[str] | None = None
+    require_acknowledgement: bool = False
     is_active: bool = True
 
 
@@ -31,6 +40,12 @@ class RuleUpdate(BaseModel):
     rule_type: str | None = None
     days_before: int | None = None
     recipient_emails: list[str] | None = None
+    recipient_roles: list[str] | None = None
+    recipient_user_ids: list[uuid.UUID] | None = None
+    delivery_mode: str | None = None
+    escalation_offsets: list[int] | None = None
+    escalation_recipient_emails: list[str] | None = None
+    require_acknowledgement: bool | None = None
     is_active: bool | None = None
 
 
@@ -40,6 +55,12 @@ class RuleResponse(BaseModel):
     rule_type: str
     days_before: int
     recipient_emails: list[str]
+    recipient_roles: list[str] | None
+    recipient_user_ids: list[uuid.UUID] | None
+    delivery_mode: str
+    escalation_offsets: list[int] | None
+    escalation_recipient_emails: list[str] | None
+    require_acknowledgement: bool
     is_active: bool
     last_triggered_at: datetime | None
     created_at: datetime
@@ -55,12 +76,40 @@ class EmailLogResponse(BaseModel):
     body: str | None
     sent_at: datetime
     status: str
+    escalation_level: int
     model_config = {"from_attributes": True}
+
+
+class AckView(BaseModel):
+    subject: str
+    rule_name: str | None
+    acknowledged: bool
+    acknowledged_at: datetime | None
+    model_config = {"from_attributes": True}
+
+
+# ── Validation helpers ────────────────────────────────────────────────
+
+VALID_RECIPIENT_ROLES = ["admin", "editor", "viewer", "accountant"]
+
+
+def _validate_rule_payload(rule_type: str | None, delivery_mode: str | None, roles: list[str] | None) -> None:
+    if rule_type is not None and rule_type not in VALID_RULE_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid rule_type. Must be one of: {VALID_RULE_TYPES}")
+    if delivery_mode is not None and delivery_mode not in DELIVERY_MODES:
+        raise HTTPException(status_code=400, detail=f"Invalid delivery_mode. Must be one of: {list(DELIVERY_MODES)}")
+    if roles:
+        invalid = [r for r in roles if r not in VALID_RECIPIENT_ROLES]
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid recipient_roles {invalid}. Must be among: {VALID_RECIPIENT_ROLES}",
+            )
 
 
 # ── Rule Types ────────────────────────────────────────────────────────
 
-VALID_RULE_TYPES = ["lease_expiration", "lease_notice_date", "hvac_service", "hq_pm", "high_priority_ticket", "ai_briefing"]
+VALID_RULE_TYPES = ["lease_expiration", "lease_notice_date", "lease_notice", "hvac_service", "hq_pm", "high_priority_ticket", "ai_briefing", "coi_expiration"]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────
@@ -86,6 +135,7 @@ async def list_rule_types(
         {"value": "hq_pm", "label": "HQ PM Task Due"},
         {"value": "high_priority_ticket", "label": "High Priority Ticket Created"},
         {"value": "ai_briefing", "label": "AI Operations Briefing (scheduled)"},
+        {"value": "coi_expiration", "label": "Insurance Certificate (COI) Expiration"},
     ]
 
 
@@ -95,13 +145,18 @@ async def create_rule(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_role("admin")),
 ):
-    if data.rule_type not in VALID_RULE_TYPES:
-        raise HTTPException(status_code=400, detail=f"Invalid rule_type. Must be one of: {VALID_RULE_TYPES}")
+    _validate_rule_payload(data.rule_type, data.delivery_mode, data.recipient_roles)
     rule = EmailReminderRule(
         rule_name=data.rule_name,
         rule_type=data.rule_type,
         days_before=data.days_before,
         recipient_emails=data.recipient_emails,
+        recipient_roles=data.recipient_roles,
+        recipient_user_ids=data.recipient_user_ids,
+        delivery_mode=data.delivery_mode,
+        escalation_offsets=data.escalation_offsets,
+        escalation_recipient_emails=data.escalation_recipient_emails,
+        require_acknowledgement=data.require_acknowledgement,
         is_active=data.is_active,
     )
     db.add(rule)
@@ -120,8 +175,7 @@ async def update_rule(
     rule = await db.get(EmailReminderRule, rule_id)
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
-    if data.rule_type is not None and data.rule_type not in VALID_RULE_TYPES:
-        raise HTTPException(status_code=400, detail=f"Invalid rule_type. Must be one of: {VALID_RULE_TYPES}")
+    _validate_rule_payload(data.rule_type, data.delivery_mode, data.recipient_roles)
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(rule, field, value)
     await db.commit()
@@ -188,3 +242,41 @@ async def list_email_logs(
     stmt = select(EmailLog).order_by(EmailLog.sent_at.desc()).limit(limit)
     result = await db.scalars(stmt)
     return result.all()
+
+
+# ── Public acknowledgement surface (token-addressed, unauthenticated) ─────────
+
+async def _load_ack(db: AsyncSession, token: str) -> EmailAcknowledgement:
+    result = await db.execute(
+        select(EmailAcknowledgement).where(EmailAcknowledgement.ack_token == token)
+    )
+    ack = result.scalar_one_or_none()
+    if ack is None:
+        raise HTTPException(status_code=404, detail="Acknowledgement link not found")
+    return ack
+
+
+async def _ack_view(db: AsyncSession, ack: EmailAcknowledgement) -> AckView:
+    rule = await db.get(EmailReminderRule, ack.rule_id) if ack.rule_id else None
+    return AckView(
+        subject=ack.subject,
+        rule_name=rule.rule_name if rule else None,
+        acknowledged=ack.acknowledged_at is not None,
+        acknowledged_at=ack.acknowledged_at,
+    )
+
+
+@public_router.get("/ack/{token}", response_model=AckView)
+async def view_acknowledgement(token: str, db: AsyncSession = Depends(get_db)):
+    ack = await _load_ack(db, token)
+    return await _ack_view(db, ack)
+
+
+@public_router.post("/ack/{token}", response_model=AckView)
+async def confirm_acknowledgement(token: str, db: AsyncSession = Depends(get_db)):
+    ack = await _load_ack(db, token)
+    if ack.acknowledged_at is None:
+        ack.acknowledged_at = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(ack)
+    return await _ack_view(db, ack)

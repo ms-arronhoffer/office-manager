@@ -66,9 +66,19 @@ async def _run(db: AsyncSession) -> None:
             logger.exception("Failed to build ai_briefing for rule %s", rule.id)
             continue
 
-        html = report_export.markdown_to_email_html(narrative, title=period_label)
+        # Recommended actions are additive: a failure here must not drop the briefing.
         try:
-            pdf_bytes = report_export.markdown_to_pdf(narrative, title=period_label)
+            actions = await ai_service.generate_recommended_actions(period_label, data)
+        except Exception:
+            logger.exception("Failed to build recommended actions for rule %s", rule.id)
+            actions = []
+
+        actions_md = ai_service.actions_to_markdown(actions)
+        document_md = f"{narrative}\n\n{actions_md}" if actions_md else narrative
+
+        html = report_export.markdown_to_email_html(document_md, title=period_label)
+        try:
+            pdf_bytes = report_export.markdown_to_pdf(document_md, title=period_label)
         except Exception:
             logger.exception("Failed to render briefing PDF for rule %s", rule.id)
             pdf_bytes = None

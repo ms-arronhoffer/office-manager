@@ -1044,6 +1044,22 @@ export interface VendorPortalProfile {
   notes: string | null;
 }
 
+export interface VendorPortalCOI {
+  id: string;
+  certificate_type: string;
+  insurer: string | null;
+  policy_number: string | null;
+  effective_date: string | null;
+  expiration_date: string | null;
+  limits: string | null;
+  certificate_holder: string | null;
+  notes: string | null;
+  is_verified: boolean;
+  status: 'active' | 'expiring_soon' | 'expired' | 'unknown';
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Client Portal (landlord / management company self-service) ───────────────
 export type ClientPortalEntityType = 'landlord' | 'management_company';
 
@@ -1344,6 +1360,26 @@ export interface SearchResult {
   entity_id: string;
   label: string;
   sublabel: string;
+  route?: string;
+}
+
+export interface AssistantActionProposal {
+  method: string;
+  endpoint: string;
+  body: Record<string, unknown>;
+  description: string;
+}
+
+export interface AssistantResponse {
+  intent: string;
+  action_type: 'navigate' | 'search' | 'action' | 'none';
+  route?: string | null;
+  query?: string | null;
+  proposal?: AssistantActionProposal | null;
+  confirmation_required: boolean;
+  permitted: boolean;
+  message: string;
+  model: string;
 }
 
 // ─── User Preferences ───────────────────────────────────────────────────────
@@ -1416,6 +1452,12 @@ export interface EmailReminderRule {
   rule_type: string;
   days_before: number;
   recipient_emails: string[];
+  recipient_roles?: string[] | null;
+  recipient_user_ids?: string[] | null;
+  delivery_mode: string;
+  escalation_offsets?: number[] | null;
+  escalation_recipient_emails?: string[] | null;
+  require_acknowledgement: boolean;
   is_active: boolean;
   last_triggered_at?: string;
   created_at: string;
@@ -1427,6 +1469,12 @@ export interface EmailReminderRuleCreate {
   rule_type: string;
   days_before: number;
   recipient_emails: string[];
+  recipient_roles?: string[] | null;
+  recipient_user_ids?: string[] | null;
+  delivery_mode?: string;
+  escalation_offsets?: number[] | null;
+  escalation_recipient_emails?: string[] | null;
+  require_acknowledgement?: boolean;
   is_active?: boolean;
 }
 
@@ -1684,6 +1732,43 @@ export interface AbstractSuggestResult {
   model: string;
 }
 
+export interface DocumentClassifyEntityMatch {
+  entity_type: 'vendor' | 'landlord' | 'lease';
+  id: string;
+  name: string;
+}
+
+export interface DocumentClassifyResult {
+  document_type: 'vendor_invoice' | 'insurance_certificate' | 'lease_amendment' | 'lease' | 'unknown';
+  confidence: 'high' | 'medium' | 'low';
+  reasoning: string;
+  fields: Record<string, unknown>;
+  suggested_matches: DocumentClassifyEntityMatch[];
+  model: string;
+}
+
+export interface TicketTriageSuggestion {
+  category_id?: string | null;
+  category_name?: string | null;
+  priority?: string | null;
+  vendor_id?: string | null;
+  vendor_name?: string | null;
+  reasoning?: string | null;
+  draft_response?: string | null;
+}
+
+export interface TicketTriageResult {
+  suggested: TicketTriageSuggestion;
+  model: string;
+}
+
+export interface AIRecommendedAction {
+  title: string;
+  detail: string;
+  priority: string;
+  category: string;
+}
+
 export interface DocumentParseResult {
   suggested: Record<string, unknown>;
   model: string;
@@ -1694,21 +1779,8 @@ export interface AISummaryResult {
   period_label: string;
   narrative: string;
   narrative_html: string;
+  recommended_actions: AIRecommendedAction[];
   data: Record<string, unknown>;
-  model: string;
-}
-
-export interface TicketTriageSuggestion {
-  category_id: string | null;
-  category_name: string | null;
-  priority: string | null;
-  vendor_id: string | null;
-  vendor_name: string | null;
-  reasoning: string | null;
-}
-
-export interface TicketTriageResult {
-  suggested: TicketTriageSuggestion;
   model: string;
 }
 
@@ -1780,6 +1852,27 @@ export interface LeaseDocumentTextResult {
   content_type: string | null;
   text: string | null;
   extractable: boolean;
+}
+
+export interface PortfolioCitation {
+  index: number;
+  lease_id: string;
+  lease_name: string | null;
+  attachment_id: string | null;
+  source_filename: string;
+  chunk_index: number | null;
+  snippet: string;
+  score: number;
+  match_type: string;
+}
+
+export interface PortfolioAskResult {
+  question: string;
+  answer: string;
+  answer_html: string;
+  citations: PortfolioCitation[];
+  grounded: boolean;
+  model: string;
 }
 
 // ─── Digital Waivers ──────────────────────────────────────────────────────────

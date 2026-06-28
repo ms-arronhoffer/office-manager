@@ -1,109 +1,211 @@
-"""APScheduler task: alert admins when insurance certificates are expiring soon."""
+"""APScheduler task: COI (insurance certificate) expiration reminders.
+
+Re-implemented to be driven by admin-configured ``coi_expiration`` email rules
+(thresholds + recipients), instead of hardcoded alert windows. Each active rule
+is evaluated through the shared :mod:`app.services.email_rule_engine`, giving COI
+reminders the same recipient-resolution, escalation, acknowledgement and digest
+behaviour as lease reminders. The in-app notification to org admins is preserved
+as one additional delivery channel.
+
+Vendor-held certificates include a deep link to the vendor portal's self-service
+re-upload page so the vendor can submit a renewed certificate directly.
+"""
 
 import logging
 from datetime import date, timedelta
 
+from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from app.database import async_session
+from app.models import EmailReminderRule, EmailLog
 from app.models.insurance_certificate import InsuranceCertificate
 from app.models.user import User
+from app.services.email_rule_engine import (
+    DigestBuffer,
+    acknowledge_link_html,
+    due_escalation_level,
+    escalation_recipients,
+    get_or_create_acknowledgement,
+    resolve_recipients,
+)
+from app.services.vendor_portal_links import ensure_portal_token, vendor_reupload_url
+from app.utils.email_client import send_email
 from app.utils.notifications import create_notification
 
 log = logging.getLogger(__name__)
 
-_ALERT_DAYS = [30, 14, 7]  # Warn at 30, 14, and 7 days before expiration
+# Rule types this task consumes. ``coi_expiration`` covers the expiry window;
+# the engine's ``days_before`` threshold makes a separate "expiring" type
+# unnecessary.
+COI_RULE_TYPES = ("coi_expiration",)
+
+template_env = Environment(loader=FileSystemLoader("app/templates"))
+
+
+def _holder_name(cert: InsuranceCertificate) -> str:
+    if cert.vendor:
+        return cert.vendor.company_name
+    if cert.landlord:
+        return cert.landlord.landlord_company or cert.landlord.contact_name or "Unknown"
+    return "Unknown"
 
 
 async def check_insurance_expirations() -> None:
-    """
-    Runs daily at 8:00 AM via APScheduler.
-
-    For each InsuranceCertificate with an expiration_date:
-      - Alerts org admins when expiration is within 30, 14, or 7 days.
-    """
+    """Runs daily via APScheduler. Evaluates active ``coi_expiration`` rules."""
     async with async_session() as db:
-        today = date.today()
-        # Find all certs expiring within the largest window
-        cutoff = today + timedelta(days=max(_ALERT_DAYS))
-
-        try:
-            result = await db.execute(
-                select(InsuranceCertificate)
-                .options(
-                    joinedload(InsuranceCertificate.vendor),
-                    joinedload(InsuranceCertificate.landlord),
-                )
-                .where(
-                    InsuranceCertificate.expiration_date.is_not(None),
-                    InsuranceCertificate.expiration_date >= today,
-                    InsuranceCertificate.expiration_date <= cutoff,
-                    InsuranceCertificate.organization_id.is_not(None),
-                )
+        result = await db.execute(
+            select(EmailReminderRule).where(
+                EmailReminderRule.rule_type.in_(COI_RULE_TYPES),
+                EmailReminderRule.is_active.is_(True),
             )
-            certs = result.scalars().unique().all()
-        except Exception:
-            log.exception("Failed to query insurance certificates for expiration check")
+        )
+        rules = result.scalars().all()
+        if not rules:
+            log.info("No active COI expiration rules configured")
             return
 
-        if not certs:
-            log.info("No insurance certificates expiring soon")
-            return
-
-        log.info("Found %d insurance certificates expiring within %d days", len(certs), max(_ALERT_DAYS))
-
-        # Pre-load admins per org to avoid N+1
-        org_ids = {c.organization_id for c in certs}
-        org_admin_ids: dict = {}
-        for org_id in org_ids:
+        for rule in rules:
             try:
-                admin_result = await db.execute(
-                    select(User.id).where(
-                        User.role == "admin",
-                        User.is_active.is_(True),
-                        User.organization_id == org_id,
-                    )
-                )
-                org_admin_ids[org_id] = [row[0] for row in admin_result.all()]
+                await _process_rule(db, rule)
             except Exception:
-                log.exception("Failed to query admins for org %s", org_id)
-                org_admin_ids[org_id] = []
+                log.exception("Failed to process COI rule %s", rule.id)
+                await db.rollback()
 
-        for cert in certs:
-            days_until = (cert.expiration_date - today).days
 
-            # Only notify at the specific thresholds
-            if days_until not in _ALERT_DAYS:
-                continue
+async def _process_rule(db, rule: EmailReminderRule) -> None:
+    template = template_env.get_template("coi_expiration_reminder.html")
+    today = date.today()
+    cutoff = today + timedelta(days=rule.days_before)
 
-            holder_name = (
-                cert.vendor.company_name if cert.vendor
-                else cert.landlord.landlord_company or cert.landlord.contact_name if cert.landlord
-                else "Unknown"
+    query = (
+        select(InsuranceCertificate)
+        .options(
+            joinedload(InsuranceCertificate.vendor),
+            joinedload(InsuranceCertificate.landlord),
+        )
+        .where(
+            InsuranceCertificate.expiration_date.is_not(None),
+            InsuranceCertificate.expiration_date >= today,
+            InsuranceCertificate.expiration_date <= cutoff,
+        )
+    )
+    if rule.organization_id is not None:
+        query = query.where(InsuranceCertificate.organization_id == rule.organization_id)
+
+    certs = (await db.execute(query)).scalars().unique().all()
+
+    base_recipients = await resolve_recipients(db, rule)
+    digest = DigestBuffer() if rule.delivery_mode != "immediate" else None
+
+    # Pre-load admins per org so we can mirror the legacy in-app notification.
+    admin_ids_by_org: dict = {}
+
+    async def admins_for(org_id) -> list:
+        if org_id is None:
+            return []
+        if org_id not in admin_ids_by_org:
+            res = await db.execute(
+                select(User.id).where(
+                    User.role == "admin",
+                    User.is_active.is_(True),
+                    User.organization_id == org_id,
+                )
             )
-            title = f"Insurance cert expiring in {days_until} days: {holder_name}"
+            admin_ids_by_org[org_id] = [row[0] for row in res.all()]
+        return admin_ids_by_org[org_id]
+
+    processed = 0
+    for cert in certs:
+        days_until = (cert.expiration_date - today).days
+        holder_name = _holder_name(cert)
+        cert_type = cert.certificate_type.replace("_", " ").title()
+        subject = f"[COI Expiration] {holder_name} - {cert_type} expires in {days_until} days"
+
+        ack = await get_or_create_acknowledgement(
+            db, rule, entity_type="insurance_certificate", entity_id=cert.id, subject=subject
+        )
+        if ack.acknowledged_at is not None:
+            continue
+
+        days_since_first = (today - ack.first_sent_at.date()).days
+        level = due_escalation_level(rule, days_since_first)
+        if level <= ack.escalation_level:
+            continue
+
+        recipients = base_recipients + escalation_recipients(rule, level)
+        seen: set[str] = set()
+        recipients = [r for r in recipients if not (r.lower() in seen or seen.add(r.lower()))]
+
+        # Deep-link vendor-held certs to the self-service re-upload page.
+        reupload_url = None
+        if cert.vendor is not None:
+            token = ensure_portal_token(cert.vendor)
+            reupload_url = vendor_reupload_url(token)
+
+        html = template.render(
+            holder_name=holder_name,
+            certificate_type=cert_type,
+            policy_number=cert.policy_number or "N/A",
+            insurer=cert.insurer or "N/A",
+            expiration_date=str(cert.expiration_date),
+            days_until=days_until,
+            reupload_url=reupload_url,
+        )
+        if rule.require_acknowledgement:
+            html += acknowledge_link_html(ack)
+
+        step_subject = subject if level == 0 else f"[ESCALATION {level}] {subject}"
+
+        if recipients:
+            if digest is not None:
+                fragment = (
+                    f"<li><strong>{holder_name}</strong> &mdash; {cert_type} "
+                    f"expires in {days_until} days (escalation level {level})</li>"
+                )
+                digest.add(recipients, fragment)
+                for recipient in recipients:
+                    db.add(EmailLog(
+                        rule_id=rule.id, sent_to=recipient, subject=step_subject,
+                        body=html, status="queued", escalation_level=level,
+                    ))
+            else:
+                for recipient in recipients:
+                    sent = await send_email(recipient, step_subject, html)
+                    db.add(EmailLog(
+                        rule_id=rule.id, sent_to=recipient, subject=step_subject,
+                        body=html, status="sent" if sent else "failed",
+                        escalation_level=level,
+                    ))
+
+        # In-app notification to org admins — one additional delivery channel,
+        # fired once on the initial notice (level 0).
+        if level == 0:
             body = (
-                f"{cert.certificate_type.replace('_', ' ').title()} policy "
-                f"(#{cert.policy_number or 'N/A'}) expires {cert.expiration_date}."
+                f"{cert_type} policy (#{cert.policy_number or 'N/A'}) for {holder_name} "
+                f"expires {cert.expiration_date}."
             )
-
-            for admin_id in org_admin_ids.get(cert.organization_id, []):
+            for admin_id in await admins_for(cert.organization_id):
                 try:
                     await create_notification(
                         db,
                         user_id=admin_id,
                         kind="insurance_expiration",
-                        title=title,
+                        title=f"Insurance cert expiring in {days_until} days: {holder_name}",
                         body=body,
                         entity_type="insurance_certificate",
                         entity_id=cert.id,
                     )
                 except Exception:
-                    log.exception("Failed to create insurance expiration notification for admin %s", admin_id)
+                    log.exception("Failed to create COI notification for admin %s", admin_id)
 
-        try:
-            await db.commit()
-        except Exception:
-            log.exception("Failed to commit insurance expiration notifications")
-            await db.rollback()
+        ack.escalation_level = level
+        processed += 1
+
+    if digest is not None and not digest.is_empty:
+        intro = f"<p>COI reminder digest for rule <strong>{rule.rule_name}</strong>:</p>"
+        await digest.flush(subject=f"[Digest] {rule.rule_name}", intro=intro)
+
+    await db.commit()
+    log.info("[COI REMINDERS] Processed rule '%s': %d notices", rule.rule_name, processed)

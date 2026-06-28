@@ -22,7 +22,7 @@ from app.models.maintenance import (
     MAINTENANCE_FREQUENCIES, MAINTENANCE_TASK_STATUSES,
     MAINTENANCE_ASSET_STATUSES, default_subtopics_for_category,
 )
-from app.models.email import EmailReminderRule, EmailLog
+from app.models.email import EmailReminderRule, EmailLog, EmailAcknowledgement
 from app.models.attachment import Attachment
 from app.models.maintenance_ticket import TicketCategory, MaintenanceTicket, TicketNote, WorkOrderCostLine
 from app.models.activity_log import ActivityLog
@@ -53,6 +53,7 @@ from app.models.waiver import (
     WAIVER_RECIPIENT_TYPES, WAIVER_STATUSES, WAIVER_SIGNATURE_TYPES,
 )
 from app.models.lease_document_chunk import LeaseDocumentChunk
+from app.models.saved_report import SavedReport, ReportSchedule, REPORT_FORMATS
 from app.models.knowledge_chunk import KnowledgeChunk
 from app.models.usage_event import UsageEvent
 from app.models.impersonation_session import ImpersonationSession
@@ -70,7 +71,7 @@ __all__ = [
     "HqTowerSprayLog", "HqBackflow",
     "HvacContract", "HvacOfficeDetail",
     "MaintenanceAsset", "MaintenanceTask", "MaintenanceLog", "MaintenanceCategoryTopicConfig",
-    "EmailReminderRule", "EmailLog",
+    "EmailReminderRule", "EmailLog", "EmailAcknowledgement",
     "Attachment",
     "TicketCategory", "MaintenanceTicket", "TicketNote", "WorkOrderCostLine",
     "ActivityLog",
@@ -92,6 +93,7 @@ __all__ = [
     "VendorBill", "VendorBillLine", "VendorPayment",
     "WaiverTemplate", "WaiverRequest", "WaiverSignature",
     "LeaseDocumentChunk",
+    "SavedReport", "ReportSchedule", "REPORT_FORMATS",
     "KnowledgeChunk",
     "UsageEvent",
     "ImpersonationSession",
