@@ -2071,6 +2071,9 @@ export interface MaintenanceTask {
   reminder_enabled: boolean;
   reminder_days_before: number;
   reminder_recipients: string[];
+  auto_generate_work_order: boolean;
+  work_order_lead_days: number;
+  last_generated_due_date: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -2110,4 +2113,33 @@ export interface MaintenanceOverview {
   due_soon: number;
   expiring_certifications: number;
   by_category: MaintenanceOverviewCategoryStat[];
+}
+
+export interface MaintenanceComplianceCategoryStat {
+  category: string;
+  label: string;
+  active: number;
+  overdue: number;
+  regulatory_active: number;
+  regulatory_overdue: number;
+  on_time_rate: number;
+}
+
+export interface MaintenanceCompliance {
+  active_tasks: number;
+  overdue: number;
+  on_time: number;
+  on_time_rate: number;
+  regulatory_active: number;
+  regulatory_overdue: number;
+  regulatory_on_time_rate: number;
+  automation_enabled: number;
+  work_orders_generated: number;
+  by_category: MaintenanceComplianceCategoryStat[];
+}
+
+export interface GenerateWorkOrderResult {
+  ticket_id: string | null;
+  created: boolean;
+  detail: string;
 }

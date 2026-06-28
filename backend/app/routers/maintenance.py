@@ -13,7 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -31,7 +31,9 @@ from app.models.maintenance import (
     MAINTENANCE_TASK_STATUSES,
     default_subtopics_for_category,
 )
+from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.user import User
+from app.services.pm_service import generate_work_order_for_task
 
 router = APIRouter()
 
@@ -143,6 +145,8 @@ class TaskCreate(BaseModel):
     reminder_enabled: bool = False
     reminder_days_before: int = Field(default=14, ge=0, le=365)
     reminder_recipients: list[str] = Field(default_factory=list)
+    auto_generate_work_order: bool = False
+    work_order_lead_days: int = Field(default=0, ge=0, le=365)
     notes: Optional[str] = None
 
 
@@ -162,6 +166,8 @@ class TaskUpdate(BaseModel):
     reminder_enabled: Optional[bool] = None
     reminder_days_before: Optional[int] = Field(default=None, ge=0, le=365)
     reminder_recipients: Optional[list[str]] = None
+    auto_generate_work_order: Optional[bool] = None
+    work_order_lead_days: Optional[int] = Field(default=None, ge=0, le=365)
     notes: Optional[str] = None
 
 
@@ -183,6 +189,9 @@ class TaskResponse(BaseModel):
     reminder_enabled: bool
     reminder_days_before: int
     reminder_recipients: list[str]
+    auto_generate_work_order: bool = False
+    work_order_lead_days: int = 0
+    last_generated_due_date: Optional[date] = None
     notes: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -265,6 +274,30 @@ class OverviewResponse(BaseModel):
     due_soon: int
     expiring_certifications: int
     by_category: list[OverviewCategoryStat]
+
+
+class ComplianceCategoryStat(BaseModel):
+    category: str
+    label: str
+    active: int
+    overdue: int
+    regulatory_active: int
+    regulatory_overdue: int
+    on_time_rate: float
+
+
+class ComplianceResponse(BaseModel):
+    # Active = not completed and has a due date.
+    active_tasks: int
+    overdue: int
+    on_time: int
+    on_time_rate: float
+    regulatory_active: int
+    regulatory_overdue: int
+    regulatory_on_time_rate: float
+    automation_enabled: int
+    work_orders_generated: int
+    by_category: list[ComplianceCategoryStat]
 
 
 class CategorySubtopicsUpdate(BaseModel):
@@ -557,6 +590,92 @@ async def get_overview(
     )
 
 
+def _rate(numerator: int, denominator: int) -> float:
+    """Percentage rounded to one decimal; 100.0 when nothing is tracked."""
+    if denominator <= 0:
+        return 100.0
+    return round(numerator / denominator * 100, 1)
+
+
+@router.get("/compliance", response_model=ComplianceResponse)
+async def get_compliance(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Preventive-maintenance compliance KPIs.
+
+    "Active" tasks are those not yet completed that carry a due date. On-time
+    means the due date has not passed. Regulatory tasks (fire/life-safety, ADA,
+    elevator certifications, …) are reported separately so an FM can see at a
+    glance whether any statutory obligation is overdue.
+    """
+    org_id = current_user.organization_id
+    today = date.today()
+
+    tasks = (
+        await db.execute(
+            select(MaintenanceTask).where(MaintenanceTask.organization_id == org_id)
+        )
+    ).scalars().all()
+
+    def _is_active(t: MaintenanceTask) -> bool:
+        return t.status != "completed" and t.next_due_date is not None
+
+    def _is_overdue(t: MaintenanceTask) -> bool:
+        return _is_active(t) and t.next_due_date < today
+
+    active = [t for t in tasks if _is_active(t)]
+    overdue = [t for t in active if _is_overdue(t)]
+    reg_active = [t for t in active if t.is_regulatory]
+    reg_overdue = [t for t in overdue if t.is_regulatory]
+
+    by_category: list[ComplianceCategoryStat] = []
+    for key, cat in MAINTENANCE_CATEGORIES.items():
+        cat_active = [t for t in active if t.category == key]
+        cat_overdue = [t for t in cat_active if _is_overdue(t)]
+        cat_reg_active = [t for t in cat_active if t.is_regulatory]
+        cat_reg_overdue = [t for t in cat_overdue if t.is_regulatory]
+        by_category.append(
+            ComplianceCategoryStat(
+                category=key,
+                label=cat["label"],
+                active=len(cat_active),
+                overdue=len(cat_overdue),
+                regulatory_active=len(cat_reg_active),
+                regulatory_overdue=len(cat_reg_overdue),
+                on_time_rate=_rate(len(cat_active) - len(cat_overdue), len(cat_active)),
+            )
+        )
+
+    automation_enabled = sum(1 for t in tasks if t.auto_generate_work_order)
+    work_orders_generated = (
+        await db.execute(
+            select(func.count())
+            .select_from(MaintenanceTicket)
+            .where(
+                MaintenanceTicket.organization_id == org_id,
+                MaintenanceTicket.source_task_id.is_not(None),
+                MaintenanceTicket.is_deleted.is_(False),
+            )
+        )
+    ).scalar_one()
+
+    return ComplianceResponse(
+        active_tasks=len(active),
+        overdue=len(overdue),
+        on_time=len(active) - len(overdue),
+        on_time_rate=_rate(len(active) - len(overdue), len(active)),
+        regulatory_active=len(reg_active),
+        regulatory_overdue=len(reg_overdue),
+        regulatory_on_time_rate=_rate(
+            len(reg_active) - len(reg_overdue), len(reg_active)
+        ),
+        automation_enabled=automation_enabled,
+        work_orders_generated=work_orders_generated,
+        by_category=by_category,
+    )
+
+
 # ── Assets ────────────────────────────────────────────────────────────────────
 
 @router.get("/assets", response_model=list[AssetResponse])
@@ -788,6 +907,75 @@ async def delete_task(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     await db.delete(task)
     await db.commit()
+
+
+class GenerateWorkOrderResponse(BaseModel):
+    ticket_id: Optional[uuid.UUID] = None
+    created: bool
+    detail: str
+
+
+@router.post(
+    "/tasks/{task_id}/generate-work-order",
+    response_model=GenerateWorkOrderResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def generate_task_work_order(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """On-demand: spawn a preventive-maintenance work order for a task now.
+
+    Mirrors the nightly automation but lets an editor create the work order
+    immediately. De-duplicates against the task's current due cycle so repeated
+    clicks don't pile up duplicate tickets.
+    """
+    _require_editor(current_user)
+    result = await db.execute(
+        select(MaintenanceTask)
+        .where(
+            MaintenanceTask.id == task_id,
+            MaintenanceTask.organization_id == current_user.organization_id,
+        )
+        .with_for_update()
+    )
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+
+    if task.next_due_date is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Task has no due date to generate a work order for",
+        )
+    if task.last_generated_due_date == task.next_due_date:
+        return GenerateWorkOrderResponse(
+            created=False,
+            detail="A work order has already been generated for the current due cycle.",
+        )
+
+    ticket = await generate_work_order_for_task(
+        db, task, created_by_id=current_user.id
+    )
+    if ticket is None:
+        # Build the message before any rollback-poisoning side effects.
+        reason = (
+            "Task has no assigned office."
+            if task.office_id is None
+            else "No eligible user found to own the work order."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unable to generate work order. {reason}",
+        )
+
+    await db.commit()
+    return GenerateWorkOrderResponse(
+        ticket_id=ticket.id,
+        created=True,
+        detail="Work order created.",
+    )
 
 
 # ── Logs ──────────────────────────────────────────────────────────────────────

@@ -118,6 +118,8 @@ import type {
   MaintenanceCatalogCategory,
   MaintenanceCatalogSubtopic,
   MaintenanceOverview,
+  MaintenanceCompliance,
+  GenerateWorkOrderResult,
   WorkOrderCostLine,
   WorkOrderCostLineCreate,
   WorkOrderCostLineUpdate,
@@ -1133,6 +1135,8 @@ export const maintenance = {
 
   overview: () => client.get<MaintenanceOverview>('/maintenance/overview'),
 
+  compliance: () => client.get<MaintenanceCompliance>('/maintenance/compliance'),
+
   listAssets: (params?: { category?: string; office_id?: string }) =>
     client.get<MaintenanceAsset[]>('/maintenance/assets', { params }),
 
@@ -1160,6 +1164,9 @@ export const maintenance = {
     client.patch<MaintenanceTask>(`/maintenance/tasks/${id}`, data),
 
   deleteTask: (id: string) => client.delete(`/maintenance/tasks/${id}`),
+
+  generateWorkOrder: (id: string) =>
+    client.post<GenerateWorkOrderResult>(`/maintenance/tasks/${id}/generate-work-order`),
 
   listLogs: (params?: { task_id?: string; asset_id?: string }) =>
     client.get<MaintenanceLog[]>('/maintenance/logs', { params }),

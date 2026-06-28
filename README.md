@@ -685,6 +685,7 @@ docker compose exec db psql -U office_admin -d office_manager
 - **HQ HVAC** — heat pumps, PM tasks/log, maintenance contracts, issues, backflows
 - **HVAC Contracts** — field office HVAC contract tracking with service scheduling
 - **Maintenance Tickets** — work order management with SLA tracking, priority escalation, photo/document attachments
+- **Preventive Maintenance** — recurring maintenance tasks across six domains (HVAC, fire & life safety, plumbing & backflow, refuse & waste, exterior & structural, elevators & lifts) with assets, service logs, and regulatory flags. Tasks can **auto-generate work-order tickets** ahead of their due date (configurable lead time, de-duplicated per due cycle) via a nightly scheduler or on demand, and a **PM compliance dashboard** surfaces on-time rates and overdue regulatory work
 
 ### Operations & Vendors
 - **Vendor Management** — vendor profiles, service categories, compliance tracking
