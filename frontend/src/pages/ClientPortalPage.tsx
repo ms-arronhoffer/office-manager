@@ -26,6 +26,10 @@ import type {
   EntityContact,
   EntityContactCreate,
   Attachment,
+  ClientPortalSummary,
+  ClientPortalOffice,
+  ClientPortalLease,
+  ClientPortalTicket,
 } from '@/types';
 
 const formatBytes = (bytes: number) => {
@@ -101,6 +105,10 @@ const ClientPortalPage: React.FC = () => {
   const [contacts, setContacts] = useState<EntityContact[]>([]);
   const [documents, setDocuments] = useState<Attachment[]>([]);
   const [changeRequests, setChangeRequests] = useState<ClientPortalChangeRequest[]>([]);
+  const [summary, setSummary] = useState<ClientPortalSummary | null>(null);
+  const [offices, setOffices] = useState<ClientPortalOffice[]>([]);
+  const [leases, setLeases] = useState<ClientPortalLease[]>([]);
+  const [tickets, setTickets] = useState<ClientPortalTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(false);
   const [flash, setFlash] = useState<{ type: 'success' | 'error'; content: string } | null>(null);
@@ -145,16 +153,24 @@ const ClientPortalPage: React.FC = () => {
 
   const loadData = useCallback(async (activeToken: string) => {
     try {
-      const [profileRes, contactsRes, docsRes, crRes] = await Promise.all([
+      const [profileRes, contactsRes, docsRes, crRes, summaryRes, officesRes, leasesRes, ticketsRes] = await Promise.all([
         clientPortal.getProfile(activeToken),
         clientPortal.listContacts(activeToken),
         clientPortal.listDocuments(activeToken),
         clientPortal.listChangeRequests(activeToken),
+        clientPortal.summary(activeToken),
+        clientPortal.listOffices(activeToken),
+        clientPortal.listLeases(activeToken),
+        clientPortal.listMaintenance(activeToken),
       ]);
       setProfile(profileRes.data);
       setContacts(contactsRes.data);
       setDocuments(docsRes.data);
       setChangeRequests(crRes.data);
+      setSummary(summaryRes.data);
+      setOffices(officesRes.data);
+      setLeases(leasesRes.data);
+      setTickets(ticketsRes.data);
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status;
       if (status === 401) {
@@ -382,6 +398,135 @@ const ClientPortalPage: React.FC = () => {
 
         <Tabs
           tabs={[
+            {
+              id: 'overview',
+              label: 'Overview',
+              content: (
+                <SpaceBetween size="l">
+                  <Container header={<Header variant="h2">Portfolio at a glance</Header>}>
+                    <ColumnLayout columns={4} variant="text-grid">
+                      <div>
+                        <Box variant="awsui-key-label">Offices</Box>
+                        <Box variant="awsui-value-large">{summary?.office_count ?? 0}</Box>
+                      </div>
+                      <div>
+                        <Box variant="awsui-key-label">Leases</Box>
+                        <Box variant="awsui-value-large">{summary?.lease_count ?? 0}</Box>
+                      </div>
+                      <div>
+                        <Box variant="awsui-key-label">Expiring within 180 days</Box>
+                        <Box variant="awsui-value-large">{summary?.expiring_soon ?? 0}</Box>
+                      </div>
+                      <div>
+                        <Box variant="awsui-key-label">Open work orders</Box>
+                        <Box variant="awsui-value-large">{summary?.open_tickets ?? 0}</Box>
+                      </div>
+                    </ColumnLayout>
+                  </Container>
+                  {(summary?.expiring_soon ?? 0) > 0 && (
+                    <Alert type="warning" header="Lease expirations approaching">
+                      {summary?.expiring_soon} lease(s) expire within the next 180 days. See the
+                      Leases tab for details.
+                    </Alert>
+                  )}
+                </SpaceBetween>
+              ),
+            },
+            {
+              id: 'offices',
+              label: `Offices (${offices.length})`,
+              content: (
+                <Table
+                  items={offices}
+                  empty={<Box textAlign="center" color="inherit">No offices on file.</Box>}
+                  columnDefinitions={[
+                    { id: 'number', header: '#', cell: (o: ClientPortalOffice) => o.office_number, width: 80 },
+                    { id: 'name', header: 'Location', cell: (o: ClientPortalOffice) => o.location_name },
+                    {
+                      id: 'address',
+                      header: 'Address',
+                      cell: (o: ClientPortalOffice) =>
+                        [o.address_line_1, o.city, o.state, o.zip_code].filter(Boolean).join(', ') || '—',
+                    },
+                    {
+                      id: 'status',
+                      header: 'Status',
+                      cell: (o: ClientPortalOffice) => (
+                        <Badge color={o.is_active ? 'green' : 'grey'}>{o.is_active ? 'Active' : 'Inactive'}</Badge>
+                      ),
+                      width: 110,
+                    },
+                    { id: 'leases', header: 'Leases', cell: (o: ClientPortalOffice) => o.lease_count, width: 90 },
+                  ]}
+                />
+              ),
+            },
+            {
+              id: 'leases',
+              label: `Leases (${leases.length})`,
+              content: (
+                <Table
+                  items={leases}
+                  empty={<Box textAlign="center" color="inherit">No leases on file.</Box>}
+                  columnDefinitions={[
+                    { id: 'name', header: 'Lease', cell: (l: ClientPortalLease) => l.lease_name },
+                    { id: 'office', header: 'Office', cell: (l: ClientPortalLease) => l.office_name || '—' },
+                    {
+                      id: 'commencement',
+                      header: 'Commencement',
+                      cell: (l: ClientPortalLease) =>
+                        l.lease_commencement_date ? new Date(l.lease_commencement_date).toLocaleDateString() : '—',
+                    },
+                    {
+                      id: 'expiration',
+                      header: 'Expiration',
+                      cell: (l: ClientPortalLease) =>
+                        l.lease_expiration ? (
+                          <SpaceBetween size="xs" direction="horizontal">
+                            <span>{new Date(l.lease_expiration).toLocaleDateString()}</span>
+                            {l.expiring_soon && <Badge color="red">Expiring soon</Badge>}
+                          </SpaceBetween>
+                        ) : '—',
+                    },
+                    {
+                      id: 'notice',
+                      header: 'Notice date',
+                      cell: (l: ClientPortalLease) =>
+                        l.lease_notice_date ? new Date(l.lease_notice_date).toLocaleDateString() : '—',
+                    },
+                  ]}
+                />
+              ),
+            },
+            {
+              id: 'maintenance',
+              label: `Maintenance (${tickets.length})`,
+              content: (
+                <Table
+                  items={tickets}
+                  empty={<Box textAlign="center" color="inherit">No work orders.</Box>}
+                  columnDefinitions={[
+                    { id: 'subject', header: 'Subject', cell: (t: ClientPortalTicket) => t.subject },
+                    { id: 'office', header: 'Office', cell: (t: ClientPortalTicket) => t.office_name || '—' },
+                    { id: 'priority', header: 'Priority', cell: (t: ClientPortalTicket) => t.priority },
+                    {
+                      id: 'status',
+                      header: 'Status',
+                      cell: (t: ClientPortalTicket) => (
+                        <Badge color={t.status === 'closed' ? 'grey' : 'blue'}>{t.status}</Badge>
+                      ),
+                      width: 120,
+                    },
+                    {
+                      id: 'created',
+                      header: 'Created',
+                      cell: (t: ClientPortalTicket) => new Date(t.created_at).toLocaleDateString(),
+                      width: 140,
+                    },
+                  ]}
+                />
+              ),
+            },
             {
               id: 'profile',
               label: 'Profile',

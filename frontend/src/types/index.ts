@@ -1108,6 +1108,52 @@ export interface ClientPortalChangeRequestCreate {
   message?: string;
 }
 
+export interface ClientPortalSummary {
+  office_count: number;
+  lease_count: number;
+  expiring_soon: number;
+  open_tickets: number;
+}
+
+export interface ClientPortalOffice {
+  id: string;
+  office_number: number;
+  location_name: string;
+  location_type: string | null;
+  is_active: boolean;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  zip_code: string | null;
+  lease_count: number;
+}
+
+export interface ClientPortalLease {
+  id: string;
+  lease_name: string;
+  office_id: string | null;
+  office_name: string | null;
+  lessor_name: string | null;
+  lease_commencement_date: string | null;
+  lease_expiration: string | null;
+  lease_notice_date: string | null;
+  notice_given_date: string | null;
+  notice_period: string | null;
+  expiring_soon: boolean;
+}
+
+export interface ClientPortalTicket {
+  id: string;
+  subject: string;
+  status: string;
+  priority: string;
+  office_id: string | null;
+  office_name: string | null;
+  scheduled_date: string | null;
+  created_at: string;
+}
+
 export type ClientPortalStatusValue =
   | 'none'
   | 'invited'

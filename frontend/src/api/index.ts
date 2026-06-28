@@ -1146,6 +1146,18 @@ export const clientPortal = {
       '/client-portal/change-requests',
       data,
     ),
+
+  summary: (token: string) =>
+    _clientPortalClient(token).get<ClientPortalSummary>('/client-portal/summary'),
+
+  listOffices: (token: string) =>
+    _clientPortalClient(token).get<ClientPortalOffice[]>('/client-portal/offices'),
+
+  listLeases: (token: string) =>
+    _clientPortalClient(token).get<ClientPortalLease[]>('/client-portal/leases'),
+
+  listMaintenance: (token: string) =>
+    _clientPortalClient(token).get<ClientPortalTicket[]>('/client-portal/maintenance'),
 };
 
 // ─── Insurance Certificates ───────────────────────────────────────────────────
