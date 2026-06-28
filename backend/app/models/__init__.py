@@ -10,6 +10,10 @@ from app.models.landlord import Landlord, LandlordAdditionalName, LandlordContac
 from app.models.management_company import ManagementCompany
 from app.models.entity_contact import EntityContact
 from app.models.client_portal_account import ClientPortalAccount, CLIENT_PORTAL_ENTITY_TYPES
+from app.models.client_portal_change_request import (
+    ClientPortalChangeRequest,
+    CHANGE_REQUEST_STATUSES,
+)
 from app.models.transition import OfficeTransition, TransitionChecklistItem
 from app.models.hq_hvac import (
     HqHeatPump, HqHeatPumpServiceLog, HqHvacIssue,
@@ -65,6 +69,7 @@ __all__ = [
     "ManagementCompany",
     "EntityContact",
     "ClientPortalAccount",
+    "ClientPortalChangeRequest",
     "OfficeTransition", "TransitionChecklistItem",
     "HqHeatPump", "HqHeatPumpServiceLog", "HqHvacIssue",
     "HqPmTask", "HqPmLog", "HqMaintenanceContract", "HqMaintenanceVisit",

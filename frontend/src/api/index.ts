@@ -103,6 +103,10 @@ import type {
   ClientPortalInviteResponse,
   ClientPortalSession,
   ClientPortalProfile,
+  ClientPortalStatus,
+  ClientPortalChangeRequest,
+  ClientPortalChangeRequestCreate,
+  ClientPortalChangeRequestStatus,
   InsuranceCertificate,
   InsuranceCertificateCreate,
   InsuranceCertificateUpdate,
@@ -998,6 +1002,44 @@ export const clientPortalInternal = {
       entity_type: entityType,
       entity_id: entityId,
     }),
+
+  status: (entityType: ClientPortalEntityType, entityId: string) =>
+    client.get<ClientPortalStatus>('/client-portal/admin/status', {
+      params: { entity_type: entityType, entity_id: entityId },
+    }),
+
+  revoke: (entityType: ClientPortalEntityType, entityId: string) =>
+    client.post<ClientPortalStatus>('/client-portal/admin/revoke', {
+      entity_type: entityType,
+      entity_id: entityId,
+    }),
+
+  rotate: (entityType: ClientPortalEntityType, entityId: string) =>
+    client.post<ClientPortalSession>('/client-portal/admin/rotate', {
+      entity_type: entityType,
+      entity_id: entityId,
+    }),
+
+  listChangeRequests: (
+    entityType: ClientPortalEntityType,
+    entityId: string,
+    statusFilter?: ClientPortalChangeRequestStatus,
+  ) =>
+    client.get<ClientPortalChangeRequest[]>('/client-portal/admin/change-requests', {
+      params: { entity_type: entityType, entity_id: entityId, status_filter: statusFilter },
+    }),
+
+  approveChangeRequest: (id: string, reviewNote?: string) =>
+    client.post<ClientPortalChangeRequest>(
+      `/client-portal/admin/change-requests/${id}/approve`,
+      { review_note: reviewNote },
+    ),
+
+  rejectChangeRequest: (id: string, reviewNote?: string) =>
+    client.post<ClientPortalChangeRequest>(
+      `/client-portal/admin/change-requests/${id}/reject`,
+      { review_note: reviewNote },
+    ),
 };
 
 // ─── Client Portal (external: landlord/management-company self-service) ───────
@@ -1039,6 +1081,23 @@ export const clientPortal = {
       headers: { 'X-Portal-Token': token },
     }).post<Attachment>('/client-portal/documents', form);
   },
+
+  downloadDocument: (token: string, id: string) =>
+    axios
+      .create({ baseURL: _portalBase, headers: { 'X-Portal-Token': token }, responseType: 'blob' })
+      .get<Blob>(`/client-portal/documents/${id}/download`),
+
+  deleteDocument: (token: string, id: string) =>
+    _clientPortalClient(token).delete(`/client-portal/documents/${id}`),
+
+  listChangeRequests: (token: string) =>
+    _clientPortalClient(token).get<ClientPortalChangeRequest[]>('/client-portal/change-requests'),
+
+  createChangeRequest: (token: string, data: ClientPortalChangeRequestCreate) =>
+    _clientPortalClient(token).post<ClientPortalChangeRequest>(
+      '/client-portal/change-requests',
+      data,
+    ),
 };
 
 // ─── Insurance Certificates ───────────────────────────────────────────────────

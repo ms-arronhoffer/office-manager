@@ -1088,6 +1088,43 @@ export interface ClientPortalProfile {
   website: string | null;
 }
 
+export type ClientPortalChangeRequestStatus = 'pending' | 'approved' | 'rejected';
+
+export interface ClientPortalChangeRequest {
+  id: string;
+  entity_type: ClientPortalEntityType;
+  entity_id: string;
+  status: ClientPortalChangeRequestStatus;
+  proposed_changes: Record<string, string | null>;
+  message: string | null;
+  reviewed_by_display_name: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
+  created_at: string;
+}
+
+export interface ClientPortalChangeRequestCreate {
+  proposed_changes: Record<string, string | null>;
+  message?: string;
+}
+
+export type ClientPortalStatusValue =
+  | 'none'
+  | 'invited'
+  | 'active'
+  | 'revoked'
+  | 'expired';
+
+export interface ClientPortalStatus {
+  exists: boolean;
+  status: ClientPortalStatusValue;
+  activated_at: string | null;
+  last_active_at: string | null;
+  revoked_at: string | null;
+  portal_token_expires_at: string | null;
+  pending_change_requests: number;
+}
+
 // ─── Insurance Certificates ───────────────────────────────────────────────────
 export interface InsuranceCertificate {
   id: string;
