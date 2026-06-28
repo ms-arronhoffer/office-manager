@@ -8,6 +8,7 @@ from app.tasks.sla_escalation import check_sla_breaches
 from app.tasks.webhook_retry import retry_failed_webhooks
 from app.tasks.insurance_reminders import check_insurance_expirations
 from app.tasks.maintenance_reminders import check_maintenance_reminders
+from app.tasks.scheduled_reports import send_scheduled_reports
 
 scheduler = AsyncIOScheduler()
 
@@ -22,9 +23,10 @@ def start_scheduler():
     scheduler.add_job(create_recurring_tickets, "cron", hour=8, minute=0, id="recurring_tickets")
     scheduler.add_job(check_sla_breaches, "cron", hour=8, minute=30, id="sla_escalation")
     scheduler.add_job(check_insurance_expirations, "cron", hour=8, minute=0, id="insurance_expirations")
+    scheduler.add_job(send_scheduled_reports, "cron", hour=8, minute=15, id="scheduled_reports")
     scheduler.add_job(retry_failed_webhooks, "interval", minutes=2, id="webhook_retries")
     scheduler.start()
-    print("[SCHEDULER] Started with 10 jobs (9 daily/weekly + webhook retry every 2 min)")
+    print("[SCHEDULER] Started with 11 jobs (10 daily/weekly + webhook retry every 2 min)")
 
 
 def stop_scheduler():

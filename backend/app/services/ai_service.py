@@ -1003,6 +1003,88 @@ async def answer_portfolio_question(
     )
 
 
+# ── Natural-language report builder (Pro+) ────────────────────────────────────
+
+REPORT_BUILDER_SYSTEM = (
+    "You are a reporting assistant for a commercial property management system. "
+    "Map the user's plain-English request onto ONE of the available datasets and "
+    "return a JSON object describing which columns and filters to use. "
+    "Respond ONLY with a JSON object with exactly these keys: dataset, columns, "
+    "filters.\n"
+    "\n"
+    "Rules:\n"
+    "- dataset MUST be one of the provided dataset ids. Pick the single best fit.\n"
+    "- columns MUST be a list drawn only from that dataset's available column "
+    "keys. Use an empty list to mean 'all columns'.\n"
+    "- filters MUST be a JSON object whose keys are only that dataset's available "
+    "filter keys, mapped to the requested value. Omit filters that are not "
+    "requested. Use an empty object when no filters apply.\n"
+    "- NEVER invent dataset ids, column keys, or filter keys. NEVER produce SQL "
+    "or any free-form query."
+)
+
+
+def _format_report_datasets(datasets: list[dict[str, Any]]) -> str:
+    """Render the dataset/column/filter schema as a prompt block."""
+    blocks: list[str] = []
+    for ds in datasets:
+        cols = ", ".join(ds.get("columns", []))
+        filt_parts = []
+        for f in ds.get("filters", []):
+            opts = f.get("options")
+            label = f"{f['key']} ({f.get('type', 'text')}"
+            if opts:
+                label += f"; one of: {', '.join(map(str, opts))}"
+            label += ")"
+            filt_parts.append(label)
+        filters = "; ".join(filt_parts) if filt_parts else "none"
+        blocks.append(
+            f"- {ds['dataset']} — {ds.get('title', ds['dataset'])}\n"
+            f"    columns: {cols}\n"
+            f"    filters: {filters}"
+        )
+    return "\n".join(blocks)
+
+
+async def build_report_spec(
+    prompt: str,
+    datasets: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Turn a plain-English report request into a ``{dataset, columns, filters}`` draft.
+
+    ``datasets`` is the safe schema describing the available datasets, their
+    column keys and filter keys (see
+    :func:`app.services.report_service.dataset_schema_for_prompt`). The model only
+    ever sees these building blocks; it never emits SQL. The returned dict is a
+    raw suggestion that the caller MUST validate against the real dataset config
+    before use.
+    """
+    clean_prompt = (prompt or "").strip()
+    if not clean_prompt:
+        raise AIRequestError("A report request prompt is required.")
+
+    user_prompt = (
+        "AVAILABLE DATASETS:\n"
+        f"{_format_report_datasets(datasets)}\n\n"
+        "USER REQUEST:\n"
+        f"{clean_prompt[:MAX_TEXT_CHARS]}"
+    )
+    text = await _generate(
+        [{"text": user_prompt}],
+        system_instruction=REPORT_BUILDER_SYSTEM,
+        json_response=True,
+    )
+    parsed = _parse_json_object(text)
+
+    dataset = str(parsed.get("dataset") or "").strip()
+    raw_columns = parsed.get("columns")
+    columns = [str(c) for c in raw_columns] if isinstance(raw_columns, list) else []
+    raw_filters = parsed.get("filters")
+    filters = raw_filters if isinstance(raw_filters, dict) else {}
+
+    return {"dataset": dataset, "columns": columns, "filters": filters}
+
+
 # ── Embeddings (semantic document search) ─────────────────────────────────────
 
 # Cap the number of texts embedded in a single batch request.

@@ -40,8 +40,10 @@ from app.services import (
     document_extraction,
     document_search_service,
     report_export,
+    report_service,
 )
 from app.services.lease_abstract_catalog import CATEGORY_BY_KEY, CLAUSE_CATEGORIES
+from app.schemas.saved_report import ReportBuildRequest, ReportBuildResponse
 
 router = APIRouter()
 
@@ -915,5 +917,50 @@ async def ask_portfolio(
         answer_html=report_export.markdown_to_html(answer),
         citations=citations,
         grounded=True,
+        model=settings.GEMINI_MODEL,
+    )
+
+
+# ── Natural-language report builder (Pro+) ────────────────────────────────────
+
+@router.post(
+    "/reports/build",
+    response_model=ReportBuildResponse,
+    dependencies=[Depends(require_feature("ai_assist"))],
+)
+async def build_report(
+    payload: ReportBuildRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Draft a saved-report definition from a plain-English request.
+
+    Maps the prompt onto a ``{dataset, columns, filters}`` spec validated against
+    the existing dataset/template engine — it never executes free-form SQL. The
+    result is a *draft* the user confirms (and can tweak) before saving as a
+    SavedReport. Degrades gracefully when Gemini is not configured.
+    """
+    datasets = report_service.dataset_schema_for_prompt()
+    try:
+        raw = await ai_service.build_report_spec(payload.prompt, datasets)
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    try:
+        dataset, columns, filters = report_service.validate_report_spec(
+            raw.get("dataset", ""),
+            raw.get("columns"),
+            raw.get("filters"),
+            strict=False,
+        )
+    except report_service.ReportSpecError as exc:
+        # The model picked a dataset that doesn't exist — surface a clean 422.
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+    config = report_service.DATASET_CONFIGS.get(dataset, {})
+    return ReportBuildResponse(
+        dataset=dataset,
+        columns=columns,
+        filters=filters,
+        title=config.get("title", dataset),
         model=settings.GEMINI_MODEL,
     )
