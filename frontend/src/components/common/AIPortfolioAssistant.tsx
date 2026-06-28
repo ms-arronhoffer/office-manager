@@ -21,14 +21,15 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 /**
- * AI portfolio assistant (Pro+). Answers natural-language questions about the
- * organization's leases, lease documents, maintenance tickets and lease
- * abstracts using retrieval-augmented generation, returning a grounded answer
- * plus the source passages it cited. Rendered as the content of a global,
- * expandable side drawer (see {@link AppNavigation}) so it is reachable from
- * every view. Locked with an upgrade prompt when the org lacks the
- * ``ai_assist`` entitlement, and degrades gracefully when Gemini is not
- * configured on the server.
+ * AI portfolio assistant (Pro+). Answers natural-language questions across the
+ * whole organization — offices, leases, lease documents, lease abstracts,
+ * landlords, vendors, management companies, maintenance tickets, HVAC contracts,
+ * office transitions and insurance certificates — using retrieval-augmented
+ * generation, returning a grounded answer plus the source passages it cited.
+ * Rendered as the content of a global, expandable side drawer (see
+ * {@link AppNavigation}) so it is reachable from every view. Locked with an
+ * upgrade prompt when the org lacks the ``ai_assist`` entitlement, and degrades
+ * gracefully when Gemini is not configured on the server.
  */
 const AIPortfolioAssistant: React.FC = () => {
   const { hasFeature, loading: entLoading } = useEntitlements();
@@ -75,9 +76,10 @@ const AIPortfolioAssistant: React.FC = () => {
         <SpaceBetween size="m">
           {header}
           <Alert type="info">
-            Ask natural-language questions about your leases, lease documents, maintenance
-            tickets and lease abstracts and get grounded answers with citations — powered by
-            AI. Available on the Pro and Enterprise plans.
+            Ask natural-language questions about anything in your portfolio — offices,
+            leases, lease documents, landlords, vendors, maintenance tickets and more — and
+            get grounded answers with citations — powered by AI. Available on the Pro and
+            Enterprise plans.
           </Alert>
         </SpaceBetween>
       </div>
@@ -89,7 +91,7 @@ const AIPortfolioAssistant: React.FC = () => {
       <SpaceBetween size="m">
         <Header
           variant="h2"
-          description="Ask a question about your portfolio. Answers are grounded in your own leases, lease documents, tickets and abstracts, with citations."
+          description="Ask a question about anything in your portfolio — offices, leases, landlords, vendors, tickets and more. Answers are grounded in your own data, with citations."
         >
           AI portfolio assistant <Badge color="blue">Pro</Badge>
         </Header>
