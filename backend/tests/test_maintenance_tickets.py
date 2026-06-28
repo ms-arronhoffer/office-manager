@@ -100,3 +100,47 @@ async def test_delete_ticket_admin_only(client, editor_user, admin_user, sample_
         headers=auth_headers(admin_user),
     )
     assert resp.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_create_ticket_succeeds_when_notification_side_effect_fails(
+    client, editor_user, sample_office, sample_category, monkeypatch
+):
+    """A failing best-effort side-effect must not turn a committed ticket into a 500.
+
+    Notifications/activity-log are best-effort and roll the session back on
+    failure, which expires the freshly created ORM instance. Serializing the
+    response must therefore happen before those side-effects, otherwise the
+    create returns a spurious 500 ("failed to submit") even though the ticket
+    was already committed.
+    """
+    import app.routers.maintenance_tickets as tickets_router
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("smtp down")
+
+    monkeypatch.setattr(tickets_router, "send_ticket_created_emails", _boom)
+    monkeypatch.setattr(tickets_router, "send_high_priority_ticket_emails", _boom)
+
+    resp = await client.post(
+        "/api/v1/maintenance-tickets",
+        headers=auth_headers(editor_user),
+        json={
+            "subject": "Portal submitted ticket",
+            "priority": "high",
+            "category_id": str(sample_category.id),
+            "office_id": str(sample_office.id),
+            "description": "Submitted from the self-service portal",
+        },
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["subject"] == "Portal submitted ticket"
+
+    # And the ticket really is queryable afterwards (it was committed).
+    listing = await client.get(
+        "/api/v1/maintenance-tickets?status=open",
+        headers=auth_headers(editor_user),
+    )
+    assert listing.status_code == 200
+    assert any(t["id"] == data["id"] for t in listing.json()["items"])

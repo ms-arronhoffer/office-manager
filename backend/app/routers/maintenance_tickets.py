@@ -223,6 +223,22 @@ async def create_ticket(
             detail=f"Ticket saved but reload failed: {exc.__class__.__name__}: {exc}",
         ) from exc
 
+    # ---- 2.5. Serialize the response NOW, before any best-effort side-effects. ----
+    # If a later best-effort step (activity log, email, webhook) fails it rolls
+    # back the session, which expires ``created`` and turns the final serialize
+    # into a lazy attribute reload on the async session (MissingGreenlet). That
+    # surfaced as a spurious 500 — "failed to submit" — even though the ticket
+    # was already committed in step 1. Building the response while relationships
+    # are still hydrated makes the side-effects below truly best-effort.
+    try:
+        response = MaintenanceTicketResponse.model_validate(created, from_attributes=True)
+    except Exception as exc:
+        log.exception("Failed to serialize ticket %s for response: %s", created.id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Ticket created but response serialization failed: {exc.__class__.__name__}: {exc}",
+        ) from exc
+
     # ---- 3. Activity log (best-effort). ----
     try:
         await log_activity(
@@ -264,7 +280,9 @@ async def create_ticket(
 
     # ---- 4. Email notifications (best-effort). ----
     # Notify the office manager and assigned vendor that a ticket was created.
-    created_id = created.id
+    # Use scalar values captured on ``response`` (built before any side-effect)
+    # so a prior best-effort rollback cannot trigger a lazy reload of ``created``.
+    created_id = response.id
     try:
         await send_ticket_created_emails(db, created)
     except Exception as exc:
@@ -275,7 +293,7 @@ async def create_ticket(
             pass
 
     # High-priority tickets additionally notify configured rule recipients.
-    if created.priority == "high":
+    if response.priority == "high":
         # Capture the id eagerly so the log call below cannot trigger a lazy
         # attribute reload after the session is in a failed-transaction state.
         try:
@@ -288,15 +306,8 @@ async def create_ticket(
             except Exception:
                 pass
 
-    # ---- 5. Serialize. Validation errors here are bugs in the data shape. ----
-    try:
-        return MaintenanceTicketResponse.model_validate(created, from_attributes=True)
-    except Exception as exc:
-        log.exception("Failed to serialize ticket %s for response: %s", created.id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Ticket created but response serialization failed: {exc.__class__.__name__}: {exc}",
-        ) from exc
+    # ---- 5. Return the response built in step 2.5 (before side-effects). ----
+    return response
 
 
 @router.put("/{ticket_id}", response_model=MaintenanceTicketResponse)
