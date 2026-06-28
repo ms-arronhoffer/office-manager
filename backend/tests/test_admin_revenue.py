@@ -38,3 +38,14 @@ async def test_revenue_endpoint_collected(client, db_session):
     resp = await client.get("/admin/v1/metrics/revenue", headers=auth_headers(sa))
     assert resp.status_code == 200, resp.text
     assert resp.json()["collected_cents"] == 10000
+
+
+@pytest.mark.asyncio
+async def test_plan_breakdown_normalizes_yearly(db_session):
+    from app.services import revenue_service
+    db_session.add(BillingSubscription(stripe_subscription_id="sub_yr", status="active",
+                                       amount_cents=120000, quantity=1, interval="year", plan="enterprise"))
+    await db_session.commit()
+    rows = await revenue_service.plan_breakdown(db_session)
+    ent = next(r for r in rows if r["plan"] == "enterprise")
+    assert ent["mrr_cents"] == 10000

@@ -55,7 +55,7 @@ async def upsert_subscription(db: AsyncSession, sub: dict[str, Any]) -> BillingS
             select(BillingSubscription).where(BillingSubscription.stripe_subscription_id == sub_id)
         )
     ).scalar_one_or_none()
-    item = (sub.get("items", {}).get("data") or [{}])[0]
+    item = next(iter(sub.get("items", {}).get("data") or []), {})
     price = item.get("price", {}) or {}
     customer_id = sub.get("customer")
     row = existing or BillingSubscription(stripe_subscription_id=sub_id)
@@ -160,7 +160,8 @@ async def upsert_coupon(db: AsyncSession, coupon: dict[str, Any]) -> BillingCoup
     ).scalar_one_or_none()
     row = existing or BillingCoupon(stripe_coupon_id=coupon_id)
     row.code = coupon.get("name") or coupon_id or "coupon"
-    row.percent_off = int(coupon["percent_off"]) if coupon.get("percent_off") else None
+    pct = coupon.get("percent_off")
+    row.percent_off = int(pct) if pct else None
     row.amount_off_cents = coupon.get("amount_off")
     row.currency = (coupon.get("currency") or "usd")[:3]
     row.duration = coupon.get("duration") or "once"

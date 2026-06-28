@@ -83,12 +83,16 @@ async def revenue_timeseries(db: AsyncSession, months: int = 12) -> list[dict]:
 
 
 async def plan_breakdown(db: AsyncSession) -> list[dict]:
-    """Active-subscription MRR split by plan."""
+    """Active-subscription MRR split by plan (interval-normalized to monthly)."""
     rows = (await db.execute(
-        select(BillingSubscription.plan,
-               func.count(BillingSubscription.id),
-               func.coalesce(func.sum(BillingSubscription.amount_cents * BillingSubscription.quantity), 0))
+        select(BillingSubscription.plan, BillingSubscription.amount_cents,
+               BillingSubscription.quantity, BillingSubscription.interval)
         .where(BillingSubscription.status.in_(_ACTIVE))
-        .group_by(BillingSubscription.plan)
     )).all()
-    return [{"plan": p or "unknown", "count": int(n), "mrr_cents": int(m)} for p, n, m in rows]
+    agg: dict[str, dict] = {}
+    for plan, amount, qty, interval in rows:
+        key = plan or "unknown"
+        cur = agg.setdefault(key, {"plan": key, "count": 0, "mrr_cents": 0})
+        cur["count"] += 1
+        cur["mrr_cents"] += _monthly_cents(amount, qty, interval)
+    return list(agg.values())
