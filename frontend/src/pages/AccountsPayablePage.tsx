@@ -80,7 +80,7 @@ const AccountsPayablePage: React.FC = () => {
 
   useEffect(() => {
     vendorsApi.list({ page_size: 1000 }).then((res) => {
-      setVendorOpts(res.data.items.map((v) => ({ label: v.name, value: v.id })));
+      setVendorOpts(res.data.items.map((v) => ({ label: v.company_name, value: v.id })));
     }).catch(() => {});
     glApi.listAccounts().then((res) => setAccounts(res.data)).catch(() => {});
   }, []);
