@@ -156,6 +156,7 @@ def _build_detail(org: Organization, stats: dict) -> "OrgDetail":
         onboarding_complete=org.onboarding_complete,
         admin_notes=org.admin_notes,
         created_at=org.created_at,
+        risk_label=_risk_label(org, s),
         entitlement_overrides=ent.normalize_overrides(org.entitlement_overrides),
         plan_defaults=ent.plan_entitlements(org.plan),
         effective_entitlements=ent.effective_entitlements(org),

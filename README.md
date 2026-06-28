@@ -124,6 +124,14 @@ Then run the seed script:
 docker compose exec backend python -m seed.run_seed
 ```
 
+To seed only the default organization (creates the default organization, admin
+user, email reminder rules, and ticket categories without importing the
+spreadsheet data), use the `--bootstrap-only` flag:
+
+```bash
+docker compose exec backend python -m seed.run_seed --bootstrap-only
+```
+
 ### 4. Access the Application
 
 Open `http://localhost:3000` and log in with the default admin credentials:
