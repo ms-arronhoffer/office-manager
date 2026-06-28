@@ -1,6 +1,7 @@
 from app.models.base import Base
 from app.models.organization import Organization
 from app.models.user import User
+from app.models.auth_lockout import AuthLockout
 from app.models.office import Manager, Office
 from app.models.lease import Lease, LeaseNote
 from app.models.lease_renewal import LeaseRenewal
@@ -59,8 +60,7 @@ from app.models.usage_event import UsageEvent
 from app.models.impersonation_session import ImpersonationSession
 
 __all__ = [
-    "Base", "Organization", "User", "Manager", "Office",
-    "Lease", "LeaseNote", "LeaseRenewal", "LeaseOption",
+    "Base", "Organization", "User", "AuthLockout", "Manager", "Office",    "Lease", "LeaseNote", "LeaseRenewal", "LeaseOption",
     "Landlord", "LandlordAdditionalName", "LandlordContact",
     "ManagementCompany",
     "EntityContact",
