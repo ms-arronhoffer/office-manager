@@ -1,54 +1,8 @@
 ---
-import AppShell from './AppShell.astro';
-// AI lease abstraction: a lease document on the left, AI-extracted terms on the right.
-const terms = [
-  { k: 'Tenant', v: 'Acme Corp.' },
-  { k: 'Premises', v: 'Suite 1200, 233 S Wacker' },
-  { k: 'Commencement', v: 'Mar 1, 2024' },
-  { k: 'Expiration', v: 'Feb 28, 2031' },
-  { k: 'Base Rent', v: '$48.50 / sq ft' },
-  { k: 'Escalation', v: '3.0% annual' },
-  { k: 'Renewal Option', v: '1 × 5 yrs' },
-  { k: 'Notice Window', v: '270 days' },
-];
+import AppScreenshot from './AppScreenshot.astro';
 ---
-<AppShell active="Leases" url="app.officemanager.io/leases/acme-corp" title="AI Lease Abstract">
-  <div class="grid lg:grid-cols-2 gap-4">
-    <!-- Document preview -->
-    <div class="rounded-xl border border-slate-200 bg-white p-4">
-      <div class="flex items-center gap-2 mb-3">
-        <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/></svg>
-        <span class="text-xs font-medium text-slate-500">Acme_Lease_2024.pdf</span>
-      </div>
-      <div class="space-y-1.5">
-        <div class="h-2 rounded bg-slate-100 w-full"></div>
-        <div class="h-2 rounded bg-blue-100 w-4/5"></div>
-        <div class="h-2 rounded bg-slate-100 w-full"></div>
-        <div class="h-2 rounded bg-slate-100 w-11/12"></div>
-        <div class="h-2 rounded bg-blue-100 w-2/3"></div>
-        <div class="h-2 rounded bg-slate-100 w-full"></div>
-        <div class="h-2 rounded bg-slate-100 w-5/6"></div>
-        <div class="h-2 rounded bg-blue-100 w-1/2"></div>
-        <div class="h-2 rounded bg-slate-100 w-full"></div>
-      </div>
-    </div>
-    <!-- Extracted terms -->
-    <div class="rounded-xl border border-blue-200 bg-blue-50/40 p-4">
-      <div class="flex items-center gap-2 mb-3">
-        <span class="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
-          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2l1.6 4.4L16 8l-4.4 1.6L10 14l-1.6-4.4L4 8l4.4-1.6L10 2z"/></svg>
-          AI extracted
-        </span>
-        <span class="text-xs text-slate-400">8 fields · 1.4s</span>
-      </div>
-      <dl class="divide-y divide-blue-100">
-        {terms.map(t => (
-          <div class="flex items-center justify-between py-1.5">
-            <dt class="text-xs text-slate-500">{t.k}</dt>
-            <dd class="text-xs font-semibold text-slate-800">{t.v}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  </div>
-</AppShell>
+<AppScreenshot
+  src="/screenshots/lease-abstract.png"
+  alt="Lease detail page with a structured, clause-by-clause AI lease abstract"
+  url="app.officemanager.io/leases"
+/>

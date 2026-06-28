@@ -1,38 +1,8 @@
 ---
-import AppShell from './AppShell.astro';
-const rows = [
-  { id: '#1042', title: 'HVAC failure — Chicago HQ', vendor: 'CoolAir Mech.', sla: '2h 14m', prio: 'Urgent', pc: 'bg-red-100 text-red-700', status: 'In progress', sc: 'bg-blue-100 text-blue-700' },
-  { id: '#1041', title: 'Elevator inspection — NYC', vendor: 'OtisCare', sla: '1d 6h', prio: 'Medium', pc: 'bg-amber-100 text-amber-700', status: 'Assigned', sc: 'bg-slate-100 text-slate-600' },
-  { id: '#1038', title: 'Restroom plumbing — Austin', vendor: 'FlowPro', sla: 'On time', prio: 'Medium', pc: 'bg-amber-100 text-amber-700', status: 'Open', sc: 'bg-slate-100 text-slate-600' },
-  { id: '#1034', title: 'Lobby lighting — Denver', vendor: 'BrightCo', sla: 'Resolved', prio: 'Low', pc: 'bg-slate-100 text-slate-600', status: 'Resolved', sc: 'bg-green-100 text-green-700' },
-];
+import AppScreenshot from './AppScreenshot.astro';
 ---
-<AppShell active="Tickets" url="app.officemanager.io/tickets" title="Maintenance Tickets">
-  <div class="flex items-center gap-2 mb-3">
-    <span class="text-xs font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">All · 24</span>
-    <span class="text-xs font-medium text-red-700 bg-red-50 px-2.5 py-1 rounded-full">Urgent · 3</span>
-    <span class="text-xs font-medium text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full">In progress · 9</span>
-  </div>
-  <div class="rounded-xl border border-slate-200 overflow-x-auto">
-    <div class="min-w-[480px]">
-    <div class="grid grid-cols-12 gap-2 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-      <div class="col-span-5">Ticket</div>
-      <div class="col-span-3">Vendor</div>
-      <div class="col-span-2">SLA</div>
-      <div class="col-span-2">Status</div>
-    </div>
-    {rows.map(r => (
-      <div class="grid grid-cols-12 gap-2 items-center px-3 py-2.5 border-t border-slate-100 text-xs">
-        <div class="col-span-5 min-w-0">
-          <span class={`inline-block mr-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${r.pc}`}>{r.prio}</span>
-          <span class="text-slate-700 truncate">{r.title}</span>
-          <span class="text-slate-400 ml-1">{r.id}</span>
-        </div>
-        <div class="col-span-3 text-slate-600 truncate">{r.vendor}</div>
-        <div class="col-span-2 text-slate-600">{r.sla}</div>
-        <div class="col-span-2"><span class={`px-2 py-0.5 rounded-full text-[10px] font-medium ${r.sc}`}>{r.status}</span></div>
-      </div>
-    ))}
-    </div>
-  </div>
-</AppShell>
+<AppScreenshot
+  src="/screenshots/maintenance.png"
+  alt="Maintenance tickets list with priority, status, category and office columns"
+  url="app.officemanager.io/maintenance-tickets"
+/>
