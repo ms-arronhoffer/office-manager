@@ -105,6 +105,11 @@ def _ensure_reconciled_columns() -> None:
     """Add newer columns missing from older create_all-stamped databases."""
     with sync_engine.begin() as conn:
         for table, columns in _RECONCILE_COLUMNS.items():
+            # Identifiers come from module constants, but validate against the
+            # registered ORM tables (as _ensure_search_vector_columns does) so a
+            # typo here can never emit unintended DDL.
+            if table not in Base.metadata.tables:
+                raise RuntimeError(f"[start] Unknown table for column reconcile: {table}")
             if not inspect(sync_engine).has_table(table):
                 continue
             for col in columns:
