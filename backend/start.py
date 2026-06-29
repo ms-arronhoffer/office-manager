@@ -70,6 +70,48 @@ def _ensure_search_vector_columns() -> None:
     print("[start] Ensured full-text search_vector columns/indexes exist.")
 
 
+# Idempotent reconciliation for newer columns that some long-lived databases
+# can be missing: a DB first created on an older release via ``create_all`` +
+# ``alembic stamp head`` is marked current, so later feature migrations (the
+# email-rule engine in 054, organization scoping in 023) never run on it. The
+# email-rules and audit-log pages then 500 on a SELECT for the absent column
+# ("Failed to load email rules", blank audit log). Adding the columns with
+# ADD COLUMN IF NOT EXISTS is a safe no-op when the migrations already ran.
+_RECONCILE_COLUMNS: dict[str, list[str]] = {
+    "email_reminder_rules": [
+        "organization_id uuid",
+        "recipient_roles varchar(20)[]",
+        "recipient_user_ids uuid[]",
+        "delivery_mode varchar(20) NOT NULL DEFAULT 'immediate'",
+        "escalation_offsets integer[]",
+        "escalation_recipient_emails varchar(255)[]",
+        "require_acknowledgement boolean NOT NULL DEFAULT false",
+        "is_active boolean NOT NULL DEFAULT true",
+        "last_triggered_at timestamptz",
+    ],
+    "email_log": [
+        "escalation_level integer NOT NULL DEFAULT 0",
+    ],
+    "activity_log": [
+        "organization_id uuid",
+    ],
+    "email_acknowledgements": [
+        "organization_id uuid",
+    ],
+}
+
+
+def _ensure_reconciled_columns() -> None:
+    """Add newer columns missing from older create_all-stamped databases."""
+    with sync_engine.begin() as conn:
+        for table, columns in _RECONCILE_COLUMNS.items():
+            if not inspect(sync_engine).has_table(table):
+                continue
+            for col in columns:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col}"))
+    print("[start] Ensured email-rule/audit-log columns exist.")
+
+
 def _run_alembic(*args: str) -> None:
     """Invoke the Alembic CLI from the backend root, passing the live DB URL."""
     env = os.environ.copy()
@@ -139,6 +181,7 @@ def _initialize_schema() -> None:
         # them before stamping so endpoints that maintain them don't fail after a
         # commit (a spurious 500 despite the row persisting).
         _ensure_search_vector_columns()
+        _ensure_reconciled_columns()
         _run_alembic("stamp", "head")
         return
 
@@ -154,6 +197,10 @@ def _initialize_schema() -> None:
 
     print("[start] Running alembic upgrade head...")
     _run_alembic("upgrade", "head")
+
+    # Reconcile newer columns that a previously create_all-stamped database can
+    # be missing (alembic upgrade is a no-op there). Idempotent on healthy DBs.
+    _ensure_reconciled_columns()
 
     # Sanity-check after upgrade: a couple of must-have tables.
     post_inspector = inspect(sync_engine)

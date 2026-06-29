@@ -18,7 +18,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select
@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_role
 from app.config import settings
-from app.database import get_db
+from app.database import async_session, get_db
 from app.models.email import EmailLog
 from app.models.organization import Organization
 from app.models.entity_contact import EntityContact
@@ -176,6 +176,74 @@ def _request_response(req: WaiverRequest, *, include_url: bool = False) -> Waive
     if include_url and req.status in ("sent", "viewed"):
         data.sign_url = _sign_url(req.sign_token)
     return data
+
+
+async def _deliver_waiver_email(
+    *,
+    org_id: uuid.UUID,
+    request_id: uuid.UUID,
+    recipient_email: str,
+    recipient_name: str | None,
+    template_name: str,
+    org_name: str | None,
+    token: str,
+    expires_at: datetime,
+) -> None:
+    """Send the waiver signing email out-of-band and record an audit row.
+
+    Runs as a FastAPI background task on its own DB session so a slow or
+    failing SMTP send never blocks (and can never fail) the HTTP response —
+    the waiver request is already committed by the time this runs. This is why
+    sending used to surface "failed to send" even though the waiver was created:
+    the synchronous SMTP call delayed/aborted the response. Delivery outcome is
+    still observable via the EmailLog row.
+    """
+    email_subject = f"Signature requested: {template_name}"
+    sent = False
+    error_detail: str | None = None
+    try:
+        sign_url = _sign_url(token)
+        html = (
+            f"<p>Hello{(' ' + recipient_name) if recipient_name else ''},</p>"
+            f"<p>{org_name or 'An organization'} has requested your signature on "
+            f"<strong>{template_name}</strong>.</p>"
+            f"<p><a href=\"{sign_url}\">Review and sign the document</a></p>"
+            f"<p>This link expires on {expires_at:%B %d, %Y}.</p>"
+        )
+        sent = bool(await send_email(recipient_email, email_subject, html))
+        if not sent:
+            error_detail = (
+                "send_email returned False — SMTP is not configured "
+                "(SMTP_HOST unset) or the provider rejected the message."
+            )
+            logger.warning(
+                "Waiver email not delivered to %s for request %s: %s",
+                recipient_email,
+                request_id,
+                error_detail,
+            )
+    except Exception as exc:  # pragma: no cover - email best-effort
+        error_detail = str(exc)
+        logger.exception(
+            "Waiver email send raised for %s (request %s)", recipient_email, request_id
+        )
+
+    async with async_session() as db:
+        try:
+            db.add(
+                EmailLog(
+                    rule_id=None,
+                    sent_to=recipient_email,
+                    subject=email_subject,
+                    body=error_detail,
+                    status="sent" if sent else "failed",
+                )
+            )
+            await db.commit()
+        except Exception:
+            logger.exception("Failed to write waiver EmailLog for request %s", request_id)
+            await db.rollback()
+        await usage_service.record_event(db, org_id, "waiver_sent", success=sent)
 
 
 async def _load_template(db: AsyncSession, template_id: uuid.UUID, org_id) -> WaiverTemplate:
@@ -367,6 +435,7 @@ async def check_duplicate_recipient(
 @router.post("/send", response_model=WaiverRequestResponse, status_code=status.HTTP_201_CREATED)
 async def send_waiver(
     payload: SendWaiverRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
@@ -435,62 +504,25 @@ async def send_waiver(
     await db.commit()
     await db.refresh(req)
 
-    # Email delivery is best-effort: a send failure must not roll back the
-    # created waiver request. But the outcome must be observable — silently
-    # swallowing errors is why "waiver email isn't working" was undiagnosable —
-    # so we capture send_email's result, log it, and record an EmailLog row
-    # (mirroring the weekly-summary email flow) for the in-app email log viewer.
-    email_subject = f"Signature requested: {tpl.name}"
-    sent = False
-    error_detail: str | None = None
-    try:
-        sign_url = _sign_url(token)
-        html = (
-            f"<p>Hello{(' ' + payload.recipient_name) if payload.recipient_name else ''},</p>"
-            f"<p>{org_name or 'An organization'} has requested your signature on "
-            f"<strong>{tpl.name}</strong>.</p>"
-            f"<p><a href=\"{sign_url}\">Review and sign the document</a></p>"
-            f"<p>This link expires on {req.expires_at:%B %d, %Y}.</p>"
-        )
-        sent = bool(await send_email(normalized_email, email_subject, html))
-        if not sent:
-            error_detail = (
-                "send_email returned False — SMTP is not configured "
-                "(SMTP_HOST unset) or the provider rejected the message."
-            )
-            logger.warning(
-                "Waiver email not delivered to %s for request %s: %s",
-                normalized_email,
-                req.id,
-                error_detail,
-            )
-    except Exception as exc:  # pragma: no cover - email best-effort
-        error_detail = str(exc)
-        logger.exception(
-            "Waiver email send raised for %s (request %s)", normalized_email, req.id
-        )
-
-    # Persist an audit row. Wrapped defensively so a logging failure can never
-    # poison the session or mask the successfully created waiver request.
-    try:
-        db.add(
-            EmailLog(
-                rule_id=None,
-                sent_to=normalized_email,
-                subject=email_subject,
-                body=error_detail,
-                status="sent" if sent else "failed",
-            )
-        )
-        await db.commit()
-    except Exception:
-        logger.exception("Failed to write waiver EmailLog for request %s", req.id)
-        await db.rollback()
-
-    await usage_service.record_event(
-        db, current_user.organization_id, "waiver_sent", success=sent
+    # Build the response while the session is healthy, then hand SMTP delivery
+    # off to a background task. The waiver is already persisted, so a slow or
+    # failing email send must never delay or fail this response — that mismatch
+    # is what previously surfaced "failed to send" for waivers that were created
+    # and delivered, leaving the list out of date. Delivery outcome remains
+    # observable via the EmailLog row written by the background task.
+    response = _request_response(req, include_url=True)
+    background_tasks.add_task(
+        _deliver_waiver_email,
+        org_id=current_user.organization_id,
+        request_id=req.id,
+        recipient_email=normalized_email,
+        recipient_name=payload.recipient_name,
+        template_name=tpl.name,
+        org_name=org_name,
+        token=token,
+        expires_at=req.expires_at,
     )
-    return _request_response(req, include_url=True)
+    return response
 
 
 @router.get("/requests", response_model=list[WaiverRequestResponse])
