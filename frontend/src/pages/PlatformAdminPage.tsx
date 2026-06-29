@@ -66,9 +66,9 @@ const OverviewTab: React.FC = () => {
       </Grid>
       <Container header={<Header variant="h3">Plan mix</Header>}>
         <SpaceBetween direction="horizontal" size="m">
-          <Badge>Starter: {m.orgs_by_plan.starter}</Badge>
-          <Badge color="blue">Pro: {m.orgs_by_plan.pro}</Badge>
-          <Badge color="green">Enterprise: {m.orgs_by_plan.enterprise}</Badge>
+          <Badge>Starter: {m.orgs_by_plan?.starter ?? 0}</Badge>
+          <Badge color="blue">Pro: {m.orgs_by_plan?.pro ?? 0}</Badge>
+          <Badge color="green">Enterprise: {m.orgs_by_plan?.enterprise ?? 0}</Badge>
         </SpaceBetween>
       </Container>
       <Container header={<Header variant="h3">At-risk accounts</Header>}>
