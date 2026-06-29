@@ -10,6 +10,7 @@ import { ThemeProvider } from '@/theme/ThemeContext';
 import { WSProvider } from '@/context/WSContext';
 import ProtectedRoute from '@/auth/ProtectedRoute';
 import RoleGuard from '@/auth/RoleGuard';
+import SuperAdminGuard from '@/auth/SuperAdminGuard';
 import AppNavigation from '@/components/layout/AppNavigation';
 import SessionTimeoutWarning from '@/components/common/SessionTimeoutWarning';
 
@@ -73,6 +74,7 @@ const FinancePage = lazy(() => import('@/pages/FinancePage'));
 const HvacPage = lazy(() => import('@/pages/HvacPage'));
 const MaintenancePage = lazy(() => import('@/pages/MaintenancePage'));
 const AdministrationPage = lazy(() => import('@/pages/AdministrationPage'));
+const PlatformAdminPage = lazy(() => import('@/pages/PlatformAdminPage'));
 
 const PageLoader = () => (
   <Box textAlign="center" padding={{ top: 'xxxl' }}>
@@ -173,6 +175,11 @@ const App: React.FC = () => {
                         <Route path="administration/automation" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
                         <Route path="administration/integrations" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
                         <Route path="administration/system" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
+                        <Route path="administration/platform" element={<SuperAdminGuard><AdministrationPage /></SuperAdminGuard>} />
+                        <Route path="platform" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
+                        <Route path="platform/orgs" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
+                        <Route path="platform/users" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
+                        <Route path="platform/jobs" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
                         <Route path="managers" element={<RoleGuard allowedRoles={['admin']}><ManagersPage /></RoleGuard>} />
                         <Route path="ticket-categories" element={<RoleGuard allowedRoles={['admin']}><TicketCategoriesPage /></RoleGuard>} />
                         <Route path="maintenance-topics" element={<RoleGuard allowedRoles={['admin', 'editor']}><MaintenanceTopicsPage /></RoleGuard>} />

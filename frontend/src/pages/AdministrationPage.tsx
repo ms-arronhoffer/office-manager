@@ -123,6 +123,27 @@ const AdministrationPage: React.FC = () => {
       content: <AdminLinkCards links={visible} />,
     }));
 
+  // Super-admins get a Platform tab linking to the cross-tenant console.
+  if (user?.is_super_admin) {
+    tabs.push({
+      id: 'platform',
+      label: 'Platform',
+      href: '/administration/platform',
+      content: (
+        <AdminLinkCards
+          links={[
+            {
+              text: 'Platform Console',
+              href: '/platform',
+              description: 'Cross-tenant metrics, organizations, users, and scheduler health.',
+              roles: ['admin'],
+            },
+          ]}
+        />
+      ),
+    });
+  }
+
   return <TabbedPage ariaLabel="Administration" tabs={tabs} />;
 };
 
