@@ -56,7 +56,6 @@ import type {
   SearchResult,
   AssistantResponse,
   UserPreferences,
-  WizardConfig,
   EmailReminderRule,
   EmailReminderRuleCreate,
   EmailLog,
@@ -737,15 +736,6 @@ export const preferences = {
   update: (data: UserPreferences) => client.put<UserPreferences>('/users/me/preferences', data),
 };
 
-// ─── Wizard Configs ─────────────────────────────────────────────────────────
-export const wizardConfigs = {
-  list: () => client.get<WizardConfig[]>('/wizard-configs'),
-  getActive: () => client.get<WizardConfig>('/wizard-configs/active'),
-  get: (id: string) => client.get<WizardConfig>(`/wizard-configs/${id}`),
-  create: (data: Partial<WizardConfig>) => client.post<WizardConfig>('/wizard-configs', data),
-  update: (id: string, data: Partial<WizardConfig>) => client.put<WizardConfig>(`/wizard-configs/${id}`, data),
-  delete: (id: string) => client.delete(`/wizard-configs/${id}`),
-};
 
 // ─── Email Rules ─────────────────────────────────────────────────────────────
 // Backend mounts these routes at `/api/v1/email-rules` with each route's

@@ -43,8 +43,6 @@ const GROUPS: AdminGroup[] = [
       { text: 'Ticket Templates', href: '/ticket-templates', description: 'Reusable templates for common tickets.', roles: ['admin', 'editor'] },
       { text: 'Recurring Tickets', href: '/recurring-ticket-rules', description: 'Schedule tickets that repeat automatically.', roles: ['admin', 'editor'] },
       { text: 'Email Rules', href: '/email-rules', description: 'Route inbound email into tickets.', roles: ['admin'] },
-      { text: 'Wizard Configs', href: '/wizard-configs', description: 'Configure guided flows and wizards.', roles: ['admin'] },
-      { text: 'Flow Authoring Guide', href: '/wizard-docs', description: 'Documentation for authoring flows.', roles: ['admin'] },
     ],
   },
   {

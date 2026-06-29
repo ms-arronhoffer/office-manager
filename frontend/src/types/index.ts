@@ -5,7 +5,7 @@ export interface User {
   email: string;
   display_name: string;
   auth_provider: string;
-  role: 'admin' | 'editor' | 'viewer' | 'ticketer' | 'accountant';
+  role: 'admin' | 'editor' | 'viewer' | 'accountant';
   is_super_admin: boolean;
   is_active: boolean;
   last_login_at?: string;
@@ -1488,44 +1488,6 @@ export interface UserPreferences {
   navigation_open: boolean;
   pinned_offices: PinnedOffice[];
   saved_filters: Record<string, SavedFilter[]>;
-}
-
-// ─── Wizard Config ──────────────────────────────────────────────────────────
-export interface WizardOption {
-  label: string;
-  value: string;
-  next?: string;
-}
-
-export interface DisplayColumn {
-  key: string;
-  header: string;
-}
-
-export interface WizardStep {
-  id: string;
-  type: 'message' | 'text' | 'choice' | 'select' | 'confirm' | 'guidance' | 'display_results';
-  text: string;
-  field?: string;
-  options?: WizardOption[] | string;
-  next?: string;
-  optional?: boolean;
-  followUp?: string;
-  // display_results step fields
-  endpoint?: string;
-  params_from?: string[];
-  columns?: DisplayColumn[];
-}
-
-export interface WizardConfig {
-  id: string;
-  name: string;
-  description?: string;
-  steps: WizardStep[];
-  is_active: boolean;
-  is_default: boolean;
-  created_at: string;
-  updated_at: string;
 }
 
 // ─── Email Rules ──────────────────────────────────────────────────────────────
