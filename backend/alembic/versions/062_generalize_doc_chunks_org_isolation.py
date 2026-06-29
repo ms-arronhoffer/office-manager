@@ -60,7 +60,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.alter_column("knowledge_chunks", "organization_id", nullable=True)
     op.alter_column("lease_document_chunks", "organization_id", nullable=True)
-    op.alter_column("lease_document_chunks", "lease_id", nullable=True)
+    # Restore lease_id to its original NOT NULL constraint (delete orphans first).
+    op.execute("DELETE FROM lease_document_chunks WHERE lease_id IS NULL")
+    op.alter_column("lease_document_chunks", "lease_id", nullable=False)
     op.drop_index("idx_lease_doc_chunks_entity", table_name="lease_document_chunks")
     op.drop_column("lease_document_chunks", "entity_id")
     op.drop_column("lease_document_chunks", "entity_type")
