@@ -39,6 +39,7 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:4000}
       DEFAULT_ADMIN_EMAIL: ${DEFAULT_ADMIN_EMAIL:-admin@officemanager.local}
       DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:?DEFAULT_ADMIN_PASSWORD is required}
+      SUPER_ADMIN_EMAILS: ${SUPER_ADMIN_EMAILS:-}
       ADMIN_FRONTEND_URL: ${ADMIN_FRONTEND_URL:-http://localhost:4001}
     volumes:
       - uploads:/app/uploads
