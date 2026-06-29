@@ -130,13 +130,42 @@ async def index_attachment(
     attachment: Attachment,
     content: bytes,
 ) -> int:
-    """Extract, chunk, (optionally) embed and store a lease attachment's text.
+    """Index a lease attachment (back-compat wrapper). See ``index_document``."""
+    return await index_document(
+        db,
+        attachment=attachment,
+        content=content,
+        organization_id=lease.organization_id,
+        entity_type="lease",
+        entity_id=lease.id,
+        lease=lease,
+    )
 
-    Returns the number of chunks indexed. Best-effort: returns 0 (and indexes
-    nothing) for document types whose text cannot be extracted. Embeddings are
-    skipped gracefully when Gemini is not configured, leaving chunks
-    keyword-searchable.
+
+async def index_document(
+    db: AsyncSession,
+    *,
+    attachment: Attachment,
+    content: bytes,
+    organization_id: uuid.UUID | None,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    lease: Lease | None = None,
+) -> int:
+    """Extract, chunk, (optionally) embed and store any attachment's text.
+
+    Org-scoped by construction: an attachment with no resolvable organization is
+    **never** indexed, since an un-scoped chunk could leak across organizations.
+    Returns the number of chunks indexed; returns 0 for types whose text cannot
+    be extracted or when no org is known. Embeddings are skipped gracefully when
+    Gemini is not configured, leaving chunks keyword-searchable.
     """
+    if organization_id is None:
+        logger.info(
+            "Skipping document index for %s: no organization (cross-org isolation)",
+            attachment.original_filename,
+        )
+        return 0
     if not document_extraction.is_text_extractable(attachment.original_filename):
         return 0
     try:
@@ -164,11 +193,17 @@ async def index_attachment(
             LeaseDocumentChunk.attachment_id == attachment.id
         )
     )
+    # Preserve lease_id linkage for lease documents (used by lease search UI).
+    lease_id = lease.id if lease is not None else (
+        entity_id if entity_type == "lease" else None
+    )
     for idx, piece in enumerate(chunks):
         db.add(
             LeaseDocumentChunk(
-                organization_id=lease.organization_id,
-                lease_id=lease.id,
+                organization_id=organization_id,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                lease_id=lease_id,
                 attachment_id=attachment.id,
                 source_filename=attachment.original_filename,
                 chunk_index=idx,
@@ -261,7 +296,8 @@ async def _semantic_rank(
     collapse_per_lease: bool,
 ) -> list[dict]:
     stmt = select(LeaseDocumentChunk).where(
-        LeaseDocumentChunk.embedding.isnot(None)
+        LeaseDocumentChunk.embedding.isnot(None),
+        or_(LeaseDocumentChunk.entity_type == "lease", LeaseDocumentChunk.entity_type.is_(None)),
     )
     if organization_id is not None:
         stmt = stmt.where(LeaseDocumentChunk.organization_id == organization_id)
@@ -301,7 +337,10 @@ async def _keyword_rank(
         word_filters = [LeaseDocumentChunk.content.ilike(f"%{w}%") for w in words]
     else:
         word_filters = [LeaseDocumentChunk.content.ilike(f"%{query}%")]
-    stmt = select(LeaseDocumentChunk).where(or_(*word_filters))
+    stmt = select(LeaseDocumentChunk).where(
+        or_(*word_filters),
+        or_(LeaseDocumentChunk.entity_type == "lease", LeaseDocumentChunk.entity_type.is_(None)),
+    )
     if organization_id is not None:
         stmt = stmt.where(LeaseDocumentChunk.organization_id == organization_id)
     if lease_id is not None:
@@ -502,4 +541,48 @@ async def reindex_lease_documents(db: AsyncSession, lease: Lease) -> int:
             logger.warning("Could not read %s for indexing: %s", path, exc)
             continue
         total += await index_attachment(db, lease=lease, attachment=attachment, content=content)
+    return total
+
+
+async def reindex_organization_documents(
+    db: AsyncSession, organization_id: uuid.UUID
+) -> int:
+    """(Re)index every extractable attachment in an organization.
+
+    Reconciliation backstop run nightly so the document corpus stays current
+    even if an upload-time index was missed. Strictly org-scoped; only the
+    organization's own attachments are processed. Returns chunks indexed.
+    """
+    from pathlib import Path
+
+    from app.config import settings
+
+    if organization_id is None:
+        return 0
+
+    attachments = (
+        await db.execute(
+            select(Attachment).where(Attachment.organization_id == organization_id)
+        )
+    ).scalars().all()
+
+    total = 0
+    for attachment in attachments:
+        path = Path(settings.UPLOAD_DIR) / attachment.entity_type / attachment.stored_filename
+        if not path.exists():
+            continue
+        try:
+            content = path.read_bytes()
+        except OSError as exc:
+            logger.warning("Could not read %s for indexing: %s", path, exc)
+            continue
+        total += await index_document(
+            db,
+            attachment=attachment,
+            content=content,
+            organization_id=organization_id,
+            entity_type=attachment.entity_type,
+            entity_id=attachment.entity_id,
+            lease=None,
+        )
     return total

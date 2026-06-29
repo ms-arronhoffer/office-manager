@@ -75,8 +75,8 @@ class KnowledgeChunk(TimestampMixin, Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    organization_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("organizations.id"), nullable=True, index=True
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organizations.id"), nullable=False, index=True
     )
     source_type: Mapped[str] = mapped_column(String(40), nullable=False)
     source_id: Mapped[uuid.UUID] = mapped_column(nullable=False)

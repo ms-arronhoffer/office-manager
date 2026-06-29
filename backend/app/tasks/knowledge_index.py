@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.organization import Organization
-from app.services import knowledge_service
+from app.services import document_search_service, knowledge_service
 
 logger = logging.getLogger(__name__)
 
@@ -45,5 +45,15 @@ async def _run(db: AsyncSession) -> None:
                 await db.rollback()
             except Exception:
                 logger.exception("Rollback failed after knowledge reindex error")
+        # Reconciliation backstop: re-index the org's attachments so any upload
+        # that missed indexing is picked up. Org-scoped; failures are isolated.
+        try:
+            await document_search_service.reindex_organization_documents(db, org_id)
+        except Exception:
+            logger.exception("Document reindex failed for org %s", org_id)
+            try:
+                await db.rollback()
+            except Exception:
+                logger.exception("Rollback failed after document reindex error")
 
     logger.info("Knowledge index rebuilt: %s chunks across %s orgs", total, len(org_ids))

@@ -171,23 +171,32 @@ async def upload_attachment(
     await db.commit()
     await db.refresh(attachment)
 
-    # Best-effort: index lease document text for keyword/semantic search.
-    if entity_type == "lease":
-        try:
-            lease = (
-                await db.execute(select(Lease).where(Lease.id == entity_id))
-            ).scalar_one_or_none()
-            if lease is not None:
-                if attachment.organization_id is None and lease.organization_id is not None:
-                    attachment.organization_id = lease.organization_id
-                    await db.commit()
-                    await db.refresh(attachment)
-                await document_search_service.index_attachment(
-                    db, lease=lease, attachment=attachment, content=content
-                )
-        except Exception:  # noqa: BLE001 - indexing must never block upload
-            await db.rollback()
-            logger.exception("Failed to index lease attachment %s", attachment.id)
+    # Best-effort: index attachment text for keyword/semantic search across all
+    # entity types, strictly scoped to the parent's organization.
+    try:
+        Model = ENTITY_MODELS[entity_type]
+        parent = (
+            await db.execute(select(Model).where(Model.id == entity_id))
+        ).scalar_one_or_none()
+        parent_org = getattr(parent, "organization_id", None) if parent else None
+        if attachment.organization_id is None and parent_org is not None:
+            attachment.organization_id = parent_org
+            await db.commit()
+            await db.refresh(attachment)
+        org_id = attachment.organization_id or parent_org
+        lease = parent if entity_type == "lease" else None
+        await document_search_service.index_document(
+            db,
+            attachment=attachment,
+            content=content,
+            organization_id=org_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            lease=lease,
+        )
+    except Exception:  # noqa: BLE001 - indexing must never block upload
+        await db.rollback()
+        logger.exception("Failed to index attachment %s", attachment.id)
 
     return AttachmentResponse.model_validate(attachment, from_attributes=True)
 
