@@ -302,7 +302,7 @@ const OrgManageModal: React.FC<Props> = ({ orgId, onDismiss, onSaved }) => {
                   columnDefinitions={[
                     { id: 'number', header: 'Number', cell: (i) => String(i.number ?? i.id ?? '—') },
                     { id: 'status', header: 'Status', cell: (i) => String(i.status ?? '—') },
-                    { id: 'total', header: 'Total', cell: (i) => usd(i.total_cents as number) },
+                    { id: 'total', header: 'Total', cell: (i) => usd(i.total_cents as number | null | undefined) },
                     { id: 'issued', header: 'Issued', cell: (i) => String(i.issued_at ?? '—').slice(0, 10) },
                   ]}
                   empty="No invoices."
