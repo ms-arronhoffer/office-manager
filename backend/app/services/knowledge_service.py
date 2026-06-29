@@ -688,6 +688,8 @@ async def reindex_organization(
     Embeddings are added when Gemini is configured; otherwise chunks are stored
     keyword-only so retrieval still works.
     """
+    if organization_id is None:
+        raise ValueError("organization_id is required to (re)index knowledge")
     chunks = await _collect_chunks(db, organization_id)
 
     embeddings: list[list[float]] | None = None
@@ -744,11 +746,15 @@ def _normalize_document(
     label = chunk.source_filename or "document"
     if lease_name:
         label = f"{label} — {lease_name}"
+    entity_type = chunk.entity_type or "lease"
+    entity_id = chunk.entity_id or chunk.lease_id
+    # Deep-link the citation back to its source record's list route.
+    reference = f"{entity_type}/{entity_id}" if entity_id else None
     return {
-        "source_type": "lease_document",
-        "source_id": str(chunk.lease_id),
+        "source_type": "lease_document" if entity_type == "lease" else f"{entity_type}_document",
+        "source_id": str(entity_id) if entity_id else None,
         "title": label,
-        "reference": f"leases/{chunk.lease_id}",
+        "reference": reference,
         "content": chunk.content,
         "score": round(float(score), 4),
         "match_type": mode,
@@ -771,6 +777,10 @@ async def retrieve(
     query = (query or "").strip()
     if not query:
         return []
+    # Strict org isolation: retrieval must always be scoped. A missing org could
+    # otherwise scan the global index and leak another org's data — a failure.
+    if organization_id is None:
+        raise ValueError("organization_id is required for knowledge retrieval")
 
     query_embedding: list[float] | None = None
     if ai_service.is_configured():
@@ -811,7 +821,7 @@ def _source_key(kind: str, chunk: object) -> tuple:
     originating entity, document chunks by their lease.
     """
     if kind == "document":
-        return ("document", getattr(chunk, "lease_id", None))
+        return ("document", getattr(chunk, "attachment_id", None) or getattr(chunk, "lease_id", None))
     return ("knowledge", getattr(chunk, "source_type", None), getattr(chunk, "source_id", None))
 
 

@@ -98,6 +98,10 @@ _RECONCILE_COLUMNS: dict[str, list[str]] = {
     "email_acknowledgements": [
         "organization_id uuid",
     ],
+    "lease_document_chunks": [
+        "entity_type varchar(50)",
+        "entity_id uuid",
+    ],
 }
 
 
