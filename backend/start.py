@@ -5,7 +5,7 @@ import sys
 import traceback
 import uuid
 
-from sqlalchemy import inspect, text
+from sqlalchemy import func, inspect, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -226,7 +226,11 @@ def _ensure_default_admin() -> None:
     to super-admin so restarting the container is enough to recover access.
     """
     with Session(sync_engine) as session:
-        existing = session.query(User).filter_by(email=settings.DEFAULT_ADMIN_EMAIL).first()
+        existing = (
+            session.query(User)
+            .filter(func.lower(User.email) == settings.DEFAULT_ADMIN_EMAIL.lower())
+            .first()
+        )
         if existing:
             if not existing.is_super_admin:
                 existing.is_super_admin = True
@@ -248,6 +252,35 @@ def _ensure_default_admin() -> None:
         session.add(admin)
         session.commit()
         print(f"[start] Created default super-admin user: {settings.DEFAULT_ADMIN_EMAIL}")
+
+
+def _ensure_super_admins() -> None:
+    """Promote any users listed in SUPER_ADMIN_EMAILS to platform super-admin.
+
+    Runs on every container start so access can be restored in an existing
+    database simply by setting the env var and redeploying. Matching is
+    case-insensitive and idempotent; emails with no matching user are skipped.
+    """
+    emails = [e.strip() for e in settings.SUPER_ADMIN_EMAILS.split(",") if e.strip()]
+    if not emails:
+        return
+    with Session(sync_engine) as session:
+        for email in emails:
+            user = (
+                session.query(User)
+                .filter(func.lower(User.email) == email.lower())
+                .first()
+            )
+            if not user:
+                print(f"[start] SUPER_ADMIN_EMAILS: no user found for {email}; skipping.")
+                continue
+            if user.is_super_admin and user.is_active:
+                print(f"[start] SUPER_ADMIN_EMAILS: {email} already super-admin.")
+                continue
+            user.is_super_admin = True
+            user.is_active = True
+            print(f"[start] SUPER_ADMIN_EMAILS: promoted {email} to super-admin.")
+        session.commit()
 
 
 def _ensure_default_org() -> None:
@@ -273,6 +306,7 @@ def _ensure_default_org() -> None:
 _initialize_schema()
 _ensure_default_org()
 _ensure_default_admin()
+_ensure_super_admins()
 
 
 def _ensure_raw_tables() -> None:

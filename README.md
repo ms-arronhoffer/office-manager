@@ -634,6 +634,7 @@ sudo certbot --nginx -d officemanager.yourdomain.com
 | `ADMIN_PORT`             | No       | `4001`                       | Host port the admin frontend is mapped to            |
 | `DEFAULT_ADMIN_EMAIL`    | No       | `admin@officemanager.local`  | Initial admin account email                          |
 | `DEFAULT_ADMIN_PASSWORD` | No       | `changeme123`                | Initial admin account password — **change immediately** |
+| `SUPER_ADMIN_EMAILS`     | No       | —                            | Comma-separated emails promoted to super-admin on every startup |
 | `STRIPE_SECRET_KEY`      | No       | —                            | Stripe secret key for billing integration            |
 | `STRIPE_WEBHOOK_SECRET`  | No       | —                            | Stripe webhook signing secret                        |
 | `STRIPE_PRICE_STARTER`   | No       | —                            | Stripe Price ID for the Starter plan                 |

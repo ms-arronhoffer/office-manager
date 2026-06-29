@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     ADMIN_FRONTEND_URL: str = "http://localhost:4001"
     DEFAULT_ADMIN_EMAIL: str = "admin@officemanager.local"
     DEFAULT_ADMIN_PASSWORD: str
+    # Comma-separated list of emails to promote to platform super-admin on every
+    # container start. Useful for healing access in an existing database without
+    # console access. Matching is case-insensitive; missing users are skipped.
+    SUPER_ADMIN_EMAILS: str = ""
 
     # File uploads
     UPLOAD_DIR: str = "/app/uploads"
