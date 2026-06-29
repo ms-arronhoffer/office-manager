@@ -14,17 +14,24 @@ import Pagination from '@cloudscape-design/components/pagination';
 import ButtonDropdown from '@cloudscape-design/components/button-dropdown';
 import TabbedPage, { TabbedPageTab } from '@/components/layout/TabbedPage';
 import { useFlashbar } from '@/context/FlashbarContext';
+import OrgManageModal from '@/components/admin/OrgManageModal';
 import {
   superAdmin,
   type AdminOrg,
   type AdminUser,
+  type AuditEntry,
+  type BillingRow,
+  type FeatureAdoptionRow,
   type PlatformMetrics,
+  type PlatformTokensResponse,
   type ScheduledJob,
 } from '@/api/superAdmin';
 
-const usd = (cents: number) =>
+const num = (n: number | null | undefined) => `${n ?? 0}`;
+
+const usd = (cents: number | null | undefined) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(
-    cents / 100,
+    (cents ?? 0) / 100,
   );
 
 const KpiTile: React.FC<{ label: string; value: string; accent?: boolean }> = ({ label, value, accent }) => (
@@ -53,14 +60,14 @@ const OverviewTab: React.FC = () => {
   return (
     <SpaceBetween size="l">
       <Grid gridDefinition={[{ colspan: 3 }, { colspan: 3 }, { colspan: 3 }, { colspan: 3 }]}>
-        <KpiTile label="Organizations" value={`${m.total_orgs}`} />
-        <KpiTile label="Active" value={`${m.active_orgs}`} />
-        <KpiTile label="Trials" value={`${m.trial_orgs}`} />
-        <KpiTile label="Past due" value={`${m.past_due_orgs}`} accent={m.past_due_orgs > 0} />
+        <KpiTile label="Organizations" value={num(m.total_orgs)} />
+        <KpiTile label="Active" value={num(m.active_orgs)} />
+        <KpiTile label="Trials" value={num(m.trial_orgs)} />
+        <KpiTile label="Past due" value={num(m.past_due_orgs)} accent={(m.past_due_orgs ?? 0) > 0} />
       </Grid>
       <Grid gridDefinition={[{ colspan: 3 }, { colspan: 3 }, { colspan: 3 }, { colspan: 3 }]}>
-        <KpiTile label="Users" value={`${m.active_users}/${m.total_users}`} />
-        <KpiTile label="Open tickets" value={`${m.open_tickets}`} />
+        <KpiTile label="Users" value={`${num(m.active_users)}/${num(m.total_users)}`} />
+        <KpiTile label="Open tickets" value={num(m.open_tickets)} />
         <KpiTile label={m.mrr_from_ledger ? 'MRR (ledger)' : 'MRR (est.)'} value={usd(m.mrr_cents)} />
         <KpiTile label="ARR" value={usd(m.arr_cents)} />
       </Grid>
@@ -73,10 +80,10 @@ const OverviewTab: React.FC = () => {
       </Container>
       <Container header={<Header variant="h3">At-risk accounts</Header>}>
         <SpaceBetween direction="horizontal" size="m">
-          <Badge color="red">Trial expiring 7d: {m.at_risk_trial_expiring}</Badge>
-          <Badge color="red">Past due: {m.at_risk_past_due}</Badge>
-          <Badge color="grey">Canceled: {m.at_risk_canceled}</Badge>
-          <Badge color="grey">Inactive: {m.at_risk_inactive}</Badge>
+          <Badge color="red">Trial expiring 7d: {num(m.at_risk_trial_expiring)}</Badge>
+          <Badge color="red">Past due: {num(m.at_risk_past_due)}</Badge>
+          <Badge color="grey">Canceled: {num(m.at_risk_canceled)}</Badge>
+          <Badge color="grey">Inactive: {num(m.at_risk_inactive)}</Badge>
         </SpaceBetween>
       </Container>
     </SpaceBetween>
@@ -92,6 +99,7 @@ const OrganizationsTab: React.FC = () => {
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(false);
+  const [manageId, setManageId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -131,6 +139,7 @@ const OrganizationsTab: React.FC = () => {
   };
 
   return (
+    <>
     <Table<AdminOrg>
       items={rows}
       loading={loading}
@@ -177,6 +186,7 @@ const OrganizationsTab: React.FC = () => {
             <ButtonDropdown
               expandToViewport
               items={[
+                { id: 'manage', text: 'Manage details' },
                 { id: 'extend', text: 'Extend trial 14d' },
                 o.is_active
                   ? { id: 'cancel', text: 'Cancel subscription' }
@@ -184,6 +194,7 @@ const OrganizationsTab: React.FC = () => {
                 { id: 'impersonate', text: 'Impersonate admin' },
               ]}
               onItemClick={({ detail }) => {
+                if (detail.id === 'manage') setManageId(o.id);
                 if (detail.id === 'extend') act('Extend trial', () => superAdmin.extendTrial(o.id, 14));
                 if (detail.id === 'cancel') act('Cancel', () => superAdmin.cancelSubscription(o.id));
                 if (detail.id === 'restore') act('Restore', () => superAdmin.restoreSubscription(o.id));
@@ -197,6 +208,17 @@ const OrganizationsTab: React.FC = () => {
       ]}
       empty={<Box textAlign="center">No organizations.</Box>}
     />
+      {manageId && (
+        <OrgManageModal
+          orgId={manageId}
+          onDismiss={() => setManageId(null)}
+          onSaved={() => {
+            setManageId(null);
+            load();
+          }}
+        />
+      )}
+    </>
   );
 };
 
@@ -354,6 +376,182 @@ const JobsTab: React.FC = () => {
   );
 };
 
+const BillingTab: React.FC = () => {
+  const { addFlash } = useFlashbar();
+  const [rows, setRows] = useState<BillingRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    superAdmin
+      .listBilling({ page, page_size: PAGE_SIZE })
+      .then((r) => {
+        setRows(r.data.items);
+        setTotal(r.data.total);
+      })
+      .catch(() => addFlash({ type: 'error', content: 'Failed to load billing.' }))
+      .finally(() => setLoading(false));
+  }, [page, addFlash]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const act = async (label: string, fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+      addFlash({ type: 'success', content: `${label} succeeded.` });
+      load();
+    } catch {
+      addFlash({ type: 'error', content: `${label} failed.` });
+    }
+  };
+
+  return (
+    <Table<BillingRow>
+      items={rows}
+      loading={loading}
+      trackBy="id"
+      header={<Header counter={`(${total})`} variant="h2">Billing</Header>}
+      pagination={
+        <Pagination
+          currentPageIndex={page}
+          pagesCount={Math.max(1, Math.ceil(total / PAGE_SIZE))}
+          onChange={({ detail }) => setPage(detail.currentPageIndex)}
+        />
+      }
+      columnDefinitions={[
+        { id: 'name', header: 'Organization', cell: (b) => b.name },
+        { id: 'plan', header: 'Plan', cell: (b) => <Badge>{b.plan}</Badge> },
+        {
+          id: 'status',
+          header: 'Status',
+          cell: (b) => <StatusIndicator type={b.is_active ? 'success' : 'stopped'}>{b.payment_status}</StatusIndicator>,
+        },
+        { id: 'seats', header: 'Seats', cell: (b) => `${b.seat_count}${b.max_seats ? `/${b.max_seats}` : ''}` },
+        { id: 'cust', header: 'Stripe customer', cell: (b) => b.stripe_customer_id ?? '—' },
+        {
+          id: 'actions',
+          header: 'Actions',
+          cell: (b) => (
+            <ButtonDropdown
+              expandToViewport
+              items={[
+                { id: 'extend', text: 'Extend trial 14d' },
+                b.is_active ? { id: 'cancel', text: 'Cancel' } : { id: 'restore', text: 'Restore' },
+              ]}
+              onItemClick={({ detail }) => {
+                if (detail.id === 'extend') act('Extend trial', () => superAdmin.extendTrial(b.id, 14));
+                if (detail.id === 'cancel') act('Cancel', () => superAdmin.cancelSubscription(b.id));
+                if (detail.id === 'restore') act('Restore', () => superAdmin.restoreSubscription(b.id));
+              }}
+            >
+              Manage
+            </ButtonDropdown>
+          ),
+        },
+      ]}
+      empty={<Box textAlign="center">No billing records.</Box>}
+    />
+  );
+};
+
+const UsageTab: React.FC = () => {
+  const [tokens, setTokens] = useState<PlatformTokensResponse | null>(null);
+  const [features, setFeatures] = useState<FeatureAdoptionRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    superAdmin.platformTokens({ limit: 10 }).then((r) => setTokens(r.data)).catch(() => setError('Failed to load usage.'));
+    superAdmin.featureUsage({ months: 6 }).then((r) => setFeatures(r.data.features)).catch(() => undefined);
+  }, []);
+
+  if (error) return <StatusIndicator type="error">{error}</StatusIndicator>;
+
+  return (
+    <SpaceBetween size="l">
+      {tokens && (
+        <Grid gridDefinition={[{ colspan: 4 }, { colspan: 4 }, { colspan: 4 }]}>
+          <KpiTile label={`Input tokens (${tokens.period})`} value={tokens.input_tokens.toLocaleString()} />
+          <KpiTile label="Output tokens" value={tokens.output_tokens.toLocaleString()} />
+          <KpiTile label="Total tokens" value={tokens.total_tokens.toLocaleString()} />
+        </Grid>
+      )}
+      <Table
+        items={tokens?.top_orgs ?? []}
+        trackBy="organization_id"
+        header={<Header variant="h2">Top token-consuming organizations</Header>}
+        columnDefinitions={[
+          { id: 'name', header: 'Organization', cell: (o) => o.organization_name ?? o.organization_id },
+          { id: 'plan', header: 'Plan', cell: (o) => o.plan ?? '—' },
+          { id: 'total', header: 'Total tokens', cell: (o) => o.total_tokens.toLocaleString() },
+        ]}
+        empty={<Box textAlign="center">No token usage.</Box>}
+      />
+      <Table
+        items={features}
+        trackBy="feature"
+        header={<Header variant="h2">Feature adoption</Header>}
+        columnDefinitions={[
+          { id: 'label', header: 'Feature', cell: (f) => f.label },
+          { id: 'events', header: 'Events', cell: (f) => f.events },
+          { id: 'orgs', header: 'Orgs', cell: (f) => f.org_count },
+          {
+            id: 'removal',
+            header: 'Status',
+            cell: (f) =>
+              f.removal_candidate ? <Badge color="grey">unused</Badge> : <Badge color="green">used</Badge>,
+          },
+        ]}
+        empty={<Box textAlign="center">No feature data.</Box>}
+      />
+    </SpaceBetween>
+  );
+};
+
+const AuditTab: React.FC = () => {
+  const [rows, setRows] = useState<AuditEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    superAdmin
+      .listAudit({ page, page_size: PAGE_SIZE })
+      .then((r) => {
+        setRows(r.data.items);
+        setTotal(r.data.total);
+      })
+      .catch(() => setError('Failed to load audit log.'));
+  }, [page]);
+
+  if (error) return <StatusIndicator type="error">{error}</StatusIndicator>;
+
+  return (
+    <Table<AuditEntry>
+      items={rows}
+      trackBy="id"
+      header={<Header counter={`(${total})`} variant="h2">Audit log</Header>}
+      pagination={
+        <Pagination
+          currentPageIndex={page}
+          pagesCount={Math.max(1, Math.ceil(total / PAGE_SIZE))}
+          onChange={({ detail }) => setPage(detail.currentPageIndex)}
+        />
+      }
+      columnDefinitions={[
+        { id: 'when', header: 'When', cell: (a) => new Date(a.created_at).toLocaleString() },
+        { id: 'user', header: 'User', cell: (a) => a.user_display_name },
+        { id: 'action', header: 'Action', cell: (a) => <Badge>{a.action}</Badge> },
+        { id: 'entity', header: 'Entity', cell: (a) => `${a.entity_type}${a.entity_label ? ` · ${a.entity_label}` : ''}` },
+      ]}
+      empty={<Box textAlign="center">No audit entries.</Box>}
+    />
+  );
+};
+
 /**
  * Platform super-admin console — surfaces the /admin/v1 API (metrics, orgs,
  * users, scheduler jobs) that previously had no frontend. Gated to
@@ -364,6 +562,9 @@ const PlatformAdminPage: React.FC = () => {
     () => [
       { id: 'overview', label: 'Overview', href: '/platform', content: <OverviewTab /> },
       { id: 'orgs', label: 'Organizations', href: '/platform/orgs', content: <OrganizationsTab /> },
+      { id: 'billing', label: 'Billing', href: '/platform/billing', content: <BillingTab /> },
+      { id: 'usage', label: 'Usage', href: '/platform/usage', content: <UsageTab /> },
+      { id: 'audit', label: 'Audit', href: '/platform/audit', content: <AuditTab /> },
       { id: 'users', label: 'Users', href: '/platform/users', content: <UsersTab /> },
       { id: 'jobs', label: 'Jobs', href: '/platform/jobs', content: <JobsTab /> },
     ],
