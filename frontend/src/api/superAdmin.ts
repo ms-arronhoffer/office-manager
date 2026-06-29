@@ -26,7 +26,7 @@ export interface PlatformMetrics {
   trial_orgs: number;
   past_due_orgs: number;
   new_orgs_30d: number;
-  orgs_by_plan: PlanBreakdown;
+  orgs_by_plan?: PlanBreakdown;
   total_users: number;
   active_users: number;
   total_tickets: number;
