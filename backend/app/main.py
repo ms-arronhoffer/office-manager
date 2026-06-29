@@ -13,7 +13,6 @@ from slowapi.middleware import SlowAPIMiddleware
 from app.config import settings
 from app.tasks.scheduler import start_scheduler, stop_scheduler, scheduler
 from app.database import async_session
-from app.seeds.wizard_seed import seed_default_wizard_config
 from app.utils.rate_limit import org_limiter
 from app.utils.logging_config import configure_logging, init_sentry
 
@@ -29,8 +28,6 @@ init_sentry()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     start_scheduler()
-    async with async_session() as db:
-        await seed_default_wizard_config(db)
     yield
     stop_scheduler()
 
@@ -63,7 +60,7 @@ from app.routers import (  # noqa: E402
     auth, offices, leases, landlords, transitions,
     hq_hvac, hvac_contracts, reports, dashboard, users, managers, attachments,
     ticket_categories, maintenance_tickets, activity_log, search, preferences,
-    wizard_configs, vendors, imports, email_rules, trash, site_settings,
+    vendors, imports, email_rules, trash, site_settings,
     ticket_templates, recurring_ticket_rules, notifications, organizations, billing, api_keys,
     webhooks, operating_expenses, vendor_portal, insurance_certificates, ws, work_order_costs,
     space, gl, cam, lifecycle, ap, financials,
@@ -105,7 +102,6 @@ app.include_router(activity_log.router, prefix="/api/v1/activity-log", tags=["Ac
 app.include_router(search.router, prefix="/api/v1/search", tags=["Search"], dependencies=_org_guard)
 app.include_router(assistant.router, prefix="/api/v1/assistant", tags=["Assistant"], dependencies=[Depends(enforce_org_access), Depends(require_feature("ai_assist"))])
 app.include_router(preferences.router, prefix="/api/v1/users", tags=["Preferences"], dependencies=_org_guard)
-app.include_router(wizard_configs.router, prefix="/api/v1/wizard-configs", tags=["Wizard Configs"], dependencies=_org_guard)
 app.include_router(vendors.router, prefix="/api/v1/vendors", tags=["Vendors"], dependencies=_org_guard)
 app.include_router(imports.router, prefix="/api/v1/imports", tags=["Imports"], dependencies=_org_guard)
 app.include_router(email_rules.router, prefix="/api/v1/email-rules", tags=["Email Rules"], dependencies=_org_guard)

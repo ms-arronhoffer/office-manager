@@ -188,7 +188,7 @@ async def get_ticket(
 async def create_ticket(
     payload: MaintenanceTicketCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role("admin", "editor", "ticketer")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
     import logging
     log = logging.getLogger(__name__)

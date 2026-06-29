@@ -41,9 +41,6 @@ const MaintenanceTicketsPage = lazy(() => import('@/pages/MaintenanceTicketsPage
 const MaintenanceTicketFormPage = lazy(() => import('@/pages/MaintenanceTicketFormPage'));
 const MaintenanceTicketDetailPage = lazy(() => import('@/pages/MaintenanceTicketDetailPage'));
 const UsersPage = lazy(() => import('@/pages/UsersPage'));
-const TicketPortalPage = lazy(() => import('@/pages/TicketPortalPage'));
-const WizardConfigsPage = lazy(() => import('@/pages/WizardConfigsPage'));
-const WizardDocsPage = lazy(() => import('@/pages/WizardDocsPage'));
 const VendorsPage = lazy(() => import('@/pages/VendorsPage'));
 const VendorFormPage = lazy(() => import('@/pages/VendorFormPage'));
 const VendorDetailPage = lazy(() => import('@/pages/VendorDetailPage'));
@@ -103,14 +100,6 @@ const App: React.FC = () => {
               element={
                 <ProtectedRoute>
                   <OnboardingPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/ticket-portal"
-              element={
-                <ProtectedRoute>
-                  <TicketPortalPage />
                 </ProtectedRoute>
               }
             />
@@ -181,8 +170,6 @@ const App: React.FC = () => {
                         <Route path="maintenance-tickets/:id" element={<MaintenanceTicketDetailPage />} />
                         <Route path="maintenance-tickets/:id/edit" element={<MaintenanceTicketFormPage />} />
                         <Route path="users" element={<RoleGuard allowedRoles={['admin']}><UsersPage /></RoleGuard>} />
-                        <Route path="wizard-configs" element={<RoleGuard allowedRoles={['admin']}><WizardConfigsPage /></RoleGuard>} />
-                        <Route path="wizard-docs" element={<RoleGuard allowedRoles={['admin']}><WizardDocsPage /></RoleGuard>} />
                         <Route path="data-dictionary" element={<RoleGuard allowedRoles={['admin']}><DataDictionaryPage /></RoleGuard>} />
                         <Route path="email-rules" element={<RoleGuard allowedRoles={['admin']}><EmailRulesPage /></RoleGuard>} />
                         <Route path="waivers" element={<RoleGuard allowedRoles={['admin', 'editor']}><WaiversPage /></RoleGuard>} />

@@ -24,11 +24,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Ticketers can only access the ticket portal
-  if (user?.role === 'ticketer' && !location.pathname.startsWith('/ticket-portal')) {
-    return <Navigate to="/ticket-portal" replace />;
-  }
-
   return <>{children}</>;
 };
 

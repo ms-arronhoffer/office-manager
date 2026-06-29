@@ -40,7 +40,7 @@ const DASHBOARD_WIDGETS = [
   { id: 'activity_feed', label: 'Recent Activity' },
 ];
 
-function getDefaultWidgets(role: string): Record<string, boolean> {
+function getDefaultWidgets(): Record<string, boolean> {
   const defaults: Record<string, boolean> = {
     stat_cards: true,
     financial_kpis: true,
@@ -50,12 +50,6 @@ function getDefaultWidgets(role: string): Record<string, boolean> {
     transitions_table: true,
     activity_feed: true,
   };
-  if (role === 'ticketer') {
-    defaults.financial_kpis = false;
-    defaults.lease_chart = false;
-    defaults.hvac_table = false;
-    defaults.transitions_table = false;
-  }
   return defaults;
 }
 
@@ -102,7 +96,7 @@ const DashboardPage: React.FC = () => {
   // Widget visibility: use user customization if any, otherwise role-based defaults
   const userWidgets = getDashboardWidgets();
   const hasCustomized = Object.keys(userWidgets).length > 0;
-  const widgetConfig = hasCustomized ? userWidgets : getDefaultWidgets(user?.role ?? 'viewer');
+  const widgetConfig = hasCustomized ? userWidgets : getDefaultWidgets();
   const isVisible = (id: string) => widgetConfig[id] !== false;
 
   useEffect(() => {

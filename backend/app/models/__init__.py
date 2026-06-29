@@ -31,7 +31,6 @@ from app.models.email import EmailReminderRule, EmailLog, EmailAcknowledgement
 from app.models.attachment import Attachment
 from app.models.maintenance_ticket import TicketCategory, MaintenanceTicket, TicketNote, WorkOrderCostLine
 from app.models.activity_log import ActivityLog
-from app.models.wizard_config import WizardConfig
 from app.models.vendor import Vendor
 from app.models.site_settings import SiteSettings
 from app.models.support_request import SupportRequest, SUPPORT_REQUEST_STATUSES
@@ -85,7 +84,6 @@ __all__ = [
     "Attachment",
     "TicketCategory", "MaintenanceTicket", "TicketNote", "WorkOrderCostLine",
     "ActivityLog",
-    "WizardConfig",
     "Vendor",
     "SiteSettings",
     "SupportRequest", "SUPPORT_REQUEST_STATUSES",

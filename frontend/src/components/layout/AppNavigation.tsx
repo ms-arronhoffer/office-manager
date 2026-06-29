@@ -130,11 +130,6 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
     }] : []),
     {
       type: 'link' as const,
-      text: 'Self-Service Portal',
-      href: '/ticket-portal',
-    },
-    {
-      type: 'link' as const,
       text: 'Settings',
       href: '/settings',
     },
