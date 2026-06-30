@@ -167,6 +167,9 @@ const App: React.FC = () => {
                         <Route path="administration/platform" element={<SuperAdminGuard><AdministrationPage /></SuperAdminGuard>} />
                         <Route path="platform" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
                         <Route path="platform/orgs" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
+                        <Route path="platform/billing" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
+                        <Route path="platform/usage" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
+                        <Route path="platform/audit" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
                         <Route path="platform/users" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
                         <Route path="platform/jobs" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
                         <Route path="managers" element={<RoleGuard allowedRoles={['admin']}><ManagersPage /></RoleGuard>} />
