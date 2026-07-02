@@ -26,6 +26,13 @@ class VendorCreate(BaseModel):
     zip_code: str | None = None
     is_preferred: bool = False
     notes: str | None = None
+    # Tax / 1099 (Phase 1.3)
+    is_1099_vendor: bool = False
+    tax_id: str | None = None
+    tax_id_type: str | None = None
+    legal_name: str | None = None
+    tax_classification: str | None = None
+    default_tax_box: str | None = None
     office_ids: list[uuid.UUID] = []
 
 
@@ -43,6 +50,13 @@ class VendorUpdate(BaseModel):
     zip_code: str | None = None
     is_preferred: bool | None = None
     notes: str | None = None
+    # Tax / 1099 (Phase 1.3)
+    is_1099_vendor: bool | None = None
+    tax_id: str | None = None
+    tax_id_type: str | None = None
+    legal_name: str | None = None
+    tax_classification: str | None = None
+    default_tax_box: str | None = None
     office_ids: list[uuid.UUID] | None = None
 
 
@@ -61,6 +75,13 @@ class VendorResponse(BaseModel):
     zip_code: str | None = None
     is_preferred: bool
     notes: str | None
+    # Tax / 1099 (Phase 1.3)
+    is_1099_vendor: bool = False
+    tax_id: str | None = None
+    tax_id_type: str | None = None
+    legal_name: str | None = None
+    tax_classification: str | None = None
+    default_tax_box: str | None = None
     offices: list[VendorOfficeRef]
     created_at: datetime
     updated_at: datetime

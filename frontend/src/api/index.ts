@@ -159,6 +159,8 @@ import type {
   BankReconciliation,
   BankReconciliationCreate,
   ReconciliationReport,
+  Vendor1099Summary,
+  Vendor1099Detail,
   LifecycleEvent,
   LifecycleEventCreate,
   LifecycleEventUpdate,
@@ -1439,6 +1441,20 @@ export const bank = {
   deleteReconciliation: (reconciliationId: string) =>
     client.delete(`/bank/reconciliations/${reconciliationId}`),
 };
+
+
+// ─── Tax / 1099 (Phase 1.3) ──────────────────────────────────────────────────
+export const tax = {
+  list1099: (params: { year: number; form?: string; only_reportable?: boolean }) =>
+    client.get<Vendor1099Summary[]>('/tax/1099', { params }),
+
+  get1099Detail: (vendorId: string, year: number) =>
+    client.get<Vendor1099Detail>(`/tax/1099/${vendorId}`, { params: { year } }),
+
+  export1099: (params: { year: number; form?: string; only_reportable?: boolean }) =>
+    client.get('/tax/1099/export', { params, responseType: 'blob' }),
+};
+
 
 
 // ─── Lease Lifecycle Accounting ──────────────────────────────────────────────

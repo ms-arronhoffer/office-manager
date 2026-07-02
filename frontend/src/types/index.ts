@@ -2440,6 +2440,49 @@ export interface ArAgingReport {
   grand_total: number;
 }
 
+// ─── Tax / 1099 (Phase 1.3) ──────────────────────────────────────────────────
+export interface Tax1099Box {
+  box: string;
+  form: string;
+  label: string;
+  amount: number;
+}
+
+export interface Vendor1099Summary {
+  vendor_id: string;
+  vendor_name: string;
+  legal_name: string;
+  tax_id: string | null;
+  tax_id_type: string | null;
+  tax_classification: string | null;
+  total: number;
+  payment_count: number;
+  meets_threshold: boolean;
+  boxes: Tax1099Box[];
+}
+
+export interface Payment1099 {
+  payment_id: string;
+  payment_date: string;
+  amount: number;
+  reportable: boolean;
+  box: string | null;
+  reference: string | null;
+}
+
+export interface Vendor1099Detail {
+  vendor_id: string;
+  vendor_name: string;
+  legal_name: string;
+  tax_id: string | null;
+  tax_id_type: string | null;
+  tax_classification: string | null;
+  year: number;
+  total: number;
+  boxes: Tax1099Box[];
+  payments: Payment1099[];
+}
+
 // ─── Bank Reconciliation (Phase 1.2) ─────────────────────────────────────────
 export interface BankAccount {
   id: string;

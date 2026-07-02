@@ -25,6 +25,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -133,6 +134,13 @@ class VendorPayment(TimestampMixin, Base):
     method: Mapped[str | None] = mapped_column(String(30), nullable=True)
     reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
     memo: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # --- Tax / 1099 (Phase 1.3) ---
+    # Per-payment override of 1099 reportability. NULL => inherit from the
+    # vendor's ``is_1099_vendor`` flag.
+    is_reportable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Per-payment override of the 1099 box. NULL => inherit the vendor's
+    # ``default_tax_box``.
+    tax_box: Mapped[str | None] = mapped_column(String(10), nullable=True)
     journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("journal_entries.id", ondelete="SET NULL"), nullable=True
     )
