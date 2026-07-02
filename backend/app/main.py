@@ -64,6 +64,7 @@ from app.routers import (  # noqa: E402
     ticket_templates, recurring_ticket_rules, notifications, organizations, billing, api_keys,
     webhooks, operating_expenses, vendor_portal, insurance_certificates, ws, work_order_costs,
     space, gl, cam, lifecycle, ap, ar, financials,
+    bank,
     lease_abstract, management_companies, contacts, client_portal,
     ai, waivers, document_search, maintenance, saved_reports, assistant,
     support_requests,
@@ -128,6 +129,7 @@ app.include_router(cam.router, prefix="/api/v1/cam", tags=["CAM Reconciliation"]
 app.include_router(lifecycle.router, prefix="/api/v1/lifecycle", tags=["Lease Lifecycle Accounting"], dependencies=_org_guard)
 app.include_router(ap.router, prefix="/api/v1/ap", tags=["Accounts Payable"], dependencies=_org_guard)
 app.include_router(ar.router, prefix="/api/v1/ar", tags=["Accounts Receivable"], dependencies=_org_guard)
+app.include_router(bank.router, prefix="/api/v1/bank", tags=["Bank Reconciliation"], dependencies=_org_guard)
 app.include_router(financials.router, prefix="/api/v1/financials", tags=["Financial Statements"], dependencies=_org_guard)
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Assist"], dependencies=[Depends(enforce_org_access), Depends(ai.reset_ai_usage)])
 app.include_router(

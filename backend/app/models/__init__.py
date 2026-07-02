@@ -57,6 +57,10 @@ from app.models.customer_invoice import (
     Customer, CustomerInvoice, CustomerInvoiceLine, CustomerReceipt,
     INVOICE_STATUSES, RECEIPT_STATES,
 )
+from app.models.bank_account import (
+    BankAccount, BankTransaction, BankReconciliation,
+    TRANSACTION_STATUSES, RECONCILIATION_STATUSES, IMPORT_SOURCES,
+)
 from app.models.waiver import (
     WaiverTemplate, WaiverRequest, WaiverSignature,
     WAIVER_RECIPIENT_TYPES, WAIVER_STATUSES, WAIVER_SIGNATURE_TYPES,
@@ -105,6 +109,7 @@ __all__ = [
     "LeaseAbstractClause",
     "VendorBill", "VendorBillLine", "VendorPayment",
     "Customer", "CustomerInvoice", "CustomerInvoiceLine", "CustomerReceipt",
+    "BankAccount", "BankTransaction", "BankReconciliation",
     "WaiverTemplate", "WaiverRequest", "WaiverSignature",
     "LeaseDocumentChunk",
     "SavedReport", "ReportSchedule", "REPORT_FORMATS",
