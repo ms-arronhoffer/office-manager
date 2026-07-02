@@ -10,6 +10,7 @@ import AccountsPayablePage from '@/pages/AccountsPayablePage';
 import AccountsReceivablePage from '@/pages/AccountsReceivablePage';
 import BankReconciliationPage from '@/pages/BankReconciliationPage';
 import Tax1099Page from '@/pages/Tax1099Page';
+import BudgetingPage from '@/pages/BudgetingPage';
 import LeaseLifecyclePage from '@/pages/LeaseLifecyclePage';
 
 /**
@@ -43,6 +44,7 @@ const FinancePage: React.FC = () => {
           { id: 'accounts-receivable', label: 'Accounts Receivable', href: '/finance/accounts-receivable', content: <AccountsReceivablePage /> },
           { id: 'bank-reconciliation', label: 'Bank Reconciliation', href: '/finance/bank-reconciliation', content: <BankReconciliationPage /> },
           { id: 'tax-1099', label: 'Tax / 1099', href: '/finance/tax-1099', content: <Tax1099Page /> },
+          { id: 'budgeting', label: 'Budgeting', href: '/finance/budgeting', content: <BudgetingPage /> },
           { id: 'lease-lifecycle', label: 'Lease Lifecycle', href: '/finance/lease-lifecycle', content: <LeaseLifecyclePage /> },
         ]
       : []),

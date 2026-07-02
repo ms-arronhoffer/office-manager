@@ -161,6 +161,10 @@ import type {
   ReconciliationReport,
   Vendor1099Summary,
   Vendor1099Detail,
+  Budget,
+  BudgetCreate,
+  BudgetUpdate,
+  BudgetReport,
   LifecycleEvent,
   LifecycleEventCreate,
   LifecycleEventUpdate,
@@ -1454,6 +1458,26 @@ export const tax = {
   export1099: (params: { year: number; form?: string; only_reportable?: boolean }) =>
     client.get('/tax/1099/export', { params, responseType: 'blob' }),
 };
+
+
+// ─── Budgeting (Phase 1.4) ───────────────────────────────────────────────────
+export const budgets = {
+  list: (params?: { fiscal_year?: number }) =>
+    client.get<Budget[]>('/budgets', { params }),
+
+  get: (id: string) => client.get<Budget>(`/budgets/${id}`),
+
+  create: (data: BudgetCreate) => client.post<Budget>('/budgets', data),
+
+  update: (id: string, data: BudgetUpdate) =>
+    client.patch<Budget>(`/budgets/${id}`, data),
+
+  remove: (id: string) => client.delete(`/budgets/${id}`),
+
+  report: (id: string, params?: { as_of?: string }) =>
+    client.get<BudgetReport>(`/budgets/${id}/report`, { params }),
+};
+
 
 
 

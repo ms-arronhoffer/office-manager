@@ -2440,6 +2440,73 @@ export interface ArAgingReport {
   grand_total: number;
 }
 
+// ─── Budgeting (Phase 1.4) ───────────────────────────────────────────────────
+export interface BudgetLine {
+  id: string;
+  account_id: string;
+  account_code: string | null;
+  account_name: string | null;
+  amount: number;
+  notes: string | null;
+}
+
+export interface Budget {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  fiscal_year: number;
+  status: string;
+  notes: string | null;
+  total_amount: number;
+  created_at: string;
+  updated_at: string;
+  lines: BudgetLine[];
+}
+
+export interface BudgetLineInput {
+  account_id: string;
+  amount: string | number;
+  notes?: string | null;
+}
+
+export interface BudgetCreate {
+  name: string;
+  fiscal_year: number;
+  status?: string;
+  notes?: string | null;
+  lines: BudgetLineInput[];
+}
+
+export interface BudgetUpdate {
+  name?: string;
+  fiscal_year?: number;
+  status?: string;
+  notes?: string | null;
+  lines?: BudgetLineInput[];
+}
+
+export interface BudgetVarianceRow {
+  account_id: string;
+  code: string;
+  name: string;
+  type: string;
+  budget: number;
+  actual: number;
+  variance: number;
+  variance_pct: number | null;
+}
+
+export interface BudgetReport {
+  budget_id: string;
+  name: string;
+  fiscal_year: number;
+  as_of: string;
+  total_budget: number;
+  total_actual: number;
+  total_variance: number;
+  rows: BudgetVarianceRow[];
+}
+
 // ─── Tax / 1099 (Phase 1.3) ──────────────────────────────────────────────────
 export interface Tax1099Box {
   box: string;
