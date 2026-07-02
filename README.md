@@ -1,4 +1,4 @@
-# SwiftLease Application
+# Portfolio Desk Application
 
 A multi-tenant SaaS office and property management platform built with FastAPI, React, and PostgreSQL. Covers the full lifecycle of corporate office portfolios: lease management, HVAC, maintenance, vendors, transitions, billing, and analytics — all in one containerized application.
 

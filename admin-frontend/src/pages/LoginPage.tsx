@@ -129,7 +129,7 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           <Card>
             <CardHeader>
-              <CardTitle>SwiftLease — Admin Login</CardTitle>
+              <CardTitle>Portfolio Desk — Admin Login</CardTitle>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleCredentials} className="space-y-4">

@@ -328,7 +328,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 await _send_billing_email(
                     db, org,
                     "billing_account_suspended.html",
-                    f"Your SwiftLease account has been suspended",
+                    f"Your Portfolio Desk account has been suspended",
                 )
                 await _notify_super_admins(db, org, f"Subscription canceled for org '{org.name}' (plan: {org.plan})")
                 await _notify_slack(f":red_circle: Subscription canceled for org *{org.name}*")

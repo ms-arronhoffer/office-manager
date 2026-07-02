@@ -1,4 +1,4 @@
-# SwiftLease — Marketing Copy
+# Portfolio Desk — Marketing Copy
 
 ---
 
@@ -16,7 +16,7 @@
 **Take control of your entire office portfolio — without the spreadsheets.**
 
 ### Subheadline
-SwiftLease gives corporate real estate and facilities teams a single platform to track leases, manage HVAC and maintenance, coordinate office transitions, and keep vendors accountable — from your first location to your hundredth.
+Portfolio Desk gives corporate real estate and facilities teams a single platform to track leases, manage HVAC and maintenance, coordinate office transitions, and keep vendors accountable — from your first location to your hundredth.
 
 ### Primary CTA
 **Start Free Trial** | **Request a Demo**
@@ -31,17 +31,17 @@ SwiftLease gives corporate real estate and facilities teams a single platform to
 
 > "I need a board-ready portfolio summary by Friday and I have to pull numbers from five different places."
 
-Sound familiar? SwiftLease was built specifically for the teams living this reality.
+Sound familiar? Portfolio Desk was built specifically for the teams living this reality.
 
 ---
 
 ## Product Overview
 
-### What Is SwiftLease?
+### What Is Portfolio Desk?
 
-SwiftLease is a SaaS platform purpose-built for corporate real estate and facilities management teams. It replaces the tangle of spreadsheets, shared drives, and calendar reminders with a structured, searchable, and automated system that works the way your team actually works.
+Portfolio Desk is a SaaS platform purpose-built for corporate real estate and facilities management teams. It replaces the tangle of spreadsheets, shared drives, and calendar reminders with a structured, searchable, and automated system that works the way your team actually works.
 
-Whether you manage 5 offices or 500, SwiftLease gives you a single source of truth for every property, every contract, and every open task — with automated alerts so nothing slips through the cracks.
+Whether you manage 5 offices or 500, Portfolio Desk gives you a single source of truth for every property, every contract, and every open task — with automated alerts so nothing slips through the cracks.
 
 ---
 
@@ -52,7 +52,7 @@ Whether you manage 5 offices or 500, SwiftLease gives you a single source of tru
 ### Lease Management
 **Never miss a lease deadline again.**
 
-Track critical dates across your entire portfolio: notice periods, option exercise windows, lease expirations, and rent escalation schedules. SwiftLease calculates every key deadline automatically and surfaces them in a color-coded dashboard before they become emergencies.
+Track critical dates across your entire portfolio: notice periods, option exercise windows, lease expirations, and rent escalation schedules. Portfolio Desk calculates every key deadline automatically and surfaces them in a color-coded dashboard before they become emergencies.
 
 - Visual lease timeline showing the full portfolio at a glance
 - Automated email reminders at configurable thresholds (90, 60, 30 days)
@@ -65,7 +65,7 @@ Track critical dates across your entire portfolio: notice periods, option exerci
 ### Facilities & HVAC Management
 **From reactive to proactive maintenance.**
 
-SwiftLease tracks every piece of equipment in your HQ facilities alongside all field office HVAC contracts. Scheduled preventive maintenance tasks, service history logs, and vendor assignments are all in one place — so your team spends less time chasing down information and more time keeping buildings running.
+Portfolio Desk tracks every piece of equipment in your HQ facilities alongside all field office HVAC contracts. Scheduled preventive maintenance tasks, service history logs, and vendor assignments are all in one place — so your team spends less time chasing down information and more time keeping buildings running.
 
 **HQ HVAC (Your Facilities)**
 - Heat pump inventory with full service history
@@ -108,7 +108,7 @@ Manage your vendor roster and keep their work orders moving without constant fol
 ### Office Transitions
 **Closings, moves, and new offices — without the chaos.**
 
-Every office transition is a complex project with dozens of moving pieces. SwiftLease gives you a structured checklist-driven workflow for closings, relocations, and new office buildouts — so nothing gets forgotten and stakeholders can see progress at a glance.
+Every office transition is a complex project with dozens of moving pieces. Portfolio Desk gives you a structured checklist-driven workflow for closings, relocations, and new office buildouts — so nothing gets forgotten and stakeholders can see progress at a glance.
 
 - Transition types: closing, move, new office
 - Checklist templates with item-level completion tracking
@@ -132,7 +132,7 @@ Generate board-ready PDF and CSV exports for any dataset: lease portfolio, HVAC 
 ### Automated Notifications & Email Alerts
 **Your team gets the right alert at the right time.**
 
-Configure email rules for any combination of event type and urgency threshold. Lease expiring in 60 days? High-priority maintenance ticket unresolved for 48 hours? SwiftLease fires the alert — you choose who receives it.
+Configure email rules for any combination of event type and urgency threshold. Lease expiring in 60 days? High-priority maintenance ticket unresolved for 48 hours? Portfolio Desk fires the alert — you choose who receives it.
 
 - Configurable per-event email rules
 - In-app notification center with read/unread state
@@ -144,7 +144,7 @@ Configure email rules for any combination of event type and urgency threshold. L
 ### Multi-Tenancy & Security
 **Enterprise-grade security, right out of the box.**
 
-SwiftLease is architected for multi-tenant SaaS from the ground up. Every piece of data is scoped to your organization — no configuration required, no risk of data leakage between tenants.
+Portfolio Desk is architected for multi-tenant SaaS from the ground up. Every piece of data is scoped to your organization — no configuration required, no risk of data leakage between tenants.
 
 **Authentication & Access Control**
 - Email/password + Google OAuth single sign-on
@@ -190,7 +190,7 @@ Manage your subscription directly from the application. Upgrade, downgrade, or u
 
 ---
 
-## Who Is SwiftLease For?
+## Who Is Portfolio Desk For?
 
 **Corporate Real Estate Teams** managing multi-site office portfolios who need lease deadline visibility and landlord relationship tracking.
 
@@ -202,13 +202,13 @@ Manage your subscription directly from the application. Upgrade, downgrade, or u
 
 ---
 
-## Why Teams Switch to SwiftLease
+## Why Teams Switch to Portfolio Desk
 
-**From spreadsheets:** Spreadsheets break at scale. They don't alert you, they don't enforce permissions, and they don't track who changed what. SwiftLease does all three automatically.
+**From spreadsheets:** Spreadsheets break at scale. They don't alert you, they don't enforce permissions, and they don't track who changed what. Portfolio Desk does all three automatically.
 
-**From generic project management tools:** Trello and Asana aren't built for lease management, HVAC tracking, or vendor portals. SwiftLease is.
+**From generic project management tools:** Trello and Asana aren't built for lease management, HVAC tracking, or vendor portals. Portfolio Desk is.
 
-**From enterprise IWMS platforms:** Enterprise integrated workplace management systems cost six figures, take months to implement, and require dedicated administrators. SwiftLease is up and running in a day.
+**From enterprise IWMS platforms:** Enterprise integrated workplace management systems cost six figures, take months to implement, and require dedicated administrators. Portfolio Desk is up and running in a day.
 
 ---
 
@@ -249,10 +249,10 @@ Start a free 30-day trial — no credit card required. Import your existing data
 ## Social / Short-Form Copy
 
 **LinkedIn post:**
-If your lease portfolio lives in Excel, you're one missed formula update away from a material deadline surprise. SwiftLease automates every alert, tracks every vendor, and generates board-ready reports on demand. 30-day trial, no card required.
+If your lease portfolio lives in Excel, you're one missed formula update away from a material deadline surprise. Portfolio Desk automates every alert, tracks every vendor, and generates board-ready reports on demand. 30-day trial, no card required.
 
 **Twitter/X:**
-Stop tracking lease expirations in spreadsheets. SwiftLease: lease management, HVAC, maintenance, vendors, and reporting — in one platform. 30-day free trial.
+Stop tracking lease expirations in spreadsheets. Portfolio Desk: lease management, HVAC, maintenance, vendors, and reporting — in one platform. 30-day free trial.
 
 **Email subject lines:**
 - "Your leases have deadlines. Your spreadsheet doesn't care."

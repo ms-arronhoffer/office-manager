@@ -3,7 +3,7 @@ import { siteSettings as siteSettingsApi } from '@/api';
 import type { SiteSettings } from '@/api';
 
 const DEFAULTS: SiteSettings = {
-  app_name: 'SwiftLease',
+  app_name: 'Portfolio Desk',
   login_subtitle: 'Sign in to manage your offices, leases, and facilities',
   login_form_header: 'Sign In',
   login_form_description: 'Enter your credentials to access the application',

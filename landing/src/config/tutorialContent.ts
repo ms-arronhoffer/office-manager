@@ -21,7 +21,7 @@ export const tutorialContent: Record<string, TutorialBody> = {
       "This walkthrough takes you from an empty account to a working portfolio in under an hour. No consultant, no six-month rollout — just the essentials your team needs on day one.",
     screen: 'dashboard',
     steps: [
-      { title: 'Create your workspace', body: 'Start your free trial and name your workspace. Office Manager spins up an isolated, multi-tenant environment for your organization — no credit card required.' },
+      { title: 'Create your workspace', body: 'Start your free trial and name your workspace. Portfolio Desk spins up an isolated, multi-tenant environment for your organization — no credit card required.' },
       { title: 'Add your first office', body: 'Create an office with its address, square footage, and landlord. This becomes the anchor that leases, tickets, vendors, and HVAC records attach to.' },
       { title: 'Invite your team', body: 'Send email invites and assign roles — admin, editor, or viewer. Every plan includes unlimited users, so bring the whole facilities team in.' },
       { title: 'Set your first alert', body: 'Turn on notifications for lease expirations and maintenance SLAs so the right person is emailed before a deadline, not after.' },
@@ -60,7 +60,7 @@ export const tutorialContent: Record<string, TutorialBody> = {
       'Stop reading 60-page leases line by line. AI extracts the terms that matter, drafts an abstract, and writes the briefing your leadership actually reads.',
     screen: 'lease',
     steps: [
-      { title: 'Upload the lease', body: 'Drop in a PDF or Word document. Office Manager extracts the text first so AI can reliably read every clause.' },
+      { title: 'Upload the lease', body: 'Drop in a PDF or Word document. Portfolio Desk extracts the text first so AI can reliably read every clause.' },
       { title: 'Extract key terms', body: 'AI returns the tenant, dates, rent, escalations, options, and notice windows as structured fields you can review and accept.' },
       { title: 'Generate an abstract', body: 'With one click, AI drafts a clean, shareable lease abstract — perfect for handing to finance or legal.' },
       { title: 'Schedule briefings', body: 'Turn on weekly and monthly AI briefings that summarize upcoming notice periods, expirations, and maintenance across the portfolio.' },

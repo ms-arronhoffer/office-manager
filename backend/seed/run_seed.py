@@ -178,7 +178,7 @@ def run_seed(bootstrap_only: bool = False) -> None:
     admin_email = settings.DEFAULT_ADMIN_EMAIL
     admin_password = settings.DEFAULT_ADMIN_PASSWORD
 
-    print(f"\n=== SwiftLease Data Import ===")
+    print(f"\n=== Portfolio Desk Data Import ===")
     print(f"Database: {db_url.split('@')[-1]}")  # hide credentials
     if bootstrap_only:
         print("Mode: bootstrap-only (default organization, admin, rules, categories)")
@@ -294,7 +294,7 @@ main = run_seed
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Seed SwiftLease data, or just the default organization.",
+        description="Seed Portfolio Desk data, or just the default organization.",
     )
     parser.add_argument(
         "--bootstrap-only",

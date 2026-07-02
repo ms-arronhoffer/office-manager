@@ -161,7 +161,7 @@ async def test_webhook(
         db,
         org_id=current_user.organization_id,
         event_type="test.ping",
-        payload={"message": "This is a test delivery from SwiftLease.", "webhook_id": str(webhook_id)},
+        payload={"message": "This is a test delivery from Portfolio Desk.", "webhook_id": str(webhook_id)},
     )
 
     # Return the latest delivery record for this webhook

@@ -1,4 +1,4 @@
-# Security Review — SwiftLease
+# Security Review — Portfolio Desk
 
 **Review Date:** 2026-04-29  
 **Scope:** Backend Python/FastAPI, frontend React/TypeScript, admin frontend  
@@ -182,7 +182,7 @@ Either require authentication (bearer token) on the health endpoint, or reduce t
 
 `GET /api/v1/site-settings` requires no authentication. This is intentional — the login page fetches `app_name`, `login_form_header`, and `login_subtitle` before the user authenticates.
 
-**Risk:** The endpoint is a reliable fingerprinting surface that confirms an SwiftLease deployment. The data returned is branding configuration only and not sensitive.
+**Risk:** The endpoint is a reliable fingerprinting surface that confirms a Portfolio Desk deployment. The data returned is branding configuration only and not sensitive.
 
 **Accepted with note:** This is a design trade-off, not a flaw. Document it explicitly in code comments so future reviewers don't add authentication inadvertently and break the login page.
 

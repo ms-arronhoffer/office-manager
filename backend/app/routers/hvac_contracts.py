@@ -65,7 +65,7 @@ async def export_hvac_contracts_ical(
     contracts = result.scalars().all()
 
     cal = Calendar()
-    cal.add("prodid", "-//SwiftLease//HVAC//EN")
+    cal.add("prodid", "-//Portfolio Desk//HVAC//EN")
     cal.add("version", "2.0")
     cal.add("calscale", "GREGORIAN")
     cal.add("x-wr-calname", "HVAC Service Dates")

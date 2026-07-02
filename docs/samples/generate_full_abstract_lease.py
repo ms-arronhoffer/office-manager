@@ -329,7 +329,7 @@ def build() -> None:
         leftMargin=1 * inch,
         rightMargin=1 * inch,
         title="Sample Commercial Lease (Full Abstract)",
-        author="Office Manager sample data",
+        author="Portfolio Desk sample data",
     )
 
     flow = _intro_flow(styles)

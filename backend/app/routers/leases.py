@@ -72,7 +72,7 @@ async def export_leases_ical(
     leases = result.scalars().unique().all()
 
     cal = Calendar()
-    cal.add("prodid", "-//SwiftLease//Leases//EN")
+    cal.add("prodid", "-//Portfolio Desk//Leases//EN")
     cal.add("version", "2.0")
     cal.add("calscale", "GREGORIAN")
     cal.add("x-wr-calname", "Lease Deadlines")

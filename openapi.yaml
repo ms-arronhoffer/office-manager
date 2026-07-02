@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Office Manager API
+  title: Portfolio Desk API
   version: 1.0.0
   description: |
     Multi-tenant office management platform API. Handles offices, leases, maintenance tickets,

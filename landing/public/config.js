@@ -13,6 +13,6 @@ window.SITE_CONFIG = {
   DEMO_EMAIL:    "demo@yourcompany.com",
   SUPPORT_EMAIL: "support@yourcompany.com",
 
-  COMPANY_NAME:  "SwiftLease",
+  COMPANY_NAME:  "Portfolio Desk",
   TAGLINE:       "Every office. Every lease. Every deadline. One platform.",
 };

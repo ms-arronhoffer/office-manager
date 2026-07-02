@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="SwiftLease API",
+    title="Portfolio Desk API",
     version=APP_VERSION,
     lifespan=lifespan,
 )

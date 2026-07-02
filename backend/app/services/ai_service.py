@@ -1,4 +1,4 @@
-"""Google Gemini integration for SwiftLease AI-assist features.
+"""Google Gemini integration for Portfolio Desk AI-assist features.
 
 This is a thin async client over the Gemini ``generateContent`` REST endpoint.
 It deliberately avoids a heavy vendored SDK and instead uses ``httpx`` (already a

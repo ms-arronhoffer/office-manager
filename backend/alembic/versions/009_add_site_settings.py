@@ -17,14 +17,14 @@ def upgrade() -> None:
     op.create_table(
         "site_settings",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("app_name", sa.String(200), nullable=False, server_default="SwiftLease"),
+        sa.Column("app_name", sa.String(200), nullable=False, server_default="Portfolio Desk"),
         sa.Column("login_subtitle", sa.Text(), nullable=True),
         sa.Column("login_form_header", sa.String(200), nullable=True),
         sa.Column("login_form_description", sa.Text(), nullable=True),
     )
     # Insert default row
     op.execute(
-        "INSERT INTO site_settings (id, app_name) VALUES (1, 'SwiftLease')"
+        "INSERT INTO site_settings (id, app_name) VALUES (1, 'Portfolio Desk')"
     )
 
 
