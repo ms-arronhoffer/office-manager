@@ -39,6 +39,7 @@ const ManagersPage = lazy(() => import('@/pages/ManagersPage'));
 const TicketCategoriesPage = lazy(() => import('@/pages/TicketCategoriesPage'));
 const MaintenanceTopicsPage = lazy(() => import('@/pages/MaintenanceTopicsPage'));
 const MaintenanceTicketsPage = lazy(() => import('@/pages/MaintenanceTicketsPage'));
+const InspectionsPage = lazy(() => import('@/pages/InspectionsPage'));
 const MaintenanceTicketFormPage = lazy(() => import('@/pages/MaintenanceTicketFormPage'));
 const MaintenanceTicketDetailPage = lazy(() => import('@/pages/MaintenanceTicketDetailPage'));
 const UsersPage = lazy(() => import('@/pages/UsersPage'));
@@ -183,6 +184,7 @@ const App: React.FC = () => {
                         <Route path="maintenance-tickets/new" element={<MaintenanceTicketFormPage />} />
                         <Route path="maintenance-tickets/:id" element={<MaintenanceTicketDetailPage />} />
                         <Route path="maintenance-tickets/:id/edit" element={<MaintenanceTicketFormPage />} />
+                        <Route path="inspections" element={<InspectionsPage />} />
                         <Route path="users" element={<RoleGuard allowedRoles={['admin']}><UsersPage /></RoleGuard>} />
                         <Route path="data-dictionary" element={<RoleGuard allowedRoles={['admin']}><DataDictionaryPage /></RoleGuard>} />
                         <Route path="email-rules" element={<RoleGuard allowedRoles={['admin']}><EmailRulesPage /></RoleGuard>} />

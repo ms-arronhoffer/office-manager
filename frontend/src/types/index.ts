@@ -2750,3 +2750,99 @@ export interface CashFlowStatementResponse {
   beginning_cash: number;
   ending_cash: number;
 }
+
+// ─── Property Inspections (Phase 1.5) ────────────────────────────────────────
+export type InspectionStatus = 'scheduled' | 'in_progress' | 'completed' | 'canceled';
+export type InspectionResult = 'pass' | 'fail' | 'na';
+
+export interface InspectionTemplateItem {
+  id: string;
+  label: string;
+  description: string | null;
+  sort_order: number;
+  is_required: boolean;
+}
+
+export interface InspectionTemplateItemInput {
+  label: string;
+  description?: string | null;
+  sort_order?: number;
+  is_required?: boolean;
+}
+
+export interface InspectionTemplate {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  description: string | null;
+  category: string | null;
+  is_active: boolean;
+  items: InspectionTemplateItem[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InspectionTemplateCreate {
+  name: string;
+  description?: string | null;
+  category?: string | null;
+  is_active?: boolean;
+  items?: InspectionTemplateItemInput[];
+}
+
+export interface InspectionTemplateUpdate {
+  name?: string | null;
+  description?: string | null;
+  category?: string | null;
+  is_active?: boolean | null;
+  items?: InspectionTemplateItemInput[] | null;
+}
+
+export interface InspectionItemResult {
+  id: string;
+  template_item_id: string | null;
+  label: string;
+  sort_order: number;
+  is_required: boolean;
+  result: InspectionResult | null;
+  notes: string | null;
+}
+
+export interface Inspection {
+  id: string;
+  organization_id: string | null;
+  template_id: string | null;
+  office_id: string;
+  title: string;
+  status: InspectionStatus;
+  scheduled_date: string | null;
+  completed_at: string | null;
+  inspector_id: string | null;
+  overall_result: InspectionResult | null;
+  notes: string | null;
+  results: InspectionItemResult[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InspectionCreate {
+  office_id: string;
+  title: string;
+  template_id?: string | null;
+  scheduled_date?: string | null;
+  notes?: string | null;
+}
+
+export interface InspectionItemResultInput {
+  id: string;
+  result?: InspectionResult | null;
+  notes?: string | null;
+}
+
+export interface InspectionUpdate {
+  title?: string | null;
+  scheduled_date?: string | null;
+  status?: InspectionStatus | null;
+  notes?: string | null;
+  results?: InspectionItemResultInput[] | null;
+}

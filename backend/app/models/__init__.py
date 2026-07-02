@@ -62,6 +62,10 @@ from app.models.bank_account import (
     TRANSACTION_STATUSES, RECONCILIATION_STATUSES, IMPORT_SOURCES,
 )
 from app.models.budget import Budget, BudgetLine, BUDGET_STATUSES
+from app.models.inspection import (
+    InspectionTemplate, InspectionTemplateItem, Inspection, InspectionItemResult,
+    INSPECTION_STATUSES, INSPECTION_RESULTS,
+)
 from app.models.waiver import (
     WaiverTemplate, WaiverRequest, WaiverSignature,
     WAIVER_RECIPIENT_TYPES, WAIVER_STATUSES, WAIVER_SIGNATURE_TYPES,

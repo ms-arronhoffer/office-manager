@@ -165,6 +165,12 @@ import type {
   BudgetCreate,
   BudgetUpdate,
   BudgetReport,
+  InspectionTemplate,
+  InspectionTemplateCreate,
+  InspectionTemplateUpdate,
+  Inspection,
+  InspectionCreate,
+  InspectionUpdate,
   LifecycleEvent,
   LifecycleEventCreate,
   LifecycleEventUpdate,
@@ -1476,6 +1482,40 @@ export const budgets = {
 
   report: (id: string, params?: { as_of?: string }) =>
     client.get<BudgetReport>(`/budgets/${id}/report`, { params }),
+};
+
+
+// ─── Property Inspections (Phase 1.5) ────────────────────────────────────────
+export const inspections = {
+  listTemplates: (params?: { active_only?: boolean }) =>
+    client.get<InspectionTemplate[]>('/inspections/templates', { params }),
+
+  getTemplate: (id: string) =>
+    client.get<InspectionTemplate>(`/inspections/templates/${id}`),
+
+  createTemplate: (data: InspectionTemplateCreate) =>
+    client.post<InspectionTemplate>('/inspections/templates', data),
+
+  updateTemplate: (id: string, data: InspectionTemplateUpdate) =>
+    client.patch<InspectionTemplate>(`/inspections/templates/${id}`, data),
+
+  removeTemplate: (id: string) => client.delete(`/inspections/templates/${id}`),
+
+  list: (params?: { office_id?: string; status?: string }) =>
+    client.get<Inspection[]>('/inspections', { params }),
+
+  get: (id: string) => client.get<Inspection>(`/inspections/${id}`),
+
+  create: (data: InspectionCreate) =>
+    client.post<Inspection>('/inspections', data),
+
+  update: (id: string, data: InspectionUpdate) =>
+    client.patch<Inspection>(`/inspections/${id}`, data),
+
+  complete: (id: string) =>
+    client.post<Inspection>(`/inspections/${id}/complete`),
+
+  remove: (id: string) => client.delete(`/inspections/${id}`),
 };
 
 
