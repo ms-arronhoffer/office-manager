@@ -79,6 +79,11 @@ from app.models.billing_ledger import (
     BillingSubscription, BillingInvoice, BillingCharge,
     BillingRefund, BillingCredit, BillingCoupon,
 )
+from app.models.resident import (
+    RentalUnit, Resident, ResidentLease, ResidentLeaseOccupant,
+    UNIT_STATUSES, RESIDENT_LEASE_STATUSES, RESIDENT_STATUSES,
+    OCCUPANT_ROLES, ACTIVE_LEASE_STATUSES,
+)
 
 __all__ = [
     "Base", "Organization", "User", "AuthLockout", "Manager", "Office",    "Lease", "LeaseNote", "LeaseRenewal", "LeaseOption",
@@ -123,4 +128,7 @@ __all__ = [
     "ImpersonationSession",
     "BillingSubscription", "BillingInvoice", "BillingCharge",
     "BillingRefund", "BillingCredit", "BillingCoupon",
+    "RentalUnit", "Resident", "ResidentLease", "ResidentLeaseOccupant",
+    "UNIT_STATUSES", "RESIDENT_LEASE_STATUSES", "RESIDENT_STATUSES",
+    "OCCUPANT_ROLES", "ACTIVE_LEASE_STATUSES",
 ]
