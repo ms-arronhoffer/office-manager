@@ -121,6 +121,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
           { type: 'link' as const, text: 'CAM', href: '/finance/cam' },
           { type: 'link' as const, text: 'Accounts Payable', href: '/finance/accounts-payable' },
           { type: 'link' as const, text: 'Accounts Receivable', href: '/finance/accounts-receivable' },
+          { type: 'link' as const, text: 'Bank Reconciliation', href: '/finance/bank-reconciliation' },
           { type: 'link' as const, text: 'Lease Lifecycle', href: '/finance/lease-lifecycle' },
         ] : []),
       ],

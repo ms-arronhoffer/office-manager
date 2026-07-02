@@ -2440,6 +2440,110 @@ export interface ArAgingReport {
   grand_total: number;
 }
 
+// ─── Bank Reconciliation (Phase 1.2) ─────────────────────────────────────────
+export interface BankAccount {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  gl_account_id: string;
+  gl_account_code: string | null;
+  gl_account_name: string | null;
+  institution: string | null;
+  account_number_last4: string | null;
+  currency: string;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BankAccountCreate {
+  name: string;
+  gl_account_id: string;
+  institution?: string | null;
+  account_number_last4?: string | null;
+  currency?: string;
+  notes?: string | null;
+}
+
+export interface BankAccountUpdate {
+  name?: string | null;
+  gl_account_id?: string | null;
+  institution?: string | null;
+  account_number_last4?: string | null;
+  is_active?: boolean | null;
+  notes?: string | null;
+}
+
+export interface BankTransaction {
+  id: string;
+  bank_account_id: string;
+  txn_date: string;
+  description: string | null;
+  amount: number;
+  reference: string | null;
+  fitid: string | null;
+  import_source: string | null;
+  status: string;
+  reconciliation_id: string | null;
+  journal_entry_id: string | null;
+  created_at: string;
+}
+
+export interface BankTransactionCreate {
+  txn_date: string;
+  amount: number;
+  description?: string | null;
+  reference?: string | null;
+}
+
+export interface BankImportResult {
+  imported: number;
+  skipped: number;
+  total: number;
+  source: string;
+}
+
+export interface ReconciliationSummary {
+  beginning_balance: number;
+  ending_balance: number;
+  cleared_deposits: number;
+  cleared_withdrawals: number;
+  cleared_balance: number;
+  difference: number;
+  is_balanced: boolean;
+  cleared_count: number;
+}
+
+export interface BankReconciliation {
+  id: string;
+  organization_id: string | null;
+  bank_account_id: string;
+  statement_date: string;
+  beginning_balance: number;
+  ending_balance: number;
+  status: string;
+  notes: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  summary: ReconciliationSummary;
+}
+
+export interface BankReconciliationCreate {
+  statement_date: string;
+  ending_balance: number;
+  beginning_balance?: number | null;
+  notes?: string | null;
+}
+
+export interface ReconciliationReport {
+  reconciliation: BankReconciliation;
+  cleared_transactions: BankTransaction[];
+  outstanding_transactions: BankTransaction[];
+  gl_book_balance: number;
+}
+
 // ─── Lease Lifecycle Accounting (Phase 4) ────────────────────────────────────
 export interface LifecycleEvent {
   id: string;

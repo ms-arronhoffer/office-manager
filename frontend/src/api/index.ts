@@ -150,6 +150,15 @@ import type {
   InvoiceUpdate,
   ReceiptCreate,
   ArAgingReport,
+  BankAccount,
+  BankAccountCreate,
+  BankAccountUpdate,
+  BankTransaction,
+  BankTransactionCreate,
+  BankImportResult,
+  BankReconciliation,
+  BankReconciliationCreate,
+  ReconciliationReport,
   LifecycleEvent,
   LifecycleEventCreate,
   LifecycleEventUpdate,
@@ -1365,6 +1374,72 @@ export const ar = {
   aging: (params?: { as_of?: string }) =>
     client.get<ArAgingReport>('/ar/aging', { params }),
 };
+
+// ─── Bank Reconciliation ─────────────────────────────────────────────────────
+export const bank = {
+  listAccounts: (params?: { active_only?: boolean }) =>
+    client.get<BankAccount[]>('/bank/accounts', { params }),
+
+  getAccount: (id: string) => client.get<BankAccount>(`/bank/accounts/${id}`),
+
+  createAccount: (data: BankAccountCreate) =>
+    client.post<BankAccount>('/bank/accounts', data),
+
+  updateAccount: (id: string, data: BankAccountUpdate) =>
+    client.patch<BankAccount>(`/bank/accounts/${id}`, data),
+
+  deleteAccount: (id: string) => client.delete(`/bank/accounts/${id}`),
+
+  listTransactions: (
+    accountId: string,
+    params?: { status?: string; unreconciled_only?: boolean },
+  ) => client.get<BankTransaction[]>(`/bank/accounts/${accountId}/transactions`, { params }),
+
+  createTransaction: (accountId: string, data: BankTransactionCreate) =>
+    client.post<BankTransaction>(`/bank/accounts/${accountId}/transactions`, data),
+
+  importStatement: (accountId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return client.post<BankImportResult>(
+      `/bank/accounts/${accountId}/import`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+  },
+
+  deleteTransaction: (transactionId: string) =>
+    client.delete(`/bank/transactions/${transactionId}`),
+
+  listReconciliations: (accountId: string) =>
+    client.get<BankReconciliation[]>(`/bank/accounts/${accountId}/reconciliations`),
+
+  createReconciliation: (accountId: string, data: BankReconciliationCreate) =>
+    client.post<BankReconciliation>(`/bank/accounts/${accountId}/reconciliations`, data),
+
+  getReconciliationReport: (reconciliationId: string) =>
+    client.get<ReconciliationReport>(`/bank/reconciliations/${reconciliationId}`),
+
+  clear: (reconciliationId: string, transactionIds: string[]) =>
+    client.post<BankReconciliation>(`/bank/reconciliations/${reconciliationId}/clear`, {
+      transaction_ids: transactionIds,
+    }),
+
+  unclear: (reconciliationId: string, transactionIds: string[]) =>
+    client.post<BankReconciliation>(`/bank/reconciliations/${reconciliationId}/unclear`, {
+      transaction_ids: transactionIds,
+    }),
+
+  complete: (reconciliationId: string) =>
+    client.post<BankReconciliation>(`/bank/reconciliations/${reconciliationId}/complete`),
+
+  reopen: (reconciliationId: string) =>
+    client.post<BankReconciliation>(`/bank/reconciliations/${reconciliationId}/reopen`),
+
+  deleteReconciliation: (reconciliationId: string) =>
+    client.delete(`/bank/reconciliations/${reconciliationId}`),
+};
+
 
 // ─── Lease Lifecycle Accounting ──────────────────────────────────────────────
 export const lifecycle = {

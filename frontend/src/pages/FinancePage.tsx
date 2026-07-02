@@ -8,6 +8,7 @@ import FinancialStatementsPage from '@/pages/FinancialStatementsPage';
 import CamReconciliationsPage from '@/pages/CamReconciliationsPage';
 import AccountsPayablePage from '@/pages/AccountsPayablePage';
 import AccountsReceivablePage from '@/pages/AccountsReceivablePage';
+import BankReconciliationPage from '@/pages/BankReconciliationPage';
 import LeaseLifecyclePage from '@/pages/LeaseLifecyclePage';
 
 /**
@@ -39,6 +40,7 @@ const FinancePage: React.FC = () => {
           { id: 'cam', label: 'CAM', href: '/finance/cam', content: <CamReconciliationsPage /> },
           { id: 'accounts-payable', label: 'Accounts Payable', href: '/finance/accounts-payable', content: <AccountsPayablePage /> },
           { id: 'accounts-receivable', label: 'Accounts Receivable', href: '/finance/accounts-receivable', content: <AccountsReceivablePage /> },
+          { id: 'bank-reconciliation', label: 'Bank Reconciliation', href: '/finance/bank-reconciliation', content: <BankReconciliationPage /> },
           { id: 'lease-lifecycle', label: 'Lease Lifecycle', href: '/finance/lease-lifecycle', content: <LeaseLifecyclePage /> },
         ]
       : []),
