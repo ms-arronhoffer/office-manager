@@ -142,6 +142,14 @@ import type {
   BillCreate,
   BillUpdate,
   PaymentCreate,
+  Customer,
+  CustomerCreate,
+  CustomerUpdate,
+  CustomerInvoice,
+  InvoiceCreate,
+  InvoiceUpdate,
+  ReceiptCreate,
+  ArAgingReport,
   LifecycleEvent,
   LifecycleEventCreate,
   LifecycleEventUpdate,
@@ -1309,6 +1317,53 @@ export const ap = {
 
   deletePayment: (paymentId: string) =>
     client.delete<VendorBill>(`/ap/payments/${paymentId}`),
+};
+
+// ─── Accounts Receivable ─────────────────────────────────────────────────────
+export const ar = {
+  listCustomers: (params?: { q?: string }) =>
+    client.get<Customer[]>('/ar/customers', { params }),
+
+  createCustomer: (data: CustomerCreate) =>
+    client.post<Customer>('/ar/customers', data),
+
+  updateCustomer: (id: string, data: CustomerUpdate) =>
+    client.patch<Customer>(`/ar/customers/${id}`, data),
+
+  deleteCustomer: (id: string) => client.delete(`/ar/customers/${id}`),
+
+  listInvoices: (params?: { customer_id?: string; status?: string; open_only?: boolean }) =>
+    client.get<CustomerInvoice[]>('/ar/invoices', { params }),
+
+  getInvoice: (id: string) => client.get<CustomerInvoice>(`/ar/invoices/${id}`),
+
+  createInvoice: (data: InvoiceCreate) =>
+    client.post<CustomerInvoice>('/ar/invoices', data),
+
+  updateInvoice: (id: string, data: InvoiceUpdate) =>
+    client.patch<CustomerInvoice>(`/ar/invoices/${id}`, data),
+
+  deleteInvoice: (id: string) => client.delete(`/ar/invoices/${id}`),
+
+  finalizeInvoice: (id: string) =>
+    client.post<CustomerInvoice>(`/ar/invoices/${id}/finalize`),
+
+  voidInvoice: (id: string) => client.post<CustomerInvoice>(`/ar/invoices/${id}/void`),
+
+  createReceipt: (invoiceId: string, data: ReceiptCreate) =>
+    client.post<CustomerInvoice>(`/ar/invoices/${invoiceId}/receipts`, data),
+
+  deleteReceipt: (receiptId: string) =>
+    client.delete<CustomerInvoice>(`/ar/receipts/${receiptId}`),
+
+  invoiceFromCam: (
+    reconciliationId: string,
+    params: { customer_id: string; invoice_date?: string; due_date?: string },
+  ) =>
+    client.post<CustomerInvoice>(`/ar/invoices/from-cam/${reconciliationId}`, null, { params }),
+
+  aging: (params?: { as_of?: string }) =>
+    client.get<ArAgingReport>('/ar/aging', { params }),
 };
 
 // ─── Lease Lifecycle Accounting ──────────────────────────────────────────────

@@ -2312,6 +2312,134 @@ export interface PaymentCreate {
   memo?: string | null;
 }
 
+// ─── Accounts Receivable (Phase 1.1) ─────────────────────────────────────────
+export interface Customer {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  zip_code: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomerCreate {
+  name: string;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
+  notes?: string | null;
+}
+
+export type CustomerUpdate = Partial<CustomerCreate>;
+
+export interface InvoiceLine {
+  id: string;
+  account_id: string;
+  line_number: number;
+  description: string | null;
+  amount: number;
+}
+
+export interface CustomerReceipt {
+  id: string;
+  invoice_id: string;
+  receipt_date: string;
+  amount: number;
+  method: string | null;
+  reference: string | null;
+  memo: string | null;
+  journal_entry_id: string | null;
+  created_at: string;
+}
+
+export interface CustomerInvoice {
+  id: string;
+  organization_id: string | null;
+  customer_id: string;
+  invoice_number: string | null;
+  invoice_date: string;
+  due_date: string | null;
+  currency: string;
+  memo: string | null;
+  total_amount: number;
+  amount_received: number;
+  balance_due: number;
+  receipt_state: string;
+  status: string;
+  source: string | null;
+  source_ref: string | null;
+  finalized_at: string | null;
+  journal_entry_id: string | null;
+  created_at: string;
+  updated_at: string;
+  lines: InvoiceLine[];
+  receipts: CustomerReceipt[];
+}
+
+export interface InvoiceLineInput {
+  account_id: string;
+  amount: number;
+  description?: string | null;
+}
+
+export interface InvoiceCreate {
+  customer_id: string;
+  invoice_date: string;
+  due_date?: string | null;
+  invoice_number?: string | null;
+  currency?: string;
+  memo?: string | null;
+  lines: InvoiceLineInput[];
+}
+
+export type InvoiceUpdate = Partial<Omit<InvoiceCreate, 'customer_id'>>;
+
+export interface ReceiptCreate {
+  receipt_date: string;
+  amount: number;
+  method?: string | null;
+  reference?: string | null;
+  memo?: string | null;
+}
+
+export interface AgingInvoice {
+  invoice_id: string;
+  invoice_number: string | null;
+  invoice_date: string;
+  due_date: string | null;
+  balance_due: number;
+  bucket: string;
+}
+
+export interface AgingCustomerRow {
+  customer_id: string;
+  customer_name: string | null;
+  buckets: Record<string, number>;
+  total: number;
+  invoices: AgingInvoice[];
+}
+
+export interface ArAgingReport {
+  as_of: string;
+  buckets: string[];
+  customers: AgingCustomerRow[];
+  totals: Record<string, number>;
+  grand_total: number;
+}
+
 // ─── Lease Lifecycle Accounting (Phase 4) ────────────────────────────────────
 export interface LifecycleEvent {
   id: string;
