@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     SMS_ACCOUNT_SID: str = ""
     SMS_AUTH_TOKEN: str = ""
     SMS_FROM: str = ""
+    # Inbound-payment processor (Stripe-style). Optional; when unset the payment
+    # gateway degrades to a logged no-op (see app.utils.payment_processor).
+    PAYMENTS_PROVIDER: str = "stripe"
+    PAYMENTS_API_KEY: str = ""
+    PAYMENTS_API_URL: str = ""
     FRONTEND_URL: str = "http://localhost:3000"
     ADMIN_FRONTEND_URL: str = "http://localhost:4001"
     DEFAULT_ADMIN_EMAIL: str = "admin@officemanager.local"

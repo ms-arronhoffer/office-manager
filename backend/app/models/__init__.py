@@ -88,6 +88,10 @@ from app.models.announcement import (
     Announcement, AnnouncementRecipient,
     ANNOUNCEMENT_CHANNELS, ANNOUNCEMENT_STATUSES,
 )
+from app.models.rent import (
+    RentCharge, SecurityDeposit,
+    RENT_CHARGE_TYPES, RENT_FREQUENCIES, LATE_FEE_TYPES, DEPOSIT_STATUSES,
+)
 
 __all__ = [
     "Base", "Organization", "User", "AuthLockout", "Manager", "Office",    "Lease", "LeaseNote", "LeaseRenewal", "LeaseOption",
@@ -137,4 +141,6 @@ __all__ = [
     "OCCUPANT_ROLES", "ACTIVE_LEASE_STATUSES",
     "Announcement", "AnnouncementRecipient",
     "ANNOUNCEMENT_CHANNELS", "ANNOUNCEMENT_STATUSES",
+    "RentCharge", "SecurityDeposit",
+    "RENT_CHARGE_TYPES", "RENT_FREQUENCIES", "LATE_FEE_TYPES", "DEPOSIT_STATUSES",
 ]

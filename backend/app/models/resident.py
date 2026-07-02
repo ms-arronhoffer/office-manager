@@ -126,6 +126,12 @@ class Resident(SoftDeleteMixin, TimestampMixin, Base):
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Optional link to the accounts-receivable counterparty used to bill this
+    # resident for rent (Phase 2.3). Created lazily on first billing.
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     lease_links: Mapped[list["ResidentLeaseOccupant"]] = relationship(
         back_populates="resident", cascade="all, delete-orphan"
     )
