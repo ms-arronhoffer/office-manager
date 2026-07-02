@@ -53,6 +53,10 @@ from app.models.lease_abstract import LeaseAbstractClause
 from app.models.vendor_bill import (
     VendorBill, VendorBillLine, VendorPayment,
 )
+from app.models.customer_invoice import (
+    Customer, CustomerInvoice, CustomerInvoiceLine, CustomerReceipt,
+    INVOICE_STATUSES, RECEIPT_STATES,
+)
 from app.models.waiver import (
     WaiverTemplate, WaiverRequest, WaiverSignature,
     WAIVER_RECIPIENT_TYPES, WAIVER_STATUSES, WAIVER_SIGNATURE_TYPES,
@@ -100,6 +104,7 @@ __all__ = [
     "LeaseLifecycleEvent",
     "LeaseAbstractClause",
     "VendorBill", "VendorBillLine", "VendorPayment",
+    "Customer", "CustomerInvoice", "CustomerInvoiceLine", "CustomerReceipt",
     "WaiverTemplate", "WaiverRequest", "WaiverSignature",
     "LeaseDocumentChunk",
     "SavedReport", "ReportSchedule", "REPORT_FORMATS",

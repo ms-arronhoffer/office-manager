@@ -54,6 +54,8 @@ DEFAULT_ACCOUNTS: list[tuple[str, str, str]] = [
     ("3000", "Retained Earnings", "equity"),
     ("4000", "Rental Income", "revenue"),
     ("4100", "CAM Recovery Income", "revenue"),
+    ("4200", "Service Revenue", "revenue"),
+    ("1100", "Accounts Receivable", "asset"),
     ("1200", "CAM Receivable", "asset"),
     ("2100", "CAM Refund Payable", "liability"),
     ("6000", "Operating Lease Cost", "expense"),
