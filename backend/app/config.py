@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     PAYMENTS_PROVIDER: str = "stripe"
     PAYMENTS_API_KEY: str = ""
     PAYMENTS_API_URL: str = ""
+    # Tenant-screening provider. Optional; when unset screening returns a
+    # manual-review stub (see app.utils.screening_client).
+    SCREENING_PROVIDER: str = "transunion"
+    SCREENING_API_KEY: str = ""
+    SCREENING_API_URL: str = ""
     FRONTEND_URL: str = "http://localhost:3000"
     ADMIN_FRONTEND_URL: str = "http://localhost:4001"
     DEFAULT_ADMIN_EMAIL: str = "admin@officemanager.local"
