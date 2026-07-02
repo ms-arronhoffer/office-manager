@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = "noreply@officemanager.local"
+    # SMS / text-message provider (Twilio-style). Optional; when unset the SMS
+    # channel degrades to a logged no-op (see app.utils.sms_client).
+    SMS_ACCOUNT_SID: str = ""
+    SMS_AUTH_TOKEN: str = ""
+    SMS_FROM: str = ""
     FRONTEND_URL: str = "http://localhost:3000"
     ADMIN_FRONTEND_URL: str = "http://localhost:4001"
     DEFAULT_ADMIN_EMAIL: str = "admin@officemanager.local"

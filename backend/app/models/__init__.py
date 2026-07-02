@@ -84,6 +84,10 @@ from app.models.resident import (
     UNIT_STATUSES, RESIDENT_LEASE_STATUSES, RESIDENT_STATUSES,
     OCCUPANT_ROLES, ACTIVE_LEASE_STATUSES,
 )
+from app.models.announcement import (
+    Announcement, AnnouncementRecipient,
+    ANNOUNCEMENT_CHANNELS, ANNOUNCEMENT_STATUSES,
+)
 
 __all__ = [
     "Base", "Organization", "User", "AuthLockout", "Manager", "Office",    "Lease", "LeaseNote", "LeaseRenewal", "LeaseOption",
@@ -131,4 +135,6 @@ __all__ = [
     "RentalUnit", "Resident", "ResidentLease", "ResidentLeaseOccupant",
     "UNIT_STATUSES", "RESIDENT_LEASE_STATUSES", "RESIDENT_STATUSES",
     "OCCUPANT_ROLES", "ACTIVE_LEASE_STATUSES",
+    "Announcement", "AnnouncementRecipient",
+    "ANNOUNCEMENT_CHANNELS", "ANNOUNCEMENT_STATUSES",
 ]

@@ -67,7 +67,7 @@ from app.routers import (  # noqa: E402
     bank, tax, budgets, inspections,
     lease_abstract, management_companies, contacts, client_portal,
     ai, waivers, document_search, maintenance, saved_reports, assistant,
-    support_requests, leasing,
+    support_requests, leasing, resident_portal, announcements,
 )
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit, usage as admin_usage  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature  # noqa: E402
@@ -134,6 +134,8 @@ app.include_router(tax.router, prefix="/api/v1/tax", tags=["Tax & 1099"], depend
 app.include_router(budgets.router, prefix="/api/v1/budgets", tags=["Budgeting"], dependencies=_org_guard)
 app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Property Inspections"], dependencies=_org_guard)
 app.include_router(leasing.router, prefix="/api/v1/leasing", tags=["Leasing (Residents)"], dependencies=_org_guard)
+app.include_router(announcements.router, prefix="/api/v1/announcements", tags=["Resident Announcements"], dependencies=_org_guard)
+app.include_router(resident_portal.router, prefix="/api/v1", tags=["Resident Portal"])
 app.include_router(financials.router, prefix="/api/v1/financials", tags=["Financial Statements"], dependencies=_org_guard)
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Assist"], dependencies=[Depends(enforce_org_access), Depends(ai.reset_ai_usage)])
 app.include_router(
