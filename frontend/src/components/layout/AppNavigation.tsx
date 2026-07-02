@@ -13,6 +13,7 @@ import NotificationBell from '@/components/common/NotificationBell';
 import SupportRequestModal from '@/components/common/SupportRequestModal';
 import AIPortfolioAssistant from '@/components/common/AIPortfolioAssistant';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useInstallPrompt } from '@/hooks/useInstallPrompt';
 import './AppNavigation.css';
 
 interface AppNavigationProps {
@@ -51,6 +52,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
     [],
   );
   useKeyboardShortcuts(onShowShortcuts, toggleAssistant);
+  const { canInstall, promptInstall } = useInstallPrompt();
 
   const isEditorOrAdmin = user?.role === 'admin' || user?.role === 'editor';
   const isFinance = user?.role === 'admin' || user?.role === 'accountant';
@@ -160,6 +162,18 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
           }}
           search={<GlobalSearchBar />}
           utilities={[
+            ...(canInstall
+              ? [
+                  {
+                    type: 'button' as const,
+                    iconName: 'download' as const,
+                    text: 'Install app',
+                    title: 'Install Portfolio Desk as an app',
+                    ariaLabel: 'Install Portfolio Desk as an app',
+                    onClick: promptInstall,
+                  },
+                ]
+              : []),
             {
               type: 'button',
               iconName: 'support',
