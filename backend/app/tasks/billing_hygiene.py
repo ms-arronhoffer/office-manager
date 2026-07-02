@@ -133,7 +133,7 @@ async def run_billing_hygiene() -> None:
                 await _send_trial_email(
                     db, org,
                     "billing_trial_expired.html",
-                    f"Your SwiftLease trial has ended",
+                    f"Your Portfolio Desk trial has ended",
                 )
                 continue
 
@@ -142,7 +142,7 @@ async def run_billing_hygiene() -> None:
                 await _send_trial_email(
                     db, org,
                     "billing_trial_expiring.html",
-                    f"Final reminder: Your SwiftLease trial ends tomorrow",
+                    f"Final reminder: Your Portfolio Desk trial ends tomorrow",
                     extra_ctx={"days_remaining": max(0, days_remaining)},
                 )
             # 7-day warning
@@ -150,7 +150,7 @@ async def run_billing_hygiene() -> None:
                 await _send_trial_email(
                     db, org,
                     "billing_trial_expiring.html",
-                    f"Your SwiftLease trial expires in {days_remaining} day{'s' if days_remaining != 1 else ''}",
+                    f"Your Portfolio Desk trial expires in {days_remaining} day{'s' if days_remaining != 1 else ''}",
                     extra_ctx={"days_remaining": days_remaining},
                 )
 
@@ -159,21 +159,21 @@ async def run_billing_hygiene() -> None:
                 await _send_trial_email(
                     db, org,
                     "billing_trial_day7.html",
-                    "You're 7 days into your SwiftLease trial!",
+                    "You're 7 days into your Portfolio Desk trial!",
                 )
             # Conversion drip: day 14 of trial
             elif 14 <= days_since_signup < 15:
                 await _send_trial_email(
                     db, org,
                     "billing_trial_day14.html",
-                    "Halfway through your SwiftLease trial",
+                    "Halfway through your Portfolio Desk trial",
                 )
             # Conversion drip: day 25 of trial (5 days before 30-day trial ends)
             elif 25 <= days_since_signup < 26:
                 await _send_trial_email(
                     db, org,
                     "billing_trial_day25.html",
-                    "5 days left in your SwiftLease trial",
+                    "5 days left in your Portfolio Desk trial",
                 )
 
         # Past-due dunning: orgs beyond the grace period

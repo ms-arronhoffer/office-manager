@@ -1,6 +1,6 @@
 # Email Configuration Guide
 
-The SwiftLease application includes a built-in Postfix SMTP container for sending emails (report delivery, lease reminders, high-priority ticket alerts). By default it works out of the box on the internal Docker network, but emails sent from `officemanager.local` will be rejected or marked as spam by most mail providers.
+The Portfolio Desk application includes a built-in Postfix SMTP container for sending emails (report delivery, lease reminders, high-priority ticket alerts). By default it works out of the box on the internal Docker network, but emails sent from `officemanager.local` will be rejected or marked as spam by most mail providers.
 
 Follow this guide to configure a proper sending domain so emails are delivered reliably.
 

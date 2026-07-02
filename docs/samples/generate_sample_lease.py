@@ -155,7 +155,7 @@ def build() -> None:
         leftMargin=1 * inch,
         rightMargin=1 * inch,
         title="Sample Commercial Office Lease",
-        author="Office Manager sample data",
+        author="Portfolio Desk sample data",
     )
     flow = []
     for text, kind in BODY:

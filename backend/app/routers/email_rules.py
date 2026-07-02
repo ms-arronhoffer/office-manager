@@ -221,7 +221,7 @@ async def test_rule(
     html_body = (
         f"<p>This is a test email for the email rule: <strong>{rule.rule_name}</strong>.</p>"
         f"<p>Rule type: <strong>{rule.rule_type}</strong> | Triggered at: {now_str}</p>"
-        f"<p>No action is required. This email was sent manually from SwiftLease.</p>"
+        f"<p>No action is required. This email was sent manually from Portfolio Desk.</p>"
     )
 
     sent_to: list[str] = []

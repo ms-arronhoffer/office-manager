@@ -18,7 +18,7 @@ import type { SiteSettings } from '@/api';
 import { useSiteSettings } from '@/context/SiteSettingsContext';
 
 const DEFAULTS: SiteSettings = {
-  app_name: 'SwiftLease',
+  app_name: 'Portfolio Desk',
   login_subtitle: 'Sign in to manage your offices, leases, and facilities',
   login_form_header: 'Sign In',
   login_form_description: 'Enter your credentials to access the application',
@@ -140,7 +140,7 @@ const SiteSettingsPage: React.FC = () => {
                   <Input
                     value={form.app_name}
                     onChange={({ detail }) => setForm((f) => ({ ...f, app_name: detail.value }))}
-                    placeholder="e.g., SwiftLease"
+                    placeholder="e.g., Portfolio Desk"
                   />
                 </FormField>
               </SpaceBetween>

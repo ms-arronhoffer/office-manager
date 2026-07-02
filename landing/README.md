@@ -1,4 +1,4 @@
-# Office Manager — Marketing Site
+# Portfolio Desk — Marketing Site
 
 A fast, static marketing site built with [Astro](https://astro.build) and Tailwind CSS,
 served by nginx in production (see `Dockerfile` / `nginx.conf`).

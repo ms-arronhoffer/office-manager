@@ -269,7 +269,7 @@ async def mfa_setup(payload: MfaChallengeRequest, db: AsyncSession = Depends(get
     secret = pyotp.random_base32()
     user.totp_secret = secret
     await db.commit()
-    qr_uri = pyotp.TOTP(secret).provisioning_uri(user.email, issuer_name="SwiftLease")
+    qr_uri = pyotp.TOTP(secret).provisioning_uri(user.email, issuer_name="Portfolio Desk")
     return MfaSetupResponse(secret=secret, qr_uri=qr_uri)
 
 

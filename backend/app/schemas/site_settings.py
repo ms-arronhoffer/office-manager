@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
 
-DEFAULT_APP_NAME = "SwiftLease"
+DEFAULT_APP_NAME = "Portfolio Desk"
 DEFAULT_LOGIN_SUBTITLE = "Sign in to manage your offices, leases, and facilities"
 DEFAULT_LOGIN_FORM_HEADER = "Sign In"
 DEFAULT_LOGIN_FORM_DESCRIPTION = "Enter your credentials to access the application"

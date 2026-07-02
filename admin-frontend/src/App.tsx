@@ -50,7 +50,7 @@ function Shell() {
       {/* Sidebar */}
       <div className="w-64 bg-slate-900 text-white shadow-lg flex flex-col">
         <div className="p-6 border-b border-slate-800">
-          <h1 className="text-xl font-bold">SwiftLease</h1>
+          <h1 className="text-xl font-bold">Portfolio Desk</h1>
           <p className="text-sm text-slate-400">Admin Portal</p>
         </div>
         <nav className="flex-1 p-4 space-y-1">

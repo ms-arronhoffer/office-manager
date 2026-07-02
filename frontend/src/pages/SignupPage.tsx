@@ -75,7 +75,7 @@ const SignupPage: React.FC = () => {
             marginBottom: '12px',
           }}
         >
-          SwiftLease
+          Portfolio Desk
         </div>
         <div style={{ fontSize: '1.1rem', color: 'rgba(255, 255, 255, 0.85)', maxWidth: '480px', margin: '0 auto' }}>
           Set up your organization in under 2 minutes

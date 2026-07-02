@@ -1,6 +1,6 @@
 # Two-Factor Authentication (TOTP) Setup
 
-SwiftLease uses RFC 6238 time-based one-time passwords (TOTP) for two-factor authentication, compatible with Google Authenticator, Authy, and 1Password.
+Portfolio Desk uses RFC 6238 time-based one-time passwords (TOTP) for two-factor authentication, compatible with Google Authenticator, Authy, and 1Password.
 
 ---
 
@@ -66,7 +66,7 @@ To disable 2FA, go to account settings and enter your current TOTP code (or a ba
 | Secret format          | Base32-encoded 160-bit random secret                             |
 | Challenge token        | `secrets.token_hex(32)` (256-bit), stored in DB, expires 15 min |
 | Backup codes           | 8 × 12-character hex strings, bcrypt-hashed at rest             |
-| Issuer name in app     | "SwiftLease"                                                 |
+| Issuer name in app     | "Portfolio Desk"                                                 |
 
 ### Challenge Token Flow
 

@@ -1,6 +1,6 @@
 # Observability & Background Jobs
 
-This document describes how SwiftLease emits logs, reports errors, exposes
+This document describes how Portfolio Desk emits logs, reports errors, exposes
 health/readiness, and runs its background scheduler — and how those behave when
 the backend is scaled to more than one replica.
 

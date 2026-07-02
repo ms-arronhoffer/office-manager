@@ -1,4 +1,4 @@
-# SwiftLease — S3 Backup Setup
+# Portfolio Desk — S3 Backup Setup
 
 This guide sets up automated daily backups of the PostgreSQL database and uploaded files to an AWS S3 bucket. Backups older than 3 days are automatically deleted.
 
