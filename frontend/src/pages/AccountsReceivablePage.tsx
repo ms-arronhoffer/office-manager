@@ -123,9 +123,10 @@ const AccountsReceivablePage: React.FC = () => {
     [accounts],
   );
   const accountLabel = useCallback(
-    (id: string) => accounts.find((a) => a.id === id)
-      ? `${accounts.find((a) => a.id === id)!.code} — ${accounts.find((a) => a.id === id)!.name}`
-      : id,
+    (id: string) => {
+      const acct = accounts.find((a) => a.id === id);
+      return acct ? `${acct.code} — ${acct.name}` : id;
+    },
     [accounts],
   );
   const customerLabel = useCallback(
