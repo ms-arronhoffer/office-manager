@@ -19,6 +19,7 @@ import type { LeaseTemplate } from '@/types';
 const MERGE_FIELDS = [
   'tenant_name',
   'tenant_names',
+  'lease_name',
   'unit_number',
   'unit_name',
   'property_address',
