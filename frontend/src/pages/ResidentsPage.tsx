@@ -37,6 +37,13 @@ const ResidentsPage: React.FC = () => {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [alternatePhone, setAlternatePhone] = useState('');
+  const [company, setCompany] = useState('');
+  const [addr1, setAddr1] = useState('');
+  const [addr2, setAddr2] = useState('');
+  const [city, setCity] = useState('');
+  const [stateVal, setStateVal] = useState('');
+  const [zip, setZip] = useState('');
   const [statusValue, setStatusValue] = useState<ResidentStatus>('prospect');
   const [emergencyName, setEmergencyName] = useState('');
   const [emergencyPhone, setEmergencyPhone] = useState('');
@@ -66,6 +73,13 @@ const ResidentsPage: React.FC = () => {
     setLastName('');
     setEmail('');
     setPhone('');
+    setAlternatePhone('');
+    setCompany('');
+    setAddr1('');
+    setAddr2('');
+    setCity('');
+    setStateVal('');
+    setZip('');
     setStatusValue('prospect');
     setEmergencyName('');
     setEmergencyPhone('');
@@ -79,6 +93,13 @@ const ResidentsPage: React.FC = () => {
     setLastName(r.last_name);
     setEmail(r.email ?? '');
     setPhone(r.phone ?? '');
+    setAlternatePhone(r.alternate_phone ?? '');
+    setCompany(r.company ?? '');
+    setAddr1(r.address_line_1 ?? '');
+    setAddr2(r.address_line_2 ?? '');
+    setCity(r.city ?? '');
+    setStateVal(r.state ?? '');
+    setZip(r.zip_code ?? '');
     setStatusValue(r.status);
     setEmergencyName(r.emergency_contact_name ?? '');
     setEmergencyPhone(r.emergency_contact_phone ?? '');
@@ -98,6 +119,13 @@ const ResidentsPage: React.FC = () => {
         last_name: lastName.trim(),
         email: email.trim() || null,
         phone: phone.trim() || null,
+        alternate_phone: alternatePhone.trim() || null,
+        company: company.trim() || null,
+        address_line_1: addr1.trim() || null,
+        address_line_2: addr2.trim() || null,
+        city: city.trim() || null,
+        state: stateVal.trim() || null,
+        zip_code: zip.trim() || null,
         status: statusValue,
         emergency_contact_name: emergencyName.trim() || null,
         emergency_contact_phone: emergencyPhone.trim() || null,
@@ -221,6 +249,15 @@ const ResidentsPage: React.FC = () => {
             <FormField label="Phone">
               <Input value={phone} onChange={({ detail }) => setPhone(detail.value)} />
             </FormField>
+            <FormField label="Alternate phone">
+              <Input
+                value={alternatePhone}
+                onChange={({ detail }) => setAlternatePhone(detail.value)}
+              />
+            </FormField>
+            <FormField label="Company">
+              <Input value={company} onChange={({ detail }) => setCompany(detail.value)} />
+            </FormField>
             <FormField label="Status">
               <Select
                 selectedOption={{ label: statusValue, value: statusValue }}
@@ -229,6 +266,21 @@ const ResidentsPage: React.FC = () => {
                 }
                 options={RESIDENT_STATUSES.map((s) => ({ label: s, value: s }))}
               />
+            </FormField>
+            <FormField label="Address line 1">
+              <Input value={addr1} onChange={({ detail }) => setAddr1(detail.value)} />
+            </FormField>
+            <FormField label="Address line 2">
+              <Input value={addr2} onChange={({ detail }) => setAddr2(detail.value)} />
+            </FormField>
+            <FormField label="City">
+              <Input value={city} onChange={({ detail }) => setCity(detail.value)} />
+            </FormField>
+            <FormField label="State">
+              <Input value={stateVal} onChange={({ detail }) => setStateVal(detail.value)} />
+            </FormField>
+            <FormField label="ZIP code">
+              <Input value={zip} onChange={({ detail }) => setZip(detail.value)} />
             </FormField>
             <FormField label="Emergency contact">
               <Input

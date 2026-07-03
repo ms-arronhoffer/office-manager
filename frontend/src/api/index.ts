@@ -1877,6 +1877,10 @@ import type {
   ScreeningReport,
   LeaseSignatureRequest,
   LeaseSignatureCreate,
+  LeaseSignatureFromTemplate,
+  LeaseTemplate,
+  LeaseTemplateCreate,
+  LeaseTemplateUpdate,
   VacancyListing,
   VacancyListingCreate,
   VacancyListingUpdate,
@@ -1987,8 +1991,20 @@ export const leasingFunnel = {
     client.get<LeaseSignatureRequest>(`/leasing-funnel/lease-signatures/${id}`),
   createSignature: (data: LeaseSignatureCreate) =>
     client.post<LeaseSignatureRequest>('/leasing-funnel/lease-signatures', data),
+  createSignatureFromTemplate: (data: LeaseSignatureFromTemplate) =>
+    client.post<LeaseSignatureRequest>('/leasing-funnel/lease-signatures/from-template', data),
   voidSignature: (id: string) =>
     client.post<LeaseSignatureRequest>(`/leasing-funnel/lease-signatures/${id}/void`),
+};
+
+export const leaseTemplates = {
+  list: (params?: { active_only?: boolean }) =>
+    client.get<LeaseTemplate[]>('/lease-templates', { params }),
+  get: (id: string) => client.get<LeaseTemplate>(`/lease-templates/${id}`),
+  create: (data: LeaseTemplateCreate) => client.post<LeaseTemplate>('/lease-templates', data),
+  update: (id: string, data: LeaseTemplateUpdate) =>
+    client.patch<LeaseTemplate>(`/lease-templates/${id}`, data),
+  delete: (id: string) => client.delete(`/lease-templates/${id}`),
 };
 
 export const listings = {

@@ -4,6 +4,7 @@ import TabbedPage, { TabbedPageTab } from '@/components/layout/TabbedPage';
 import LeasingUnitsPage from '@/pages/LeasingUnitsPage';
 import ResidentsPage from '@/pages/ResidentsPage';
 import ResidentLeasesPage from '@/pages/ResidentLeasesPage';
+import LeaseTemplatesPage from '@/pages/LeaseTemplatesPage';
 import RentCollectionPage from '@/pages/RentCollectionPage';
 import LeasingFunnelPage from '@/pages/LeasingFunnelPage';
 import VacancyListingsPage from '@/pages/VacancyListingsPage';
@@ -31,6 +32,12 @@ const ResidentialPage: React.FC = () => {
       label: 'Leases',
       href: '/residential/leases',
       content: <ResidentLeasesPage />,
+    },
+    {
+      id: 'templates',
+      label: 'Lease templates',
+      href: '/residential/templates',
+      content: <LeaseTemplatesPage />,
     },
     {
       id: 'applications',
