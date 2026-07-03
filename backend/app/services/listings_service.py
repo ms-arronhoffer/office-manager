@@ -25,7 +25,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.listing import VacancyListing
+from app.models.listing import (
+    KNOWN_PORTALS,
+    ListingPortal,
+    ListingSyndication,
+    VacancyListing,
+)
 from app.models.resident import RentalUnit
 
 
@@ -200,3 +205,130 @@ async def build_xml_feed(db: AsyncSession, org_id) -> bytes:
 
 def _pascal(snake: str) -> str:
     return "".join(part.capitalize() for part in snake.split("_"))
+
+
+# ---------------------------------------------------------------------------
+# Portal syndication
+# ---------------------------------------------------------------------------
+
+def known_portal_catalog() -> list[dict]:
+    """Return the built-in catalog of well-known listing portals."""
+    return [dict(p) for p in KNOWN_PORTALS]
+
+
+async def get_portal(
+    db: AsyncSession, portal_id: uuid.UUID, org_id
+) -> ListingPortal | None:
+    return (
+        await db.execute(
+            select(ListingPortal).where(
+                ListingPortal.id == portal_id,
+                ListingPortal.organization_id == org_id,
+                ListingPortal.is_deleted.is_(False),
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def list_portals(db: AsyncSession, org_id) -> list[ListingPortal]:
+    return list(
+        (
+            await db.execute(
+                select(ListingPortal)
+                .where(
+                    ListingPortal.organization_id == org_id,
+                    ListingPortal.is_deleted.is_(False),
+                )
+                .order_by(ListingPortal.name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def deliver_to_portal(portal: ListingPortal, payload: dict) -> tuple[str, str | None, str | None]:
+    """Deliver a listing payload to a portal.
+
+    Returns ``(status, external_reference, message)``. ``feed`` portals ingest
+    the org's public syndication feed, so no push is made — the listing is simply
+    marked as included. ``webhook`` portals receive a best-effort HTTP POST of
+    the payload to their ``endpoint_url``; a delivery failure is captured as a
+    ``failed`` status rather than raising, so one bad portal never blocks others.
+    """
+    if portal.delivery_mode == "webhook" and portal.endpoint_url:
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=15.0) as http:
+                resp = await http.post(portal.endpoint_url, json=payload)
+            if resp.status_code >= 400:
+                return "failed", None, f"Portal returned HTTP {resp.status_code}"
+            ref = None
+            try:
+                body = resp.json()
+                if isinstance(body, dict):
+                    ref = body.get("id") or body.get("reference")
+            except ValueError:
+                ref = None
+            return "posted", (str(ref) if ref is not None else None), None
+        except Exception as exc:  # noqa: BLE001 - never let one portal break syndication
+            return "failed", None, f"Delivery failed: {exc}"
+    # Feed-based portals pull from the org syndication feed.
+    return "posted", None, "Included in syndication feed"
+
+
+async def syndicate_listing(
+    db: AsyncSession,
+    listing: VacancyListing,
+    portals: list[ListingPortal],
+) -> list[ListingSyndication]:
+    """Post a listing to each portal, creating/refreshing syndication records."""
+    payload = _listing_dict(listing)
+    existing = {
+        s.portal_id: s
+        for s in (
+            await db.execute(
+                select(ListingSyndication).where(
+                    ListingSyndication.listing_id == listing.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+    results: list[ListingSyndication] = []
+    for portal in portals:
+        status_, ref, message = await deliver_to_portal(portal, payload)
+        record = existing.get(portal.id)
+        if record is None:
+            record = ListingSyndication(
+                organization_id=listing.organization_id,
+                listing_id=listing.id,
+                portal_id=portal.id,
+            )
+            db.add(record)
+        record.status = status_
+        record.external_reference = ref
+        record.message = message
+        record.payload = payload
+        record.last_synced_at = _now()
+        results.append(record)
+    return results
+
+
+async def list_syndications(
+    db: AsyncSession, listing_id: uuid.UUID
+) -> list[ListingSyndication]:
+    return list(
+        (
+            await db.execute(
+                select(ListingSyndication)
+                .where(ListingSyndication.listing_id == listing_id)
+                .options(selectinload(ListingSyndication.portal))
+                .order_by(ListingSyndication.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )

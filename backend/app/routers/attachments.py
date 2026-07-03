@@ -18,6 +18,7 @@ from app.models.lease import Lease
 from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.management_company import ManagementCompany
 from app.models.office import Office
+from app.models.resident import RentalUnit, Resident
 from app.models.transition import OfficeTransition
 from app.models.user import User
 from app.models.vendor import Vendor
@@ -41,6 +42,8 @@ ENTITY_MODELS = {
     "vendor": Vendor,
     "management_company": ManagementCompany,
     "inspection": Inspection,
+    "resident": Resident,
+    "rental_unit": RentalUnit,
 }
 ALLOWED_ENTITY_TYPES = set(ENTITY_MODELS.keys())
 

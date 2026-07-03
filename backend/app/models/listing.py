@@ -20,6 +20,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -28,6 +29,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -81,6 +83,133 @@ class VacancyListing(SoftDeleteMixin, TimestampMixin, Base):
     )
 
     unit: Mapped["RentalUnit"] = relationship("RentalUnit")
+
+    syndications: Mapped[list["ListingSyndication"]] = relationship(
+        "ListingSyndication",
+        back_populates="listing",
+        cascade="all, delete-orphan",
+    )
+
+
+# Distribution portals a listing can be syndicated to. ``feed`` portals ingest
+# the org's public syndication feed; ``webhook`` portals receive a JSON payload
+# pushed to their ``endpoint_url`` when a listing is syndicated.
+PORTAL_DELIVERY_MODES = ("feed", "webhook")
+
+# Well-known listing portals offered out of the box. Staff can enable any of
+# these (creating a :class:`ListingPortal`) or add fully custom portals.
+KNOWN_PORTALS = (
+    {
+        "slug": "zillow",
+        "name": "Zillow",
+        "website_url": "https://www.zillow.com",
+        "delivery_mode": "feed",
+    },
+    {
+        "slug": "homes",
+        "name": "Homes.com",
+        "website_url": "https://www.homes.com",
+        "delivery_mode": "feed",
+    },
+    {
+        "slug": "apartments",
+        "name": "Apartments.com",
+        "website_url": "https://www.apartments.com",
+        "delivery_mode": "feed",
+    },
+    {
+        "slug": "realtor",
+        "name": "Realtor.com",
+        "website_url": "https://www.realtor.com",
+        "delivery_mode": "feed",
+    },
+    {
+        "slug": "trulia",
+        "name": "Trulia",
+        "website_url": "https://www.trulia.com",
+        "delivery_mode": "feed",
+    },
+)
+
+
+# Lifecycle of a per-listing, per-portal syndication record.
+SYNDICATION_STATUSES = ("pending", "posted", "failed", "removed")
+
+
+class ListingPortal(SoftDeleteMixin, TimestampMixin, Base):
+    """An external listing portal a vacancy can be syndicated to.
+
+    Covers the well-known networks (Zillow, Homes.com, Apartments.com, …) via
+    their :data:`KNOWN_PORTALS` slug as well as fully custom portals a customer
+    runs themselves.
+    """
+
+    __tablename__ = "listing_portals"
+    __table_args__ = (
+        Index("idx_listing_portals_org", "organization_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organizations.id"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    # ``zillow``/``homes``/``apartments``/… for known networks, or ``custom``.
+    slug: Mapped[str] = mapped_column(String(50), nullable=False, default="custom")
+    website_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # For ``webhook`` delivery: the endpoint we POST listing payloads to.
+    endpoint_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    delivery_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="feed", server_default="feed"
+    )
+    is_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, server_default="true"
+    )
+    # Freeform per-portal configuration (account id, feed options, …).
+    config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    syndications: Mapped[list["ListingSyndication"]] = relationship(
+        "ListingSyndication",
+        back_populates="portal",
+        cascade="all, delete-orphan",
+    )
+
+
+class ListingSyndication(TimestampMixin, Base):
+    """Tracks that a listing has been posted to a particular portal."""
+
+    __tablename__ = "listing_syndications"
+    __table_args__ = (
+        UniqueConstraint("listing_id", "portal_id", name="uq_listing_syndication"),
+        Index("idx_listing_syndications_listing", "listing_id"),
+        Index("idx_listing_syndications_portal", "portal_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organizations.id"), nullable=True, index=True
+    )
+    listing_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("vacancy_listings.id", ondelete="CASCADE"), nullable=False
+    )
+    portal_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("listing_portals.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    # Identifier the portal assigned to the posted listing, if any.
+    external_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    listing: Mapped["VacancyListing"] = relationship(
+        "VacancyListing", back_populates="syndications"
+    )
+    portal: Mapped["ListingPortal"] = relationship(
+        "ListingPortal", back_populates="syndications"
+    )
 
 
 from app.models.resident import RentalUnit  # noqa: E402  (runtime relationship resolution)

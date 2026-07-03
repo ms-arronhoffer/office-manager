@@ -31,7 +31,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.auth.dependencies import get_current_user, require_feature
+from app.auth.dependencies import get_current_user, require_feature, require_role
 from app.config import settings
 from app.database import get_db
 from app.models.hvac_contract import HvacContract
@@ -629,6 +629,49 @@ async def parse_hvac_contract(
     return await _parse_document_with(
         file, ai_service.parse_hvac_contract, db,
         current_user.organization_id, "ai_hvac_parse",
+    )
+
+
+# ── Lease template drafting from a document (Residential parity) ──────────────
+
+class LeaseTemplateDraftResponse(BaseModel):
+    name: str
+    description: str | None = None
+    body: str
+    model: str
+
+
+@router.post(
+    "/lease-templates/parse",
+    response_model=LeaseTemplateDraftResponse,
+    dependencies=[Depends(enforce_ai_token_budget)],
+)
+async def draft_lease_template(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    """Draft a reusable lease template (with merge fields) from a lease document.
+
+    The model rewrites a concrete lease into a generic template body, replacing
+    tenant/unit/term specifics with ``{{merge_field}}`` placeholders. The result
+    is returned for human review — nothing is persisted until the user saves it
+    through the lease-templates API.
+    """
+    content, mime_type = await _read_document(file)
+    text_content = _maybe_extract_text(file.filename, content)
+    try:
+        suggested = await ai_service.draft_lease_template_from_document(
+            content, mime_type, text_content=text_content
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+    await _log_ai_usage(db, current_user.organization_id, "ai_lease_template_parse")
+    return LeaseTemplateDraftResponse(
+        name=suggested["name"],
+        description=suggested.get("description"),
+        body=suggested["body"],
+        model=settings.GEMINI_MODEL,
     )
 
 

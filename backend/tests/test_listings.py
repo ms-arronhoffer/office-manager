@@ -198,3 +198,95 @@ async def test_feed_is_public(client, admin_user, sample_office, db_session):
 async def test_listing_reads_require_auth(client):
     resp = await client.get(f"{LISTINGS}")
     assert resp.status_code in (401, 403)
+
+
+# ─── Portal syndication ───────────────────────────────────────────────────────
+
+async def _make_portal(client, admin_user, **extra):
+    payload = {"name": "Zillow", "slug": "zillow", "delivery_mode": "feed"}
+    payload.update(extra)
+    return await client.post(
+        f"{LISTINGS}/portals", json=payload, headers=auth_headers(admin_user)
+    )
+
+
+async def test_portal_catalog_lists_known_networks(client, admin_user):
+    resp = await client.get(f"{LISTINGS}/portals/catalog", headers=auth_headers(admin_user))
+    assert resp.status_code == 200, resp.text
+    slugs = {p["slug"] for p in resp.json()}
+    assert {"zillow", "homes", "apartments"} <= slugs
+
+
+async def test_portal_crud(client, admin_user):
+    created = await _make_portal(client, admin_user)
+    assert created.status_code == 201, created.text
+    portal_id = created.json()["id"]
+
+    listed = await client.get(f"{LISTINGS}/portals", headers=auth_headers(admin_user))
+    assert any(p["id"] == portal_id for p in listed.json())
+
+    patched = await client.patch(
+        f"{LISTINGS}/portals/{portal_id}",
+        json={"is_enabled": False},
+        headers=auth_headers(admin_user),
+    )
+    assert patched.status_code == 200
+    assert patched.json()["is_enabled"] is False
+
+    deleted = await client.delete(
+        f"{LISTINGS}/portals/{portal_id}", headers=auth_headers(admin_user)
+    )
+    assert deleted.status_code == 204
+
+
+async def test_webhook_portal_requires_endpoint(client, admin_user):
+    resp = await _make_portal(
+        client, admin_user, name="Custom", slug="custom", delivery_mode="webhook"
+    )
+    assert resp.status_code == 400
+
+
+async def test_syndicate_published_listing(client, admin_user, sample_office):
+    unit_id = await _make_unit(client, admin_user, sample_office)
+    listing_id = (await _make_listing(client, admin_user, unit_id)).json()["id"]
+    await client.post(f"{LISTINGS}/{listing_id}/publish", headers=auth_headers(admin_user))
+    portal_id = (await _make_portal(client, admin_user)).json()["id"]
+
+    resp = await client.post(
+        f"{LISTINGS}/{listing_id}/syndicate",
+        json={"portal_ids": [portal_id]},
+        headers=auth_headers(admin_user),
+    )
+    assert resp.status_code == 200, resp.text
+    records = resp.json()
+    assert len(records) == 1
+    assert records[0]["portal_id"] == portal_id
+    assert records[0]["status"] == "posted"
+
+    # Idempotent re-syndication refreshes the same record.
+    again = await client.post(
+        f"{LISTINGS}/{listing_id}/syndicate",
+        json={"portal_ids": [portal_id]},
+        headers=auth_headers(admin_user),
+    )
+    assert again.status_code == 200
+    assert len(again.json()) == 1
+
+    status_resp = await client.get(
+        f"{LISTINGS}/{listing_id}/syndications", headers=auth_headers(admin_user)
+    )
+    assert status_resp.status_code == 200
+    assert len(status_resp.json()) == 1
+
+
+async def test_cannot_syndicate_unpublished_listing(client, admin_user, sample_office):
+    unit_id = await _make_unit(client, admin_user, sample_office)
+    listing_id = (await _make_listing(client, admin_user, unit_id)).json()["id"]
+    portal_id = (await _make_portal(client, admin_user)).json()["id"]
+
+    resp = await client.post(
+        f"{LISTINGS}/{listing_id}/syndicate",
+        json={"portal_ids": [portal_id]},
+        headers=auth_headers(admin_user),
+    )
+    assert resp.status_code == 409
