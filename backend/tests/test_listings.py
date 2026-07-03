@@ -116,19 +116,23 @@ async def test_delete_requires_admin(client, admin_user, editor_user, sample_off
     assert gone.status_code == 404
 
 
-async def _org_for_admin(db_session, admin_user):
+async def _org_for_admin(db_session, admin_user, sample_office=None):
     from app.models.organization import Organization
 
     org = Organization(name="Listing Org", slug=f"listing-org-{admin_user.id.hex[:8]}")
     db_session.add(org)
     await db_session.flush()
     admin_user.organization_id = org.id
+    # Keep the office in the same organization as the admin so unit creation,
+    # which validates office_id against the caller's org, still succeeds.
+    if sample_office is not None:
+        sample_office.organization_id = org.id
     await db_session.commit()
     return org.id
 
 
 async def test_json_feed_only_published(client, admin_user, sample_office, db_session):
-    org_id = await _org_for_admin(db_session, admin_user)
+    org_id = await _org_for_admin(db_session, admin_user, sample_office)
     unit_a = await _make_unit(client, admin_user, sample_office, bedrooms=2, market_rent="1900.00")
     unit_b = await _make_unit(client, admin_user, sample_office, unit_number="10B")
 
@@ -151,7 +155,7 @@ async def test_json_feed_only_published(client, admin_user, sample_office, db_se
 
 
 async def test_marketing_rent_overrides_unit_rent(client, admin_user, sample_office, db_session):
-    org_id = await _org_for_admin(db_session, admin_user)
+    org_id = await _org_for_admin(db_session, admin_user, sample_office)
     unit_id = await _make_unit(client, admin_user, sample_office, market_rent="1900.00")
     listing_id = (await _make_listing(
         client, admin_user, unit_id, marketing_rent="2250.00",
@@ -163,7 +167,7 @@ async def test_marketing_rent_overrides_unit_rent(client, admin_user, sample_off
 
 
 async def test_xml_feed(client, admin_user, sample_office, db_session):
-    org_id = await _org_for_admin(db_session, admin_user)
+    org_id = await _org_for_admin(db_session, admin_user, sample_office)
     unit_id = await _make_unit(client, admin_user, sample_office)
     listing_id = (await _make_listing(
         client, admin_user, unit_id, title="XML Home",
@@ -185,7 +189,7 @@ async def test_xml_feed(client, admin_user, sample_office, db_session):
 
 
 async def test_feed_is_public(client, admin_user, sample_office, db_session):
-    org_id = await _org_for_admin(db_session, admin_user)
+    org_id = await _org_for_admin(db_session, admin_user, sample_office)
     # No auth headers → still reachable.
     feed = await client.get(f"{LISTINGS}/feed/{org_id}")
     assert feed.status_code == 200

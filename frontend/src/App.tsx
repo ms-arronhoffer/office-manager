@@ -69,6 +69,7 @@ const InsuranceCertificatesPage = lazy(() => import('@/pages/InsuranceCertificat
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const DashboardHubPage = lazy(() => import('@/pages/DashboardHubPage'));
 const FinancePage = lazy(() => import('@/pages/FinancePage'));
+const ResidentialPage = lazy(() => import('@/pages/ResidentialPage'));
 const HvacPage = lazy(() => import('@/pages/HvacPage'));
 const MaintenancePage = lazy(() => import('@/pages/MaintenancePage'));
 const AdministrationPage = lazy(() => import('@/pages/AdministrationPage'));
@@ -136,6 +137,14 @@ const App: React.FC = () => {
                         <Route path="finance/tax-1099" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="finance/budgeting" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="finance/lease-lifecycle" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
+                        <Route path="residential" element={<ResidentialPage />} />
+                        <Route path="residential/residents" element={<ResidentialPage />} />
+                        <Route path="residential/leases" element={<ResidentialPage />} />
+                        <Route path="residential/applications" element={<ResidentialPage />} />
+                        <Route path="residential/listings" element={<ResidentialPage />} />
+                        <Route path="residential/announcements" element={<ResidentialPage />} />
+                        <Route path="residential/rent" element={<RoleGuard allowedRoles={['admin', 'accountant']}><ResidentialPage /></RoleGuard>} />
+                        <Route path="residential/owners" element={<RoleGuard allowedRoles={['admin', 'accountant']}><ResidentialPage /></RoleGuard>} />
                         <Route path="leases/new" element={<LeaseFormPage />} />
                         <Route path="leases/:id" element={<LeaseDetailPage />} />
                         <Route path="leases/:id/edit" element={<LeaseFormPage />} />

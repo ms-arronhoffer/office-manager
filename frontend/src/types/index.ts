@@ -2846,3 +2846,573 @@ export interface InspectionUpdate {
   notes?: string | null;
   results?: InspectionItemResultInput[] | null;
 }
+
+// ─── Residential / Buildium-parity domains ───────────────────────────────────
+
+// Leasing: rental units, residents, resident leases
+export type UnitStatus = 'available' | 'occupied' | 'unavailable';
+export type ResidentStatus = 'prospect' | 'current' | 'past';
+export type ResidentLeaseStatus = 'draft' | 'pending' | 'active' | 'ended' | 'terminated';
+
+export interface RentalUnit {
+  id: string;
+  organization_id: string | null;
+  office_id: string | null;
+  unit_number: string;
+  name: string | null;
+  floor: string | null;
+  bedrooms: number | null;
+  bathrooms: string | null;
+  square_feet: string | null;
+  market_rent: string | null;
+  currency: string;
+  status: UnitStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RentalUnitCreate {
+  office_id?: string | null;
+  unit_number: string;
+  name?: string | null;
+  floor?: string | null;
+  bedrooms?: number | null;
+  bathrooms?: string | null;
+  square_feet?: string | null;
+  market_rent?: string | null;
+  currency?: string;
+  status?: UnitStatus;
+  notes?: string | null;
+}
+
+export type RentalUnitUpdate = Partial<RentalUnitCreate>;
+
+export interface Resident {
+  id: string;
+  organization_id: string | null;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  phone: string | null;
+  date_of_birth: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  status: ResidentStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ResidentCreate {
+  first_name: string;
+  last_name: string;
+  email?: string | null;
+  phone?: string | null;
+  date_of_birth?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  status?: ResidentStatus;
+  notes?: string | null;
+}
+
+export type ResidentUpdate = Partial<ResidentCreate>;
+
+export interface OccupantInput {
+  resident_id: string;
+  role?: string;
+  is_primary?: boolean;
+}
+
+export interface Occupant {
+  id: string;
+  resident_id: string;
+  role: string;
+  is_primary: boolean;
+  resident: Resident | null;
+}
+
+export interface ResidentLease {
+  id: string;
+  organization_id: string | null;
+  unit_id: string;
+  name: string | null;
+  status: ResidentLeaseStatus;
+  start_date: string | null;
+  end_date: string | null;
+  move_in_date: string | null;
+  move_out_date: string | null;
+  rent_amount: string | null;
+  rent_frequency: string;
+  rent_due_day: number | null;
+  security_deposit: string | null;
+  currency: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  occupants: Occupant[];
+}
+
+export interface ResidentLeaseCreate {
+  unit_id: string;
+  name?: string | null;
+  status?: ResidentLeaseStatus;
+  start_date?: string | null;
+  end_date?: string | null;
+  move_in_date?: string | null;
+  move_out_date?: string | null;
+  rent_amount?: string | null;
+  rent_frequency?: string;
+  rent_due_day?: number | null;
+  security_deposit?: string | null;
+  currency?: string;
+  notes?: string | null;
+  occupants?: OccupantInput[];
+}
+
+export type ResidentLeaseUpdate = Partial<Omit<ResidentLeaseCreate, 'unit_id'>>;
+
+export interface OccupancySummary {
+  total_units: number;
+  counts: Record<string, number>;
+  occupancy_rate: number;
+}
+
+// Rent collection
+export interface RentCharge {
+  id: string;
+  resident_lease_id: string;
+  charge_type: string;
+  description: string | null;
+  amount: string;
+  frequency: string;
+  day_of_month: number;
+  start_date: string | null;
+  end_date: string | null;
+  grace_days: number;
+  late_fee_type: string;
+  late_fee_amount: string | null;
+  revenue_account_code: string;
+  currency: string;
+  active: boolean;
+  last_billed_period: string | null;
+}
+
+export interface RentChargeCreate {
+  resident_lease_id: string;
+  charge_type?: string;
+  description?: string | null;
+  amount: string;
+  frequency?: string;
+  day_of_month?: number;
+  start_date?: string | null;
+  end_date?: string | null;
+  grace_days?: number;
+  late_fee_type?: string;
+  late_fee_amount?: string | null;
+  revenue_account_code?: string;
+  active?: boolean;
+}
+
+export type RentChargeUpdate = Partial<Omit<RentChargeCreate, 'resident_lease_id'>>;
+
+export interface SecurityDeposit {
+  id: string;
+  resident_lease_id: string;
+  amount: string;
+  held_date: string;
+  status: string;
+  returned_amount: string;
+  forfeited_amount: string;
+  returned_date: string | null;
+  currency: string;
+  notes: string | null;
+}
+
+export interface DepositCreate {
+  resident_lease_id: string;
+  amount: string;
+  held_date?: string | null;
+  notes?: string | null;
+}
+
+export interface DepositReturn {
+  returned_amount?: string;
+  forfeited_amount?: string;
+  returned_date?: string | null;
+}
+
+export interface RentPaymentCreate {
+  invoice_id: string;
+  amount: string;
+  method?: string;
+  payment_token?: string | null;
+  receipt_date?: string | null;
+  reference?: string | null;
+}
+
+export interface RentPaymentResult {
+  receipt_id: string;
+  invoice_id: string;
+  amount: string;
+  method: string | null;
+  captured: boolean;
+  processor_status: string;
+}
+
+export interface BillingRunResult {
+  generated: number;
+  invoice_ids: string[];
+}
+
+export interface LateFeeRunResult {
+  assessed: number;
+  invoice_ids: string[];
+}
+
+// Leasing funnel: applications, screening, lease e-signature
+export type ApplicationStatus =
+  | 'submitted'
+  | 'screening'
+  | 'approved'
+  | 'denied'
+  | 'withdrawn'
+  | 'converted';
+
+export interface RentalApplication {
+  id: string;
+  unit_id: string | null;
+  applicant_first_name: string;
+  applicant_last_name: string;
+  applicant_email: string;
+  applicant_phone: string | null;
+  desired_move_in: string | null;
+  monthly_income: string | null;
+  application_data: Record<string, unknown> | null;
+  notes: string | null;
+  status: ApplicationStatus;
+  decision_notes: string | null;
+  decided_at: string | null;
+  resident_id: string | null;
+}
+
+export interface RentalApplicationCreate {
+  unit_id?: string | null;
+  applicant_first_name: string;
+  applicant_last_name: string;
+  applicant_email: string;
+  applicant_phone?: string | null;
+  desired_move_in?: string | null;
+  monthly_income?: string | null;
+  application_data?: Record<string, unknown> | null;
+  notes?: string | null;
+}
+
+export interface RentalApplicationUpdate {
+  status?: ApplicationStatus | null;
+  decision_notes?: string | null;
+  notes?: string | null;
+}
+
+export interface ScreeningReport {
+  id: string;
+  application_id: string;
+  provider: string;
+  status: string;
+  recommendation: string;
+  credit_score: number | null;
+  external_ref: string | null;
+  report_data: Record<string, unknown> | null;
+  requested_at: string | null;
+  completed_at: string | null;
+}
+
+export interface LeaseSignatureParty {
+  id: string;
+  signer_name: string;
+  signer_email: string;
+  role: string;
+  sign_order: number;
+  status: string;
+  signed_at: string | null;
+}
+
+export interface LeaseSignaturePartyInput {
+  signer_name: string;
+  signer_email: string;
+  role?: string;
+  sign_order?: number | null;
+}
+
+export interface LeaseSignatureRequest {
+  id: string;
+  resident_lease_id: string | null;
+  title: string;
+  status: string;
+  document_hash: string;
+  expires_at: string | null;
+  sent_at: string | null;
+  completed_at: string | null;
+  parties: LeaseSignatureParty[];
+}
+
+export interface LeaseSignatureCreate {
+  title: string;
+  body: string;
+  parties: LeaseSignaturePartyInput[];
+  resident_lease_id?: string | null;
+  expires_at?: string | null;
+}
+
+// Vacancy listings
+export type ListingStatus = 'draft' | 'published' | 'leased';
+
+export interface VacancyListing {
+  id: string;
+  unit_id: string;
+  title: string;
+  headline: string | null;
+  description: string | null;
+  marketing_rent: string | null;
+  currency: string;
+  available_date: string | null;
+  bedrooms: number | null;
+  bathrooms: string | null;
+  square_feet: string | null;
+  amenities: string[] | null;
+  photos: { url: string; caption?: string }[] | null;
+  application_url: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  status: ListingStatus;
+  published_at: string | null;
+}
+
+export interface VacancyListingCreate {
+  unit_id: string;
+  title: string;
+  headline?: string | null;
+  description?: string | null;
+  marketing_rent?: string | null;
+  available_date?: string | null;
+  bedrooms?: number | null;
+  bathrooms?: string | null;
+  square_feet?: string | null;
+  amenities?: string[] | null;
+  photos?: { url: string; caption?: string }[] | null;
+  application_url?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+}
+
+export type VacancyListingUpdate = Partial<Omit<VacancyListingCreate, 'unit_id'>>;
+
+// Announcements
+export type AnnouncementChannel = 'portal' | 'email' | 'sms';
+
+export interface Announcement {
+  id: string;
+  organization_id: string | null;
+  title: string;
+  body: string;
+  channels: AnnouncementChannel[];
+  status: string;
+  audience_office_id: string | null;
+  audience_resident_status: ResidentStatus | null;
+  sent_at: string | null;
+  recipient_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AnnouncementCreate {
+  title: string;
+  body: string;
+  channels: AnnouncementChannel[];
+  audience_office_id?: string | null;
+  audience_resident_status?: ResidentStatus | null;
+}
+
+export type AnnouncementUpdate = Partial<AnnouncementCreate>;
+
+export interface AnnouncementSendResult {
+  recipients: number;
+  emailed: number;
+  texted: number;
+  channels: string[];
+}
+
+// Owner / trust accounting
+export type OwnerStatus = 'active' | 'inactive';
+export type LedgerEntryType =
+  | 'income'
+  | 'expense'
+  | 'management_fee'
+  | 'distribution'
+  | 'adjustment';
+export type DistributionMethod = 'check' | 'ach' | 'wire' | 'other';
+export type DistributionStatus = 'pending' | 'paid' | 'void';
+export type TrustAccountStatus = 'active' | 'closed';
+export type ComplianceStatus = 'pending' | 'under_review' | 'approved' | 'flagged';
+
+export interface PropertyOwner {
+  id: string;
+  organization_id: string | null;
+  owner_type: string;
+  name: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
+  tax_id: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
+  management_fee_percent: string;
+  status: OwnerStatus;
+  currency: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PropertyOwnerCreate {
+  owner_type?: string;
+  name: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  tax_id?: string | null;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+  management_fee_percent?: string;
+  status?: OwnerStatus;
+  currency?: string;
+  notes?: string | null;
+}
+
+export type PropertyOwnerUpdate = Partial<PropertyOwnerCreate>;
+
+export interface OwnerProperty {
+  id: string;
+  owner_id: string;
+  office_id: string;
+  ownership_percent: string;
+  management_fee_percent: string | null;
+  start_date: string | null;
+  end_date: string | null;
+}
+
+export interface OwnerPropertyCreate {
+  office_id: string;
+  ownership_percent?: string;
+  management_fee_percent?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+}
+
+export interface OwnerLedgerEntry {
+  id: string;
+  owner_id: string;
+  office_id: string | null;
+  entry_date: string;
+  entry_type: LedgerEntryType;
+  amount: string;
+  description: string | null;
+  currency: string;
+  source: string | null;
+  source_ref: string | null;
+  journal_entry_id: string | null;
+  created_at: string;
+}
+
+export interface OwnerLedgerEntryCreate {
+  entry_type: LedgerEntryType;
+  amount: string;
+  entry_date?: string | null;
+  office_id?: string | null;
+  description?: string | null;
+  post_gl?: boolean;
+}
+
+export interface OwnerBalance {
+  owner_id: string;
+  currency: string;
+  balance: string;
+}
+
+export interface OwnerDistribution {
+  id: string;
+  owner_id: string;
+  distribution_date: string;
+  amount: string;
+  method: DistributionMethod;
+  reference: string | null;
+  status: DistributionStatus;
+  memo: string | null;
+  currency: string;
+  trust_account_id: string | null;
+  ledger_entry_id: string | null;
+  journal_entry_id: string | null;
+  created_at: string;
+}
+
+export interface OwnerDistributionCreate {
+  amount: string;
+  distribution_date?: string | null;
+  method?: DistributionMethod;
+  reference?: string | null;
+  memo?: string | null;
+  trust_account_id?: string | null;
+}
+
+export interface OwnerStatement {
+  owner_id: string;
+  owner_name: string;
+  currency: string;
+  start_date: string | null;
+  end_date: string | null;
+  opening_balance: string;
+  closing_balance: string;
+  totals: Record<string, string>;
+  lines: OwnerLedgerEntry[];
+}
+
+export interface TrustAccount {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  bank_name: string | null;
+  account_number_last4: string | null;
+  gl_account_id: string | null;
+  currency: string;
+  status: TrustAccountStatus;
+  notes: string | null;
+  compliance_review_required: boolean;
+  compliance_status: ComplianceStatus;
+  compliance_reviewed_at: string | null;
+  compliance_reviewed_by_id: string | null;
+  compliance_notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TrustAccountCreate {
+  name: string;
+  bank_name?: string | null;
+  account_number_last4?: string | null;
+  gl_account_id?: string | null;
+  currency?: string;
+  status?: TrustAccountStatus;
+  notes?: string | null;
+}
+
+export type TrustAccountUpdate = Partial<Omit<TrustAccountCreate, 'currency'>>;
