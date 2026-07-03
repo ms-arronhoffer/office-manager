@@ -1898,6 +1898,7 @@ import type {
   TrustAccount,
   TrustAccountCreate,
   TrustAccountUpdate,
+  PortalInviteResponse,
 } from '@/types';
 
 export const leasing = {
@@ -1918,6 +1919,9 @@ export const leasing = {
   updateResident: (id: string, data: ResidentUpdate) =>
     client.patch<Resident>(`/leasing/residents/${id}`, data),
   deleteResident: (id: string) => client.delete(`/leasing/residents/${id}`),
+
+  inviteToPortal: (id: string) =>
+    client.post<PortalInviteResponse>('/resident-portal/invite', { resident_id: id }),
 
   listLeases: (params?: { unit_id?: string; resident_id?: string; status?: string }) =>
     client.get<ResidentLease[]>('/leasing/leases', { params }),
@@ -2018,6 +2022,9 @@ export const owners = {
   update: (id: string, data: PropertyOwnerUpdate) =>
     client.patch<PropertyOwner>(`/owners/${id}`, data),
   remove: (id: string) => client.delete(`/owners/${id}`),
+
+  inviteToPortal: (id: string) =>
+    client.post<PortalInviteResponse>('/owner-portal/invite', { owner_id: id }),
 
   listProperties: (ownerId: string) =>
     client.get<OwnerProperty[]>(`/owners/${ownerId}/properties`),

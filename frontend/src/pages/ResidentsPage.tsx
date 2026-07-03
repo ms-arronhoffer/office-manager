@@ -13,6 +13,7 @@ import Badge from '@cloudscape-design/components/badge';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { leasing } from '@/api';
+import PortalInviteButton from '@/components/common/PortalInviteButton';
 import type { Resident, ResidentStatus } from '@/types';
 
 const RESIDENT_STATUSES: ResidentStatus[] = ['prospect', 'current', 'past'];
@@ -174,6 +175,11 @@ const ResidentsPage: React.FC = () => {
                 <Button variant="inline-link" onClick={() => openEdit(r)}>
                   Edit
                 </Button>
+                <PortalInviteButton
+                  entityLabel="resident"
+                  entityName={`${r.first_name} ${r.last_name}`}
+                  onInvite={() => leasing.inviteToPortal(r.id)}
+                />
                 <Button variant="inline-link" onClick={() => remove(r)}>
                   Delete
                 </Button>

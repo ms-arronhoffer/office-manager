@@ -14,6 +14,7 @@ import Container from '@cloudscape-design/components/container';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { owners as ownersApi } from '@/api';
+import PortalInviteButton from '@/components/common/PortalInviteButton';
 import type {
   PropertyOwner,
   OwnerStatus,
@@ -390,6 +391,11 @@ const OwnersPage: React.FC = () => {
                 <Button variant="inline-link" onClick={() => openOwnerEdit(o)}>
                   Edit
                 </Button>
+                <PortalInviteButton
+                  entityLabel="owner"
+                  entityName={o.name}
+                  onInvite={() => ownersApi.inviteToPortal(o.id)}
+                />
                 <Button variant="inline-link" onClick={() => removeOwner(o)}>
                   Delete
                 </Button>

@@ -1070,6 +1070,13 @@ export interface ClientPortalInviteResponse {
   activated: boolean;
 }
 
+// Staff-minted single-use invite for the resident / owner self-service portals.
+export interface PortalInviteResponse {
+  signup_token: string;
+  signup_url: string;
+  expires_at: string;
+}
+
 export interface ClientPortalSession {
   portal_token: string;
   portal_url: string;
