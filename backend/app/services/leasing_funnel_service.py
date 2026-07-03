@@ -29,7 +29,8 @@ from app.models.leasing_funnel import (
     RentalApplication,
     ScreeningReport,
 )
-from app.models.resident import Resident
+from app.models.lease_template import LeaseTemplate
+from app.models.resident import RentalUnit, Resident, ResidentLease
 from app.services import waiver_service
 from app.utils import screening_client
 
@@ -191,6 +192,132 @@ async def create_lease_signature_request(
         organization_id=organization_id,
         resident_lease_id=resident_lease_id,
         title=title,
+        rendered_body=rendered,
+        document_hash=doc_hash,
+        status="sent",
+        created_by_id=created_by_id,
+        expires_at=expires_at,
+        sent_at=_now(),
+        parties=[
+            LeaseSignatureParty(
+                signer_name=p["signer_name"],
+                signer_email=waiver_service.normalize_email(p["signer_email"]),
+                role=p.get("role", "tenant"),
+                sign_order=int(p.get("sign_order", idx)),
+                sign_token=_gen_token(),
+                status="pending",
+            )
+            for idx, p in enumerate(parties)
+        ],
+    )
+    db.add(request)
+    await db.flush()
+    return request
+
+
+def _fmt_money(value) -> str:
+    return f"${value:,.2f}" if value is not None else ""
+
+
+def _fmt_date(value) -> str:
+    return value.strftime("%B %d, %Y") if value is not None else ""
+
+
+def build_lease_merge_context(
+    lease: ResidentLease, *, organization_name: str | None
+) -> dict[str, str]:
+    """Build the ``{{merge_field}}`` context for a resident lease document.
+
+    Reuses the base waiver context (``date``, ``organization_name``) and layers
+    lease/unit/occupant detail on top so a template can render a fully populated,
+    signable lease. ``lease`` must have its ``unit`` and ``occupants -> resident``
+    relationships loaded by the caller.
+    """
+    occupants = [o for o in lease.occupants if o.resident is not None]
+    occupants.sort(key=lambda o: (not o.is_primary, o.created_at))
+    names = [f"{o.resident.first_name} {o.resident.last_name}" for o in occupants]
+    primary = names[0] if names else ""
+
+    unit = lease.unit
+    address_parts = []
+    if unit is not None:
+        if unit.address_line_1:
+            address_parts.append(unit.address_line_1)
+        if unit.address_line_2:
+            address_parts.append(unit.address_line_2)
+        city_state = ", ".join(p for p in [unit.city, unit.state] if p)
+        tail = " ".join(p for p in [city_state, unit.zip_code or ""] if p).strip()
+        if tail:
+            address_parts.append(tail)
+
+    context = waiver_service.build_merge_context(
+        recipient_name=primary or None, organization_name=organization_name
+    )
+    context.update(
+        {
+            "tenant_name": primary,
+            "tenant_names": "; ".join(names),
+            "lease_name": lease.name or "",
+            "unit_number": unit.unit_number if unit is not None else "",
+            "unit_name": (unit.name or "") if unit is not None else "",
+            "property_address": ", ".join(address_parts),
+            "rent_amount": _fmt_money(lease.rent_amount),
+            "rent_frequency": lease.rent_frequency or "",
+            "security_deposit": _fmt_money(lease.security_deposit),
+            "pet_deposit": _fmt_money(lease.pet_deposit),
+            "lease_start": _fmt_date(lease.start_date),
+            "lease_end": _fmt_date(lease.end_date),
+            "lease_type": lease.lease_type or "",
+        }
+    )
+    return context
+
+
+async def create_lease_signature_from_template(
+    db: AsyncSession,
+    organization_id: uuid.UUID | None,
+    *,
+    lease: ResidentLease,
+    template: LeaseTemplate,
+    organization_name: str | None,
+    parties: list[dict] | None = None,
+    title: str | None = None,
+    created_by_id: uuid.UUID | None = None,
+    expires_at: datetime | None = None,
+) -> LeaseSignatureRequest:
+    """Render a lease template for a resident lease and open a signing envelope.
+
+    When ``parties`` is omitted, the lease occupants that have an email address
+    are used as the signing parties (the primary occupant signs first). The
+    template body is rendered with the lease merge context before hashing so the
+    stored document is exactly what every party signs.
+    """
+    context = build_lease_merge_context(lease, organization_name=organization_name)
+    rendered = waiver_service.render_body(template.body, context)
+    doc_hash = waiver_service.compute_document_hash(rendered)
+
+    if parties is None:
+        occupants = [o for o in lease.occupants if o.resident is not None]
+        occupants.sort(key=lambda o: (not o.is_primary, o.created_at))
+        parties = [
+            {
+                "signer_name": f"{o.resident.first_name} {o.resident.last_name}",
+                "signer_email": o.resident.email,
+                "role": "cosigner" if o.role in ("co_signer", "guarantor") else "tenant",
+            }
+            for o in occupants
+            if o.resident.email
+        ]
+    if not parties:
+        raise FunnelError(
+            "The lease has no occupant with an email address to sign; add a "
+            "resident with an email or provide signing parties explicitly."
+        )
+
+    request = LeaseSignatureRequest(
+        organization_id=organization_id,
+        resident_lease_id=lease.id,
+        title=title or template.name,
         rendered_body=rendered,
         document_hash=doc_hash,
         status="sent",

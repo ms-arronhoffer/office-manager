@@ -46,7 +46,12 @@ from app.models.leasing_funnel import (
     ScreeningReport,
 )
 from app.models.organization import Organization
-from app.models.resident import RentalUnit
+from app.models.lease_template import LeaseTemplate
+from app.models.resident import (
+    RentalUnit,
+    ResidentLease,
+    ResidentLeaseOccupant,
+)
 from app.models.user import User
 from app.services import leasing_funnel_service as svc
 from app.services import waiver_service
@@ -139,6 +144,15 @@ class LeaseSignatureCreate(BaseModel):
     body: str
     parties: list[PartyInput]
     resident_lease_id: uuid.UUID | None = None
+    expires_at: datetime | None = None
+
+
+class LeaseSignatureFromTemplate(BaseModel):
+    resident_lease_id: uuid.UUID
+    template_id: uuid.UUID
+    title: str | None = None
+    # When omitted, the lease occupants with an email become the signing parties.
+    parties: list[PartyInput] | None = None
     expires_at: datetime | None = None
 
 
@@ -411,7 +425,89 @@ async def create_lease_signature(
     return req
 
 
-@router.get("/lease-signatures", response_model=list[LeaseSignatureResponse])
+@router.post(
+    "/lease-signatures/from-template",
+    response_model=LeaseSignatureResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_lease_signature_from_template(
+    payload: LeaseSignatureFromTemplate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Editor),
+):
+    """Render a lease template for a resident lease and open a signing envelope."""
+    org_id = current_user.organization_id
+    for party in payload.parties or []:
+        if party.role not in LEASE_PARTY_ROLES:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"Invalid party role '{party.role}'.",
+            )
+
+    lease = (
+        await db.execute(
+            select(ResidentLease)
+            .where(
+                ResidentLease.id == payload.resident_lease_id,
+                ResidentLease.organization_id == org_id,
+                ResidentLease.is_deleted.is_(False),
+            )
+            .options(
+                selectinload(ResidentLease.unit),
+                selectinload(ResidentLease.occupants).selectinload(
+                    ResidentLeaseOccupant.resident
+                ),
+            )
+        )
+    ).scalar_one_or_none()
+    if lease is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Resident lease not found")
+
+    template = (
+        await db.execute(
+            select(LeaseTemplate).where(
+                LeaseTemplate.id == payload.template_id,
+                LeaseTemplate.organization_id == org_id,
+                LeaseTemplate.is_deleted.is_(False),
+            )
+        )
+    ).scalar_one_or_none()
+    if template is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lease template not found")
+
+    org = (
+        await db.execute(select(Organization).where(Organization.id == org_id))
+    ).scalar_one_or_none()
+
+    explicit_parties = None
+    if payload.parties is not None:
+        explicit_parties = [
+            {
+                "signer_name": p.signer_name,
+                "signer_email": str(p.signer_email),
+                "role": p.role,
+                "sign_order": p.sign_order if p.sign_order is not None else idx,
+            }
+            for idx, p in enumerate(payload.parties)
+        ]
+
+    try:
+        req = await svc.create_lease_signature_from_template(
+            db,
+            org_id,
+            lease=lease,
+            template=template,
+            organization_name=org.name if org is not None else None,
+            parties=explicit_parties,
+            title=payload.title,
+            created_by_id=current_user.id,
+            expires_at=payload.expires_at,
+        )
+    except FunnelError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+    await db.commit()
+    req = await _load_signature_request(db, req.id, org_id)
+    return req
 async def list_lease_signatures(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
