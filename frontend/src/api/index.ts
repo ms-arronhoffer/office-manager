@@ -1717,6 +1717,14 @@ export const ai = {
     });
   },
 
+  parseLeaseTemplate: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post<LeaseTemplateDraftResult>('/ai/lease-templates/parse', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
   summary: (period: 'weekly' | 'monthly') =>
     client.post<AISummaryResult>('/ai/reports/summary', { period }),
 
@@ -1884,6 +1892,12 @@ import type {
   VacancyListing,
   VacancyListingCreate,
   VacancyListingUpdate,
+  ListingPortal,
+  ListingPortalCreate,
+  ListingPortalUpdate,
+  KnownPortal,
+  ListingSyndication,
+  LeaseTemplateDraftResult,
   Announcement,
   AnnouncementCreate,
   AnnouncementUpdate,
@@ -2018,6 +2032,19 @@ export const listings = {
   unpublish: (id: string) => client.post<VacancyListing>(`/listings/${id}/unpublish`),
   markLeased: (id: string) => client.post<VacancyListing>(`/listings/${id}/mark-leased`),
   remove: (id: string) => client.delete(`/listings/${id}`),
+
+  // Portal syndication
+  portalCatalog: () => client.get<KnownPortal[]>('/listings/portals/catalog'),
+  listPortals: () => client.get<ListingPortal[]>('/listings/portals'),
+  createPortal: (data: ListingPortalCreate) =>
+    client.post<ListingPortal>('/listings/portals', data),
+  updatePortal: (id: string, data: ListingPortalUpdate) =>
+    client.patch<ListingPortal>(`/listings/portals/${id}`, data),
+  removePortal: (id: string) => client.delete(`/listings/portals/${id}`),
+  syndicate: (id: string, portalIds: string[]) =>
+    client.post<ListingSyndication[]>(`/listings/${id}/syndicate`, { portal_ids: portalIds }),
+  listSyndications: (id: string) =>
+    client.get<ListingSyndication[]>(`/listings/${id}/syndications`),
 };
 
 export const announcements = {

@@ -3409,6 +3409,57 @@ export interface VacancyListingCreate {
 
 export type VacancyListingUpdate = Partial<Omit<VacancyListingCreate, 'unit_id'>>;
 
+// Listing portal syndication
+export type PortalDeliveryMode = 'feed' | 'webhook';
+export type SyndicationStatus = 'pending' | 'posted' | 'failed' | 'removed';
+
+export interface ListingPortal {
+  id: string;
+  name: string;
+  slug: string;
+  website_url: string | null;
+  endpoint_url: string | null;
+  delivery_mode: PortalDeliveryMode;
+  is_enabled: boolean;
+  config: Record<string, unknown> | null;
+}
+
+export interface ListingPortalCreate {
+  name: string;
+  slug?: string;
+  website_url?: string | null;
+  endpoint_url?: string | null;
+  delivery_mode?: PortalDeliveryMode;
+  is_enabled?: boolean;
+  config?: Record<string, unknown> | null;
+}
+
+export type ListingPortalUpdate = Partial<ListingPortalCreate>;
+
+export interface KnownPortal {
+  slug: string;
+  name: string;
+  website_url: string;
+  delivery_mode: PortalDeliveryMode;
+}
+
+export interface ListingSyndication {
+  id: string;
+  listing_id: string;
+  portal_id: string;
+  status: SyndicationStatus;
+  external_reference: string | null;
+  message: string | null;
+  last_synced_at: string | null;
+}
+
+export interface LeaseTemplateDraftResult {
+  name: string;
+  description: string | null;
+  body: string;
+  model: string;
+}
+
 // Announcements
 export type AnnouncementChannel = 'portal' | 'email' | 'sms';
 

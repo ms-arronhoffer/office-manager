@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
@@ -11,7 +11,7 @@ import Select from '@cloudscape-design/components/select';
 import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import { useFlashbar } from '@/context/FlashbarContext';
-import { leaseTemplates } from '@/api';
+import { ai, leaseTemplates } from '@/api';
 import type { LeaseTemplate } from '@/types';
 
 // Merge fields available in the backend's build_lease_merge_context()
@@ -47,6 +47,8 @@ const LeaseTemplatesPage: React.FC = () => {
   const [isDefault, setIsDefault] = useState(false);
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,6 +84,37 @@ const LeaseTemplatesPage: React.FC = () => {
     setIsDefault(t.is_default);
     setIsActive(t.is_active);
     setModalOpen(true);
+  };
+
+  // AI-assisted: turn an uploaded lease document into a reusable template with
+  // merge-field placeholders, then open the create modal pre-filled for review.
+  const handleDraftFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset the input so selecting the same file again re-triggers onChange.
+    e.target.value = '';
+    if (!file) return;
+    setDrafting(true);
+    try {
+      const { data } = await ai.parseLeaseTemplate(file);
+      setEditing(null);
+      setName(data.name);
+      setDescription(data.description ?? '');
+      setBody(data.body);
+      setIsDefault(false);
+      setIsActive(true);
+      setModalOpen(true);
+      addFlash({
+        type: 'success',
+        content: 'Draft template generated from document. Review and save.',
+      });
+    } catch {
+      addFlash({
+        type: 'error',
+        content: 'Could not draft a template from that document.',
+      });
+    } finally {
+      setDrafting(false);
+    }
   };
 
   const save = async () => {
@@ -140,9 +173,25 @@ const LeaseTemplatesPage: React.FC = () => {
             counter={`(${templates.length})`}
             description="Reusable lease documents with merge fields, used to generate e-signature requests."
             actions={
-              <Button variant="primary" onClick={openCreate}>
-                Add template
-              </Button>
+              <SpaceBetween direction="horizontal" size="xs">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.tif,.tiff"
+                  style={{ display: 'none' }}
+                  onChange={handleDraftFile}
+                />
+                <Button
+                  iconName="upload"
+                  loading={drafting}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Draft from document
+                </Button>
+                <Button variant="primary" onClick={openCreate}>
+                  Add template
+                </Button>
+              </SpaceBetween>
             }
           >
             Lease templates
