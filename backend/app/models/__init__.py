@@ -99,6 +99,7 @@ from app.models.leasing_funnel import (
     LEASE_SIGN_STATUSES, LEASE_PARTY_STATUSES, LEASE_PARTY_ROLES,
     LEASE_SIGNATURE_TYPES,
 )
+from app.models.listing import VacancyListing, LISTING_STATUSES
 
 __all__ = [
     "Base", "Organization", "User", "AuthLockout", "Manager", "Office",    "Lease", "LeaseNote", "LeaseRenewal", "LeaseOption",
@@ -155,4 +156,5 @@ __all__ = [
     "APPLICATION_STATUSES", "SCREENING_STATUSES", "SCREENING_RECOMMENDATIONS",
     "LEASE_SIGN_STATUSES", "LEASE_PARTY_STATUSES", "LEASE_PARTY_ROLES",
     "LEASE_SIGNATURE_TYPES",
+    "VacancyListing", "LISTING_STATUSES",
 ]
