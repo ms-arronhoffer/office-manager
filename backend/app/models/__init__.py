@@ -100,6 +100,12 @@ from app.models.leasing_funnel import (
     LEASE_SIGNATURE_TYPES,
 )
 from app.models.listing import VacancyListing, LISTING_STATUSES
+from app.models.owner import (
+    PropertyOwner, OwnerProperty, OwnerLedgerEntry, OwnerDistribution, TrustAccount,
+    OWNER_TYPES, OWNER_STATUSES, LEDGER_ENTRY_TYPES,
+    DISTRIBUTION_METHODS, DISTRIBUTION_STATUSES,
+    TRUST_ACCOUNT_STATUSES, COMPLIANCE_STATUSES,
+)
 
 __all__ = [
     "Base", "Organization", "User", "AuthLockout", "Manager", "Office",    "Lease", "LeaseNote", "LeaseRenewal", "LeaseOption",
@@ -157,4 +163,8 @@ __all__ = [
     "LEASE_SIGN_STATUSES", "LEASE_PARTY_STATUSES", "LEASE_PARTY_ROLES",
     "LEASE_SIGNATURE_TYPES",
     "VacancyListing", "LISTING_STATUSES",
+    "PropertyOwner", "OwnerProperty", "OwnerLedgerEntry", "OwnerDistribution", "TrustAccount",
+    "OWNER_TYPES", "OWNER_STATUSES", "LEDGER_ENTRY_TYPES",
+    "DISTRIBUTION_METHODS", "DISTRIBUTION_STATUSES",
+    "TRUST_ACCOUNT_STATUSES", "COMPLIANCE_STATUSES",
 ]

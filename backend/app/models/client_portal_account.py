@@ -7,7 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, TimestampMixin
 
 # Entity types that can be granted a self-service client portal.
-CLIENT_PORTAL_ENTITY_TYPES = ("landlord", "management_company", "resident")
+CLIENT_PORTAL_ENTITY_TYPES = ("landlord", "management_company", "resident", "owner")
 
 
 class ClientPortalAccount(TimestampMixin, Base):
