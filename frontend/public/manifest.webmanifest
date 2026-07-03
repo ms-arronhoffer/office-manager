@@ -1,0 +1,49 @@
+{
+  "name": "Portfolio Desk",
+  "short_name": "Portfolio",
+  "description": "Property, lease, maintenance and accounting management for commercial portfolios.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0E213D",
+  "theme_color": "#0E213D",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Maintenance Tickets",
+      "short_name": "Tickets",
+      "url": "/maintenance-tickets"
+    },
+    {
+      "name": "Inspections",
+      "short_name": "Inspections",
+      "url": "/inspections"
+    }
+  ]
+}

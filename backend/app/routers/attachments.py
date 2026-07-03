@@ -21,6 +21,7 @@ from app.models.office import Office
 from app.models.transition import OfficeTransition
 from app.models.user import User
 from app.models.vendor import Vendor
+from app.models.inspection import Inspection
 from app.schemas.attachment import AttachmentResponse
 from app.services import document_search_service
 
@@ -39,6 +40,7 @@ ENTITY_MODELS = {
     "maintenance_ticket": MaintenanceTicket,
     "vendor": Vendor,
     "management_company": ManagementCompany,
+    "inspection": Inspection,
 }
 ALLOWED_ENTITY_TYPES = set(ENTITY_MODELS.keys())
 

@@ -23,6 +23,21 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = "noreply@officemanager.local"
+    # SMS / text-message provider (Twilio-style). Optional; when unset the SMS
+    # channel degrades to a logged no-op (see app.utils.sms_client).
+    SMS_ACCOUNT_SID: str = ""
+    SMS_AUTH_TOKEN: str = ""
+    SMS_FROM: str = ""
+    # Inbound-payment processor (Stripe-style). Optional; when unset the payment
+    # gateway degrades to a logged no-op (see app.utils.payment_processor).
+    PAYMENTS_PROVIDER: str = "stripe"
+    PAYMENTS_API_KEY: str = ""
+    PAYMENTS_API_URL: str = ""
+    # Tenant-screening provider. Optional; when unset screening returns a
+    # manual-review stub (see app.utils.screening_client).
+    SCREENING_PROVIDER: str = "transunion"
+    SCREENING_API_KEY: str = ""
+    SCREENING_API_URL: str = ""
     FRONTEND_URL: str = "http://localhost:3000"
     ADMIN_FRONTEND_URL: str = "http://localhost:4001"
     DEFAULT_ADMIN_EMAIL: str = "admin@officemanager.local"

@@ -39,6 +39,7 @@ const ManagersPage = lazy(() => import('@/pages/ManagersPage'));
 const TicketCategoriesPage = lazy(() => import('@/pages/TicketCategoriesPage'));
 const MaintenanceTopicsPage = lazy(() => import('@/pages/MaintenanceTopicsPage'));
 const MaintenanceTicketsPage = lazy(() => import('@/pages/MaintenanceTicketsPage'));
+const InspectionsPage = lazy(() => import('@/pages/InspectionsPage'));
 const MaintenanceTicketFormPage = lazy(() => import('@/pages/MaintenanceTicketFormPage'));
 const MaintenanceTicketDetailPage = lazy(() => import('@/pages/MaintenanceTicketDetailPage'));
 const UsersPage = lazy(() => import('@/pages/UsersPage'));
@@ -130,6 +131,10 @@ const App: React.FC = () => {
                         <Route path="finance/financial-statements" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="finance/cam" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="finance/accounts-payable" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
+                        <Route path="finance/accounts-receivable" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
+                        <Route path="finance/bank-reconciliation" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
+                        <Route path="finance/tax-1099" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
+                        <Route path="finance/budgeting" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="finance/lease-lifecycle" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="leases/new" element={<LeaseFormPage />} />
                         <Route path="leases/:id" element={<LeaseDetailPage />} />
@@ -179,6 +184,7 @@ const App: React.FC = () => {
                         <Route path="maintenance-tickets/new" element={<MaintenanceTicketFormPage />} />
                         <Route path="maintenance-tickets/:id" element={<MaintenanceTicketDetailPage />} />
                         <Route path="maintenance-tickets/:id/edit" element={<MaintenanceTicketFormPage />} />
+                        <Route path="inspections" element={<InspectionsPage />} />
                         <Route path="users" element={<RoleGuard allowedRoles={['admin']}><UsersPage /></RoleGuard>} />
                         <Route path="data-dictionary" element={<RoleGuard allowedRoles={['admin']}><DataDictionaryPage /></RoleGuard>} />
                         <Route path="email-rules" element={<RoleGuard allowedRoles={['admin']}><EmailRulesPage /></RoleGuard>} />

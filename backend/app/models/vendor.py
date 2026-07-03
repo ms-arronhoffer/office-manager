@@ -38,6 +38,21 @@ class Vendor(SoftDeleteMixin, TimestampMixin, Base):
     zip_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     is_preferred: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # --- Tax / 1099 reporting (Phase 1.3) ---
+    # Whether payments to this vendor are reportable on a 1099 form.
+    is_1099_vendor: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Taxpayer identification number (EIN or SSN), stored as entered.
+    tax_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Type of tax_id: "ein" or "ssn".
+    tax_id_type: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    # Legal/reporting name for the 1099 (may differ from company_name / DBA).
+    legal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Federal tax classification (individual, c_corp, s_corp, partnership,
+    # llc, exempt, ...). Corporations are generally exempt from 1099 reporting.
+    tax_classification: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Default 1099 box a payment lands in (e.g. "nec_1", "misc_1", "misc_3").
+    default_tax_box: Mapped[str | None] = mapped_column(String(10), nullable=True)
     portal_token: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
     portal_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

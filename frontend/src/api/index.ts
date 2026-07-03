@@ -142,6 +142,35 @@ import type {
   BillCreate,
   BillUpdate,
   PaymentCreate,
+  Customer,
+  CustomerCreate,
+  CustomerUpdate,
+  CustomerInvoice,
+  InvoiceCreate,
+  InvoiceUpdate,
+  ReceiptCreate,
+  ArAgingReport,
+  BankAccount,
+  BankAccountCreate,
+  BankAccountUpdate,
+  BankTransaction,
+  BankTransactionCreate,
+  BankImportResult,
+  BankReconciliation,
+  BankReconciliationCreate,
+  ReconciliationReport,
+  Vendor1099Summary,
+  Vendor1099Detail,
+  Budget,
+  BudgetCreate,
+  BudgetUpdate,
+  BudgetReport,
+  InspectionTemplate,
+  InspectionTemplateCreate,
+  InspectionTemplateUpdate,
+  Inspection,
+  InspectionCreate,
+  InspectionUpdate,
   LifecycleEvent,
   LifecycleEventCreate,
   LifecycleEventUpdate,
@@ -1310,6 +1339,187 @@ export const ap = {
   deletePayment: (paymentId: string) =>
     client.delete<VendorBill>(`/ap/payments/${paymentId}`),
 };
+
+// ─── Accounts Receivable ─────────────────────────────────────────────────────
+export const ar = {
+  listCustomers: (params?: { q?: string }) =>
+    client.get<Customer[]>('/ar/customers', { params }),
+
+  createCustomer: (data: CustomerCreate) =>
+    client.post<Customer>('/ar/customers', data),
+
+  updateCustomer: (id: string, data: CustomerUpdate) =>
+    client.patch<Customer>(`/ar/customers/${id}`, data),
+
+  deleteCustomer: (id: string) => client.delete(`/ar/customers/${id}`),
+
+  listInvoices: (params?: { customer_id?: string; status?: string; open_only?: boolean }) =>
+    client.get<CustomerInvoice[]>('/ar/invoices', { params }),
+
+  getInvoice: (id: string) => client.get<CustomerInvoice>(`/ar/invoices/${id}`),
+
+  createInvoice: (data: InvoiceCreate) =>
+    client.post<CustomerInvoice>('/ar/invoices', data),
+
+  updateInvoice: (id: string, data: InvoiceUpdate) =>
+    client.patch<CustomerInvoice>(`/ar/invoices/${id}`, data),
+
+  deleteInvoice: (id: string) => client.delete(`/ar/invoices/${id}`),
+
+  finalizeInvoice: (id: string) =>
+    client.post<CustomerInvoice>(`/ar/invoices/${id}/finalize`),
+
+  voidInvoice: (id: string) => client.post<CustomerInvoice>(`/ar/invoices/${id}/void`),
+
+  createReceipt: (invoiceId: string, data: ReceiptCreate) =>
+    client.post<CustomerInvoice>(`/ar/invoices/${invoiceId}/receipts`, data),
+
+  deleteReceipt: (receiptId: string) =>
+    client.delete<CustomerInvoice>(`/ar/receipts/${receiptId}`),
+
+  invoiceFromCam: (
+    reconciliationId: string,
+    params: { customer_id: string; invoice_date?: string; due_date?: string },
+  ) =>
+    client.post<CustomerInvoice>(`/ar/invoices/from-cam/${reconciliationId}`, null, { params }),
+
+  aging: (params?: { as_of?: string }) =>
+    client.get<ArAgingReport>('/ar/aging', { params }),
+};
+
+// ─── Bank Reconciliation ─────────────────────────────────────────────────────
+export const bank = {
+  listAccounts: (params?: { active_only?: boolean }) =>
+    client.get<BankAccount[]>('/bank/accounts', { params }),
+
+  getAccount: (id: string) => client.get<BankAccount>(`/bank/accounts/${id}`),
+
+  createAccount: (data: BankAccountCreate) =>
+    client.post<BankAccount>('/bank/accounts', data),
+
+  updateAccount: (id: string, data: BankAccountUpdate) =>
+    client.patch<BankAccount>(`/bank/accounts/${id}`, data),
+
+  deleteAccount: (id: string) => client.delete(`/bank/accounts/${id}`),
+
+  listTransactions: (
+    accountId: string,
+    params?: { status?: string; unreconciled_only?: boolean },
+  ) => client.get<BankTransaction[]>(`/bank/accounts/${accountId}/transactions`, { params }),
+
+  createTransaction: (accountId: string, data: BankTransactionCreate) =>
+    client.post<BankTransaction>(`/bank/accounts/${accountId}/transactions`, data),
+
+  importStatement: (accountId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return client.post<BankImportResult>(
+      `/bank/accounts/${accountId}/import`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+  },
+
+  deleteTransaction: (transactionId: string) =>
+    client.delete(`/bank/transactions/${transactionId}`),
+
+  listReconciliations: (accountId: string) =>
+    client.get<BankReconciliation[]>(`/bank/accounts/${accountId}/reconciliations`),
+
+  createReconciliation: (accountId: string, data: BankReconciliationCreate) =>
+    client.post<BankReconciliation>(`/bank/accounts/${accountId}/reconciliations`, data),
+
+  getReconciliationReport: (reconciliationId: string) =>
+    client.get<ReconciliationReport>(`/bank/reconciliations/${reconciliationId}`),
+
+  clear: (reconciliationId: string, transactionIds: string[]) =>
+    client.post<BankReconciliation>(`/bank/reconciliations/${reconciliationId}/clear`, {
+      transaction_ids: transactionIds,
+    }),
+
+  unclear: (reconciliationId: string, transactionIds: string[]) =>
+    client.post<BankReconciliation>(`/bank/reconciliations/${reconciliationId}/unclear`, {
+      transaction_ids: transactionIds,
+    }),
+
+  complete: (reconciliationId: string) =>
+    client.post<BankReconciliation>(`/bank/reconciliations/${reconciliationId}/complete`),
+
+  reopen: (reconciliationId: string) =>
+    client.post<BankReconciliation>(`/bank/reconciliations/${reconciliationId}/reopen`),
+
+  deleteReconciliation: (reconciliationId: string) =>
+    client.delete(`/bank/reconciliations/${reconciliationId}`),
+};
+
+
+// ─── Tax / 1099 (Phase 1.3) ──────────────────────────────────────────────────
+export const tax = {
+  list1099: (params: { year: number; form?: string; only_reportable?: boolean }) =>
+    client.get<Vendor1099Summary[]>('/tax/1099', { params }),
+
+  get1099Detail: (vendorId: string, year: number) =>
+    client.get<Vendor1099Detail>(`/tax/1099/${vendorId}`, { params: { year } }),
+
+  export1099: (params: { year: number; form?: string; only_reportable?: boolean }) =>
+    client.get('/tax/1099/export', { params, responseType: 'blob' }),
+};
+
+
+// ─── Budgeting (Phase 1.4) ───────────────────────────────────────────────────
+export const budgets = {
+  list: (params?: { fiscal_year?: number }) =>
+    client.get<Budget[]>('/budgets', { params }),
+
+  get: (id: string) => client.get<Budget>(`/budgets/${id}`),
+
+  create: (data: BudgetCreate) => client.post<Budget>('/budgets', data),
+
+  update: (id: string, data: BudgetUpdate) =>
+    client.patch<Budget>(`/budgets/${id}`, data),
+
+  remove: (id: string) => client.delete(`/budgets/${id}`),
+
+  report: (id: string, params?: { as_of?: string }) =>
+    client.get<BudgetReport>(`/budgets/${id}/report`, { params }),
+};
+
+
+// ─── Property Inspections (Phase 1.5) ────────────────────────────────────────
+export const inspections = {
+  listTemplates: (params?: { active_only?: boolean }) =>
+    client.get<InspectionTemplate[]>('/inspections/templates', { params }),
+
+  getTemplate: (id: string) =>
+    client.get<InspectionTemplate>(`/inspections/templates/${id}`),
+
+  createTemplate: (data: InspectionTemplateCreate) =>
+    client.post<InspectionTemplate>('/inspections/templates', data),
+
+  updateTemplate: (id: string, data: InspectionTemplateUpdate) =>
+    client.patch<InspectionTemplate>(`/inspections/templates/${id}`, data),
+
+  removeTemplate: (id: string) => client.delete(`/inspections/templates/${id}`),
+
+  list: (params?: { office_id?: string; status?: string }) =>
+    client.get<Inspection[]>('/inspections', { params }),
+
+  get: (id: string) => client.get<Inspection>(`/inspections/${id}`),
+
+  create: (data: InspectionCreate) =>
+    client.post<Inspection>('/inspections', data),
+
+  update: (id: string, data: InspectionUpdate) =>
+    client.patch<Inspection>(`/inspections/${id}`, data),
+
+  complete: (id: string) =>
+    client.post<Inspection>(`/inspections/${id}/complete`),
+
+  remove: (id: string) => client.delete(`/inspections/${id}`),
+};
+
+
+
 
 // ─── Lease Lifecycle Accounting ──────────────────────────────────────────────
 export const lifecycle = {

@@ -102,6 +102,18 @@ _RECONCILE_COLUMNS: dict[str, list[str]] = {
         "entity_type varchar(50)",
         "entity_id uuid",
     ],
+    "vendors": [
+        "is_1099_vendor boolean NOT NULL DEFAULT false",
+        "tax_id varchar(20)",
+        "tax_id_type varchar(4)",
+        "legal_name varchar(255)",
+        "tax_classification varchar(20)",
+        "default_tax_box varchar(10)",
+    ],
+    "vendor_payments": [
+        "is_reportable boolean",
+        "tax_box varchar(10)",
+    ],
 }
 
 

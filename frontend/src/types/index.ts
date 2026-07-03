@@ -2312,6 +2312,348 @@ export interface PaymentCreate {
   memo?: string | null;
 }
 
+// ─── Accounts Receivable (Phase 1.1) ─────────────────────────────────────────
+export interface Customer {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  zip_code: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomerCreate {
+  name: string;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
+  notes?: string | null;
+}
+
+export type CustomerUpdate = Partial<CustomerCreate>;
+
+export interface InvoiceLine {
+  id: string;
+  account_id: string;
+  line_number: number;
+  description: string | null;
+  amount: number;
+}
+
+export interface CustomerReceipt {
+  id: string;
+  invoice_id: string;
+  receipt_date: string;
+  amount: number;
+  method: string | null;
+  reference: string | null;
+  memo: string | null;
+  journal_entry_id: string | null;
+  created_at: string;
+}
+
+export interface CustomerInvoice {
+  id: string;
+  organization_id: string | null;
+  customer_id: string;
+  invoice_number: string | null;
+  invoice_date: string;
+  due_date: string | null;
+  currency: string;
+  memo: string | null;
+  total_amount: number;
+  amount_received: number;
+  balance_due: number;
+  receipt_state: string;
+  status: string;
+  source: string | null;
+  source_ref: string | null;
+  finalized_at: string | null;
+  journal_entry_id: string | null;
+  created_at: string;
+  updated_at: string;
+  lines: InvoiceLine[];
+  receipts: CustomerReceipt[];
+}
+
+export interface InvoiceLineInput {
+  account_id: string;
+  amount: number;
+  description?: string | null;
+}
+
+export interface InvoiceCreate {
+  customer_id: string;
+  invoice_date: string;
+  due_date?: string | null;
+  invoice_number?: string | null;
+  currency?: string;
+  memo?: string | null;
+  lines: InvoiceLineInput[];
+}
+
+export type InvoiceUpdate = Partial<Omit<InvoiceCreate, 'customer_id'>>;
+
+export interface ReceiptCreate {
+  receipt_date: string;
+  amount: number;
+  method?: string | null;
+  reference?: string | null;
+  memo?: string | null;
+}
+
+export interface AgingInvoice {
+  invoice_id: string;
+  invoice_number: string | null;
+  invoice_date: string;
+  due_date: string | null;
+  balance_due: number;
+  bucket: string;
+}
+
+export interface AgingCustomerRow {
+  customer_id: string;
+  customer_name: string | null;
+  buckets: Record<string, number>;
+  total: number;
+  invoices: AgingInvoice[];
+}
+
+export interface ArAgingReport {
+  as_of: string;
+  buckets: string[];
+  customers: AgingCustomerRow[];
+  totals: Record<string, number>;
+  grand_total: number;
+}
+
+// ─── Budgeting (Phase 1.4) ───────────────────────────────────────────────────
+export interface BudgetLine {
+  id: string;
+  account_id: string;
+  account_code: string | null;
+  account_name: string | null;
+  amount: number;
+  notes: string | null;
+}
+
+export interface Budget {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  fiscal_year: number;
+  status: string;
+  notes: string | null;
+  total_amount: number;
+  created_at: string;
+  updated_at: string;
+  lines: BudgetLine[];
+}
+
+export interface BudgetLineInput {
+  account_id: string;
+  amount: string | number;
+  notes?: string | null;
+}
+
+export interface BudgetCreate {
+  name: string;
+  fiscal_year: number;
+  status?: string;
+  notes?: string | null;
+  lines: BudgetLineInput[];
+}
+
+export interface BudgetUpdate {
+  name?: string;
+  fiscal_year?: number;
+  status?: string;
+  notes?: string | null;
+  lines?: BudgetLineInput[];
+}
+
+export interface BudgetVarianceRow {
+  account_id: string;
+  code: string;
+  name: string;
+  type: string;
+  budget: number;
+  actual: number;
+  variance: number;
+  variance_pct: number | null;
+}
+
+export interface BudgetReport {
+  budget_id: string;
+  name: string;
+  fiscal_year: number;
+  as_of: string;
+  total_budget: number;
+  total_actual: number;
+  total_variance: number;
+  rows: BudgetVarianceRow[];
+}
+
+// ─── Tax / 1099 (Phase 1.3) ──────────────────────────────────────────────────
+export interface Tax1099Box {
+  box: string;
+  form: string;
+  label: string;
+  amount: number;
+}
+
+export interface Vendor1099Summary {
+  vendor_id: string;
+  vendor_name: string;
+  legal_name: string;
+  tax_id: string | null;
+  tax_id_type: string | null;
+  tax_classification: string | null;
+  total: number;
+  payment_count: number;
+  meets_threshold: boolean;
+  boxes: Tax1099Box[];
+}
+
+export interface Payment1099 {
+  payment_id: string;
+  payment_date: string;
+  amount: number;
+  reportable: boolean;
+  box: string | null;
+  reference: string | null;
+}
+
+export interface Vendor1099Detail {
+  vendor_id: string;
+  vendor_name: string;
+  legal_name: string;
+  tax_id: string | null;
+  tax_id_type: string | null;
+  tax_classification: string | null;
+  year: number;
+  total: number;
+  boxes: Tax1099Box[];
+  payments: Payment1099[];
+}
+
+// ─── Bank Reconciliation (Phase 1.2) ─────────────────────────────────────────
+export interface BankAccount {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  gl_account_id: string;
+  gl_account_code: string | null;
+  gl_account_name: string | null;
+  institution: string | null;
+  account_number_last4: string | null;
+  currency: string;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BankAccountCreate {
+  name: string;
+  gl_account_id: string;
+  institution?: string | null;
+  account_number_last4?: string | null;
+  currency?: string;
+  notes?: string | null;
+}
+
+export interface BankAccountUpdate {
+  name?: string | null;
+  gl_account_id?: string | null;
+  institution?: string | null;
+  account_number_last4?: string | null;
+  is_active?: boolean | null;
+  notes?: string | null;
+}
+
+export interface BankTransaction {
+  id: string;
+  bank_account_id: string;
+  txn_date: string;
+  description: string | null;
+  amount: number;
+  reference: string | null;
+  fitid: string | null;
+  import_source: string | null;
+  status: string;
+  reconciliation_id: string | null;
+  journal_entry_id: string | null;
+  created_at: string;
+}
+
+export interface BankTransactionCreate {
+  txn_date: string;
+  amount: number;
+  description?: string | null;
+  reference?: string | null;
+}
+
+export interface BankImportResult {
+  imported: number;
+  skipped: number;
+  total: number;
+  source: string;
+}
+
+export interface ReconciliationSummary {
+  beginning_balance: number;
+  ending_balance: number;
+  cleared_deposits: number;
+  cleared_withdrawals: number;
+  cleared_balance: number;
+  difference: number;
+  is_balanced: boolean;
+  cleared_count: number;
+}
+
+export interface BankReconciliation {
+  id: string;
+  organization_id: string | null;
+  bank_account_id: string;
+  statement_date: string;
+  beginning_balance: number;
+  ending_balance: number;
+  status: string;
+  notes: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  summary: ReconciliationSummary;
+}
+
+export interface BankReconciliationCreate {
+  statement_date: string;
+  ending_balance: number;
+  beginning_balance?: number | null;
+  notes?: string | null;
+}
+
+export interface ReconciliationReport {
+  reconciliation: BankReconciliation;
+  cleared_transactions: BankTransaction[];
+  outstanding_transactions: BankTransaction[];
+  gl_book_balance: number;
+}
+
 // ─── Lease Lifecycle Accounting (Phase 4) ────────────────────────────────────
 export interface LifecycleEvent {
   id: string;
@@ -2407,4 +2749,100 @@ export interface CashFlowStatementResponse {
   net_change_in_cash: number;
   beginning_cash: number;
   ending_cash: number;
+}
+
+// ─── Property Inspections (Phase 1.5) ────────────────────────────────────────
+export type InspectionStatus = 'scheduled' | 'in_progress' | 'completed' | 'canceled';
+export type InspectionResult = 'pass' | 'fail' | 'na';
+
+export interface InspectionTemplateItem {
+  id: string;
+  label: string;
+  description: string | null;
+  sort_order: number;
+  is_required: boolean;
+}
+
+export interface InspectionTemplateItemInput {
+  label: string;
+  description?: string | null;
+  sort_order?: number;
+  is_required?: boolean;
+}
+
+export interface InspectionTemplate {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  description: string | null;
+  category: string | null;
+  is_active: boolean;
+  items: InspectionTemplateItem[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InspectionTemplateCreate {
+  name: string;
+  description?: string | null;
+  category?: string | null;
+  is_active?: boolean;
+  items?: InspectionTemplateItemInput[];
+}
+
+export interface InspectionTemplateUpdate {
+  name?: string | null;
+  description?: string | null;
+  category?: string | null;
+  is_active?: boolean | null;
+  items?: InspectionTemplateItemInput[] | null;
+}
+
+export interface InspectionItemResult {
+  id: string;
+  template_item_id: string | null;
+  label: string;
+  sort_order: number;
+  is_required: boolean;
+  result: InspectionResult | null;
+  notes: string | null;
+}
+
+export interface Inspection {
+  id: string;
+  organization_id: string | null;
+  template_id: string | null;
+  office_id: string;
+  title: string;
+  status: InspectionStatus;
+  scheduled_date: string | null;
+  completed_at: string | null;
+  inspector_id: string | null;
+  overall_result: InspectionResult | null;
+  notes: string | null;
+  results: InspectionItemResult[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InspectionCreate {
+  office_id: string;
+  title: string;
+  template_id?: string | null;
+  scheduled_date?: string | null;
+  notes?: string | null;
+}
+
+export interface InspectionItemResultInput {
+  id: string;
+  result?: InspectionResult | null;
+  notes?: string | null;
+}
+
+export interface InspectionUpdate {
+  title?: string | null;
+  scheduled_date?: string | null;
+  status?: InspectionStatus | null;
+  notes?: string | null;
+  results?: InspectionItemResultInput[] | null;
 }

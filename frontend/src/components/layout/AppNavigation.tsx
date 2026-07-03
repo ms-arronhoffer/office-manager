@@ -13,6 +13,7 @@ import NotificationBell from '@/components/common/NotificationBell';
 import SupportRequestModal from '@/components/common/SupportRequestModal';
 import AIPortfolioAssistant from '@/components/common/AIPortfolioAssistant';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useInstallPrompt } from '@/hooks/useInstallPrompt';
 import './AppNavigation.css';
 
 interface AppNavigationProps {
@@ -51,6 +52,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
     [],
   );
   useKeyboardShortcuts(onShowShortcuts, toggleAssistant);
+  const { canInstall, promptInstall } = useInstallPrompt();
 
   const isEditorOrAdmin = user?.role === 'admin' || user?.role === 'editor';
   const isFinance = user?.role === 'admin' || user?.role === 'accountant';
@@ -90,6 +92,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       text: 'Operations',
       items: [
         { type: 'link' as const, text: 'Maintenance Tickets', href: '/maintenance-tickets' },
+        { type: 'link' as const, text: 'Inspections', href: '/inspections' },
         { type: 'link' as const, text: 'Vendors', href: '/vendors' },
         { type: 'link' as const, text: 'Transitions', href: '/transitions' },
         ...(isEditorOrAdmin ? [{ type: 'link' as const, text: 'Insurance Certificates', href: '/insurance-certificates' }] : []),
@@ -120,6 +123,10 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
           { type: 'link' as const, text: 'Financial Statements', href: '/finance/financial-statements' },
           { type: 'link' as const, text: 'CAM', href: '/finance/cam' },
           { type: 'link' as const, text: 'Accounts Payable', href: '/finance/accounts-payable' },
+          { type: 'link' as const, text: 'Accounts Receivable', href: '/finance/accounts-receivable' },
+          { type: 'link' as const, text: 'Bank Reconciliation', href: '/finance/bank-reconciliation' },
+          { type: 'link' as const, text: 'Budgeting', href: '/finance/budgeting' },
+          { type: 'link' as const, text: 'Tax / 1099', href: '/finance/tax-1099' },
           { type: 'link' as const, text: 'Lease Lifecycle', href: '/finance/lease-lifecycle' },
         ] : []),
       ],
@@ -155,6 +162,18 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
           }}
           search={<GlobalSearchBar />}
           utilities={[
+            ...(canInstall
+              ? [
+                  {
+                    type: 'button' as const,
+                    iconName: 'download' as const,
+                    text: 'Install app',
+                    title: 'Install Portfolio Desk as an app',
+                    ariaLabel: 'Install Portfolio Desk as an app',
+                    onClick: promptInstall,
+                  },
+                ]
+              : []),
             {
               type: 'button',
               iconName: 'support',
