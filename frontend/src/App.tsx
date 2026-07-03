@@ -65,10 +65,13 @@ const TicketTemplatesPage = lazy(() => import('@/pages/TicketTemplatesPage'));
 const RecurringTicketsPage = lazy(() => import('@/pages/RecurringTicketsPage'));
 const VendorPortalPage = lazy(() => import('@/pages/VendorPortalPage'));
 const ClientPortalPage = lazy(() => import('@/pages/ClientPortalPage'));
+const ResidentPortalPage = lazy(() => import('@/pages/ResidentPortalPage'));
+const OwnerPortalPage = lazy(() => import('@/pages/OwnerPortalPage'));
 const InsuranceCertificatesPage = lazy(() => import('@/pages/InsuranceCertificatesPage'));
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const DashboardHubPage = lazy(() => import('@/pages/DashboardHubPage'));
 const FinancePage = lazy(() => import('@/pages/FinancePage'));
+const ResidentialPage = lazy(() => import('@/pages/ResidentialPage'));
 const HvacPage = lazy(() => import('@/pages/HvacPage'));
 const MaintenancePage = lazy(() => import('@/pages/MaintenancePage'));
 const AdministrationPage = lazy(() => import('@/pages/AdministrationPage'));
@@ -96,6 +99,10 @@ const App: React.FC = () => {
             <Route path="/vendor-portal" element={<VendorPortalPage />} />
             <Route path="/client-portal" element={<ClientPortalPage />} />
             <Route path="/client-portal/signup" element={<ClientPortalPage />} />
+            <Route path="/resident-portal" element={<ResidentPortalPage />} />
+            <Route path="/resident-portal/signup" element={<ResidentPortalPage />} />
+            <Route path="/owner-portal" element={<OwnerPortalPage />} />
+            <Route path="/owner-portal/signup" element={<OwnerPortalPage />} />
             <Route path="/sign/:token" element={<WaiverSignPage />} />
             <Route path="/ack/:token" element={<AckPage />} />
             <Route
@@ -136,6 +143,14 @@ const App: React.FC = () => {
                         <Route path="finance/tax-1099" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="finance/budgeting" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="finance/lease-lifecycle" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
+                        <Route path="residential" element={<ResidentialPage />} />
+                        <Route path="residential/residents" element={<ResidentialPage />} />
+                        <Route path="residential/leases" element={<ResidentialPage />} />
+                        <Route path="residential/applications" element={<ResidentialPage />} />
+                        <Route path="residential/listings" element={<ResidentialPage />} />
+                        <Route path="residential/announcements" element={<ResidentialPage />} />
+                        <Route path="residential/rent" element={<RoleGuard allowedRoles={['admin', 'accountant']}><ResidentialPage /></RoleGuard>} />
+                        <Route path="residential/owners" element={<RoleGuard allowedRoles={['admin', 'accountant']}><ResidentialPage /></RoleGuard>} />
                         <Route path="leases/new" element={<LeaseFormPage />} />
                         <Route path="leases/:id" element={<LeaseDetailPage />} />
                         <Route path="leases/:id/edit" element={<LeaseFormPage />} />

@@ -177,6 +177,19 @@ import type {
   IncomeStatementResponse,
   BalanceSheetResponse,
   CashFlowStatementResponse,
+  PortalSession,
+  ResidentPortalProfile,
+  ResidentPortalLease,
+  ResidentPortalBalance,
+  ResidentPortalTicket,
+  ResidentPortalMaintenanceCreate,
+  ResidentPortalAnnouncement,
+  OwnerPortalProfile,
+  OwnerPortalProperty,
+  OwnerPortalLedgerEntry,
+  OwnerPortalBalance,
+  OwnerPortalDistribution,
+  OwnerPortalStatement,
 } from '@/types';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -1179,6 +1192,78 @@ export const clientPortal = {
     _clientPortalClient(token).get<ClientPortalTicket[]>('/client-portal/maintenance'),
 };
 
+// ─── Resident Portal (external: resident self-service, X-Resident-Token) ──────
+const _residentPortalClient = (token: string) =>
+  axios.create({
+    baseURL: _portalBase,
+    headers: { 'Content-Type': 'application/json', 'X-Resident-Token': token },
+  });
+
+export const residentPortal = {
+  signup: (token: string) =>
+    axios
+      .create({ baseURL: _portalBase, headers: { 'Content-Type': 'application/json' } })
+      .post<PortalSession>('/resident-portal/signup', { token }),
+
+  getProfile: (token: string) =>
+    _residentPortalClient(token).get<ResidentPortalProfile>('/resident-portal/me'),
+
+  listLeases: (token: string) =>
+    _residentPortalClient(token).get<ResidentPortalLease[]>('/resident-portal/leases'),
+
+  getBalance: (token: string) =>
+    _residentPortalClient(token).get<ResidentPortalBalance>('/resident-portal/balance'),
+
+  listMaintenanceRequests: (token: string) =>
+    _residentPortalClient(token).get<ResidentPortalTicket[]>('/resident-portal/maintenance-requests'),
+
+  createMaintenanceRequest: (token: string, data: ResidentPortalMaintenanceCreate) =>
+    _residentPortalClient(token).post<ResidentPortalTicket>(
+      '/resident-portal/maintenance-requests',
+      data,
+    ),
+
+  listDocuments: (token: string) =>
+    _residentPortalClient(token).get<Attachment[]>('/resident-portal/documents'),
+
+  listAnnouncements: (token: string) =>
+    _residentPortalClient(token).get<ResidentPortalAnnouncement[]>('/resident-portal/announcements'),
+};
+
+// ─── Owner Portal (external: property-owner self-service, X-Owner-Token) ──────
+const _ownerPortalClient = (token: string) =>
+  axios.create({
+    baseURL: _portalBase,
+    headers: { 'Content-Type': 'application/json', 'X-Owner-Token': token },
+  });
+
+export const ownerPortal = {
+  signup: (token: string) =>
+    axios
+      .create({ baseURL: _portalBase, headers: { 'Content-Type': 'application/json' } })
+      .post<PortalSession>('/owner-portal/signup', { token }),
+
+  getProfile: (token: string) =>
+    _ownerPortalClient(token).get<OwnerPortalProfile>('/owner-portal/me'),
+
+  listProperties: (token: string) =>
+    _ownerPortalClient(token).get<OwnerPortalProperty[]>('/owner-portal/properties'),
+
+  listLedger: (token: string) =>
+    _ownerPortalClient(token).get<OwnerPortalLedgerEntry[]>('/owner-portal/ledger'),
+
+  getBalance: (token: string) =>
+    _ownerPortalClient(token).get<OwnerPortalBalance>('/owner-portal/balance'),
+
+  getStatement: (token: string, startDate?: string, endDate?: string) =>
+    _ownerPortalClient(token).get<OwnerPortalStatement>('/owner-portal/statement', {
+      params: { start_date: startDate || undefined, end_date: endDate || undefined },
+    }),
+
+  listDistributions: (token: string) =>
+    _ownerPortalClient(token).get<OwnerPortalDistribution[]>('/owner-portal/distributions'),
+};
+
 // ─── Insurance Certificates ───────────────────────────────────────────────────
 export const insuranceCertificates = {
   list: (params?: { vendor_id?: string; landlord_id?: string; expired_only?: boolean; expiring_within_days?: number }) =>
@@ -1762,4 +1847,220 @@ export const emailAckPublic = {
 
   confirm: (token: string) =>
     axios.create({ baseURL: _waiverBase }).post<EmailAckView>(`/email-rules/ack/${token}`),
+};
+
+// ─── Residential / Buildium-parity domains ───────────────────────────────────
+import type {
+  RentalUnit,
+  RentalUnitCreate,
+  RentalUnitUpdate,
+  Resident,
+  ResidentCreate,
+  ResidentUpdate,
+  ResidentLease,
+  ResidentLeaseCreate,
+  ResidentLeaseUpdate,
+  OccupancySummary,
+  RentCharge,
+  RentChargeCreate,
+  RentChargeUpdate,
+  SecurityDeposit,
+  DepositCreate,
+  DepositReturn,
+  RentPaymentCreate,
+  RentPaymentResult,
+  BillingRunResult,
+  LateFeeRunResult,
+  RentalApplication,
+  RentalApplicationCreate,
+  RentalApplicationUpdate,
+  ScreeningReport,
+  LeaseSignatureRequest,
+  LeaseSignatureCreate,
+  VacancyListing,
+  VacancyListingCreate,
+  VacancyListingUpdate,
+  Announcement,
+  AnnouncementCreate,
+  AnnouncementUpdate,
+  AnnouncementSendResult,
+  PropertyOwner,
+  PropertyOwnerCreate,
+  PropertyOwnerUpdate,
+  OwnerProperty,
+  OwnerPropertyCreate,
+  OwnerLedgerEntry,
+  OwnerLedgerEntryCreate,
+  OwnerBalance,
+  OwnerDistribution,
+  OwnerDistributionCreate,
+  OwnerStatement,
+  TrustAccount,
+  TrustAccountCreate,
+  TrustAccountUpdate,
+  PortalInviteResponse,
+} from '@/types';
+
+export const leasing = {
+  occupancy: () => client.get<OccupancySummary>('/leasing/occupancy'),
+
+  listUnits: (params?: { office_id?: string; status?: string; q?: string }) =>
+    client.get<RentalUnit[]>('/leasing/units', { params }),
+  getUnit: (id: string) => client.get<RentalUnit>(`/leasing/units/${id}`),
+  createUnit: (data: RentalUnitCreate) => client.post<RentalUnit>('/leasing/units', data),
+  updateUnit: (id: string, data: RentalUnitUpdate) =>
+    client.patch<RentalUnit>(`/leasing/units/${id}`, data),
+  deleteUnit: (id: string) => client.delete(`/leasing/units/${id}`),
+
+  listResidents: (params?: { status?: string; q?: string }) =>
+    client.get<Resident[]>('/leasing/residents', { params }),
+  getResident: (id: string) => client.get<Resident>(`/leasing/residents/${id}`),
+  createResident: (data: ResidentCreate) => client.post<Resident>('/leasing/residents', data),
+  updateResident: (id: string, data: ResidentUpdate) =>
+    client.patch<Resident>(`/leasing/residents/${id}`, data),
+  deleteResident: (id: string) => client.delete(`/leasing/residents/${id}`),
+
+  inviteToPortal: (id: string) =>
+    client.post<PortalInviteResponse>('/resident-portal/invite', { resident_id: id }),
+
+  listLeases: (params?: { unit_id?: string; resident_id?: string; status?: string }) =>
+    client.get<ResidentLease[]>('/leasing/leases', { params }),
+  getLease: (id: string) => client.get<ResidentLease>(`/leasing/leases/${id}`),
+  createLease: (data: ResidentLeaseCreate) =>
+    client.post<ResidentLease>('/leasing/leases', data),
+  updateLease: (id: string, data: ResidentLeaseUpdate) =>
+    client.patch<ResidentLease>(`/leasing/leases/${id}`, data),
+  deleteLease: (id: string) => client.delete(`/leasing/leases/${id}`),
+};
+
+export const rent = {
+  listCharges: (params?: { resident_lease_id?: string; active?: boolean }) =>
+    client.get<RentCharge[]>('/rent/charges', { params }),
+  createCharge: (data: RentChargeCreate) => client.post<RentCharge>('/rent/charges', data),
+  updateCharge: (id: string, data: RentChargeUpdate) =>
+    client.patch<RentCharge>(`/rent/charges/${id}`, data),
+  deleteCharge: (id: string) => client.delete(`/rent/charges/${id}`),
+  generateInvoice: (chargeId: string, periodStart: string) =>
+    client.post<BillingRunResult>(
+      `/rent/charges/${chargeId}/generate-invoice`,
+      undefined,
+      { params: { period_start: periodStart } },
+    ),
+  runBilling: (asOf?: string) =>
+    client.post<BillingRunResult>('/rent/run-billing', undefined, {
+      params: asOf ? { as_of: asOf } : undefined,
+    }),
+  applyLateFees: (asOf?: string) =>
+    client.post<LateFeeRunResult>('/rent/apply-late-fees', undefined, {
+      params: asOf ? { as_of: asOf } : undefined,
+    }),
+  recordPayment: (data: RentPaymentCreate) =>
+    client.post<RentPaymentResult>('/rent/payments', data),
+
+  listDeposits: (params?: { resident_lease_id?: string }) =>
+    client.get<SecurityDeposit[]>('/rent/deposits', { params }),
+  createDeposit: (data: DepositCreate) => client.post<SecurityDeposit>('/rent/deposits', data),
+  returnDeposit: (id: string, data: DepositReturn) =>
+    client.post<SecurityDeposit>(`/rent/deposits/${id}/return`, data),
+};
+
+export const leasingFunnel = {
+  listApplications: (params?: { status?: string; unit_id?: string }) =>
+    client.get<RentalApplication[]>('/leasing-funnel/applications', { params }),
+  getApplication: (id: string) =>
+    client.get<RentalApplication>(`/leasing-funnel/applications/${id}`),
+  createApplication: (data: RentalApplicationCreate) =>
+    client.post<RentalApplication>('/leasing-funnel/applications', data),
+  updateApplication: (id: string, data: RentalApplicationUpdate) =>
+    client.patch<RentalApplication>(`/leasing-funnel/applications/${id}`, data),
+  deleteApplication: (id: string) => client.delete(`/leasing-funnel/applications/${id}`),
+  screen: (id: string) =>
+    client.post<ScreeningReport>(`/leasing-funnel/applications/${id}/screen`),
+  listScreening: (id: string) =>
+    client.get<ScreeningReport[]>(`/leasing-funnel/applications/${id}/screening`),
+  convert: (id: string) =>
+    client.post<RentalApplication>(`/leasing-funnel/applications/${id}/convert`),
+
+  listSignatures: (params?: { status?: string }) =>
+    client.get<LeaseSignatureRequest[]>('/leasing-funnel/lease-signatures', { params }),
+  getSignature: (id: string) =>
+    client.get<LeaseSignatureRequest>(`/leasing-funnel/lease-signatures/${id}`),
+  createSignature: (data: LeaseSignatureCreate) =>
+    client.post<LeaseSignatureRequest>('/leasing-funnel/lease-signatures', data),
+  voidSignature: (id: string) =>
+    client.post<LeaseSignatureRequest>(`/leasing-funnel/lease-signatures/${id}/void`),
+};
+
+export const listings = {
+  list: (params?: { status?: string; unit_id?: string }) =>
+    client.get<VacancyListing[]>('/listings', { params }),
+  get: (id: string) => client.get<VacancyListing>(`/listings/${id}`),
+  create: (data: VacancyListingCreate) => client.post<VacancyListing>('/listings', data),
+  update: (id: string, data: VacancyListingUpdate) =>
+    client.patch<VacancyListing>(`/listings/${id}`, data),
+  publish: (id: string) => client.post<VacancyListing>(`/listings/${id}/publish`),
+  unpublish: (id: string) => client.post<VacancyListing>(`/listings/${id}/unpublish`),
+  markLeased: (id: string) => client.post<VacancyListing>(`/listings/${id}/mark-leased`),
+  remove: (id: string) => client.delete(`/listings/${id}`),
+};
+
+export const announcements = {
+  list: () => client.get<Announcement[]>('/announcements'),
+  get: (id: string) => client.get<Announcement>(`/announcements/${id}`),
+  create: (data: AnnouncementCreate) => client.post<Announcement>('/announcements', data),
+  update: (id: string, data: AnnouncementUpdate) =>
+    client.patch<Announcement>(`/announcements/${id}`, data),
+  remove: (id: string) => client.delete(`/announcements/${id}`),
+  send: (id: string) => client.post<AnnouncementSendResult>(`/announcements/${id}/send`),
+};
+
+export const owners = {
+  list: (params?: { status?: string; q?: string }) =>
+    client.get<PropertyOwner[]>('/owners/', { params }),
+  get: (id: string) => client.get<PropertyOwner>(`/owners/${id}`),
+  create: (data: PropertyOwnerCreate) => client.post<PropertyOwner>('/owners/', data),
+  update: (id: string, data: PropertyOwnerUpdate) =>
+    client.patch<PropertyOwner>(`/owners/${id}`, data),
+  remove: (id: string) => client.delete(`/owners/${id}`),
+
+  inviteToPortal: (id: string) =>
+    client.post<PortalInviteResponse>('/owner-portal/invite', { owner_id: id }),
+
+  listProperties: (ownerId: string) =>
+    client.get<OwnerProperty[]>(`/owners/${ownerId}/properties`),
+  addProperty: (ownerId: string, data: OwnerPropertyCreate) =>
+    client.post<OwnerProperty>(`/owners/${ownerId}/properties`, data),
+  removeProperty: (ownerId: string, propertyId: string) =>
+    client.delete(`/owners/${ownerId}/properties/${propertyId}`),
+
+  listLedger: (ownerId: string) =>
+    client.get<OwnerLedgerEntry[]>(`/owners/${ownerId}/ledger`),
+  addLedgerEntry: (ownerId: string, data: OwnerLedgerEntryCreate) =>
+    client.post<OwnerLedgerEntry>(`/owners/${ownerId}/ledger`, data),
+  balance: (ownerId: string) => client.get<OwnerBalance>(`/owners/${ownerId}/balance`),
+  statement: (ownerId: string, params?: { start_date?: string; end_date?: string }) =>
+    client.get<OwnerStatement>(`/owners/${ownerId}/statement`, { params }),
+
+  listDistributions: (ownerId: string) =>
+    client.get<OwnerDistribution[]>(`/owners/${ownerId}/distributions`),
+  createDistribution: (ownerId: string, data: OwnerDistributionCreate) =>
+    client.post<OwnerDistribution>(`/owners/${ownerId}/distributions`, data),
+  markDistributionPaid: (ownerId: string, distributionId: string) =>
+    client.post<OwnerDistribution>(
+      `/owners/${ownerId}/distributions/${distributionId}/pay`,
+    ),
+  voidDistribution: (ownerId: string, distributionId: string) =>
+    client.post<OwnerDistribution>(
+      `/owners/${ownerId}/distributions/${distributionId}/void`,
+    ),
+
+  listTrustAccounts: () => client.get<TrustAccount[]>('/owners/trust-accounts'),
+  getTrustAccount: (id: string) => client.get<TrustAccount>(`/owners/trust-accounts/${id}`),
+  createTrustAccount: (data: TrustAccountCreate) =>
+    client.post<TrustAccount>('/owners/trust-accounts', data),
+  updateTrustAccount: (id: string, data: TrustAccountUpdate) =>
+    client.patch<TrustAccount>(`/owners/trust-accounts/${id}`, data),
+  reviewTrustAccount: (id: string, data: { compliance_status: string; notes?: string | null }) =>
+    client.post<TrustAccount>(`/owners/trust-accounts/${id}/review`, data),
+  deleteTrustAccount: (id: string) => client.delete(`/owners/trust-accounts/${id}`),
 };
