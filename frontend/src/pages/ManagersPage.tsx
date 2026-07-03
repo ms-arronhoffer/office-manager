@@ -6,6 +6,7 @@ import Button from '@cloudscape-design/components/button';
 import Box from '@cloudscape-design/components/box';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Modal from '@cloudscape-design/components/modal';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import Form from '@cloudscape-design/components/form';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
@@ -254,23 +255,14 @@ const ManagersPage: React.FC = () => {
       </SpaceBetween>
 
       {/* Create / Edit Modal */}
-      <Modal
+      <EntityFormModal
         visible={isCreateOrEdit}
-        onDismiss={closeModal}
-        header={modalTitle}
+        title={modalTitle}
+        onCancel={closeModal}
+        onSubmit={handleSave}
+        submitting={saving}
+        submitLabel={modalMode === 'create' ? 'Add Manager' : 'Save Changes'}
         size="medium"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={closeModal} disabled={saving}>
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={handleSave} loading={saving} loadingText="Saving...">
-                {modalMode === 'create' ? 'Add Manager' : 'Save Changes'}
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
       >
         <Form>
           <SpaceBetween size="m">
@@ -309,7 +301,7 @@ const ManagersPage: React.FC = () => {
             </FormField>
           </SpaceBetween>
         </Form>
-      </Modal>
+      </EntityFormModal>
 
       {/* Delete Confirmation Modal */}
       <Modal

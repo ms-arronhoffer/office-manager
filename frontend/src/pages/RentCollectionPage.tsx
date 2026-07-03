@@ -3,7 +3,7 @@ import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
-import Modal from '@cloudscape-design/components/modal';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -381,22 +381,13 @@ const RentCollectionPage: React.FC = () => {
         empty={<Box textAlign="center">No deposits recorded.</Box>}
       />
 
-      <Modal
+      <EntityFormModal
         visible={chargeOpen}
-        onDismiss={() => setChargeOpen(false)}
-        header={editing ? 'Edit charge' : 'Add charge'}
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setChargeOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={savingCharge} onClick={saveCharge}>
-                Save
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setChargeOpen(false)}
+        title={editing ? 'Edit charge' : 'Add charge'}
+        submitLabel="Save"
+        submitting={savingCharge}
+        onSubmit={saveCharge}
       >
         <SpaceBetween size="m">
           <FormField label="Lease">
@@ -462,24 +453,15 @@ const RentCollectionPage: React.FC = () => {
             <Input value={description} onChange={({ detail }) => setDescription(detail.value)} />
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
-      <Modal
+      <EntityFormModal
         visible={depositOpen}
-        onDismiss={() => setDepositOpen(false)}
-        header="Record deposit"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setDepositOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={savingDeposit} onClick={saveDeposit}>
-                Save
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setDepositOpen(false)}
+        title="Record deposit"
+        submitLabel="Save"
+        submitting={savingDeposit}
+        onSubmit={saveDeposit}
       >
         <SpaceBetween size="m">
           <FormField label="Lease">
@@ -498,7 +480,7 @@ const RentCollectionPage: React.FC = () => {
             <Input value={depNotes} onChange={({ detail }) => setDepNotes(detail.value)} />
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
     </SpaceBetween>
   );
 };

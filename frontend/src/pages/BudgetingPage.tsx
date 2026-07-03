@@ -6,6 +6,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
 import Modal from '@cloudscape-design/components/modal';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -171,19 +172,14 @@ const BudgetingPage: React.FC = () => {
       />
 
       {/* Create / edit modal */}
-      <Modal
+      <EntityFormModal
         visible={modalOpen}
-        onDismiss={() => setModalOpen(false)}
-        header={editingId ? 'Edit budget' : 'New budget'}
+        title={editingId ? 'Edit budget' : 'New budget'}
+        onCancel={() => setModalOpen(false)}
+        onSubmit={save}
+        submitting={saving}
+        submitLabel="Save"
         size="large"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setModalOpen(false)}>Cancel</Button>
-              <Button variant="primary" loading={saving} onClick={save}>Save</Button>
-            </SpaceBetween>
-          </Box>
-        }
       >
         <SpaceBetween size="m">
           <ColumnLayout columns={2}>
@@ -237,7 +233,7 @@ const BudgetingPage: React.FC = () => {
             </SpaceBetween>
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
       {/* Variance report modal */}
       <Modal

@@ -4,6 +4,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
 import Modal from '@cloudscape-design/components/modal';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
@@ -391,22 +392,14 @@ const VacancyListingsPage: React.FC = () => {
         empty={<Box textAlign="center">No listings yet.</Box>}
       />
 
-      <Modal
+      <EntityFormModal
         visible={modalOpen}
-        onDismiss={() => setModalOpen(false)}
-        header={editing ? 'Edit listing' : 'Add listing'}
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={saving} onClick={save}>
-                Save
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setModalOpen(false)}
+        title={editing ? 'Edit listing' : 'Add listing'}
+        size="large"
+        submitLabel="Save"
+        submitting={saving}
+        onSubmit={save}
       >
         <SpaceBetween size="m">
           <FormField label="Unit">
@@ -455,7 +448,7 @@ const VacancyListingsPage: React.FC = () => {
             <Input value={contactEmail} onChange={({ detail }) => setContactEmail(detail.value)} />
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
       {/* ── Manage portals ─────────────────────────────────────────────── */}
       <Modal
@@ -584,22 +577,14 @@ const VacancyListingsPage: React.FC = () => {
       </Modal>
 
       {/* ── Syndicate a listing ────────────────────────────────────────── */}
-      <Modal
+      <EntityFormModal
         visible={syndicateModalOpen}
-        onDismiss={() => setSyndicateModalOpen(false)}
-        header={syndicateListing ? `Syndicate: ${syndicateListing.title}` : 'Syndicate listing'}
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setSyndicateModalOpen(false)}>
-                Close
-              </Button>
-              <Button variant="primary" loading={syndicating} onClick={runSyndication}>
-                Post to selected
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setSyndicateModalOpen(false)}
+        title={syndicateListing ? `Syndicate: ${syndicateListing.title}` : 'Syndicate listing'}
+        cancelLabel="Close"
+        submitLabel="Post to selected"
+        submitting={syndicating}
+        onSubmit={runSyndication}
       >
         {enabledPortals.length === 0 ? (
           <Box textAlign="center">
@@ -634,7 +619,7 @@ const VacancyListingsPage: React.FC = () => {
             })}
           </SpaceBetween>
         )}
-      </Modal>
+      </EntityFormModal>
     </SpaceBetween>
   );
 };

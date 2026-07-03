@@ -6,6 +6,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
 import Modal from '@cloudscape-design/components/modal';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import DatePicker from '@cloudscape-design/components/date-picker';
@@ -354,22 +355,12 @@ const InspectionsPage: React.FC = () => {
       />
 
       {/* Template creation modal */}
-      <Modal
+      <EntityFormModal
         visible={templateModal}
-        onDismiss={() => setTemplateModal(false)}
-        header="New inspection template"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setTemplateModal(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={saveTemplate}>
-                Create
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        title="New inspection template"
+        onCancel={() => setTemplateModal(false)}
+        onSubmit={saveTemplate}
+        submitLabel="Create"
       >
         <SpaceBetween size="m">
           <FormField label="Name">
@@ -419,25 +410,15 @@ const InspectionsPage: React.FC = () => {
             </SpaceBetween>
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
       {/* Inspection creation modal */}
-      <Modal
+      <EntityFormModal
         visible={inspectionModal}
-        onDismiss={() => setInspectionModal(false)}
-        header="New inspection"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setInspectionModal(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={saveInspection}>
-                Create
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        title="New inspection"
+        onCancel={() => setInspectionModal(false)}
+        onSubmit={saveInspection}
+        submitLabel="Create"
       >
         <SpaceBetween size="m">
           <FormField label="Title">
@@ -467,7 +448,7 @@ const InspectionsPage: React.FC = () => {
             />
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
       {/* Inspection detail / scoring modal */}
       <Modal

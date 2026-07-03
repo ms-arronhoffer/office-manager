@@ -3,7 +3,7 @@ import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
-import Modal from '@cloudscape-design/components/modal';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
@@ -207,22 +207,13 @@ const AnnouncementsPage: React.FC = () => {
         empty={<Box textAlign="center">No announcements yet.</Box>}
       />
 
-      <Modal
+      <EntityFormModal
         visible={modalOpen}
-        onDismiss={() => setModalOpen(false)}
-        header={editing ? 'Edit announcement' : 'New announcement'}
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={saving} onClick={save}>
-                Save
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setModalOpen(false)}
+        title={editing ? 'Edit announcement' : 'New announcement'}
+        submitLabel="Save"
+        submitting={saving}
+        onSubmit={save}
       >
         <SpaceBetween size="m">
           <FormField label="Title">
@@ -260,7 +251,7 @@ const AnnouncementsPage: React.FC = () => {
             />
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
     </SpaceBetween>
   );
 };

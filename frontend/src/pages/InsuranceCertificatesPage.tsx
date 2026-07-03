@@ -5,7 +5,7 @@ import Container from '@cloudscape-design/components/container';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
-import Modal from '@cloudscape-design/components/modal';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -310,26 +310,15 @@ const InsuranceCertificatesPage: React.FC = () => {
       </SpaceBetween>
 
       {/* ── Create / Edit Modal ── */}
-      <Modal
+      <EntityFormModal
         visible={modalOpen}
-        onDismiss={() => setModalOpen(false)}
-        header={editingId ? 'Edit certificate' : 'Add insurance certificate'}
+        title={editingId ? 'Edit certificate' : 'Add insurance certificate'}
+        onCancel={() => setModalOpen(false)}
+        onSubmit={handleSave}
+        submitting={saving}
+        submitDisabled={!form.entity || !form.certificate_type}
+        submitLabel={editingId ? 'Save changes' : 'Add certificate'}
         size="large"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setModalOpen(false)}>Cancel</Button>
-              <Button
-                variant="primary"
-                loading={saving}
-                onClick={handleSave}
-                disabled={!form.entity || !form.certificate_type}
-              >
-                {editingId ? 'Save changes' : 'Add certificate'}
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
       >
         <SpaceBetween size="m">
           {!editingId && (
@@ -440,7 +429,7 @@ const InsuranceCertificatesPage: React.FC = () => {
             Verified
           </Toggle>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
     </ContentLayout>
   );
 };
