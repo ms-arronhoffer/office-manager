@@ -45,8 +45,20 @@ const LeasingUnitsPage: React.FC = () => {
   const [name, setName] = useState('');
   const [floor, setFloor] = useState('');
   const [bedrooms, setBedrooms] = useState('');
+  const [bathrooms, setBathrooms] = useState('');
+  const [squareFeet, setSquareFeet] = useState('');
   const [marketRent, setMarketRent] = useState('');
   const [statusValue, setStatusValue] = useState<UnitStatus>('available');
+  const [addr1, setAddr1] = useState('');
+  const [addr2, setAddr2] = useState('');
+  const [city, setCity] = useState('');
+  const [stateVal, setStateVal] = useState('');
+  const [zip, setZip] = useState('');
+  const [propertyType, setPropertyType] = useState('');
+  const [yearBuilt, setYearBuilt] = useState('');
+  const [availableDate, setAvailableDate] = useState('');
+  const [description, setDescription] = useState('');
+  const [amenities, setAmenities] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -105,8 +117,20 @@ const LeasingUnitsPage: React.FC = () => {
     setName('');
     setFloor('');
     setBedrooms('');
+    setBathrooms('');
+    setSquareFeet('');
     setMarketRent('');
     setStatusValue('available');
+    setAddr1('');
+    setAddr2('');
+    setCity('');
+    setStateVal('');
+    setZip('');
+    setPropertyType('');
+    setYearBuilt('');
+    setAvailableDate('');
+    setDescription('');
+    setAmenities('');
     setNotes('');
     setModalOpen(true);
   };
@@ -118,8 +142,20 @@ const LeasingUnitsPage: React.FC = () => {
     setName(u.name ?? '');
     setFloor(u.floor ?? '');
     setBedrooms(u.bedrooms != null ? String(u.bedrooms) : '');
+    setBathrooms(u.bathrooms ?? '');
+    setSquareFeet(u.square_feet ?? '');
     setMarketRent(u.market_rent ?? '');
     setStatusValue(u.status);
+    setAddr1(u.address_line_1 ?? '');
+    setAddr2(u.address_line_2 ?? '');
+    setCity(u.city ?? '');
+    setStateVal(u.state ?? '');
+    setZip(u.zip_code ?? '');
+    setPropertyType(u.property_type ?? '');
+    setYearBuilt(u.year_built != null ? String(u.year_built) : '');
+    setAvailableDate(u.available_date ?? '');
+    setDescription(u.description ?? '');
+    setAmenities(u.amenities ?? '');
     setNotes(u.notes ?? '');
     setModalOpen(true);
   };
@@ -137,8 +173,20 @@ const LeasingUnitsPage: React.FC = () => {
         name: name.trim() || null,
         floor: floor.trim() || null,
         bedrooms: bedrooms ? Number(bedrooms) : null,
+        bathrooms: bathrooms.trim() || null,
+        square_feet: squareFeet.trim() || null,
         market_rent: marketRent.trim() || null,
         status: statusValue,
+        address_line_1: addr1.trim() || null,
+        address_line_2: addr2.trim() || null,
+        city: city.trim() || null,
+        state: stateVal.trim() || null,
+        zip_code: zip.trim() || null,
+        property_type: propertyType.trim() || null,
+        year_built: yearBuilt ? Number(yearBuilt) : null,
+        available_date: availableDate.trim() || null,
+        description: description.trim() || null,
+        amenities: amenities.trim() || null,
         notes: notes.trim() || null,
       };
       if (editing) {
@@ -283,11 +331,45 @@ const LeasingUnitsPage: React.FC = () => {
                 onChange={({ detail }) => setBedrooms(detail.value)}
               />
             </FormField>
+            <FormField label="Bathrooms">
+              <Input
+                type="number"
+                value={bathrooms}
+                onChange={({ detail }) => setBathrooms(detail.value)}
+              />
+            </FormField>
+            <FormField label="Square feet">
+              <Input
+                type="number"
+                value={squareFeet}
+                onChange={({ detail }) => setSquareFeet(detail.value)}
+              />
+            </FormField>
             <FormField label="Market rent">
               <Input
                 type="number"
                 value={marketRent}
                 onChange={({ detail }) => setMarketRent(detail.value)}
+              />
+            </FormField>
+            <FormField label="Property type">
+              <Input
+                value={propertyType}
+                onChange={({ detail }) => setPropertyType(detail.value)}
+              />
+            </FormField>
+            <FormField label="Year built">
+              <Input
+                type="number"
+                value={yearBuilt}
+                onChange={({ detail }) => setYearBuilt(detail.value)}
+              />
+            </FormField>
+            <FormField label="Available date">
+              <Input
+                type="date"
+                value={availableDate}
+                onChange={({ detail }) => setAvailableDate(detail.value)}
               />
             </FormField>
             <FormField label="Status">
@@ -300,6 +382,32 @@ const LeasingUnitsPage: React.FC = () => {
               />
             </FormField>
           </ColumnLayout>
+          <FormField label="Address line 1">
+            <Input value={addr1} onChange={({ detail }) => setAddr1(detail.value)} />
+          </FormField>
+          <FormField label="Address line 2">
+            <Input value={addr2} onChange={({ detail }) => setAddr2(detail.value)} />
+          </FormField>
+          <ColumnLayout columns={3}>
+            <FormField label="City">
+              <Input value={city} onChange={({ detail }) => setCity(detail.value)} />
+            </FormField>
+            <FormField label="State">
+              <Input value={stateVal} onChange={({ detail }) => setStateVal(detail.value)} />
+            </FormField>
+            <FormField label="ZIP code">
+              <Input value={zip} onChange={({ detail }) => setZip(detail.value)} />
+            </FormField>
+          </ColumnLayout>
+          <FormField label="Description">
+            <Textarea
+              value={description}
+              onChange={({ detail }) => setDescription(detail.value)}
+            />
+          </FormField>
+          <FormField label="Amenities">
+            <Textarea value={amenities} onChange={({ detail }) => setAmenities(detail.value)} />
+          </FormField>
           <FormField label="Notes">
             <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
           </FormField>

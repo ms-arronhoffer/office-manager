@@ -114,6 +114,36 @@ _RECONCILE_COLUMNS: dict[str, list[str]] = {
         "is_reportable boolean",
         "tax_box varchar(10)",
     ],
+    "rental_units": [
+        "address_line_1 varchar(255)",
+        "address_line_2 varchar(255)",
+        "city varchar(100)",
+        "state varchar(2)",
+        "zip_code varchar(10)",
+        "property_type varchar(50)",
+        "description text",
+        "amenities text",
+        "year_built integer",
+        "available_date date",
+    ],
+    "residents": [
+        "alternate_phone varchar(50)",
+        "company varchar(255)",
+        "address_line_1 varchar(255)",
+        "address_line_2 varchar(255)",
+        "city varchar(100)",
+        "state varchar(2)",
+        "zip_code varchar(10)",
+    ],
+    "resident_leases": [
+        "lease_type varchar(20)",
+        "rent_escalation_rate numeric(8, 6)",
+        "late_fee_amount numeric(15, 2)",
+        "late_fee_grace_days integer",
+        "notice_period_days integer",
+        "pet_deposit numeric(15, 2)",
+        "renewal_option boolean NOT NULL DEFAULT false",
+    ],
 }
 
 

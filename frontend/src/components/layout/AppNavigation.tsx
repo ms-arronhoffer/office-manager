@@ -94,6 +94,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
         { type: 'link' as const, text: 'Units', href: '/residential' },
         { type: 'link' as const, text: 'Residents', href: '/residential/residents' },
         { type: 'link' as const, text: 'Resident Leases', href: '/residential/leases' },
+        { type: 'link' as const, text: 'Lease Templates', href: '/residential/templates' },
         { type: 'link' as const, text: 'Applications & Screening', href: '/residential/applications' },
         { type: 'link' as const, text: 'Vacancy Listings', href: '/residential/listings' },
         { type: 'link' as const, text: 'Announcements', href: '/residential/announcements' },

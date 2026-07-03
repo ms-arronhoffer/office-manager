@@ -68,7 +68,7 @@ from app.routers import (  # noqa: E402
     lease_abstract, management_companies, contacts, client_portal,
     ai, waivers, document_search, maintenance, saved_reports, assistant,
     support_requests, leasing, resident_portal, announcements, rent,
-    leasing_funnel, listings, owners, owner_portal,
+    leasing_funnel, listings, owners, owner_portal, lease_templates,
 )
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit, usage as admin_usage  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature  # noqa: E402
@@ -135,6 +135,7 @@ app.include_router(tax.router, prefix="/api/v1/tax", tags=["Tax & 1099"], depend
 app.include_router(budgets.router, prefix="/api/v1/budgets", tags=["Budgeting"], dependencies=_org_guard)
 app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Property Inspections"], dependencies=_org_guard)
 app.include_router(leasing.router, prefix="/api/v1/leasing", tags=["Leasing (Residents)"], dependencies=_org_guard)
+app.include_router(lease_templates.router, prefix="/api/v1/lease-templates", tags=["Lease Templates"], dependencies=_org_guard)
 app.include_router(announcements.router, prefix="/api/v1/announcements", tags=["Resident Announcements"], dependencies=_org_guard)
 app.include_router(rent.router, prefix="/api/v1/rent", tags=["Rent Collection"], dependencies=_org_guard)
 app.include_router(leasing_funnel.router, prefix="/api/v1/leasing-funnel", tags=["Leasing Funnel"], dependencies=_org_guard)

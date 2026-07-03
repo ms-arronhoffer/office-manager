@@ -60,6 +60,10 @@ RESIDENT_STATUSES = ("prospect", "current", "past")
 # Role an occupant plays on a lease.
 OCCUPANT_ROLES = ("primary", "co_signer", "occupant", "guarantor")
 
+# Term structure of an org-as-lessor lease. Mirrors the richness of the
+# org-as-lessee :class:`~app.models.lease.Lease` classification fields.
+LEASE_TYPES = ("fixed_term", "month_to_month", "at_will", "short_term")
+
 # Statuses that count a lease as currently occupying its unit.
 ACTIVE_LEASE_STATUSES = ("pending", "active")
 
@@ -93,6 +97,18 @@ class RentalUnit(SoftDeleteMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(
         String(20), default="available", nullable=False, server_default="available"
     )
+    # Address & marketing detail — mirrors the richer Office (Portfolio) fields so
+    # a unit can be described as fully as a portfolio property.
+    address_line_1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    address_line_2: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    zip_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    property_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    amenities: Mapped[str | None] = mapped_column(Text, nullable=True)
+    year_built: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    available_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     office: Mapped["Office | None"] = relationship("Office")
@@ -118,7 +134,15 @@ class Resident(SoftDeleteMixin, TimestampMixin, Base):
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    alternate_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)
+    company: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Mailing / contact address, mirroring the Portfolio landlord/owner detail.
+    address_line_1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    address_line_2: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    zip_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     emergency_contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     emergency_contact_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(
@@ -170,6 +194,16 @@ class ResidentLease(SoftDeleteMixin, TimestampMixin, Base):
     )
     rent_due_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     security_deposit: Mapped[Decimal | None] = mapped_column(Numeric(15, 2), nullable=True)
+    # Richer lease terms mirroring the Portfolio lease classification/financials.
+    lease_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    rent_escalation_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 6), nullable=True)
+    late_fee_amount: Mapped[Decimal | None] = mapped_column(Numeric(15, 2), nullable=True)
+    late_fee_grace_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notice_period_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pet_deposit: Mapped[Decimal | None] = mapped_column(Numeric(15, 2), nullable=True)
+    renewal_option: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
     currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 

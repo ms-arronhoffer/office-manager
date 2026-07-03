@@ -29,6 +29,7 @@ from app.models.resident import (
     OCCUPANT_ROLES,
     RESIDENT_LEASE_STATUSES,
     RESIDENT_STATUSES,
+    LEASE_TYPES,
     UNIT_STATUSES,
     RentalUnit,
     Resident,
@@ -59,6 +60,16 @@ class RentalUnitCreate(BaseModel):
     market_rent: Decimal | None = None
     currency: str = "USD"
     status: str = "available"
+    address_line_1: str | None = None
+    address_line_2: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip_code: str | None = None
+    property_type: str | None = None
+    description: str | None = None
+    amenities: str | None = None
+    year_built: int | None = None
+    available_date: date | None = None
     notes: str | None = None
 
 
@@ -73,6 +84,16 @@ class RentalUnitUpdate(BaseModel):
     market_rent: Decimal | None = None
     currency: str | None = None
     status: str | None = None
+    address_line_1: str | None = None
+    address_line_2: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip_code: str | None = None
+    property_type: str | None = None
+    description: str | None = None
+    amenities: str | None = None
+    year_built: int | None = None
+    available_date: date | None = None
     notes: str | None = None
 
 
@@ -89,6 +110,16 @@ class RentalUnitResponse(BaseModel):
     market_rent: Decimal | None
     currency: str
     status: str
+    address_line_1: str | None
+    address_line_2: str | None
+    city: str | None
+    state: str | None
+    zip_code: str | None
+    property_type: str | None
+    description: str | None
+    amenities: str | None
+    year_built: int | None
+    available_date: date | None
     notes: str | None
     created_at: datetime
     updated_at: datetime
@@ -103,7 +134,14 @@ class ResidentCreate(BaseModel):
     last_name: str
     email: str | None = None
     phone: str | None = None
+    alternate_phone: str | None = None
     date_of_birth: date | None = None
+    company: str | None = None
+    address_line_1: str | None = None
+    address_line_2: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip_code: str | None = None
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
     status: str = "prospect"
@@ -115,7 +153,14 @@ class ResidentUpdate(BaseModel):
     last_name: str | None = None
     email: str | None = None
     phone: str | None = None
+    alternate_phone: str | None = None
     date_of_birth: date | None = None
+    company: str | None = None
+    address_line_1: str | None = None
+    address_line_2: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip_code: str | None = None
     emergency_contact_name: str | None = None
     emergency_contact_phone: str | None = None
     status: str | None = None
@@ -129,7 +174,14 @@ class ResidentResponse(BaseModel):
     last_name: str
     email: str | None
     phone: str | None
+    alternate_phone: str | None
     date_of_birth: date | None
+    company: str | None
+    address_line_1: str | None
+    address_line_2: str | None
+    city: str | None
+    state: str | None
+    zip_code: str | None
     emergency_contact_name: str | None
     emergency_contact_phone: str | None
     status: str
@@ -172,6 +224,13 @@ class ResidentLeaseCreate(BaseModel):
     rent_frequency: str = "monthly"
     rent_due_day: int | None = None
     security_deposit: Decimal | None = None
+    lease_type: str | None = None
+    rent_escalation_rate: Decimal | None = None
+    late_fee_amount: Decimal | None = None
+    late_fee_grace_days: int | None = None
+    notice_period_days: int | None = None
+    pet_deposit: Decimal | None = None
+    renewal_option: bool = False
     currency: str = "USD"
     notes: str | None = None
     occupants: list[OccupantInput] = []
@@ -188,6 +247,13 @@ class ResidentLeaseUpdate(BaseModel):
     rent_frequency: str | None = None
     rent_due_day: int | None = None
     security_deposit: Decimal | None = None
+    lease_type: str | None = None
+    rent_escalation_rate: Decimal | None = None
+    late_fee_amount: Decimal | None = None
+    late_fee_grace_days: int | None = None
+    notice_period_days: int | None = None
+    pet_deposit: Decimal | None = None
+    renewal_option: bool | None = None
     currency: str | None = None
     notes: str | None = None
     occupants: list[OccupantInput] | None = None
@@ -207,6 +273,13 @@ class ResidentLeaseResponse(BaseModel):
     rent_frequency: str
     rent_due_day: int | None
     security_deposit: Decimal | None
+    lease_type: str | None
+    rent_escalation_rate: Decimal | None
+    late_fee_amount: Decimal | None
+    late_fee_grace_days: int | None
+    notice_period_days: int | None
+    pet_deposit: Decimal | None
+    renewal_option: bool
     currency: str
     notes: str | None
     created_at: datetime
@@ -604,6 +677,7 @@ async def create_lease(
 ):
     org_id = current_user.organization_id
     _validate_choice(payload.status, RESIDENT_LEASE_STATUSES, "status")
+    _validate_choice(payload.lease_type, LEASE_TYPES, "lease type")
     _validate_currency(payload.currency)
     await _get_unit(db, payload.unit_id, org_id)
     if payload.start_date and payload.end_date and payload.end_date < payload.start_date:
@@ -653,6 +727,7 @@ async def update_lease(
     lease = await _load_lease(db, lease_id, org_id)
     data = payload.model_dump(exclude_unset=True, exclude={"occupants"})
     _validate_choice(data.get("status"), RESIDENT_LEASE_STATUSES, "status")
+    _validate_choice(data.get("lease_type"), LEASE_TYPES, "lease type")
     _validate_currency(data.get("currency"))
 
     new_status = data.get("status", lease.status)

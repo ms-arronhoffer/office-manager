@@ -13,12 +13,14 @@ import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
-import { leasing } from '@/api';
+import { leasing, leaseTemplates, leasingFunnel } from '@/api';
 import type {
   ResidentLease,
   ResidentLeaseStatus,
+  ResidentLeaseType,
   RentalUnit,
   Resident,
+  LeaseTemplate,
 } from '@/types';
 
 const fmtMoney = (v: string | null) =>
@@ -32,6 +34,13 @@ const LEASE_STATUSES: ResidentLeaseStatus[] = [
   'active',
   'ended',
   'terminated',
+];
+
+const LEASE_TYPES: ResidentLeaseType[] = [
+  'fixed_term',
+  'month_to_month',
+  'at_will',
+  'short_term',
 ];
 
 const leaseBadge = (s: ResidentLeaseStatus) => {
@@ -59,9 +68,24 @@ const ResidentLeasesPage: React.FC = () => {
   const [endDate, setEndDate] = useState('');
   const [rentAmount, setRentAmount] = useState('');
   const [deposit, setDeposit] = useState('');
+  const [leaseType, setLeaseType] = useState<ResidentLeaseType | ''>('');
+  const [escalationRate, setEscalationRate] = useState('');
+  const [lateFeeAmount, setLateFeeAmount] = useState('');
+  const [lateFeeGraceDays, setLateFeeGraceDays] = useState('');
+  const [noticePeriodDays, setNoticePeriodDays] = useState('');
+  const [petDeposit, setPetDeposit] = useState('');
+  const [renewalOption, setRenewalOption] = useState(false);
   const [occupantIds, setOccupantIds] = useState<readonly Opt[]>([]);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // E-sign modal state
+  const [esignOpen, setEsignOpen] = useState(false);
+  const [esignLease, setEsignLease] = useState<ResidentLease | null>(null);
+  const [templates, setTemplates] = useState<LeaseTemplate[]>([]);
+  const [templateId, setTemplateId] = useState('');
+  const [esignTitle, setEsignTitle] = useState('');
+  const [esignSending, setEsignSending] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -117,6 +141,13 @@ const ResidentLeasesPage: React.FC = () => {
     setEndDate('');
     setRentAmount('');
     setDeposit('');
+    setLeaseType('');
+    setEscalationRate('');
+    setLateFeeAmount('');
+    setLateFeeGraceDays('');
+    setNoticePeriodDays('');
+    setPetDeposit('');
+    setRenewalOption(false);
     setOccupantIds([]);
     setNotes('');
     setModalOpen(true);
@@ -131,6 +162,13 @@ const ResidentLeasesPage: React.FC = () => {
     setEndDate(l.end_date ?? '');
     setRentAmount(l.rent_amount ?? '');
     setDeposit(l.security_deposit ?? '');
+    setLeaseType(l.lease_type ?? '');
+    setEscalationRate(l.rent_escalation_rate ?? '');
+    setLateFeeAmount(l.late_fee_amount ?? '');
+    setLateFeeGraceDays(l.late_fee_grace_days != null ? String(l.late_fee_grace_days) : '');
+    setNoticePeriodDays(l.notice_period_days != null ? String(l.notice_period_days) : '');
+    setPetDeposit(l.pet_deposit ?? '');
+    setRenewalOption(l.renewal_option);
     setOccupantIds(
       l.occupants.map((o) => ({
         label:
@@ -162,6 +200,13 @@ const ResidentLeasesPage: React.FC = () => {
         end_date: endDate || null,
         rent_amount: rentAmount.trim() || null,
         security_deposit: deposit.trim() || null,
+        lease_type: leaseType || null,
+        rent_escalation_rate: escalationRate.trim() || null,
+        late_fee_amount: lateFeeAmount.trim() || null,
+        late_fee_grace_days: lateFeeGraceDays ? Number(lateFeeGraceDays) : null,
+        notice_period_days: noticePeriodDays ? Number(noticePeriodDays) : null,
+        pet_deposit: petDeposit.trim() || null,
+        renewal_option: renewalOption,
         notes: notes.trim() || null,
         occupants,
       };
@@ -191,6 +236,49 @@ const ResidentLeasesPage: React.FC = () => {
       addFlash({ type: 'error', content: 'Failed to delete lease.' });
     }
   };
+
+  const openEsign = async (l: ResidentLease) => {
+    setEsignLease(l);
+    setTemplateId('');
+    setEsignTitle('');
+    setEsignOpen(true);
+    try {
+      const r = await leaseTemplates.list({ active_only: true });
+      setTemplates(r.data);
+    } catch {
+      addFlash({ type: 'error', content: 'Failed to load lease templates.' });
+    }
+  };
+
+  const sendEsign = async () => {
+    if (!esignLease) return;
+    if (!templateId) {
+      addFlash({ type: 'error', content: 'Select a lease template.' });
+      return;
+    }
+    setEsignSending(true);
+    try {
+      await leasingFunnel.createSignatureFromTemplate({
+        resident_lease_id: esignLease.id,
+        template_id: templateId,
+        title: esignTitle.trim() || null,
+      });
+      addFlash({ type: 'success', content: 'Lease sent for e-signature.' });
+      setEsignOpen(false);
+    } catch {
+      addFlash({
+        type: 'error',
+        content: 'Failed to send for e-signature. Ensure occupants have email addresses.',
+      });
+    } finally {
+      setEsignSending(false);
+    }
+  };
+
+  const templateOptions: Opt[] = useMemo(
+    () => templates.map((t) => ({ label: t.name + (t.is_default ? ' (default)' : ''), value: t.id })),
+    [templates],
+  );
 
   return (
     <SpaceBetween size="l">
@@ -247,6 +335,9 @@ const ResidentLeasesPage: React.FC = () => {
               <SpaceBetween direction="horizontal" size="xs">
                 <Button variant="inline-link" onClick={() => openEdit(l)}>
                   Edit
+                </Button>
+                <Button variant="inline-link" onClick={() => openEsign(l)}>
+                  Send for e-sign
                 </Button>
                 <Button variant="inline-link" onClick={() => remove(l)}>
                   Delete
@@ -336,9 +427,114 @@ const ResidentLeasesPage: React.FC = () => {
                 onChange={({ detail }) => setDeposit(detail.value)}
               />
             </FormField>
+            <FormField label="Lease type">
+              <Select
+                selectedOption={
+                  leaseType ? { label: leaseType, value: leaseType } : null
+                }
+                onChange={({ detail }) =>
+                  setLeaseType(detail.selectedOption.value as ResidentLeaseType)
+                }
+                options={LEASE_TYPES.map((t) => ({ label: t, value: t }))}
+                placeholder="Select a lease type"
+              />
+            </FormField>
+            <FormField label="Rent escalation rate (%)">
+              <Input
+                type="number"
+                value={escalationRate}
+                onChange={({ detail }) => setEscalationRate(detail.value)}
+              />
+            </FormField>
+            <FormField label="Pet deposit">
+              <Input
+                type="number"
+                value={petDeposit}
+                onChange={({ detail }) => setPetDeposit(detail.value)}
+              />
+            </FormField>
+            <FormField label="Late fee amount">
+              <Input
+                type="number"
+                value={lateFeeAmount}
+                onChange={({ detail }) => setLateFeeAmount(detail.value)}
+              />
+            </FormField>
+            <FormField label="Late fee grace (days)">
+              <Input
+                type="number"
+                value={lateFeeGraceDays}
+                onChange={({ detail }) => setLateFeeGraceDays(detail.value)}
+              />
+            </FormField>
+            <FormField label="Notice period (days)">
+              <Input
+                type="number"
+                value={noticePeriodDays}
+                onChange={({ detail }) => setNoticePeriodDays(detail.value)}
+              />
+            </FormField>
+            <FormField label="Renewal option">
+              <Select
+                selectedOption={
+                  renewalOption
+                    ? { label: 'Yes', value: 'yes' }
+                    : { label: 'No', value: 'no' }
+                }
+                onChange={({ detail }) =>
+                  setRenewalOption(detail.selectedOption.value === 'yes')
+                }
+                options={[
+                  { label: 'No', value: 'no' },
+                  { label: 'Yes', value: 'yes' },
+                ]}
+              />
+            </FormField>
           </ColumnLayout>
           <FormField label="Notes">
             <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
+          </FormField>
+        </SpaceBetween>
+      </Modal>
+
+      <Modal
+        visible={esignOpen}
+        onDismiss={() => setEsignOpen(false)}
+        header="Send lease for e-signature"
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => setEsignOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="primary" loading={esignSending} onClick={sendEsign}>
+                Send
+              </Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="m">
+          <Box variant="p">
+            A signature request is generated from the selected template and sent to every
+            occupant on this lease that has an email address.
+          </Box>
+          <FormField label="Lease template">
+            <Select
+              selectedOption={templateOptions.find((o) => o.value === templateId) ?? null}
+              onChange={({ detail }) => setTemplateId(detail.selectedOption.value ?? '')}
+              options={templateOptions}
+              filteringType="auto"
+              placeholder="Select a template"
+              empty="No active templates"
+            />
+          </FormField>
+          <FormField label="Title (optional)">
+            <Input
+              value={esignTitle}
+              onChange={({ detail }) => setEsignTitle(detail.value)}
+              placeholder="Defaults to the template name"
+            />
           </FormField>
         </SpaceBetween>
       </Modal>

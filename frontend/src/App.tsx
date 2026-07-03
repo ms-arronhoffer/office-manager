@@ -146,6 +146,7 @@ const App: React.FC = () => {
                         <Route path="residential" element={<ResidentialPage />} />
                         <Route path="residential/residents" element={<ResidentialPage />} />
                         <Route path="residential/leases" element={<ResidentialPage />} />
+                        <Route path="residential/templates" element={<ResidentialPage />} />
                         <Route path="residential/applications" element={<ResidentialPage />} />
                         <Route path="residential/listings" element={<ResidentialPage />} />
                         <Route path="residential/announcements" element={<ResidentialPage />} />

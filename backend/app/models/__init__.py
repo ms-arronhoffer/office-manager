@@ -82,8 +82,9 @@ from app.models.billing_ledger import (
 from app.models.resident import (
     RentalUnit, Resident, ResidentLease, ResidentLeaseOccupant,
     UNIT_STATUSES, RESIDENT_LEASE_STATUSES, RESIDENT_STATUSES,
-    OCCUPANT_ROLES, ACTIVE_LEASE_STATUSES,
+    OCCUPANT_ROLES, ACTIVE_LEASE_STATUSES, LEASE_TYPES,
 )
+from app.models.lease_template import LeaseTemplate
 from app.models.announcement import (
     Announcement, AnnouncementRecipient,
     ANNOUNCEMENT_CHANNELS, ANNOUNCEMENT_STATUSES,
@@ -152,7 +153,8 @@ __all__ = [
     "BillingRefund", "BillingCredit", "BillingCoupon",
     "RentalUnit", "Resident", "ResidentLease", "ResidentLeaseOccupant",
     "UNIT_STATUSES", "RESIDENT_LEASE_STATUSES", "RESIDENT_STATUSES",
-    "OCCUPANT_ROLES", "ACTIVE_LEASE_STATUSES",
+    "OCCUPANT_ROLES", "ACTIVE_LEASE_STATUSES", "LEASE_TYPES",
+    "LeaseTemplate",
     "Announcement", "AnnouncementRecipient",
     "ANNOUNCEMENT_CHANNELS", "ANNOUNCEMENT_STATUSES",
     "RentCharge", "SecurityDeposit",

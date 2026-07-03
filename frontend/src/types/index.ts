@@ -2988,6 +2988,16 @@ export interface RentalUnit {
   market_rent: string | null;
   currency: string;
   status: UnitStatus;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  zip_code: string | null;
+  property_type: string | null;
+  description: string | null;
+  amenities: string | null;
+  year_built: number | null;
+  available_date: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -3004,6 +3014,16 @@ export interface RentalUnitCreate {
   market_rent?: string | null;
   currency?: string;
   status?: UnitStatus;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
+  property_type?: string | null;
+  description?: string | null;
+  amenities?: string | null;
+  year_built?: number | null;
+  available_date?: string | null;
   notes?: string | null;
 }
 
@@ -3016,7 +3036,14 @@ export interface Resident {
   last_name: string;
   email: string | null;
   phone: string | null;
+  alternate_phone: string | null;
   date_of_birth: string | null;
+  company: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  zip_code: string | null;
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
   status: ResidentStatus;
@@ -3030,7 +3057,14 @@ export interface ResidentCreate {
   last_name: string;
   email?: string | null;
   phone?: string | null;
+  alternate_phone?: string | null;
   date_of_birth?: string | null;
+  company?: string | null;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
   emergency_contact_name?: string | null;
   emergency_contact_phone?: string | null;
   status?: ResidentStatus;
@@ -3053,6 +3087,8 @@ export interface Occupant {
   resident: Resident | null;
 }
 
+export type ResidentLeaseType = 'fixed_term' | 'month_to_month' | 'at_will' | 'short_term';
+
 export interface ResidentLease {
   id: string;
   organization_id: string | null;
@@ -3067,6 +3103,13 @@ export interface ResidentLease {
   rent_frequency: string;
   rent_due_day: number | null;
   security_deposit: string | null;
+  lease_type: ResidentLeaseType | null;
+  rent_escalation_rate: string | null;
+  late_fee_amount: string | null;
+  late_fee_grace_days: number | null;
+  notice_period_days: number | null;
+  pet_deposit: string | null;
+  renewal_option: boolean;
   currency: string;
   notes: string | null;
   created_at: string;
@@ -3086,6 +3129,13 @@ export interface ResidentLeaseCreate {
   rent_frequency?: string;
   rent_due_day?: number | null;
   security_deposit?: string | null;
+  lease_type?: ResidentLeaseType | null;
+  rent_escalation_rate?: string | null;
+  late_fee_amount?: string | null;
+  late_fee_grace_days?: number | null;
+  notice_period_days?: number | null;
+  pet_deposit?: string | null;
+  renewal_option?: boolean;
   currency?: string;
   notes?: string | null;
   occupants?: OccupantInput[];
@@ -3284,6 +3334,37 @@ export interface LeaseSignatureCreate {
   resident_lease_id?: string | null;
   expires_at?: string | null;
 }
+
+export interface LeaseSignatureFromTemplate {
+  resident_lease_id: string;
+  template_id: string;
+  title?: string | null;
+  parties?: LeaseSignaturePartyInput[] | null;
+  expires_at?: string | null;
+}
+
+// Custom lease templates (Residential parity)
+export interface LeaseTemplate {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  description: string | null;
+  body: string;
+  is_default: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LeaseTemplateCreate {
+  name: string;
+  description?: string | null;
+  body: string;
+  is_default?: boolean;
+  is_active?: boolean;
+}
+
+export type LeaseTemplateUpdate = Partial<LeaseTemplateCreate>;
 
 // Vacancy listings
 export type ListingStatus = 'draft' | 'published' | 'leased';
