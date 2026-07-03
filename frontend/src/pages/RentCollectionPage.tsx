@@ -248,10 +248,17 @@ const RentCollectionPage: React.FC = () => {
   const returnDeposit = async (d: SecurityDeposit) => {
     const raw = window.prompt('Amount to return to resident?', d.amount);
     if (raw == null) return;
+    const returned = Number(raw.trim());
+    if (!Number.isFinite(returned) || returned < 0) {
+      addFlash({ type: 'error', content: 'Enter a valid non-negative amount.' });
+      return;
+    }
+    const held = Number(d.amount);
+    const forfeited = Number.isFinite(held) ? Math.max(0, held - returned) : 0;
     try {
       await rent.returnDeposit(d.id, {
-        returned_amount: raw.trim() || '0',
-        forfeited_amount: String(Math.max(0, Number(d.amount) - Number(raw || 0))),
+        returned_amount: String(returned),
+        forfeited_amount: String(forfeited),
         returned_date: today(),
       });
       addFlash({ type: 'success', content: 'Deposit returned.' });
