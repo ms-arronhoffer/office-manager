@@ -549,7 +549,7 @@ const VacancyListingsPage: React.FC = () => {
                     description="Generic JSON feed of published listings."
                   >
                     <SpaceBetween direction="horizontal" size="xs">
-                      <Input value={feedUrls.json} readOnly controlId="feed-json-url" />
+                      <Input value={feedUrls.json} readOnly controlId="feed-json-url" ariaLabel="JSON feed URL" />
                       <Button
                         iconName="copy"
                         ariaLabel="Copy JSON feed URL"
@@ -561,7 +561,7 @@ const VacancyListingsPage: React.FC = () => {
                   </FormField>
                   <FormField label="XML feed URL" description="Property XML feed of published listings.">
                     <SpaceBetween direction="horizontal" size="xs">
-                      <Input value={feedUrls.xml} readOnly controlId="feed-xml-url" />
+                      <Input value={feedUrls.xml} readOnly controlId="feed-xml-url" ariaLabel="XML feed URL" />
                       <Button
                         iconName="copy"
                         ariaLabel="Copy XML feed URL"
