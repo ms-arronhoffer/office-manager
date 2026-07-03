@@ -547,7 +547,104 @@ async def parse_hvac_contract(
     )
 
 
-# ── Maintenance ticket intelligence (Phase 2) ────────────────────────────────
+# ── Lease template drafting from a document (Residential parity) ──────────────
+#
+# Unlike the field parsers above, this turns a real lease document into a
+# reusable :class:`~app.models.lease_template.LeaseTemplate` body: the model
+# rewrites the concrete lease into a generic template, replacing tenant/unit/term
+# specifics with ``{{merge_field}}`` placeholders so staff can reuse it to send
+# and e-sign future resident leases.
+
+# Merge fields the resident-lease e-signing engine can interpolate. Keep this in
+# sync with the merge context exposed by the leasing / waiver e-sign engine.
+LEASE_TEMPLATE_MERGE_FIELDS = {
+    "landlord_name": "The organisation / lessor legal name",
+    "tenant_name": "The resident / tenant full name",
+    "unit_number": "The rental unit number or identifier",
+    "property_address": "The full street address of the property/unit",
+    "lease_start_date": "Lease commencement date",
+    "lease_end_date": "Lease expiration date",
+    "lease_term": "The lease term, e.g. '12 months'",
+    "monthly_rent": "The monthly rent amount",
+    "security_deposit": "The security deposit amount",
+    "rent_due_day": "Day of the month rent is due",
+    "late_fee": "Late fee amount or terms",
+    "signing_date": "Date the lease is signed",
+}
+
+LEASE_TEMPLATE_SYSTEM = (
+    "You are a residential leasing assistant that converts a concrete lease "
+    "document into a REUSABLE lease template. Rewrite the supplied lease so that "
+    "any detail specific to one tenant, unit, or term is replaced with a "
+    "{{merge_field}} placeholder, while preserving the legal clauses, structure, "
+    "headings, and wording of the original. Respond ONLY with a JSON object.\n"
+    "\n"
+    "Rules:\n"
+    "- Only use placeholders from the provided merge-field list; use the EXACT "
+    "double-brace syntax, e.g. {{tenant_name}}. Do not invent new placeholders.\n"
+    "- Replace concrete values (names, addresses, unit numbers, dates, dollar "
+    "amounts, term lengths) with the matching placeholder. Leave standard legal "
+    "clause text intact.\n"
+    "- Preserve the document's paragraph/section structure and readable "
+    "formatting (line breaks, numbered clauses).\n"
+    "- Do NOT invent clauses, obligations, or terms that are not in the source "
+    "document.\n"
+    "- The JSON object must have exactly these keys: name (a short descriptive "
+    "template name), description (one sentence describing the template), and body "
+    "(the full templated lease text with placeholders)."
+)
+
+
+async def draft_lease_template_from_document(
+    content: bytes,
+    mime_type: str,
+    *,
+    text_content: str | None = None,
+) -> dict[str, Any]:
+    """Turn a lease document into a reusable lease-template ``{name, description, body}``.
+
+    For PDFs/images the raw bytes are sent inline; for Word/text documents the
+    caller extracts plain text first and passes it as ``text_content``.
+    """
+    payload = _cache_payload(content, text_content)
+    key = _cache_key("lease_template", payload)
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+
+    merge_spec = "\n".join(
+        f"- {{{{{k}}}}}: {v}" for k, v in LEASE_TEMPLATE_MERGE_FIELDS.items()
+    )
+    prompt = (
+        "Convert the following lease document into a reusable lease template. "
+        "Use only these merge fields where a tenant/unit/term-specific value "
+        "appears:\n" + merge_spec + "\n"
+    )
+    if text_content is not None:
+        document = text_content[:MAX_TEXT_CHARS].strip()
+        if not document:
+            raise AIRequestError("The document did not contain any readable text.")
+        parts = [
+            {"text": prompt},
+            {"text": "\n\nLEASE DOCUMENT TEXT:\n" + document},
+        ]
+    else:
+        parts = [{"text": prompt}, _document_part(content, mime_type)]
+
+    text = await _generate(
+        parts, system_instruction=LEASE_TEMPLATE_SYSTEM, json_response=True
+    )
+    result = _parse_json_object(text)
+    body = result.get("body")
+    if not isinstance(body, str) or not body.strip():
+        raise AIRequestError("AI provider did not return a template body")
+    normalized = {
+        "name": (result.get("name") or "Lease Template").strip()[:255],
+        "description": (result.get("description") or None),
+        "body": body,
+    }
+    _cache_put(key, normalized)
+    return normalized
 #
 # Unlike the document parsers above, ticket triage and email drafting work from
 # short free-text inputs rather than uploaded files, so they don't go through

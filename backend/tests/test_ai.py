@@ -66,6 +66,49 @@ async def test_basic_lease_parse_allowed_on_starter(client, db_session, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_lease_template_draft_from_document(client, db_session, monkeypatch):
+    """AI drafts a reusable lease template (with merge fields) from a document."""
+    headers = await _make_org_user(db_session, "starter", "tmpl@test.com")
+
+    captured = {}
+
+    async def fake_draft(content, mime_type, *, text_content=None):
+        captured["text_content"] = text_content
+        return {
+            "name": "Residential Lease",
+            "description": "Standard 12-month lease",
+            "body": "This lease is between {{landlord_name}} and {{tenant_name}}.",
+        }
+
+    monkeypatch.setattr(ai_service, "draft_lease_template_from_document", fake_draft)
+
+    resp = await client.post(
+        "/api/v1/ai/lease-templates/parse", headers=headers, files={"file": _doc()}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["name"] == "Residential Lease"
+    assert "{{tenant_name}}" in body["body"]
+    # A .txt document is extracted to text before being sent to the model.
+    assert captured["text_content"] is not None
+
+
+@pytest.mark.asyncio
+async def test_lease_template_draft_degrades_when_unconfigured(client, db_session, monkeypatch):
+    headers = await _make_org_user(db_session, "starter", "tmpl2@test.com")
+
+    async def fake_draft(content, mime_type, *, text_content=None):
+        raise ai_service.AIUnavailableError("AI assist is not configured")
+
+    monkeypatch.setattr(ai_service, "draft_lease_template_from_document", fake_draft)
+
+    resp = await client.post(
+        "/api/v1/ai/lease-templates/parse", headers=headers, files={"file": _doc()}
+    )
+    assert resp.status_code == 503, resp.text
+
+
+@pytest.mark.asyncio
 async def test_basic_lease_parse_degrades_when_unconfigured(client, db_session, monkeypatch):
     headers = await _make_org_user(db_session, "starter", "starter2@test.com")
 

@@ -23,7 +23,12 @@ from sqlalchemy.orm import selectinload
 
 from app.auth.dependencies import get_current_user, require_role
 from app.database import get_db
-from app.models.listing import LISTING_STATUSES, VacancyListing
+from app.models.listing import (
+    LISTING_STATUSES,
+    PORTAL_DELIVERY_MODES,
+    ListingPortal,
+    VacancyListing,
+)
 from app.models.user import User
 from app.services import listings_service as svc
 from app.services.listings_service import ListingError
@@ -94,6 +99,59 @@ class ListingResponse(BaseModel):
         from_attributes = True
 
 
+# ─── Portal & syndication schemas ─────────────────────────────────────────────
+
+class PortalCreate(BaseModel):
+    name: str
+    slug: str = "custom"
+    website_url: str | None = None
+    endpoint_url: str | None = None
+    delivery_mode: str = "feed"
+    is_enabled: bool = True
+    config: dict | None = None
+
+
+class PortalUpdate(BaseModel):
+    name: str | None = None
+    slug: str | None = None
+    website_url: str | None = None
+    endpoint_url: str | None = None
+    delivery_mode: str | None = None
+    is_enabled: bool | None = None
+    config: dict | None = None
+
+
+class PortalResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    website_url: str | None
+    endpoint_url: str | None
+    delivery_mode: str
+    is_enabled: bool
+    config: dict | None
+
+    class Config:
+        from_attributes = True
+
+
+class SyndicateRequest(BaseModel):
+    portal_ids: list[uuid.UUID]
+
+
+class SyndicationResponse(BaseModel):
+    id: uuid.UUID
+    listing_id: uuid.UUID
+    portal_id: uuid.UUID
+    status: str
+    external_reference: str | None
+    message: str | None
+    last_synced_at: datetime | None
+
+    class Config:
+        from_attributes = True
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async def _get(db: AsyncSession, listing_id: uuid.UUID, org_id) -> VacancyListing:
@@ -145,6 +203,92 @@ async def create_listing(
     await db.commit()
     await db.refresh(listing)
     return listing
+
+
+# ─── Portal management (declared before /{listing_id} to avoid path clash) ────
+
+@router.get("/portals/catalog")
+async def portal_catalog(
+    _: User = Depends(get_current_user),
+):
+    """Return the built-in catalog of well-known listing portals."""
+    return svc.known_portal_catalog()
+
+
+@router.get("/portals", response_model=list[PortalResponse])
+async def list_portals(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await svc.list_portals(db, current_user.organization_id)
+
+
+@router.post("/portals", response_model=PortalResponse, status_code=status.HTTP_201_CREATED)
+async def create_portal(
+    payload: PortalCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Editor),
+):
+    if payload.delivery_mode not in PORTAL_DELIVERY_MODES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"delivery_mode must be one of {', '.join(PORTAL_DELIVERY_MODES)}.",
+        )
+    if payload.delivery_mode == "webhook" and not payload.endpoint_url:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "endpoint_url is required for webhook delivery portals.",
+        )
+    portal = ListingPortal(
+        organization_id=current_user.organization_id,
+        **payload.model_dump(),
+    )
+    db.add(portal)
+    await db.commit()
+    await db.refresh(portal)
+    return portal
+
+
+@router.patch("/portals/{portal_id}", response_model=PortalResponse)
+async def update_portal(
+    portal_id: uuid.UUID,
+    payload: PortalUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Editor),
+):
+    portal = await svc.get_portal(db, portal_id, current_user.organization_id)
+    if portal is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Portal not found.")
+    data = payload.model_dump(exclude_unset=True)
+    if data.get("delivery_mode") and data["delivery_mode"] not in PORTAL_DELIVERY_MODES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"delivery_mode must be one of {', '.join(PORTAL_DELIVERY_MODES)}.",
+        )
+    for field, value in data.items():
+        setattr(portal, field, value)
+    if portal.delivery_mode == "webhook" and not portal.endpoint_url:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "endpoint_url is required for webhook delivery portals.",
+        )
+    await db.commit()
+    await db.refresh(portal)
+    return portal
+
+
+@router.delete("/portals/{portal_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_portal(
+    portal_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Admin),
+):
+    portal = await svc.get_portal(db, portal_id, current_user.organization_id)
+    if portal is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Portal not found.")
+    portal.is_deleted = True
+    portal.deleted_at = datetime.utcnow()
+    await db.commit()
 
 
 @router.get("/{listing_id}", response_model=ListingResponse)
@@ -222,6 +366,56 @@ async def delete_listing(
     listing.is_deleted = True
     listing.deleted_at = datetime.utcnow()
     await db.commit()
+
+
+# ─── Per-listing syndication ──────────────────────────────────────────────────
+
+@router.post("/{listing_id}/syndicate", response_model=list[SyndicationResponse])
+async def syndicate_listing(
+    listing_id: uuid.UUID,
+    payload: SyndicateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Editor),
+):
+    """Post a published listing to the given portals.
+
+    The listing must be ``published`` before it can be syndicated. Each portal is
+    delivered to independently; a failure on one portal is recorded on its
+    syndication record and does not block the others.
+    """
+    listing = await _get(db, listing_id, current_user.organization_id)
+    if listing.status != "published":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Only a published listing can be syndicated.",
+        )
+    if not payload.portal_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No portals provided.")
+    portals: list[ListingPortal] = []
+    for portal_id in payload.portal_ids:
+        portal = await svc.get_portal(db, portal_id, current_user.organization_id)
+        if portal is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Portal {portal_id} not found.")
+        if not portal.is_enabled:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, f"Portal '{portal.name}' is disabled."
+            )
+        portals.append(portal)
+    results = await svc.syndicate_listing(db, listing, portals)
+    await db.commit()
+    for record in results:
+        await db.refresh(record)
+    return results
+
+
+@router.get("/{listing_id}/syndications", response_model=list[SyndicationResponse])
+async def list_listing_syndications(
+    listing_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await _get(db, listing_id, current_user.organization_id)
+    return await svc.list_syndications(db, listing_id)
 
 
 # ─── Public syndication feeds ─────────────────────────────────────────────────
