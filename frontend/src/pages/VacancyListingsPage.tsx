@@ -13,6 +13,8 @@ import Badge from '@cloudscape-design/components/badge';
 import Checkbox from '@cloudscape-design/components/checkbox';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
+import { useAuth } from '@/auth/AuthContext';
+import { copyToClipboard } from '@/utils/clipboard';
 import { listings, leasing } from '@/api';
 import type {
   VacancyListing,
@@ -37,6 +39,7 @@ const listingBadge = (s: ListingStatus) => {
 
 const VacancyListingsPage: React.FC = () => {
   const { addFlash } = useFlashbar();
+  const { user } = useAuth();
   const [items, setItems] = useState<VacancyListing[]>([]);
   const [units, setUnits] = useState<RentalUnit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -296,6 +299,31 @@ const VacancyListingsPage: React.FC = () => {
     [catalog, portals],
   );
 
+  // ── Syndication feed URLs (read-only, admin/super-admin only) ────────────────
+  const canSeeFeed = user?.role === 'admin' || user?.is_super_admin === true;
+  const organizationId = user?.organization_id;
+  const feedUrls = useMemo(() => {
+    if (!organizationId) return null;
+    const apiBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+    const absoluteBase = apiBase.startsWith('http')
+      ? apiBase
+      : `${window.location.origin}${apiBase}`;
+    return {
+      json: `${absoluteBase}/listings/feed/${organizationId}`,
+      xml: `${absoluteBase}/listings/feed/${organizationId}.xml`,
+    };
+  }, [organizationId]);
+
+  const copyFeedUrl = async (url: string) => {
+    const ok = await copyToClipboard(url);
+    addFlash({
+      type: ok ? 'success' : 'error',
+      content: ok
+        ? 'Feed URL copied to clipboard.'
+        : 'Could not copy automatically. Select the URL and copy it manually.',
+    });
+  };
+
   return (
     <SpaceBetween size="l">
       <Table<VacancyListing>
@@ -505,6 +533,53 @@ const VacancyListingsPage: React.FC = () => {
           <Box>
             <Button onClick={addCustomPortal}>Add custom portal</Button>
           </Box>
+
+          {canSeeFeed && (
+            <SpaceBetween size="s">
+              <Header
+                variant="h3"
+                description="Portals configured in “feed” mode ingest this URL to pull your published listings automatically."
+              >
+                Your syndication feed
+              </Header>
+              {feedUrls ? (
+                <>
+                  <FormField
+                    label="JSON feed URL"
+                    description="Generic JSON feed of published listings."
+                  >
+                    <SpaceBetween direction="horizontal" size="xs">
+                      <Input value={feedUrls.json} readOnly controlId="feed-json-url" />
+                      <Button
+                        iconName="copy"
+                        ariaLabel="Copy JSON feed URL"
+                        onClick={() => copyFeedUrl(feedUrls.json)}
+                      >
+                        Copy
+                      </Button>
+                    </SpaceBetween>
+                  </FormField>
+                  <FormField label="XML feed URL" description="Property XML feed of published listings.">
+                    <SpaceBetween direction="horizontal" size="xs">
+                      <Input value={feedUrls.xml} readOnly controlId="feed-xml-url" />
+                      <Button
+                        iconName="copy"
+                        ariaLabel="Copy XML feed URL"
+                        onClick={() => copyFeedUrl(feedUrls.xml)}
+                      >
+                        Copy
+                      </Button>
+                    </SpaceBetween>
+                  </FormField>
+                </>
+              ) : (
+                <Box color="text-status-inactive">
+                  Your syndication feed URL is unavailable because your account is not linked to an
+                  organization.
+                </Box>
+              )}
+            </SpaceBetween>
+          )}
         </SpaceBetween>
       </Modal>
 
