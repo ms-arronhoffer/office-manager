@@ -186,7 +186,7 @@ const LeaseTemplatesPage: React.FC = () => {
                   loading={drafting}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  Draft from document
+                  Create template from a lease (AI)
                 </Button>
                 <Button variant="primary" onClick={openCreate}>
                   Add template
