@@ -14,6 +14,8 @@ import { useFlashbar } from '@/context/FlashbarContext';
 import { leaseTemplates } from '@/api';
 import type { LeaseTemplate } from '@/types';
 
+// Merge fields available in the backend's build_lease_merge_context()
+// (backend/app/services/leasing_funnel_service.py). Keep this list in sync.
 const MERGE_FIELDS = [
   'tenant_name',
   'tenant_names',

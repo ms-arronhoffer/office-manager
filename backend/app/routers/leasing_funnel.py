@@ -508,6 +508,9 @@ async def create_lease_signature_from_template(
     await db.commit()
     req = await _load_signature_request(db, req.id, org_id)
     return req
+
+
+@router.get("/lease-signatures", response_model=list[LeaseSignatureResponse])
 async def list_lease_signatures(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
