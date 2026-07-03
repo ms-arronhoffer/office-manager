@@ -4,6 +4,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
 import Modal from '@cloudscape-design/components/modal';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
@@ -329,22 +330,13 @@ const LeasingFunnelPage: React.FC = () => {
         empty={<Box textAlign="center">No signature requests yet.</Box>}
       />
 
-      <Modal
+      <EntityFormModal
         visible={appOpen}
-        onDismiss={() => setAppOpen(false)}
-        header="Add application"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setAppOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={savingApp} onClick={saveApp}>
-                Save
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setAppOpen(false)}
+        title="Add application"
+        submitLabel="Save"
+        submitting={savingApp}
+        onSubmit={saveApp}
       >
         <SpaceBetween size="m">
           <FormField label="Unit">
@@ -373,7 +365,7 @@ const LeasingFunnelPage: React.FC = () => {
             </FormField>
           </ColumnLayout>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
       <Modal
         visible={screenOpen}
@@ -415,22 +407,13 @@ const LeasingFunnelPage: React.FC = () => {
         )}
       </Modal>
 
-      <Modal
+      <EntityFormModal
         visible={sigOpen}
-        onDismiss={() => setSigOpen(false)}
-        header="New lease signature request"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setSigOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={savingSig} onClick={saveSig}>
-                Send
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setSigOpen(false)}
+        title="New lease signature request"
+        submitLabel="Send"
+        submitting={savingSig}
+        onSubmit={saveSig}
       >
         <SpaceBetween size="m">
           <FormField label="Title">
@@ -478,7 +461,7 @@ const LeasingFunnelPage: React.FC = () => {
             </SpaceBetween>
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
     </SpaceBetween>
   );
 };

@@ -6,6 +6,7 @@ import Button from '@cloudscape-design/components/button';
 import Box from '@cloudscape-design/components/box';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Modal from '@cloudscape-design/components/modal';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import Form from '@cloudscape-design/components/form';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
@@ -190,23 +191,14 @@ const TicketCategoriesPage: React.FC = () => {
       </SpaceBetween>
 
       {/* Create Modal */}
-      <Modal
+      <EntityFormModal
         visible={modalMode === 'create'}
-        onDismiss={closeModal}
-        header="Add Category"
+        title="Add Category"
+        onCancel={closeModal}
+        onSubmit={handleCreate}
+        submitting={saving}
+        submitLabel="Add Category"
         size="medium"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={closeModal} disabled={saving}>
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={handleCreate} loading={saving} loadingText="Saving...">
-                Add Category
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
       >
         <Form>
           <SpaceBetween size="m">
@@ -228,7 +220,7 @@ const TicketCategoriesPage: React.FC = () => {
             </FormField>
           </SpaceBetween>
         </Form>
-      </Modal>
+      </EntityFormModal>
 
       {/* Delete Confirmation Modal */}
       <Modal

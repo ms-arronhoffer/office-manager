@@ -5,7 +5,7 @@ import Container from '@cloudscape-design/components/container';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
-import Modal from '@cloudscape-design/components/modal';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -333,19 +333,14 @@ const AccountsPayablePage: React.FC = () => {
       </SpaceBetween>
 
       {/* New bill modal */}
-      <Modal
+      <EntityFormModal
         visible={billModalOpen}
-        onDismiss={() => setBillModalOpen(false)}
-        header="New vendor bill"
+        title="New vendor bill"
+        onCancel={() => setBillModalOpen(false)}
+        onSubmit={submitBill}
+        submitting={savingBill}
+        submitLabel="Create"
         size="large"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setBillModalOpen(false)}>Cancel</Button>
-              <Button variant="primary" loading={savingBill} onClick={submitBill}>Create</Button>
-            </SpaceBetween>
-          </Box>
-        }
       >
         <SpaceBetween size="m">
           <FormField label="Vendor">
@@ -418,21 +413,16 @@ const AccountsPayablePage: React.FC = () => {
             </SpaceBetween>
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
       {/* Payment modal */}
-      <Modal
+      <EntityFormModal
         visible={payModalOpen}
-        onDismiss={() => setPayModalOpen(false)}
-        header="Record payment"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setPayModalOpen(false)}>Cancel</Button>
-              <Button variant="primary" loading={savingPay} onClick={submitPayment}>Record</Button>
-            </SpaceBetween>
-          </Box>
-        }
+        title="Record payment"
+        onCancel={() => setPayModalOpen(false)}
+        onSubmit={submitPayment}
+        submitting={savingPay}
+        submitLabel="Record"
       >
         <SpaceBetween size="m">
           <Box>Outstanding balance: <strong>{fmt(payBill?.balance_due)}</strong></Box>
@@ -451,7 +441,7 @@ const AccountsPayablePage: React.FC = () => {
             </FormField>
           </ColumnLayout>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
     </ContentLayout>
   );
 };

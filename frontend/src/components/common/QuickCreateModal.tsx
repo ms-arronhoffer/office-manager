@@ -1,10 +1,5 @@
 import React from 'react';
-import Modal from '@cloudscape-design/components/modal';
-import Box from '@cloudscape-design/components/box';
-import SpaceBetween from '@cloudscape-design/components/space-between';
-import Button from '@cloudscape-design/components/button';
-import Form from '@cloudscape-design/components/form';
-import Alert from '@cloudscape-design/components/alert';
+import EntityFormModal from './EntityFormModal';
 
 interface QuickCreateModalProps {
   visible: boolean;
@@ -20,50 +15,13 @@ interface QuickCreateModalProps {
 }
 
 /**
- * Shared modal chrome for the "Add new" quick-create flow. Renders a Cloudscape
- * Modal with a Form body and Cancel/Create footer buttons so each entity's
- * quick-create form only has to provide its fields and a submit handler.
+ * Shared modal chrome for the "Add new" quick-create flow. Thin wrapper over
+ * {@link EntityFormModal} (the canonical entity form modal) that keeps the
+ * quick-create default submit label of "Create".
  */
 const QuickCreateModal: React.FC<QuickCreateModalProps> = ({
-  visible,
-  title,
-  onSubmit,
-  onCancel,
-  submitting = false,
-  submitDisabled = false,
-  error,
   submitLabel = 'Create',
-  children,
-}) => (
-  <Modal
-    visible={visible}
-    header={title}
-    onDismiss={onCancel}
-    footer={
-      <Box float="right">
-        <SpaceBetween direction="horizontal" size="xs">
-          <Button variant="link" onClick={onCancel} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={onSubmit}
-            loading={submitting}
-            disabled={submitDisabled}
-          >
-            {submitLabel}
-          </Button>
-        </SpaceBetween>
-      </Box>
-    }
-  >
-    <Form>
-      <SpaceBetween size="m">
-        {error && <Alert type="error">{error}</Alert>}
-        {children}
-      </SpaceBetween>
-    </Form>
-  </Modal>
-);
+  ...rest
+}) => <EntityFormModal submitLabel={submitLabel} {...rest} />;
 
 export default QuickCreateModal;

@@ -5,7 +5,7 @@ import Container from '@cloudscape-design/components/container';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
-import Modal from '@cloudscape-design/components/modal';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -435,19 +435,14 @@ const AccountsReceivablePage: React.FC = () => {
       </SpaceBetween>
 
       {/* New invoice modal */}
-      <Modal
+      <EntityFormModal
         visible={invModalOpen}
-        onDismiss={() => setInvModalOpen(false)}
-        header="New customer invoice"
+        title="New customer invoice"
+        onCancel={() => setInvModalOpen(false)}
+        onSubmit={submitInvoice}
+        submitting={savingInv}
+        submitLabel="Create"
         size="large"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setInvModalOpen(false)}>Cancel</Button>
-              <Button variant="primary" loading={savingInv} onClick={submitInvoice}>Create</Button>
-            </SpaceBetween>
-          </Box>
-        }
       >
         <SpaceBetween size="m">
           <FormField label="Customer">
@@ -523,21 +518,16 @@ const AccountsReceivablePage: React.FC = () => {
             </SpaceBetween>
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
       {/* Receipt modal */}
-      <Modal
+      <EntityFormModal
         visible={rcptModalOpen}
-        onDismiss={() => setRcptModalOpen(false)}
-        header="Record receipt"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setRcptModalOpen(false)}>Cancel</Button>
-              <Button variant="primary" loading={savingRcpt} onClick={submitReceipt}>Record</Button>
-            </SpaceBetween>
-          </Box>
-        }
+        title="Record receipt"
+        onCancel={() => setRcptModalOpen(false)}
+        onSubmit={submitReceipt}
+        submitting={savingRcpt}
+        submitLabel="Record"
       >
         <SpaceBetween size="m">
           <Box>Outstanding balance: <strong>{fmt(rcptInvoice?.balance_due)}</strong></Box>
@@ -556,21 +546,16 @@ const AccountsReceivablePage: React.FC = () => {
             </FormField>
           </ColumnLayout>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
       {/* New customer modal */}
-      <Modal
+      <EntityFormModal
         visible={custModalOpen}
-        onDismiss={() => setCustModalOpen(false)}
-        header="New customer"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setCustModalOpen(false)}>Cancel</Button>
-              <Button variant="primary" loading={savingCust} onClick={submitCustomer}>Create</Button>
-            </SpaceBetween>
-          </Box>
-        }
+        title="New customer"
+        onCancel={() => setCustModalOpen(false)}
+        onSubmit={submitCustomer}
+        submitting={savingCust}
+        submitLabel="Create"
       >
         <SpaceBetween size="m">
           <FormField label="Name">
@@ -580,7 +565,7 @@ const AccountsReceivablePage: React.FC = () => {
             <Input value={custEmail} onChange={({ detail }) => setCustEmail(detail.value)} />
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
     </ContentLayout>
   );
 };

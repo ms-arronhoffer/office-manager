@@ -3,7 +3,6 @@ import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
-import Modal from '@cloudscape-design/components/modal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
@@ -13,9 +12,11 @@ import Badge from '@cloudscape-design/components/badge';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useAuth } from '@/auth/AuthContext';
-import { leasing } from '@/api';
+import { leasing, attachments as attachmentsApi } from '@/api';
 import PortalInviteButton from '@/components/common/PortalInviteButton';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
+import EntityFormModal from '@/components/common/EntityFormModal';
+import FileUploadField, { type QueuedFile } from '@/components/common/FileUploadField';
 import type { Resident, ResidentStatus } from '@/types';
 
 const RESIDENT_STATUSES: ResidentStatus[] = ['prospect', 'current', 'past'];
@@ -53,6 +54,8 @@ const ResidentsPage: React.FC = () => {
   const [emergencyPhone, setEmergencyPhone] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,6 +91,8 @@ const ResidentsPage: React.FC = () => {
     setEmergencyName('');
     setEmergencyPhone('');
     setNotes('');
+    setError(null);
+    setQueuedFiles([]);
     setModalOpen(true);
   };
 
@@ -108,15 +113,18 @@ const ResidentsPage: React.FC = () => {
     setEmergencyName(r.emergency_contact_name ?? '');
     setEmergencyPhone(r.emergency_contact_phone ?? '');
     setNotes(r.notes ?? '');
+    setError(null);
+    setQueuedFiles([]);
     setModalOpen(true);
   };
 
   const save = async () => {
     if (!firstName.trim() || !lastName.trim()) {
-      addFlash({ type: 'error', content: 'First and last name are required.' });
+      setError('First and last name are required.');
       return;
     }
     setSaving(true);
+    setError(null);
     try {
       const payload = {
         first_name: firstName.trim(),
@@ -139,13 +147,29 @@ const ResidentsPage: React.FC = () => {
         await leasing.updateResident(editing.id, payload);
         addFlash({ type: 'success', content: 'Resident updated.' });
       } else {
-        await leasing.createResident(payload);
-        addFlash({ type: 'success', content: 'Resident created.' });
+        const res = await leasing.createResident(payload);
+        const newId = String(res.data.id);
+        const failed: string[] = [];
+        for (const qf of queuedFiles) {
+          try {
+            await attachmentsApi.upload('resident', newId, qf.file);
+          } catch {
+            failed.push(qf.file.name);
+          }
+        }
+        if (failed.length > 0) {
+          addFlash({
+            type: 'warning',
+            content: `Resident created, but ${failed.length} attachment(s) failed: ${failed.join(', ')}.`,
+          });
+        } else {
+          addFlash({ type: 'success', content: 'Resident created.' });
+        }
       }
       setModalOpen(false);
       await load();
     } catch {
-      addFlash({ type: 'error', content: 'Failed to save resident.' });
+      setError('Failed to save resident.');
     } finally {
       setSaving(false);
     }
@@ -222,22 +246,14 @@ const ResidentsPage: React.FC = () => {
         empty={<Box textAlign="center">No residents yet.</Box>}
       />
 
-      <Modal
+      <EntityFormModal
         visible={modalOpen}
-        onDismiss={() => setModalOpen(false)}
-        header={editing ? 'Edit resident' : 'Add resident'}
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={saving} onClick={save}>
-                Save
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setModalOpen(false)}
+        title={editing ? 'Edit resident' : 'Add resident'}
+        size="large"
+        onSubmit={save}
+        submitting={saving}
+        error={error}
       >
         <SpaceBetween size="m">
           <ColumnLayout columns={2}>
@@ -302,15 +318,17 @@ const ResidentsPage: React.FC = () => {
           <FormField label="Notes">
             <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
           </FormField>
-          {editing && (
+          {editing ? (
             <AttachmentsPanel
               entityType="resident"
               entityId={editing.id}
               canEdit={canEditDocuments}
             />
+          ) : (
+            <FileUploadField files={queuedFiles} onChange={setQueuedFiles} disabled={saving} />
           )}
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
     </SpaceBetween>
   );
 };

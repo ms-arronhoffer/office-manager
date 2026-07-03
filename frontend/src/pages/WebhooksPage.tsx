@@ -6,6 +6,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Box from '@cloudscape-design/components/box';
 import Modal from '@cloudscape-design/components/modal';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -236,21 +237,14 @@ const WebhooksPage: React.FC = () => {
       />
 
       {/* Create / Edit Modal */}
-      <Modal
+      <EntityFormModal
         visible={modalOpen}
-        onDismiss={() => setModalOpen(false)}
-        header={editingWebhook ? 'Edit webhook' : 'Add webhook'}
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setModalOpen(false)}>Cancel</Button>
-              <Button variant="primary" loading={saving} onClick={handleSave}
-                disabled={!url.trim()}>
-                {editingWebhook ? 'Save changes' : 'Create webhook'}
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        title={editingWebhook ? 'Edit webhook' : 'Add webhook'}
+        onCancel={() => setModalOpen(false)}
+        onSubmit={handleSave}
+        submitting={saving}
+        submitDisabled={!url.trim()}
+        submitLabel={editingWebhook ? 'Save changes' : 'Create webhook'}
       >
         <SpaceBetween size="m">
           <FormField label="Endpoint URL" description="Must be publicly reachable (https:// recommended).">
@@ -281,7 +275,7 @@ const WebhooksPage: React.FC = () => {
             />
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
       {/* Delivery History Modal */}
       <Modal

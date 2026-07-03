@@ -3,7 +3,6 @@ import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
-import Modal from '@cloudscape-design/components/modal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
@@ -15,6 +14,7 @@ import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { owners as ownersApi } from '@/api';
 import PortalInviteButton from '@/components/common/PortalInviteButton';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import type {
   PropertyOwner,
   OwnerStatus,
@@ -534,22 +534,13 @@ const OwnersPage: React.FC = () => {
       />
 
       {/* Owner modal */}
-      <Modal
+      <EntityFormModal
         visible={ownerOpen}
-        onDismiss={() => setOwnerOpen(false)}
-        header={editing ? 'Edit owner' : 'Add owner'}
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setOwnerOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={savingOwner} onClick={saveOwner}>
-                Save
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setOwnerOpen(false)}
+        title={editing ? 'Edit owner' : 'Add owner'}
+        submitLabel="Save"
+        submitting={savingOwner}
+        onSubmit={saveOwner}
       >
         <SpaceBetween size="m">
           <FormField label="Name">
@@ -583,25 +574,16 @@ const OwnersPage: React.FC = () => {
             <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
       {/* Ledger entry modal */}
-      <Modal
+      <EntityFormModal
         visible={ledgerOpen}
-        onDismiss={() => setLedgerOpen(false)}
-        header="Add ledger entry"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setLedgerOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={savingEntry} onClick={saveEntry}>
-                Post
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setLedgerOpen(false)}
+        title="Add ledger entry"
+        submitLabel="Post"
+        submitting={savingEntry}
+        onSubmit={saveEntry}
       >
         <SpaceBetween size="m">
           <FormField label="Entry type">
@@ -624,25 +606,16 @@ const OwnersPage: React.FC = () => {
             <Input value={entryDesc} onChange={({ detail }) => setEntryDesc(detail.value)} />
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
       {/* Distribution modal */}
-      <Modal
+      <EntityFormModal
         visible={distOpen}
-        onDismiss={() => setDistOpen(false)}
-        header="New distribution"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setDistOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={savingDist} onClick={saveDist}>
-                Create
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setDistOpen(false)}
+        title="New distribution"
+        submitLabel="Create"
+        submitting={savingDist}
+        onSubmit={saveDist}
       >
         <SpaceBetween size="m">
           <FormField label="Amount">
@@ -665,25 +638,16 @@ const OwnersPage: React.FC = () => {
             <Input value={distMemo} onChange={({ detail }) => setDistMemo(detail.value)} />
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
       {/* Trust account modal */}
-      <Modal
+      <EntityFormModal
         visible={trustOpen}
-        onDismiss={() => setTrustOpen(false)}
-        header={editingTrust ? 'Edit trust account' : 'Add trust account'}
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setTrustOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={savingTrust} onClick={saveTrust}>
-                Save
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setTrustOpen(false)}
+        title={editingTrust ? 'Edit trust account' : 'Add trust account'}
+        submitLabel="Save"
+        submitting={savingTrust}
+        onSubmit={saveTrust}
       >
         <SpaceBetween size="m">
           <FormField label="Account name">
@@ -696,7 +660,7 @@ const OwnersPage: React.FC = () => {
             <Input value={trustLast4} onChange={({ detail }) => setTrustLast4(detail.value)} />
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
     </SpaceBetween>
   );
 };

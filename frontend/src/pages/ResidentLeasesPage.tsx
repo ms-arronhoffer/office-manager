@@ -3,7 +3,7 @@ import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
-import Modal from '@cloudscape-design/components/modal';
+import EntityFormModal from '@/components/common/EntityFormModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
@@ -349,22 +349,14 @@ const ResidentLeasesPage: React.FC = () => {
         empty={<Box textAlign="center">No leases yet.</Box>}
       />
 
-      <Modal
+      <EntityFormModal
         visible={modalOpen}
-        onDismiss={() => setModalOpen(false)}
-        header={editing ? 'Edit lease' : 'Add lease'}
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={saving} onClick={save}>
-                Save
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setModalOpen(false)}
+        title={editing ? 'Edit lease' : 'Add lease'}
+        size="large"
+        submitLabel="Save"
+        submitting={saving}
+        onSubmit={save}
       >
         <SpaceBetween size="m">
           <FormField label="Unit">
@@ -495,24 +487,15 @@ const ResidentLeasesPage: React.FC = () => {
             <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
 
-      <Modal
+      <EntityFormModal
         visible={esignOpen}
-        onDismiss={() => setEsignOpen(false)}
-        header="Send lease for e-signature"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setEsignOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={esignSending} onClick={sendEsign}>
-                Send
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setEsignOpen(false)}
+        title="Send lease for e-signature"
+        submitLabel="Send"
+        submitting={esignSending}
+        onSubmit={sendEsign}
       >
         <SpaceBetween size="m">
           <Box variant="p">
@@ -537,7 +520,7 @@ const ResidentLeasesPage: React.FC = () => {
             />
           </FormField>
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
     </SpaceBetween>
   );
 };
