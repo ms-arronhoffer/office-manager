@@ -13,7 +13,9 @@ import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
+import { useAuth } from '@/auth/AuthContext';
 import { leasing, offices as officesApi } from '@/api';
+import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import type { RentalUnit, UnitStatus, Office, OccupancySummary } from '@/types';
 
 const fmtMoney = (v: string | null) =>
@@ -32,6 +34,8 @@ interface Opt { label: string; value: string; }
 
 const LeasingUnitsPage: React.FC = () => {
   const { addFlash } = useFlashbar();
+  const { user } = useAuth();
+  const canEditDocuments = user?.role === 'admin' || user?.role === 'editor';
   const [units, setUnits] = useState<RentalUnit[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
   const [occupancy, setOccupancy] = useState<OccupancySummary | null>(null);
@@ -411,6 +415,13 @@ const LeasingUnitsPage: React.FC = () => {
           <FormField label="Notes">
             <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
           </FormField>
+          {editing && (
+            <AttachmentsPanel
+              entityType="rental_unit"
+              entityId={editing.id}
+              canEdit={canEditDocuments}
+            />
+          )}
         </SpaceBetween>
       </Modal>
     </SpaceBetween>

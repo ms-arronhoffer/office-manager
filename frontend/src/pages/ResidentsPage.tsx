@@ -12,8 +12,10 @@ import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
+import { useAuth } from '@/auth/AuthContext';
 import { leasing } from '@/api';
 import PortalInviteButton from '@/components/common/PortalInviteButton';
+import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import type { Resident, ResidentStatus } from '@/types';
 
 const RESIDENT_STATUSES: ResidentStatus[] = ['prospect', 'current', 'past'];
@@ -27,6 +29,8 @@ interface Opt { label: string; value: string; }
 
 const ResidentsPage: React.FC = () => {
   const { addFlash } = useFlashbar();
+  const { user } = useAuth();
+  const canEditDocuments = user?.role === 'admin' || user?.role === 'editor';
   const [residents, setResidents] = useState<Resident[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<Opt>({ label: 'All statuses', value: '' });
@@ -298,6 +302,13 @@ const ResidentsPage: React.FC = () => {
           <FormField label="Notes">
             <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
           </FormField>
+          {editing && (
+            <AttachmentsPanel
+              entityType="resident"
+              entityId={editing.id}
+              canEdit={canEditDocuments}
+            />
+          )}
         </SpaceBetween>
       </Modal>
     </SpaceBetween>
