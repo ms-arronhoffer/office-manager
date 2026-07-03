@@ -65,6 +65,8 @@ const TicketTemplatesPage = lazy(() => import('@/pages/TicketTemplatesPage'));
 const RecurringTicketsPage = lazy(() => import('@/pages/RecurringTicketsPage'));
 const VendorPortalPage = lazy(() => import('@/pages/VendorPortalPage'));
 const ClientPortalPage = lazy(() => import('@/pages/ClientPortalPage'));
+const ResidentPortalPage = lazy(() => import('@/pages/ResidentPortalPage'));
+const OwnerPortalPage = lazy(() => import('@/pages/OwnerPortalPage'));
 const InsuranceCertificatesPage = lazy(() => import('@/pages/InsuranceCertificatesPage'));
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const DashboardHubPage = lazy(() => import('@/pages/DashboardHubPage'));
@@ -97,6 +99,10 @@ const App: React.FC = () => {
             <Route path="/vendor-portal" element={<VendorPortalPage />} />
             <Route path="/client-portal" element={<ClientPortalPage />} />
             <Route path="/client-portal/signup" element={<ClientPortalPage />} />
+            <Route path="/resident-portal" element={<ResidentPortalPage />} />
+            <Route path="/resident-portal/signup" element={<ResidentPortalPage />} />
+            <Route path="/owner-portal" element={<OwnerPortalPage />} />
+            <Route path="/owner-portal/signup" element={<OwnerPortalPage />} />
             <Route path="/sign/:token" element={<WaiverSignPage />} />
             <Route path="/ack/:token" element={<AckPage />} />
             <Route

@@ -177,6 +177,19 @@ import type {
   IncomeStatementResponse,
   BalanceSheetResponse,
   CashFlowStatementResponse,
+  PortalSession,
+  ResidentPortalProfile,
+  ResidentPortalLease,
+  ResidentPortalBalance,
+  ResidentPortalTicket,
+  ResidentPortalMaintenanceCreate,
+  ResidentPortalAnnouncement,
+  OwnerPortalProfile,
+  OwnerPortalProperty,
+  OwnerPortalLedgerEntry,
+  OwnerPortalBalance,
+  OwnerPortalDistribution,
+  OwnerPortalStatement,
 } from '@/types';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -1177,6 +1190,78 @@ export const clientPortal = {
 
   listMaintenance: (token: string) =>
     _clientPortalClient(token).get<ClientPortalTicket[]>('/client-portal/maintenance'),
+};
+
+// ─── Resident Portal (external: resident self-service, X-Resident-Token) ──────
+const _residentPortalClient = (token: string) =>
+  axios.create({
+    baseURL: _portalBase,
+    headers: { 'Content-Type': 'application/json', 'X-Resident-Token': token },
+  });
+
+export const residentPortal = {
+  signup: (token: string) =>
+    axios
+      .create({ baseURL: _portalBase, headers: { 'Content-Type': 'application/json' } })
+      .post<PortalSession>('/resident-portal/signup', { token }),
+
+  getProfile: (token: string) =>
+    _residentPortalClient(token).get<ResidentPortalProfile>('/resident-portal/me'),
+
+  listLeases: (token: string) =>
+    _residentPortalClient(token).get<ResidentPortalLease[]>('/resident-portal/leases'),
+
+  getBalance: (token: string) =>
+    _residentPortalClient(token).get<ResidentPortalBalance>('/resident-portal/balance'),
+
+  listMaintenanceRequests: (token: string) =>
+    _residentPortalClient(token).get<ResidentPortalTicket[]>('/resident-portal/maintenance-requests'),
+
+  createMaintenanceRequest: (token: string, data: ResidentPortalMaintenanceCreate) =>
+    _residentPortalClient(token).post<ResidentPortalTicket>(
+      '/resident-portal/maintenance-requests',
+      data,
+    ),
+
+  listDocuments: (token: string) =>
+    _residentPortalClient(token).get<Attachment[]>('/resident-portal/documents'),
+
+  listAnnouncements: (token: string) =>
+    _residentPortalClient(token).get<ResidentPortalAnnouncement[]>('/resident-portal/announcements'),
+};
+
+// ─── Owner Portal (external: property-owner self-service, X-Owner-Token) ──────
+const _ownerPortalClient = (token: string) =>
+  axios.create({
+    baseURL: _portalBase,
+    headers: { 'Content-Type': 'application/json', 'X-Owner-Token': token },
+  });
+
+export const ownerPortal = {
+  signup: (token: string) =>
+    axios
+      .create({ baseURL: _portalBase, headers: { 'Content-Type': 'application/json' } })
+      .post<PortalSession>('/owner-portal/signup', { token }),
+
+  getProfile: (token: string) =>
+    _ownerPortalClient(token).get<OwnerPortalProfile>('/owner-portal/me'),
+
+  listProperties: (token: string) =>
+    _ownerPortalClient(token).get<OwnerPortalProperty[]>('/owner-portal/properties'),
+
+  listLedger: (token: string) =>
+    _ownerPortalClient(token).get<OwnerPortalLedgerEntry[]>('/owner-portal/ledger'),
+
+  getBalance: (token: string) =>
+    _ownerPortalClient(token).get<OwnerPortalBalance>('/owner-portal/balance'),
+
+  getStatement: (token: string, startDate?: string, endDate?: string) =>
+    _ownerPortalClient(token).get<OwnerPortalStatement>('/owner-portal/statement', {
+      params: { start_date: startDate || undefined, end_date: endDate || undefined },
+    }),
+
+  listDistributions: (token: string) =>
+    _ownerPortalClient(token).get<OwnerPortalDistribution[]>('/owner-portal/distributions'),
 };
 
 // ─── Insurance Certificates ───────────────────────────────────────────────────

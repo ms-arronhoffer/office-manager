@@ -1171,6 +1171,120 @@ export interface ClientPortalStatus {
   pending_change_requests: number;
 }
 
+// ─── Portal session (shared by resident & owner external portals) ─────────────
+export interface PortalSession {
+  portal_token: string;
+  portal_url: string;
+  expires_at: string;
+}
+
+// ─── Resident Portal (external: resident self-service) ────────────────────────
+export interface ResidentPortalProfile {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  phone: string | null;
+  status: string;
+}
+
+export interface ResidentPortalLease {
+  id: string;
+  name: string | null;
+  status: string;
+  start_date: string | null;
+  end_date: string | null;
+  move_in_date: string | null;
+  rent_amount: string | null;
+  rent_frequency: string;
+  security_deposit: string | null;
+  currency: string;
+  unit_number: string | null;
+  unit_name: string | null;
+}
+
+export interface ResidentPortalBalance {
+  currency: string;
+  monthly_rent: string;
+  security_deposit: string;
+  balance_due: string;
+}
+
+export interface ResidentPortalTicket {
+  id: string;
+  subject: string;
+  description: string;
+  status: string;
+  priority: string;
+  created_at: string;
+}
+
+export interface ResidentPortalMaintenanceCreate {
+  subject: string;
+  description: string;
+  priority: string;
+}
+
+export interface ResidentPortalAnnouncement {
+  id: string;
+  title: string;
+  body: string;
+  sent_at: string | null;
+  read_at: string | null;
+}
+
+// ─── Owner Portal (external: property-owner self-service) ─────────────────────
+export interface OwnerPortalProfile {
+  id: string;
+  owner_type: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  status: string;
+  currency: string;
+}
+
+export interface OwnerPortalProperty {
+  office_id: string;
+  ownership_percent: string;
+  start_date: string | null;
+  end_date: string | null;
+}
+
+export interface OwnerPortalLedgerEntry {
+  id: string;
+  entry_date: string;
+  entry_type: string;
+  amount: string;
+  description: string | null;
+  currency: string;
+}
+
+export interface OwnerPortalBalance {
+  currency: string;
+  balance: string;
+}
+
+export interface OwnerPortalDistribution {
+  id: string;
+  distribution_date: string;
+  amount: string;
+  method: string;
+  reference: string | null;
+  status: string;
+  currency: string;
+}
+
+export interface OwnerPortalStatement {
+  currency: string;
+  start_date: string | null;
+  end_date: string | null;
+  opening_balance: string;
+  closing_balance: string;
+  totals: Record<string, string>;
+  lines: OwnerPortalLedgerEntry[];
+}
+
 // ─── Insurance Certificates ───────────────────────────────────────────────────
 export interface InsuranceCertificate {
   id: string;
