@@ -9,6 +9,7 @@ import Alert from '@cloudscape-design/components/alert';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Icon from '@cloudscape-design/components/icon';
+import FileUpload from '@cloudscape-design/components/file-upload';
 import Modal from '@cloudscape-design/components/modal';
 import ProgressBar from '@cloudscape-design/components/progress-bar';
 import { attachments as attachmentsApi, type UploadLimits } from '@/api';
@@ -47,8 +48,6 @@ const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
   const [limits, setLimits] = useState<UploadLimits | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewName, setPreviewName] = useState<string>('');
-  const [isDragOver, setIsDragOver] = useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Guard against being rendered without an entityId.
   const hasValidEntity = Boolean(entityType && entityId);
@@ -145,7 +144,6 @@ const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
       );
       setSelectedFile(null);
       setDescription('');
-      if (fileInputRef.current) fileInputRef.current.value = '';
       await fetchAttachments();
     } catch (err: unknown) {
       const msg =
@@ -200,24 +198,6 @@ const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
     } finally {
       setDeletingId(null);
     }
-  };
-
-  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(true);
-  };
-  const onDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-  };
-  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-    const dropped = e.dataTransfer.files?.[0] ?? null;
-    pickFile(dropped);
   };
 
   const columnDefinitions = [
@@ -326,37 +306,22 @@ const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
                   : undefined
               }
             >
-              <div
-                onDragOver={onDragOver}
-                onDragLeave={onDragLeave}
-                onDrop={onDrop}
-                style={{
-                  border: `2px dashed ${isDragOver ? '#0073bb' : '#aaa'}`,
-                  borderRadius: 6,
-                  padding: 16,
-                  background: isDragOver ? '#f0f8ff' : 'transparent',
-                  textAlign: 'center',
-                  transition: 'background 0.15s, border-color 0.15s',
+              <FileUpload
+                accept={acceptAttribute}
+                value={selectedFile ? [selectedFile] : []}
+                onChange={({ detail }) => pickFile(detail.value[detail.value.length - 1] ?? null)}
+                showFileLastModified
+                showFileSize
+                constraintText=""
+                i18nStrings={{
+                  uploadButtonText: () => 'Choose file',
+                  dropzoneText: () => 'Drop a file to upload',
+                  removeFileAriaLabel: (i) => `Remove file ${i + 1}`,
+                  limitShowFewer: 'Show fewer files',
+                  limitShowMore: 'Show more files',
+                  errorIconAriaLabel: 'Error',
                 }}
-              >
-                <SpaceBetween size="xs">
-                  <Box color="text-status-inactive">
-                    <Icon name="upload" /> Drag &amp; drop a file here, or use the picker below.
-                  </Box>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept={acceptAttribute}
-                    onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
-                  />
-                  {selectedFile && (
-                    <Box>
-                      Selected: <strong>{selectedFile.name}</strong>{' '}
-                      <span>({formatFileSize(selectedFile.size)})</span>
-                    </Box>
-                  )}
-                </SpaceBetween>
-              </div>
+              />
             </FormField>
             <FormField label="Description (optional)">
               <Input

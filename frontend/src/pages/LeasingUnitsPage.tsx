@@ -4,7 +4,6 @@ import Container from '@cloudscape-design/components/container';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
-import Modal from '@cloudscape-design/components/modal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
@@ -14,8 +13,10 @@ import Badge from '@cloudscape-design/components/badge';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useAuth } from '@/auth/AuthContext';
-import { leasing, offices as officesApi } from '@/api';
+import { leasing, offices as officesApi, attachments as attachmentsApi } from '@/api';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
+import EntityFormModal from '@/components/common/EntityFormModal';
+import FileUploadField, { type QueuedFile } from '@/components/common/FileUploadField';
 import type { RentalUnit, UnitStatus, Office, OccupancySummary } from '@/types';
 
 const fmtMoney = (v: string | null) =>
@@ -65,6 +66,8 @@ const LeasingUnitsPage: React.FC = () => {
   const [amenities, setAmenities] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -136,6 +139,8 @@ const LeasingUnitsPage: React.FC = () => {
     setDescription('');
     setAmenities('');
     setNotes('');
+    setError(null);
+    setQueuedFiles([]);
     setModalOpen(true);
   };
 
@@ -161,15 +166,18 @@ const LeasingUnitsPage: React.FC = () => {
     setDescription(u.description ?? '');
     setAmenities(u.amenities ?? '');
     setNotes(u.notes ?? '');
+    setError(null);
+    setQueuedFiles([]);
     setModalOpen(true);
   };
 
   const save = async () => {
     if (!unitNumber.trim()) {
-      addFlash({ type: 'error', content: 'Unit number is required.' });
+      setError('Unit number is required.');
       return;
     }
     setSaving(true);
+    setError(null);
     try {
       const payload = {
         office_id: officeId || null,
@@ -197,13 +205,29 @@ const LeasingUnitsPage: React.FC = () => {
         await leasing.updateUnit(editing.id, payload);
         addFlash({ type: 'success', content: 'Unit updated.' });
       } else {
-        await leasing.createUnit(payload);
-        addFlash({ type: 'success', content: 'Unit created.' });
+        const res = await leasing.createUnit(payload);
+        const newId = String(res.data.id);
+        const failed: string[] = [];
+        for (const qf of queuedFiles) {
+          try {
+            await attachmentsApi.upload('rental_unit', newId, qf.file);
+          } catch {
+            failed.push(qf.file.name);
+          }
+        }
+        if (failed.length > 0) {
+          addFlash({
+            type: 'warning',
+            content: `Unit created, but ${failed.length} attachment(s) failed: ${failed.join(', ')}.`,
+          });
+        } else {
+          addFlash({ type: 'success', content: 'Unit created.' });
+        }
       }
       setModalOpen(false);
       await load();
     } catch {
-      addFlash({ type: 'error', content: 'Failed to save unit.' });
+      setError('Failed to save unit.');
     } finally {
       setSaving(false);
     }
@@ -292,22 +316,14 @@ const LeasingUnitsPage: React.FC = () => {
         empty={<Box textAlign="center">No rental units yet.</Box>}
       />
 
-      <Modal
+      <EntityFormModal
         visible={modalOpen}
-        onDismiss={() => setModalOpen(false)}
-        header={editing ? 'Edit unit' : 'Add unit'}
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={saving} onClick={save}>
-                Save
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
+        onCancel={() => setModalOpen(false)}
+        title={editing ? 'Edit unit' : 'Add unit'}
+        size="large"
+        onSubmit={save}
+        submitting={saving}
+        error={error}
       >
         <SpaceBetween size="m">
           <FormField label="Property">
@@ -415,15 +431,17 @@ const LeasingUnitsPage: React.FC = () => {
           <FormField label="Notes">
             <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
           </FormField>
-          {editing && (
+          {editing ? (
             <AttachmentsPanel
               entityType="rental_unit"
               entityId={editing.id}
               canEdit={canEditDocuments}
             />
+          ) : (
+            <FileUploadField files={queuedFiles} onChange={setQueuedFiles} disabled={saving} />
           )}
         </SpaceBetween>
-      </Modal>
+      </EntityFormModal>
     </SpaceBetween>
   );
 };
