@@ -2872,6 +2872,45 @@ export interface CashFlowStatementResponse {
   ending_cash: number;
 }
 
+// ─── Accounting Audit / Attestation ──────────────────────────────────────────
+export interface AuditCheck {
+  key: string;
+  description: string;
+  category: string;
+  status: string;
+  detail: string;
+  findings: string[];
+  finding_count: number;
+}
+
+export interface AuditControlAccount {
+  code: string;
+  name: string;
+  balance: number;
+  balance_side: string;
+}
+
+export interface AuditStatementSummary {
+  total_assets: number;
+  total_liabilities: number;
+  total_equity: number;
+  net_income: number;
+  ending_cash: number;
+}
+
+export interface AuditReportResponse {
+  attested: boolean;
+  entry_count: number;
+  total_debits: number;
+  total_credits: number;
+  checks_total: number;
+  checks_passed: number;
+  checks_failed: number;
+  control_accounts: AuditControlAccount[];
+  checks: AuditCheck[];
+  statement_summary: AuditStatementSummary;
+}
+
 // ─── Property Inspections (Phase 1.5) ────────────────────────────────────────
 export type InspectionStatus = 'scheduled' | 'in_progress' | 'completed' | 'canceled';
 export type InspectionResult = 'pass' | 'fail' | 'na';
