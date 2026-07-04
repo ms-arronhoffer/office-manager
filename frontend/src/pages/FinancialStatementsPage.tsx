@@ -100,7 +100,7 @@ const controlColumns = [
     id: 'balance',
     header: 'Balance',
     cell: (a: AuditControlAccount) => (
-      <Box textAlign="right">{fmt(a.balance)} {a.balance_side}</Box>
+      <Box textAlign="right">{fmt(a.balance)} ({a.balance_side})</Box>
     ),
   },
 ];
