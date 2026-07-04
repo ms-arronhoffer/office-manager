@@ -36,6 +36,20 @@ SOURCE_MANAGEMENT_COMPANY = "management_company"
 SOURCE_HVAC_CONTRACT = "hvac_contract"
 SOURCE_TRANSITION = "office_transition"
 SOURCE_INSURANCE_CERTIFICATE = "insurance_certificate"
+# Newer (Track 2 / accounting) domains so the assistant can answer about the
+# whole current product, not just the legacy CRE portfolio.
+SOURCE_RENTAL_UNIT = "rental_unit"
+SOURCE_RESIDENT = "resident"
+SOURCE_RESIDENT_LEASE = "resident_lease"
+SOURCE_RENT_CHARGE = "rent_charge"
+SOURCE_OWNER = "owner"
+SOURCE_OWNER_DISTRIBUTION = "owner_distribution"
+SOURCE_VENDOR_BILL = "vendor_bill"
+SOURCE_CUSTOMER_INVOICE = "customer_invoice"
+SOURCE_BANK_ACCOUNT = "bank_account"
+SOURCE_BUDGET = "budget"
+SOURCE_INSPECTION = "inspection"
+SOURCE_LISTING = "listing"
 # Synthetic, organization-level rollup of portfolio totals (one per org). It lets
 # the assistant answer aggregate "how many" / "count" questions that individual
 # record chunks cannot, since retrieval only ever returns a handful of records.
@@ -53,6 +67,18 @@ KNOWLEDGE_SOURCE_TYPES = frozenset({
     SOURCE_HVAC_CONTRACT,
     SOURCE_TRANSITION,
     SOURCE_INSURANCE_CERTIFICATE,
+    SOURCE_RENTAL_UNIT,
+    SOURCE_RESIDENT,
+    SOURCE_RESIDENT_LEASE,
+    SOURCE_RENT_CHARGE,
+    SOURCE_OWNER,
+    SOURCE_OWNER_DISTRIBUTION,
+    SOURCE_VENDOR_BILL,
+    SOURCE_CUSTOMER_INVOICE,
+    SOURCE_BANK_ACCOUNT,
+    SOURCE_BUDGET,
+    SOURCE_INSPECTION,
+    SOURCE_LISTING,
     SOURCE_PORTFOLIO_SUMMARY,
 })
 

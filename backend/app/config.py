@@ -83,9 +83,17 @@ class Settings(BaseSettings):
     # empty the AI features degrade gracefully (mirroring SMTP/Stripe).
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.1-flash-lite"
+    # Optional cheaper/faster model for low-stakes tasks (e.g. intent parsing).
+    # Falls back to GEMINI_MODEL when left empty so behaviour is unchanged unless
+    # explicitly configured.
+    GEMINI_MODEL_FAST: str = ""
     GEMINI_EMBED_MODEL: str = "text-embedding-004"
     GEMINI_API_BASE: str = "https://generativelanguage.googleapis.com/v1beta"
     GEMINI_TIMEOUT_SECONDS: int = 60
+    # Bounded retry for transient upstream failures (429 / 5xx / network) on
+    # idempotent generate + embed calls. Set MAX_RETRIES=0 to disable.
+    GEMINI_MAX_RETRIES: int = 2
+    GEMINI_RETRY_BASE_SECONDS: float = 0.5
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 
