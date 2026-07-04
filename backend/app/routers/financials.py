@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import require_role
 from app.database import get_db
 from app.models.user import User
+from app.services import accounting_audit_service as audit_svc
 from app.services import financials_service as svc
 
 router = APIRouter()
@@ -80,6 +81,44 @@ class CashFlowStatementResponse(BaseModel):
     net_change_in_cash: Decimal
     beginning_cash: Decimal
     ending_cash: Decimal
+
+
+class AuditCheck(BaseModel):
+    key: str
+    description: str
+    category: str
+    status: str
+    detail: str
+    findings: list[str]
+    finding_count: int
+
+
+class AuditControlAccount(BaseModel):
+    code: str
+    name: str
+    balance: Decimal
+    balance_side: str
+
+
+class AuditStatementSummary(BaseModel):
+    total_assets: Decimal
+    total_liabilities: Decimal
+    total_equity: Decimal
+    net_income: Decimal
+    ending_cash: Decimal
+
+
+class AuditReportResponse(BaseModel):
+    attested: bool
+    entry_count: int
+    total_debits: Decimal
+    total_credits: Decimal
+    checks_total: int
+    checks_passed: int
+    checks_failed: int
+    control_accounts: list[AuditControlAccount]
+    checks: list[AuditCheck]
+    statement_summary: AuditStatementSummary
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -139,3 +178,19 @@ async def get_cash_flow_statement(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         )
     return CashFlowStatementResponse(**data)
+
+
+@router.get("/audit-report", response_model=AuditReportResponse)
+async def get_audit_report(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(FinanceUser),
+):
+    """Run the built-in accounting auditor and return an attestation report.
+
+    Independently re-derives double-entry, line, scope, period, audit-trail,
+    statement cross-tie and control-account invariants over the whole ledger.
+    ``attested`` is true only when every check passes.
+    """
+    data = await audit_svc.run_audit(db, current_user.organization_id)
+    return AuditReportResponse(**data)
+

@@ -177,6 +177,7 @@ import type {
   IncomeStatementResponse,
   BalanceSheetResponse,
   CashFlowStatementResponse,
+  AuditReportResponse,
   PortalSession,
   ResidentPortalProfile,
   ResidentPortalLease,
@@ -1638,6 +1639,9 @@ export const financials = {
 
   cashFlowStatement: (params?: { year?: number; month?: number }) =>
     client.get<CashFlowStatementResponse>('/financials/cash-flow-statement', { params }),
+
+  auditReport: () =>
+    client.get<AuditReportResponse>('/financials/audit-report'),
 };
 
 // ─── AI assist (Google Gemini) ───────────────────────────────────────────────

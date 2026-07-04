@@ -8,6 +8,9 @@ import Table from '@cloudscape-design/components/table';
 import Box from '@cloudscape-design/components/box';
 import Select from '@cloudscape-design/components/select';
 import StatusIndicator from '@cloudscape-design/components/status-indicator';
+import Button from '@cloudscape-design/components/button';
+import Spinner from '@cloudscape-design/components/spinner';
+import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { financials as finApi } from '@/api';
 import type {
@@ -15,6 +18,9 @@ import type {
   BalanceSheetResponse,
   CashFlowStatementResponse,
   StatementLine,
+  AuditReportResponse,
+  AuditCheck,
+  AuditControlAccount,
 } from '@/types';
 
 const fmt = (v: number | null | undefined) =>
@@ -65,6 +71,115 @@ const Section: React.FC<{
   </Container>
 );
 
+const checkColumns = [
+  {
+    id: 'status',
+    header: 'Status',
+    cell: (c: AuditCheck) => (
+      <StatusIndicator type={c.status === 'pass' ? 'success' : 'error'}>
+        {c.status === 'pass' ? 'Pass' : 'Fail'}
+      </StatusIndicator>
+    ),
+  },
+  { id: 'description', header: 'Check', cell: (c: AuditCheck) => c.description },
+  { id: 'category', header: 'Category', cell: (c: AuditCheck) => c.category },
+  {
+    id: 'detail',
+    header: 'Detail',
+    cell: (c: AuditCheck) =>
+      c.status === 'pass'
+        ? c.detail
+        : c.detail || `${c.finding_count} finding(s): ${c.findings.join('; ')}`,
+  },
+];
+
+const controlColumns = [
+  { id: 'code', header: 'Code', cell: (a: AuditControlAccount) => a.code },
+  { id: 'name', header: 'Control account', cell: (a: AuditControlAccount) => a.name },
+  {
+    id: 'balance',
+    header: 'Balance',
+    cell: (a: AuditControlAccount) => (
+      <Box textAlign="right">{fmt(a.balance)} ({a.balance_side})</Box>
+    ),
+  },
+];
+
+const AuditReportView: React.FC<{
+  report: AuditReportResponse | null;
+  loading: boolean;
+  onRun: () => void;
+}> = ({ report, loading, onRun }) => (
+  <SpaceBetween size="l">
+    <Container
+      header={
+        <Header
+          variant="h3"
+          description="Independently re-derives double-entry, line, scope, period, audit-trail, statement cross-tie and control-account invariants over the whole ledger."
+          actions={
+            <Button variant="primary" onClick={onRun} loading={loading} iconName="refresh">
+              Run audit
+            </Button>
+          }
+        >
+          Attestation
+        </Header>
+      }
+    >
+      {loading && !report ? (
+        <Box textAlign="center" padding="l"><Spinner /> Running audit…</Box>
+      ) : !report ? (
+        <Box textAlign="center" color="inherit" padding="l">
+          Run the built-in auditor to attest the general ledger.
+        </Box>
+      ) : (
+        <ColumnLayout columns={4} variant="text-grid">
+          <div>
+            <Box variant="awsui-key-label">Attested</Box>
+            <StatusIndicator type={report.attested ? 'success' : 'error'}>
+              {report.attested ? 'Attested' : 'Not attested'}
+            </StatusIndicator>
+          </div>
+          <div>
+            <Box variant="awsui-key-label">Checks passed</Box>
+            {report.checks_passed} / {report.checks_total}
+          </div>
+          <div>
+            <Box variant="awsui-key-label">Journal entries</Box>
+            {report.entry_count}
+          </div>
+          <div>
+            <Box variant="awsui-key-label">Σ debits = Σ credits</Box>
+            {fmt(report.total_debits)}
+          </div>
+        </ColumnLayout>
+      )}
+    </Container>
+
+    {report && (
+      <Container header={<Header variant="h3">Audit checks</Header>}>
+        <Table
+          variant="embedded"
+          items={report.checks}
+          columnDefinitions={checkColumns}
+          empty={<Box textAlign="center" color="inherit">No checks.</Box>}
+        />
+      </Container>
+    )}
+
+    {report && report.control_accounts.length > 0 && (
+      <Container header={<Header variant="h3">Control accounts</Header>}>
+        <Table
+          variant="embedded"
+          items={report.control_accounts}
+          columnDefinitions={controlColumns}
+          empty={<Box textAlign="center" color="inherit">No control accounts.</Box>}
+        />
+      </Container>
+    )}
+  </SpaceBetween>
+);
+
 const FinancialStatementsPage: React.FC = () => {
   const { addFlash } = useFlashbar();
 
@@ -75,6 +190,8 @@ const FinancialStatementsPage: React.FC = () => {
   const [income, setIncome] = useState<IncomeStatementResponse | null>(null);
   const [balance, setBalance] = useState<BalanceSheetResponse | null>(null);
   const [cashFlow, setCashFlow] = useState<CashFlowStatementResponse | null>(null);
+  const [audit, setAudit] = useState<AuditReportResponse | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
 
   const yearOptions = useMemo<Opt[]>(() => {
     const y = now.getFullYear();
@@ -110,6 +227,18 @@ const FinancialStatementsPage: React.FC = () => {
   }, [addFlash, year.value, month.value]);
 
   useEffect(() => { load(); }, [load]);
+
+  const runAudit = useCallback(async () => {
+    setAuditLoading(true);
+    try {
+      const { data } = await finApi.auditReport();
+      setAudit(data);
+    } catch {
+      addFlash({ type: 'error', content: 'Failed to run accounting audit.' });
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [addFlash]);
 
   const periodControls = (
     <SpaceBetween direction="horizontal" size="xs">
@@ -247,6 +376,13 @@ const FinancialStatementsPage: React.FC = () => {
                   </SpaceBetween>
                 </Container>
               </SpaceBetween>
+            ),
+          },
+          {
+            id: 'attestation',
+            label: 'Attestation',
+            content: (
+              <AuditReportView report={audit} loading={auditLoading} onRun={runAudit} />
             ),
           },
         ]}
