@@ -41,6 +41,18 @@ from app.models.knowledge_chunk import (
     SOURCE_TICKET,
     SOURCE_TRANSITION,
     SOURCE_VENDOR,
+    SOURCE_RENTAL_UNIT,
+    SOURCE_RESIDENT,
+    SOURCE_RESIDENT_LEASE,
+    SOURCE_RENT_CHARGE,
+    SOURCE_OWNER,
+    SOURCE_OWNER_DISTRIBUTION,
+    SOURCE_VENDOR_BILL,
+    SOURCE_CUSTOMER_INVOICE,
+    SOURCE_BANK_ACCOUNT,
+    SOURCE_BUDGET,
+    SOURCE_INSPECTION,
+    SOURCE_LISTING,
     KnowledgeChunk,
 )
 from app.models.hvac_contract import HvacContract
@@ -54,6 +66,15 @@ from app.models.management_company import ManagementCompany
 from app.models.office import Office
 from app.models.transition import OfficeTransition
 from app.models.vendor import Vendor
+from app.models.resident import RentalUnit, Resident, ResidentLease
+from app.models.rent import RentCharge
+from app.models.owner import PropertyOwner, OwnerDistribution
+from app.models.vendor_bill import VendorBill
+from app.models.customer_invoice import CustomerInvoice
+from app.models.bank_account import BankAccount
+from app.models.budget import Budget
+from app.models.inspection import Inspection
+from app.models.listing import VacancyListing
 from app.services import ai_service
 
 logger = logging.getLogger(__name__)
@@ -360,6 +381,229 @@ def _insurance_text(
     return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
 
 
+# ── Newer domains (residential + accounting) text builders ────────────────────
+
+def _resident_name(resident: Resident) -> str:
+    name = " ".join(p for p in (resident.first_name, resident.last_name) if p).strip()
+    return name or resident.email or "Resident"
+
+
+def _rental_unit_text(unit: RentalUnit, office_name: str | None) -> str:
+    label = unit.name or unit.unit_number or "Rental unit"
+    parts = [f"Rental unit: {label}"]
+    if unit.unit_number:
+        parts.append(f"Unit number: {unit.unit_number}")
+    if office_name:
+        parts.append(f"Property/office: {office_name}")
+    address = ", ".join(
+        p for p in (
+            unit.address_line_1, unit.address_line_2, unit.city, unit.state, unit.zip_code
+        ) if p
+    )
+    if address:
+        parts.append(f"Address: {address}")
+    if unit.property_type:
+        parts.append(f"Type: {unit.property_type}")
+    if unit.bedrooms is not None:
+        parts.append(f"Bedrooms: {unit.bedrooms}")
+    if unit.bathrooms is not None:
+        parts.append(f"Bathrooms: {unit.bathrooms}")
+    if unit.square_feet is not None:
+        parts.append(f"Square feet: {unit.square_feet}")
+    if unit.market_rent is not None:
+        parts.append(f"Market rent: {unit.market_rent}")
+    if unit.status:
+        parts.append(f"Status: {unit.status}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _resident_text(resident: Resident) -> str:
+    parts = [f"Resident: {_resident_name(resident)}"]
+    if resident.email:
+        parts.append(f"Email: {resident.email}")
+    if resident.phone:
+        parts.append(f"Phone: {resident.phone}")
+    if resident.company:
+        parts.append(f"Company: {resident.company}")
+    if resident.status:
+        parts.append(f"Status: {resident.status}")
+    address = ", ".join(
+        p for p in (
+            resident.address_line_1, resident.city, resident.state, resident.zip_code
+        ) if p
+    )
+    if address:
+        parts.append(f"Address: {address}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _resident_lease_text(lease: ResidentLease, unit_label: str | None) -> str:
+    parts = [f"Resident lease: {lease.name or 'Lease'}"]
+    if unit_label:
+        parts.append(f"Unit: {unit_label}")
+    if lease.status:
+        parts.append(f"Status: {lease.status}")
+    if lease.start_date:
+        parts.append(f"Start: {lease.start_date}")
+    if lease.end_date:
+        parts.append(f"End: {lease.end_date}")
+    if lease.rent_amount is not None:
+        freq = lease.rent_frequency or "monthly"
+        parts.append(f"Rent: {lease.rent_amount} ({freq})")
+    if lease.security_deposit is not None:
+        parts.append(f"Security deposit: {lease.security_deposit}")
+    if lease.move_in_date:
+        parts.append(f"Move-in: {lease.move_in_date}")
+    if lease.move_out_date:
+        parts.append(f"Move-out: {lease.move_out_date}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _rent_charge_text(charge: RentCharge, unit_label: str | None) -> str:
+    parts = [f"Rent charge: {charge.charge_type or 'rent'}"]
+    if charge.description:
+        parts.append(f"Description: {charge.description}")
+    if unit_label:
+        parts.append(f"Unit: {unit_label}")
+    if charge.amount is not None:
+        freq = charge.frequency or "monthly"
+        parts.append(f"Amount: {charge.amount} ({freq})")
+    if charge.day_of_month is not None:
+        parts.append(f"Billed day of month: {charge.day_of_month}")
+    if charge.start_date:
+        parts.append(f"Start: {charge.start_date}")
+    if charge.end_date:
+        parts.append(f"End: {charge.end_date}")
+    parts.append(f"Active: {'yes' if charge.active else 'no'}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _owner_text(owner: PropertyOwner) -> str:
+    label = owner.name or " ".join(
+        p for p in (owner.first_name, owner.last_name) if p
+    ).strip() or "Owner"
+    parts = [f"Property owner: {label}"]
+    if owner.owner_type:
+        parts.append(f"Type: {owner.owner_type}")
+    if owner.email:
+        parts.append(f"Email: {owner.email}")
+    if owner.phone:
+        parts.append(f"Phone: {owner.phone}")
+    if owner.management_fee_percent is not None:
+        parts.append(f"Management fee percent: {owner.management_fee_percent}")
+    if owner.status:
+        parts.append(f"Status: {owner.status}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _owner_distribution_text(dist: OwnerDistribution, owner_label: str | None) -> str:
+    parts = ["Owner distribution"]
+    if owner_label:
+        parts.append(f"Owner: {owner_label}")
+    if dist.distribution_date:
+        parts.append(f"Date: {dist.distribution_date}")
+    if dist.amount is not None:
+        parts.append(f"Amount: {dist.amount}")
+    if dist.method:
+        parts.append(f"Method: {dist.method}")
+    if dist.status:
+        parts.append(f"Status: {dist.status}")
+    if dist.reference:
+        parts.append(f"Reference: {dist.reference}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _vendor_bill_text(bill: VendorBill, vendor_name: str | None) -> str:
+    parts = [f"Vendor bill {bill.bill_number or ''}".strip()]
+    if vendor_name:
+        parts.append(f"Vendor: {vendor_name}")
+    if bill.bill_date:
+        parts.append(f"Bill date: {bill.bill_date}")
+    if bill.due_date:
+        parts.append(f"Due date: {bill.due_date}")
+    if bill.total_amount is not None:
+        parts.append(f"Total: {bill.total_amount}")
+    if bill.status:
+        parts.append(f"Status: {bill.status}")
+    if bill.memo:
+        parts.append(f"Memo: {bill.memo}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _customer_invoice_text(invoice: CustomerInvoice, customer_name: str | None) -> str:
+    parts = [f"Customer invoice {invoice.invoice_number or ''}".strip()]
+    if customer_name:
+        parts.append(f"Customer: {customer_name}")
+    if invoice.invoice_date:
+        parts.append(f"Invoice date: {invoice.invoice_date}")
+    if invoice.due_date:
+        parts.append(f"Due date: {invoice.due_date}")
+    if invoice.total_amount is not None:
+        parts.append(f"Total: {invoice.total_amount}")
+    if invoice.status:
+        parts.append(f"Status: {invoice.status}")
+    if invoice.source:
+        parts.append(f"Source: {invoice.source}")
+    if invoice.memo:
+        parts.append(f"Memo: {invoice.memo}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _bank_account_text(account: BankAccount) -> str:
+    parts = [f"Bank account: {account.name}"]
+    if account.institution:
+        parts.append(f"Institution: {account.institution}")
+    if account.account_number_last4:
+        parts.append(f"Account ending: {account.account_number_last4}")
+    parts.append(f"Active: {'yes' if account.is_active else 'no'}")
+    if account.notes:
+        parts.append(f"Notes: {account.notes}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _budget_text(budget: Budget) -> str:
+    parts = [f"Budget: {budget.name}"]
+    if budget.fiscal_year is not None:
+        parts.append(f"Fiscal year: {budget.fiscal_year}")
+    if budget.status:
+        parts.append(f"Status: {budget.status}")
+    if budget.notes:
+        parts.append(f"Notes: {budget.notes}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _inspection_text(inspection: Inspection, office_name: str | None) -> str:
+    parts = [f"Inspection: {inspection.title}"]
+    if office_name:
+        parts.append(f"Office: {office_name}")
+    if inspection.status:
+        parts.append(f"Status: {inspection.status}")
+    if inspection.scheduled_date:
+        parts.append(f"Scheduled: {inspection.scheduled_date}")
+    if inspection.overall_result:
+        parts.append(f"Result: {inspection.overall_result}")
+    if inspection.notes:
+        parts.append(f"Notes: {inspection.notes}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _listing_text(listing: VacancyListing, unit_label: str | None) -> str:
+    parts = [f"Vacancy listing: {listing.title}"]
+    if listing.headline:
+        parts.append(f"Headline: {listing.headline}")
+    if unit_label:
+        parts.append(f"Unit: {unit_label}")
+    if listing.marketing_rent is not None:
+        parts.append(f"Marketing rent: {listing.marketing_rent}")
+    if listing.available_date:
+        parts.append(f"Available: {listing.available_date}")
+    if listing.status:
+        parts.append(f"Status: {listing.status}")
+    if listing.description:
+        parts.append(f"Description: {listing.description}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
 # ── Indexing ──────────────────────────────────────────────────────────────────
 
 def _portfolio_summary_text(counts: dict[str, int]) -> str:
@@ -387,10 +631,25 @@ def _portfolio_summary_text(counts: dict[str, int]) -> str:
         f"Total HVAC contracts: {counts['hvac_contracts']}.",
         f"Total office transitions: {counts['transitions']}.",
         f"Total insurance certificates: {counts['insurance_certificates']}.",
+        f"Total rental units: {counts['rental_units']}.",
+        f"Total residents: {counts['residents']}.",
+        f"Total resident leases: {counts['resident_leases']}.",
+        f"Total rent charges: {counts['rent_charges']}.",
+        f"Total property owners: {counts['owners']}.",
+        f"Total owner distributions: {counts['owner_distributions']}.",
+        f"Total vendor bills (accounts payable): {counts['vendor_bills']}.",
+        f"Total customer invoices (accounts receivable): {counts['customer_invoices']}.",
+        f"Total bank accounts: {counts['bank_accounts']}.",
+        f"Total budgets: {counts['budgets']}.",
+        f"Total inspections: {counts['inspections']}.",
+        f"Total vacancy listings: {counts['listings']}.",
         "Use these totals to answer how many / count / total questions about "
         "offices, leases, landlords, vendors, maintenance tickets, management "
-        "companies, HVAC contracts, office transitions, and insurance "
-        "certificates across the portfolio.",
+        "companies, HVAC contracts, office transitions, insurance certificates, "
+        "rental units, residents, resident leases, rent charges, property "
+        "owners, owner distributions, vendor bills, customer invoices, bank "
+        "accounts, budgets, inspections, and vacancy listings across the "
+        "portfolio.",
     ]
     return _clean(" ".join(parts))[:MAX_CHUNK_CHARS]
 
@@ -643,6 +902,275 @@ async def _collect_chunks(
             }
         )
 
+    # ── Rental units (org-as-lessor) ───────────────────────────────────────
+    units = (
+        await db.execute(
+            select(RentalUnit)
+            .where(
+                RentalUnit.organization_id == organization_id,
+                RentalUnit.is_deleted.is_(False),
+            )
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    unit_label_by_id: dict[uuid.UUID, str] = {}
+    for unit in units:
+        label = unit.name or unit.unit_number or "Rental unit"
+        unit_label_by_id[unit.id] = label
+        office_name = office_name_by_id.get(unit.office_id)
+        chunks.append(
+            {
+                "source_type": SOURCE_RENTAL_UNIT,
+                "source_id": unit.id,
+                "title": f"Rental unit: {label}",
+                "reference": "residential/residents",
+                "content": _rental_unit_text(unit, office_name),
+            }
+        )
+
+    # ── Residents ──────────────────────────────────────────────────────────
+    residents = (
+        await db.execute(
+            select(Resident)
+            .where(
+                Resident.organization_id == organization_id,
+                Resident.is_deleted.is_(False),
+            )
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for resident in residents:
+        chunks.append(
+            {
+                "source_type": SOURCE_RESIDENT,
+                "source_id": resident.id,
+                "title": f"Resident: {_resident_name(resident)}",
+                "reference": "residential/residents",
+                "content": _resident_text(resident),
+            }
+        )
+
+    # ── Resident leases ────────────────────────────────────────────────────
+    resident_leases = (
+        await db.execute(
+            select(ResidentLease)
+            .where(
+                ResidentLease.organization_id == organization_id,
+                ResidentLease.is_deleted.is_(False),
+            )
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for rlease in resident_leases:
+        unit_label = unit_label_by_id.get(rlease.unit_id)
+        chunks.append(
+            {
+                "source_type": SOURCE_RESIDENT_LEASE,
+                "source_id": rlease.id,
+                "title": f"Resident lease: {rlease.name or 'Lease'}",
+                "reference": "residential/leases",
+                "content": _resident_lease_text(rlease, unit_label),
+            }
+        )
+
+    # ── Rent charges ───────────────────────────────────────────────────────
+    rent_charges = (
+        await db.execute(
+            select(RentCharge)
+            .where(
+                RentCharge.organization_id == organization_id,
+                RentCharge.is_deleted.is_(False),
+            )
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    lease_unit_label: dict[uuid.UUID, str] = {}
+    for rlease in resident_leases:
+        label = unit_label_by_id.get(rlease.unit_id)
+        if label:
+            lease_unit_label[rlease.id] = label
+    for charge in rent_charges:
+        unit_label = lease_unit_label.get(charge.resident_lease_id)
+        chunks.append(
+            {
+                "source_type": SOURCE_RENT_CHARGE,
+                "source_id": charge.id,
+                "title": f"Rent charge: {charge.charge_type or 'rent'}",
+                "reference": "residential/rent",
+                "content": _rent_charge_text(charge, unit_label),
+            }
+        )
+
+    # ── Property owners ────────────────────────────────────────────────────
+    owners = (
+        await db.execute(
+            select(PropertyOwner)
+            .where(
+                PropertyOwner.organization_id == organization_id,
+                PropertyOwner.is_deleted.is_(False),
+            )
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    owner_label_by_id: dict[uuid.UUID, str] = {}
+    for owner in owners:
+        label = owner.name or " ".join(
+            p for p in (owner.first_name, owner.last_name) if p
+        ).strip() or "Owner"
+        owner_label_by_id[owner.id] = label
+        chunks.append(
+            {
+                "source_type": SOURCE_OWNER,
+                "source_id": owner.id,
+                "title": f"Property owner: {label}",
+                "reference": "residential/owners",
+                "content": _owner_text(owner),
+            }
+        )
+
+    # ── Owner distributions ────────────────────────────────────────────────
+    distributions = (
+        await db.execute(
+            select(OwnerDistribution)
+            .where(OwnerDistribution.organization_id == organization_id)
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for dist in distributions:
+        owner_label = owner_label_by_id.get(dist.owner_id)
+        chunks.append(
+            {
+                "source_type": SOURCE_OWNER_DISTRIBUTION,
+                "source_id": dist.id,
+                "title": "Owner distribution",
+                "reference": "residential/owners",
+                "content": _owner_distribution_text(dist, owner_label),
+            }
+        )
+
+    # ── Vendor bills (accounts payable) ────────────────────────────────────
+    vendor_bills = (
+        await db.execute(
+            select(VendorBill)
+            .where(VendorBill.organization_id == organization_id)
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for bill in vendor_bills:
+        vendor_name = vendor_name_by_id.get(bill.vendor_id)
+        chunks.append(
+            {
+                "source_type": SOURCE_VENDOR_BILL,
+                "source_id": bill.id,
+                "title": f"Vendor bill {bill.bill_number or ''}".strip(),
+                "reference": "finance/accounts-payable",
+                "content": _vendor_bill_text(bill, vendor_name),
+            }
+        )
+
+    # ── Customer invoices (accounts receivable) ────────────────────────────
+    invoices = (
+        await db.execute(
+            select(CustomerInvoice)
+            .options(joinedload(CustomerInvoice.customer))
+            .where(CustomerInvoice.organization_id == organization_id)
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for invoice in invoices:
+        customer = getattr(invoice, "customer", None)
+        customer_name = getattr(customer, "name", None) if customer else None
+        chunks.append(
+            {
+                "source_type": SOURCE_CUSTOMER_INVOICE,
+                "source_id": invoice.id,
+                "title": f"Customer invoice {invoice.invoice_number or ''}".strip(),
+                "reference": "finance/accounts-receivable",
+                "content": _customer_invoice_text(invoice, customer_name),
+            }
+        )
+
+    # ── Bank accounts ──────────────────────────────────────────────────────
+    bank_accounts = (
+        await db.execute(
+            select(BankAccount)
+            .where(BankAccount.organization_id == organization_id)
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for account in bank_accounts:
+        chunks.append(
+            {
+                "source_type": SOURCE_BANK_ACCOUNT,
+                "source_id": account.id,
+                "title": f"Bank account: {account.name}",
+                "reference": "finance/bank-reconciliation",
+                "content": _bank_account_text(account),
+            }
+        )
+
+    # ── Budgets ────────────────────────────────────────────────────────────
+    budgets = (
+        await db.execute(
+            select(Budget)
+            .where(Budget.organization_id == organization_id)
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for budget in budgets:
+        chunks.append(
+            {
+                "source_type": SOURCE_BUDGET,
+                "source_id": budget.id,
+                "title": f"Budget: {budget.name}",
+                "reference": "finance/budgeting",
+                "content": _budget_text(budget),
+            }
+        )
+
+    # ── Inspections ────────────────────────────────────────────────────────
+    inspections = (
+        await db.execute(
+            select(Inspection)
+            .where(Inspection.organization_id == organization_id)
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for inspection in inspections:
+        office_name = office_name_by_id.get(inspection.office_id)
+        chunks.append(
+            {
+                "source_type": SOURCE_INSPECTION,
+                "source_id": inspection.id,
+                "title": f"Inspection: {inspection.title}",
+                "reference": "inspections",
+                "content": _inspection_text(inspection, office_name),
+            }
+        )
+
+    # ── Vacancy listings ───────────────────────────────────────────────────
+    listings = (
+        await db.execute(
+            select(VacancyListing)
+            .where(
+                VacancyListing.organization_id == organization_id,
+                VacancyListing.is_deleted.is_(False),
+            )
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for listing in listings:
+        unit_label = unit_label_by_id.get(listing.unit_id)
+        chunks.append(
+            {
+                "source_type": SOURCE_LISTING,
+                "source_id": listing.id,
+                "title": f"Vacancy listing: {listing.title}",
+                "reference": "residential/listings",
+                "content": _listing_text(listing, unit_label),
+            }
+        )
+
     # ── Portfolio summary (organization-level rollup of totals) ────────────
     # Prepended so aggregate "how many"/"count" questions are answerable even
     # though retrieval only returns a few individual record chunks.
@@ -663,6 +1191,18 @@ async def _collect_chunks(
         "hvac_contracts": len(contracts),
         "transitions": len(transitions),
         "insurance_certificates": len(certificates),
+        "rental_units": len(units),
+        "residents": len(residents),
+        "resident_leases": len(resident_leases),
+        "rent_charges": len(rent_charges),
+        "owners": len(owners),
+        "owner_distributions": len(distributions),
+        "vendor_bills": len(vendor_bills),
+        "customer_invoices": len(invoices),
+        "bank_accounts": len(bank_accounts),
+        "budgets": len(budgets),
+        "inspections": len(inspections),
+        "listings": len(listings),
     }
     chunks.insert(
         0,

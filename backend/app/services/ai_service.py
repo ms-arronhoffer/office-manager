@@ -161,10 +161,71 @@ def is_configured() -> bool:
     return bool(settings.GEMINI_API_KEY)
 
 
-def _endpoint() -> str:
+def _resolve_model(model: str | None) -> str:
+    """Resolve a caller-supplied model name to a concrete Gemini model id.
+
+    ``None`` selects the default ``GEMINI_MODEL``. The sentinel ``"fast"``
+    selects ``GEMINI_MODEL_FAST`` when configured (for cheap, low-stakes tasks
+    like intent parsing), transparently falling back to ``GEMINI_MODEL`` when no
+    fast model is set so behaviour is unchanged by default.
+    """
+    if model is None:
+        return settings.GEMINI_MODEL
+    if model == "fast":
+        return settings.GEMINI_MODEL_FAST or settings.GEMINI_MODEL
+    return model
+
+
+def _endpoint(model: str | None = None) -> str:
     base = settings.GEMINI_API_BASE.rstrip("/")
-    model = settings.GEMINI_MODEL
-    return f"{base}/models/{model}:generateContent"
+    return f"{base}/models/{_resolve_model(model)}:generateContent"
+
+
+# HTTP statuses worth retrying: rate limiting + transient server errors.
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
+async def _post_with_retry(
+    url: str, *, params: dict[str, Any], json: dict[str, Any]
+) -> httpx.Response:
+    """POST to Gemini with bounded, jittered exponential backoff.
+
+    Retries only transient failures — network/timeout errors and ``429``/``5xx``
+    responses — since generate and embed calls are idempotent. Non-retryable
+    responses (e.g. ``400``/``403``) are returned immediately for the caller to
+    surface. Raises the last :class:`httpx.HTTPError` if every attempt fails to
+    get a response.
+    """
+    import asyncio
+    import random
+
+    attempts = max(0, settings.GEMINI_MAX_RETRIES) + 1
+    base_delay = max(0.0, settings.GEMINI_RETRY_BASE_SECONDS)
+    last_exc: httpx.HTTPError | None = None
+
+    for attempt in range(attempts):
+        try:
+            async with httpx.AsyncClient(timeout=settings.GEMINI_TIMEOUT_SECONDS) as client:
+                resp = await client.post(url, params=params, json=json)
+        except httpx.HTTPError as exc:  # network / timeout
+            last_exc = exc
+            if attempt == attempts - 1:
+                raise
+        else:
+            if resp.status_code in _RETRYABLE_STATUS and attempt < attempts - 1:
+                logger.info(
+                    "Gemini returned retryable %s (attempt %d/%d); backing off",
+                    resp.status_code, attempt + 1, attempts,
+                )
+            else:
+                return resp
+
+        # Exponential backoff with full jitter before the next attempt.
+        delay = base_delay * (2 ** attempt)
+        await asyncio.sleep(random.uniform(0.0, delay) if delay > 0 else 0.0)
+
+    # Only reached when every attempt raised a network error.
+    raise last_exc  # type: ignore[misc]
 
 
 def _require_configured() -> None:
@@ -180,10 +241,14 @@ async def _generate(
     system_instruction: str | None = None,
     json_response: bool = False,
     temperature: float = 0.2,
+    model: str | None = None,
 ) -> str:
     """Call Gemini ``generateContent`` and return the first text part.
 
     ``parts`` is the list of content parts (text and/or inline document data).
+    ``model`` selects the Gemini model: ``None`` uses ``GEMINI_MODEL`` and the
+    sentinel ``"fast"`` uses ``GEMINI_MODEL_FAST`` (falling back to the default
+    when unset) for cheap, low-stakes calls such as intent parsing.
     """
     _require_configured()
 
@@ -196,15 +261,14 @@ async def _generate(
     if json_response:
         payload["generationConfig"]["responseMimeType"] = "application/json"
 
-    url = _endpoint()
+    url = _endpoint(model)
     try:
-        async with httpx.AsyncClient(timeout=settings.GEMINI_TIMEOUT_SECONDS) as client:
-            resp = await client.post(
-                url,
-                params={"key": settings.GEMINI_API_KEY},
-                json=payload,
-            )
-    except httpx.HTTPError as exc:  # network/timeout
+        resp = await _post_with_retry(
+            url,
+            params={"key": settings.GEMINI_API_KEY},
+            json=payload,
+        )
+    except httpx.HTTPError as exc:  # network/timeout after retries
         logger.warning("Gemini request failed: %s", exc)
         raise AIRequestError(f"AI provider request failed: {exc}") from exc
 
@@ -1451,7 +1515,10 @@ PORTFOLIO_ASSISTANT_SYSTEM = (
     "provided. The context is drawn from the team's own records across the whole "
     "portfolio — offices, leases, lease documents, lease abstracts, landlords, "
     "vendors, management companies, maintenance tickets, HVAC contracts, office "
-    "transitions, and insurance certificates.\n"
+    "transitions, insurance certificates, rental units, residents, resident "
+    "leases, rent charges, property owners, owner distributions, vendor bills "
+    "(accounts payable), customer invoices (accounts receivable), bank "
+    "accounts, budgets, inspections, and vacancy listings.\n"
     "\n"
     "Rules:\n"
     "- Base every statement on the context. Never invent facts, figures, names, "
@@ -1717,6 +1784,7 @@ async def parse_assistant_intent(prompt: str) -> dict[str, Any]:
         [{"text": clean_prompt[:MAX_TEXT_CHARS]}],
         system_instruction=ASSISTANT_SYSTEM,
         json_response=True,
+        model="fast",
     )
     return _normalize_intent(_parse_json_object(text))
 
@@ -1804,10 +1872,9 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
             ]
         }
         try:
-            async with httpx.AsyncClient(timeout=settings.GEMINI_TIMEOUT_SECONDS) as client:
-                resp = await client.post(
-                    url, params={"key": settings.GEMINI_API_KEY}, json=payload
-                )
+            resp = await _post_with_retry(
+                url, params={"key": settings.GEMINI_API_KEY}, json=payload
+            )
         except httpx.HTTPError as exc:
             logger.warning("Gemini embed request failed: %s", exc)
             raise AIRequestError(f"AI provider request failed: {exc}") from exc
