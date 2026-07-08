@@ -20,6 +20,7 @@ import { useServerCollection } from '@/hooks/useServerCollection';
 import ImportModal from '@/components/common/ImportModal';
 import SavedFiltersDropdown from '@/components/common/SavedFiltersDropdown';
 import { useAttachmentCounts } from '@/hooks/useAttachmentCounts';
+import { LEASE_STATUS_OPTIONS, leaseStatusLabel } from '@/constants/leaseStatus';
 
 const DEFAULT_VISIBLE = [
   'lease_name',
@@ -29,6 +30,7 @@ const DEFAULT_VISIBLE = [
   'notice_period_days',
   'manager_name',
   'lease_year',
+  'status',
   'attachments',
 ];
 
@@ -48,6 +50,12 @@ const FILTERING_PROPERTIES: PropertyFilterProps.FilteringProperty[] = [
     operators: ['='],
     propertyLabel: 'Lease Year',
     groupValuesLabel: 'Lease Years',
+  },
+  {
+    key: 'status',
+    operators: ['='],
+    propertyLabel: 'Status',
+    groupValuesLabel: 'Statuses',
   },
 ];
 
@@ -163,6 +171,12 @@ const LeasesPage: React.FC = () => {
       sortingField: 'expiration_year',
     },
     {
+      id: 'status',
+      header: 'Status',
+      cell: (item: Lease) => leaseStatusLabel(item.status) || '—',
+      sortingField: 'status',
+    },
+    {
       id: 'attachments',
       header: 'Attachments',
       cell: (item: Lease) => attachmentCounts[item.id] ?? 0,
@@ -267,6 +281,11 @@ const LeasesPage: React.FC = () => {
               query={filterQuery}
               onChange={({ detail }) => setFilterQuery(detail)}
               filteringProperties={FILTERING_PROPERTIES}
+              filteringOptions={LEASE_STATUS_OPTIONS.map((o) => ({
+                propertyKey: 'status',
+                value: o.value,
+                label: o.label,
+              }))}
               countText={`${total} matches`}
               expandToViewport
             />

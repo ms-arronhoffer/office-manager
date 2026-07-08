@@ -29,6 +29,7 @@ import ConfirmDeleteModal from '@/components/common/ConfirmDeleteModal';
 import LeaseAbstractSection from '@/components/common/LeaseAbstractSection';
 import LeaseDocumentSearch from '@/components/common/LeaseDocumentSearch';
 import type { Lease, LeaseNote, LeaseAccountingResponse, LeaseRenewal, LeaseOption } from '@/types';
+import { leaseStatusLabel } from '@/constants/leaseStatus';
 
 const ACCOUNTING_EXPANDED_KEY = 'leaseDetail.accountingExpanded';
 
@@ -682,8 +683,7 @@ const LeaseDetailPage: React.FC = () => {
               <ValuePair label="Notice Period (days)" value={lease.notice_period_days} />
               <ValuePair label="Notice Date" value={formatDate(lease.lease_notice_date)} />
               <ValuePair label="Notice Given Date" value={formatDate(lease.notice_given_date)} />
-              <ValuePair label="Quarem Date" value={formatDate(lease.quarem_date)} />
-              <ValuePair label="Quarem Status" value={lease.quarem_status} />
+              <ValuePair label="Status" value={leaseStatusLabel(lease.status)} />
               <ValuePair label="Expiration Year" value={lease.expiration_year} />
               <ValuePair label="Manager" value={lease.manager?.name} />
               <ValuePair label="Created" value={formatDate(lease.created_at)} />

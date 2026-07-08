@@ -36,6 +36,21 @@ _ACCOUNTING_STANDARDS = {"asc842", "ifrs16", "both"}
 _LEASE_CLASSIFICATIONS = {"operating", "finance"}
 _PAYMENT_FREQUENCIES = {"monthly", "quarterly", "annually"}
 
+# Allowed lease lifecycle status codes surfaced as a drop-down in the UI and a
+# filterable column on the Leases table. Free text that does not match a known
+# code is coerced to None (see ``_coerce_enum``).
+LEASE_STATUSES = {
+    "active",
+    "pending",
+    "in_negotiation",
+    "renewed",
+    "month_to_month",
+    "holdover",
+    "expired",
+    "terminated",
+    "cancelled",
+}
+
 
 def _coerce_enum(value: object, allowed: set[str]) -> str | None:
     """Lower-case and validate against ``allowed``; return None when invalid."""
@@ -43,6 +58,19 @@ def _coerce_enum(value: object, allowed: set[str]) -> str | None:
         return None
     normalized = str(value).strip().lower()
     return normalized if normalized in allowed else None
+
+
+def normalize_lease_status(value: object) -> str | None:
+    """Coerce a free-text lease status (e.g. from import) to a known code.
+
+    Accepts either a status code (``active``) or its human label (``Active``,
+    ``Month-to-Month``) and returns the canonical code, or ``None`` when the
+    value does not match a known status.
+    """
+    if value is None:
+        return None
+    normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    return normalized if normalized in LEASE_STATUSES else None
 
 
 def _cap_length(value: object, max_length: int) -> str | None:
@@ -188,6 +216,11 @@ class _LeaseBoundedTextMixin(BaseModel):
     def _cap_notice_period(cls, value: object) -> object:
         return _cap_length(value, 255)
 
+    @field_validator("status", mode="before", check_fields=False)
+    @classmethod
+    def _normalize_status(cls, value: object) -> str | None:
+        return _coerce_enum(value, LEASE_STATUSES)
+
 
 class LeaseCreate(_LeaseAccountingFields, _LeaseBoundedTextMixin):
     office_id: uuid.UUID | None = None
@@ -199,8 +232,7 @@ class LeaseCreate(_LeaseAccountingFields, _LeaseBoundedTextMixin):
     notice_period_days: int | None = None
     lease_notice_date: date | None = None
     notice_given_date: date | None = None
-    quarem_date: date | None = None
-    quarem_status: str | None = None
+    status: str | None = None
     expiration_year: int
 
 
@@ -214,8 +246,7 @@ class LeaseUpdate(_LeaseAccountingFields, _LeaseBoundedTextMixin):
     notice_period_days: int | None = None
     lease_notice_date: date | None = None
     notice_given_date: date | None = None
-    quarem_date: date | None = None
-    quarem_status: str | None = None
+    status: str | None = None
     expiration_year: int | None = None
 
 
@@ -231,8 +262,7 @@ class LeaseResponse(_LeaseAccountingFields):
     notice_period_days: int | None
     lease_notice_date: date | None
     notice_given_date: date | None
-    quarem_date: date | None
-    quarem_status: str | None
+    status: str | None
     expiration_year: int
     notes: list[LeaseNoteResponse]
     created_at: datetime

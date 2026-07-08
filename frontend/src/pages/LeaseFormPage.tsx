@@ -28,6 +28,7 @@ import AILeasePrefill from '@/components/common/AILeasePrefill';
 import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
 import { OfficeQuickCreate, ManagerQuickCreate } from '@/components/common/QuickCreateForms';
 import type { LeaseCreate, Office, Manager, AbstractFieldSchema } from '@/types';
+import { LEASE_STATUS_OPTIONS } from '@/constants/leaseStatus';
 
 type SelectOption = { label: string; value: string };
 
@@ -182,8 +183,7 @@ interface LeaseFormState {
   notice_period_days: string;
   lease_notice_date: string;
   notice_given_date: string;
-  quarem_date: string;
-  quarem_status: string;
+  status: string;
   expiration_year: string;
 }
 
@@ -195,8 +195,7 @@ const emptyForm: LeaseFormState = {
   notice_period_days: '',
   lease_notice_date: '',
   notice_given_date: '',
-  quarem_date: '',
-  quarem_status: '',
+  status: '',
   expiration_year: '',
 };
 
@@ -273,8 +272,7 @@ const LeaseFormPage: React.FC = () => {
           notice_period_days: l.notice_period_days != null ? String(l.notice_period_days) : '',
           lease_notice_date: l.lease_notice_date || '',
           notice_given_date: l.notice_given_date || '',
-          quarem_date: l.quarem_date || '',
-          quarem_status: l.quarem_status || '',
+          status: l.status || '',
           expiration_year: l.expiration_year != null ? String(l.expiration_year) : '',
         });
         if (l.office) setSelectedOffice({ label: l.office.location_name, value: String(l.office.id) });
@@ -409,8 +407,7 @@ const LeaseFormPage: React.FC = () => {
         notice_period_days: form.notice_period_days ? parseInt(form.notice_period_days, 10) : undefined,
         lease_notice_date: form.lease_notice_date || undefined,
         notice_given_date: form.notice_given_date || undefined,
-        quarem_date: form.quarem_date || undefined,
-        quarem_status: form.quarem_status.trim() || undefined,
+        status: form.status || undefined,
         expiration_year: parseInt(form.expiration_year.trim(), 10),
         // Accounting / Financial Terms
         accounting_standard: accountingStandard?.value || undefined,
@@ -723,26 +720,19 @@ const LeaseFormPage: React.FC = () => {
             </SpaceBetween>
 
             <SpaceBetween direction="horizontal" size="l">
-              <FormField label="Quarem Date">
-                <DatePicker
-                  value={form.quarem_date || ''}
+              <FormField label="Status">
+                <Select
+                  selectedOption={
+                    form.status
+                      ? LEASE_STATUS_OPTIONS.find((o) => o.value === form.status) ?? null
+                      : null
+                  }
                   onChange={({ detail }) =>
-                    setForm((f) => ({ ...f, quarem_date: detail.value }))
+                    setForm((f) => ({ ...f, status: detail.selectedOption.value ?? '' }))
                   }
-                  placeholder="YYYY/MM/DD"
-                  openCalendarAriaLabel={(selectedDate) =>
-                    'Choose Quarem date' +
-                    (selectedDate ? `, selected date is ${selectedDate}` : '')
-                  }
-                />
-              </FormField>
-              <FormField label="Quarem Status">
-                <Input
-                  value={form.quarem_status}
-                  onChange={({ detail }) =>
-                    setForm((f) => ({ ...f, quarem_status: detail.value }))
-                  }
-                  placeholder="e.g., Pending"
+                  options={LEASE_STATUS_OPTIONS}
+                  placeholder="Select status"
+                  empty="No statuses"
                 />
               </FormField>
             </SpaceBetween>

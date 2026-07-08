@@ -46,12 +46,12 @@ TEMPLATES: dict[str, dict] = {
         "headers": [
             "Lease Name", "Office Number", "Manager", "Expiration Date",
             "Lessor Name", "Notice Period", "Notice Days", "Notice Date",
-            "Notice Given Date", "Quarem Date", "Quarem Status", "Expiration Year",
+            "Notice Given Date", "Status", "Expiration Year",
         ],
         "example": [
             "101 - Main Office", 101, "John Smith", "12/31/2026",
             "ABC Properties", "90 Days", 90, "10/02/2026",
-            "", "", "Active", 2026,
+            "", "Active", 2026,
         ],
     },
     "landlords": {

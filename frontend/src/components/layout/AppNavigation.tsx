@@ -79,7 +79,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       : []),
     {
       type: 'section' as const,
-      text: 'Portfolio',
+      text: 'Commercial',
       defaultExpanded: false,
       items: [
         { type: 'link' as const, text: 'Offices', href: '/offices' },

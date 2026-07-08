@@ -33,6 +33,55 @@ async def test_list_leases(client, admin_user, sample_office):
 
 
 @pytest.mark.asyncio
+async def test_create_lease_stores_status(client, admin_user, sample_office):
+    resp = await client.post("/api/v1/leases", headers=auth_headers(admin_user), json={
+        "lease_name": "Status Lease",
+        "office_id": str(sample_office.id),
+        "expiration_year": 2027,
+        "status": "active",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_create_lease_coerces_freetext_status(client, admin_user, sample_office):
+    """Free-text status is coerced to a known code (or None when unknown)."""
+    resp = await client.post("/api/v1/leases", headers=auth_headers(admin_user), json={
+        "lease_name": "Freetext Status Lease",
+        "office_id": str(sample_office.id),
+        "expiration_year": 2027,
+        "status": "Pending renewal negotiations",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["status"] is None
+
+
+@pytest.mark.asyncio
+async def test_list_leases_filters_by_status(client, admin_user, sample_office):
+    await client.post("/api/v1/leases", headers=auth_headers(admin_user), json={
+        "lease_name": "Active Lease",
+        "office_id": str(sample_office.id),
+        "expiration_year": 2027,
+        "status": "active",
+    })
+    await client.post("/api/v1/leases", headers=auth_headers(admin_user), json={
+        "lease_name": "Expired Lease",
+        "office_id": str(sample_office.id),
+        "expiration_year": 2027,
+        "status": "expired",
+    })
+
+    resp = await client.get(
+        "/api/v1/leases?status=active", headers=auth_headers(admin_user)
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total"] == 1
+    assert data["items"][0]["lease_name"] == "Active Lease"
+
+
+@pytest.mark.asyncio
 async def test_delete_lease(client, admin_user, sample_office):
     create_resp = await client.post("/api/v1/leases", headers=auth_headers(admin_user), json={
         "lease_name": "To Delete",
