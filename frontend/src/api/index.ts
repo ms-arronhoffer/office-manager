@@ -2010,6 +2010,8 @@ export const leasingFunnel = {
     client.post<ScreeningReport>(`/leasing-funnel/applications/${id}/screen`),
   listScreening: (id: string) =>
     client.get<ScreeningReport[]>(`/leasing-funnel/applications/${id}/screening`),
+  downloadSignedApplication: (id: string) =>
+    client.get(`/leasing-funnel/applications/${id}/signed-pdf`, { responseType: 'blob' }),
   convert: (id: string) =>
     client.post<RentalApplication>(`/leasing-funnel/applications/${id}/convert`),
   createApplicationFromTemplate: (data: ApplicationFromTemplate) =>
