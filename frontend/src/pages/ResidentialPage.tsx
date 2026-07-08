@@ -5,6 +5,7 @@ import LeasingUnitsPage from '@/pages/LeasingUnitsPage';
 import ResidentsPage from '@/pages/ResidentsPage';
 import ResidentLeasesPage from '@/pages/ResidentLeasesPage';
 import LeaseTemplatesPage from '@/pages/LeaseTemplatesPage';
+import ApplicationTemplatesPage from '@/pages/ApplicationTemplatesPage';
 import RentCollectionPage from '@/pages/RentCollectionPage';
 import LeasingFunnelPage from '@/pages/LeasingFunnelPage';
 import VacancyListingsPage from '@/pages/VacancyListingsPage';
@@ -38,6 +39,12 @@ const ResidentialPage: React.FC = () => {
       label: 'Lease templates',
       href: '/residential/templates',
       content: <LeaseTemplatesPage />,
+    },
+    {
+      id: 'application-templates',
+      label: 'Application templates',
+      href: '/residential/application-templates',
+      content: <ApplicationTemplatesPage />,
     },
     {
       id: 'applications',

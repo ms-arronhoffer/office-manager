@@ -168,7 +168,190 @@ async def test_convert_requires_approval(client, admin_user):
     assert resp.status_code == 409
 
 
-# ─── Lease e-signing ──────────────────────────────────────────────────────────
+# ─── Application templates: create + send-by-email + e-sign ───────────────────
+
+
+async def _make_app_template(client, admin_user, *, field_schema=None):
+    resp = await client.post(
+        "/api/v1/application-templates",
+        json={
+            "name": "Standard Application",
+            "description": "Res application",
+            "body": "Application for {{applicant_name}} to {{organization_name}} on {{date}}.",
+            "field_schema": field_schema
+            if field_schema is not None
+            else [{"key": "employer", "label": "Employer", "type": "text", "required": False}],
+            "is_default": True,
+        },
+        headers=auth_headers(admin_user),
+    )
+    return resp
+
+
+async def test_application_template_crud_and_sample(client, admin_user):
+    sample = await client.get(
+        "/api/v1/application-templates/sample", headers=auth_headers(admin_user)
+    )
+    assert sample.status_code == 200, sample.text
+    assert "{{applicant_name}}" in sample.json()["body"]
+    assert isinstance(sample.json()["field_schema"], list)
+
+    created = await _make_app_template(client, admin_user)
+    assert created.status_code == 201, created.text
+    tid = created.json()["id"]
+
+    listed = await client.get(
+        "/api/v1/application-templates", headers=auth_headers(admin_user)
+    )
+    assert any(t["id"] == tid for t in listed.json())
+
+    updated = await client.patch(
+        f"/api/v1/application-templates/{tid}",
+        json={"name": "Renamed Application"},
+        headers=auth_headers(admin_user),
+    )
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Renamed Application"
+
+
+async def test_application_from_template_emails_applicant(client, admin_user, db_session):
+    from sqlalchemy import select
+    from app.models.email import EmailLog
+
+    await _make_app_template(client, admin_user)
+
+    before = (
+        await db_session.execute(
+            select(EmailLog).where(EmailLog.subject.like("Rental application:%"))
+        )
+    ).scalars().all()
+    before_ids = {e.id for e in before}
+
+    resp = await client.post(
+        f"{FUNNEL}/applications/from-template",
+        json={
+            "applicant_first_name": "Rita",
+            "applicant_last_name": "Renter",
+            "applicant_email": "rita@example.com",
+        },
+        headers=auth_headers(admin_user),
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["status"] == "sent"
+    assert body["sent_at"] is not None
+    assert body["application_template_id"] is not None
+
+    logs = (
+        await db_session.execute(
+            select(EmailLog).where(EmailLog.subject.like("Rental application:%"))
+        )
+    ).scalars().all()
+    new = [e for e in logs if e.id not in before_ids]
+    assert "rita@example.com" in {e.sent_to for e in new}
+
+
+async def _invite_token(db_session, app_id):
+    from app.models.leasing_funnel import RentalApplication
+    from sqlalchemy import select
+
+    application = (
+        await db_session.execute(
+            select(RentalApplication).where(RentalApplication.id == app_id)
+        )
+    ).scalar_one()
+    return application.invite_token
+
+
+async def test_application_public_view_and_sign(client, admin_user, db_session):
+    await _make_app_template(client, admin_user)
+    created = await client.post(
+        f"{FUNNEL}/applications/from-template",
+        json={
+            "applicant_first_name": "Vic",
+            "applicant_last_name": "Viewer",
+            "applicant_email": "vic@example.com",
+        },
+        headers=auth_headers(admin_user),
+    )
+    app_id = created.json()["id"]
+    token = await _invite_token(db_session, app_id)
+
+    # Public view marks the application viewed and renders merge fields.
+    view = await client.get(f"{FUNNEL}/apply/{token}")
+    assert view.status_code == 200, view.text
+    assert view.json()["status"] == "viewed"
+    assert "{{applicant_name}}" not in view.json()["body"]
+    assert view.json()["field_schema"][0]["key"] == "employer"
+
+    # Applicant fills fields + e-signs.
+    signed = await client.post(
+        f"{FUNNEL}/apply/{token}",
+        json={
+            "signature_type": "typed",
+            "signature_data": "Vic Viewer",
+            "consent_agreed": True,
+            "field_values": {"employer": "Acme Co"},
+        },
+    )
+    assert signed.status_code == 200, signed.text
+    assert signed.json()["status"] == "signed"
+    assert signed.json()["signed"] is True
+
+    # Staff can now advance to review and beyond.
+    got = await client.get(
+        f"{FUNNEL}/applications/{app_id}", headers=auth_headers(admin_user)
+    )
+    assert got.json()["status"] == "signed"
+    assert got.json()["application_data"]["employer"] == "Acme Co"
+    assert got.json()["signed_at"] is not None
+
+    review = await client.patch(
+        f"{FUNNEL}/applications/{app_id}",
+        json={"status": "in_review"},
+        headers=auth_headers(admin_user),
+    )
+    assert review.status_code == 200
+    assert review.json()["status"] == "in_review"
+
+
+async def test_application_sign_requires_consent(client, admin_user, db_session):
+    await _make_app_template(client, admin_user)
+    created = await client.post(
+        f"{FUNNEL}/applications/from-template",
+        json={
+            "applicant_first_name": "No",
+            "applicant_last_name": "Consent",
+            "applicant_email": "noconsent@example.com",
+        },
+        headers=auth_headers(admin_user),
+    )
+    token = await _invite_token(db_session, created.json()["id"])
+    resp = await client.post(
+        f"{FUNNEL}/apply/{token}",
+        json={"signature_type": "typed", "signature_data": "x", "consent_agreed": False},
+    )
+    assert resp.status_code == 409
+
+
+async def test_application_from_template_requires_default(client, admin_user):
+    # No template configured → cannot resolve a default.
+    resp = await client.post(
+        f"{FUNNEL}/applications/from-template",
+        json={
+            "applicant_first_name": "A",
+            "applicant_last_name": "B",
+            "applicant_email": "ab@example.com",
+        },
+        headers=auth_headers(admin_user),
+    )
+    assert resp.status_code == 404
+
+
+async def test_application_public_bad_token(client):
+    resp = await client.get(f"{FUNNEL}/apply/does-not-exist")
+    assert resp.status_code == 404
+
 
 async def _create_envelope(client, admin_user, parties):
     return await client.post(

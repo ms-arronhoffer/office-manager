@@ -51,6 +51,7 @@ from app.models.leasing_funnel import (
 )
 from app.models.organization import Organization
 from app.models.lease_template import LeaseTemplate
+from app.models.application_template import ApplicationTemplate
 from app.models.resident import (
     RentalUnit,
     ResidentLease,
@@ -135,9 +136,47 @@ class ApplicationResponse(BaseModel):
     decision_notes: str | None
     decided_at: datetime | None
     resident_id: uuid.UUID | None
+    application_template_id: uuid.UUID | None
+    sent_at: datetime | None
+    viewed_at: datetime | None
+    signed_at: datetime | None
 
     class Config:
         from_attributes = True
+
+
+class ApplicationFromTemplate(BaseModel):
+    """Create an application from a template and email it to a named prospect."""
+
+    applicant_first_name: str
+    applicant_last_name: str
+    applicant_email: str
+    applicant_phone: str | None = None
+    unit_id: uuid.UUID | None = None
+    desired_move_in: date | None = None
+    monthly_income: Decimal | None = None
+    # When omitted, the organisation's default application template is used.
+    template_id: uuid.UUID | None = None
+
+
+class PublicApplicationView(BaseModel):
+    """Token-addressed view of an application for the applicant to fill + sign."""
+
+    title: str
+    body: str
+    status: str
+    applicant_name: str
+    field_schema: list | None
+    application_data: dict | None
+    consent_text: str
+    signed: bool
+
+
+class ApplicationSignSubmission(BaseModel):
+    signature_type: str = "typed"
+    signature_data: str
+    consent_agreed: bool = False
+    field_values: dict | None = None
 
 
 class PartyInput(BaseModel):
@@ -375,6 +414,217 @@ async def convert_application(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     await db.commit()
     await db.refresh(application)
+    return application
+
+
+# ─── Application send-by-email + e-signing ────────────────────────────────────
+
+def _apply_url(token: str) -> str:
+    return f"{settings.FRONTEND_URL.rstrip('/')}/apply/{token}"
+
+
+async def _deliver_application_email(
+    *,
+    org_id: uuid.UUID | None,
+    application_id: uuid.UUID,
+    recipient_email: str,
+    recipient_name: str | None,
+    title: str,
+    org_name: str | None,
+    token: str,
+) -> None:
+    """Email an applicant their application link out-of-band and log the outcome.
+
+    Mirrors the lease/waiver delivery pattern: runs as a FastAPI background task on
+    its own DB session so a slow or failing SMTP send never blocks or fails the
+    HTTP response. Delivery outcome is observable via the EmailLog row.
+    """
+    email_subject = f"Rental application: {title}"
+    sent = False
+    error_detail: str | None = None
+    try:
+        apply_url = _apply_url(token)
+        html = (
+            f"<p>Hello{(' ' + recipient_name) if recipient_name else ''},</p>"
+            f"<p>{org_name or 'An organization'} has invited you to complete a "
+            f"rental application: <strong>{title}</strong>.</p>"
+            f"<p><a href=\"{apply_url}\">Complete and sign your application</a></p>"
+        )
+        sent = bool(await send_email(recipient_email, email_subject, html))
+        if not sent:
+            error_detail = (
+                "send_email returned False — SMTP is not configured "
+                "(SMTP_HOST unset) or the provider rejected the message."
+            )
+            logger.warning(
+                "Application email not delivered to %s for application %s: %s",
+                recipient_email,
+                application_id,
+                error_detail,
+            )
+    except Exception as exc:  # pragma: no cover - email best-effort
+        error_detail = str(exc)
+        logger.exception(
+            "Application email send raised for %s (application %s)",
+            recipient_email,
+            application_id,
+        )
+
+    async with async_session() as db:
+        try:
+            db.add(
+                EmailLog(
+                    rule_id=None,
+                    sent_to=recipient_email,
+                    subject=email_subject,
+                    body=error_detail,
+                    status="sent" if sent else "failed",
+                )
+            )
+            await db.commit()
+        except Exception:
+            logger.exception(
+                "Failed to write application EmailLog for application %s", application_id
+            )
+            await db.rollback()
+        await usage_service.record_event(db, org_id, "application_sent", success=sent)
+
+
+def _schedule_application_email(
+    background_tasks: BackgroundTasks,
+    application: RentalApplication,
+    *,
+    org_id: uuid.UUID | None,
+    org_name: str | None,
+    title: str,
+) -> None:
+    """Queue the invitation email for a freshly-sent application."""
+    if not application.applicant_email or not application.invite_token:
+        return
+    background_tasks.add_task(
+        _deliver_application_email,
+        org_id=org_id,
+        application_id=application.id,
+        recipient_email=application.applicant_email,
+        recipient_name=(
+            f"{application.applicant_first_name} {application.applicant_last_name}".strip()
+            or None
+        ),
+        title=title,
+        org_name=org_name,
+        token=application.invite_token,
+    )
+
+
+async def _resolve_application_template(
+    db: AsyncSession, org_id, template_id: uuid.UUID | None
+) -> ApplicationTemplate:
+    stmt = select(ApplicationTemplate).where(
+        ApplicationTemplate.organization_id == org_id,
+        ApplicationTemplate.is_deleted.is_(False),
+    )
+    if template_id is not None:
+        stmt = stmt.where(ApplicationTemplate.id == template_id)
+    else:
+        stmt = stmt.where(ApplicationTemplate.is_default.is_(True))
+    tmpl = (await db.execute(stmt)).scalars().first()
+    if tmpl is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Application template not found."
+            if template_id is not None
+            else "No default application template is configured; pick a template.",
+        )
+    return tmpl
+
+
+@router.post(
+    "/applications/from-template",
+    response_model=ApplicationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_application_from_template(
+    payload: ApplicationFromTemplate,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Editor),
+):
+    """Create an application from a template and email it to a named prospect."""
+    org_id = current_user.organization_id
+    if payload.unit_id is not None:
+        await _validate_unit(db, payload.unit_id, org_id)
+    template = await _resolve_application_template(db, org_id, payload.template_id)
+    org = (
+        await db.execute(select(Organization).where(Organization.id == org_id))
+    ).scalar_one_or_none()
+
+    application = await svc.create_application_from_template(
+        db,
+        org_id,
+        template=template,
+        applicant_first_name=payload.applicant_first_name,
+        applicant_last_name=payload.applicant_last_name,
+        applicant_email=str(payload.applicant_email),
+        applicant_phone=payload.applicant_phone,
+        unit_id=payload.unit_id,
+        desired_move_in=payload.desired_move_in,
+        monthly_income=payload.monthly_income,
+        organization_name=org.name if org is not None else None,
+        sent_by_id=current_user.id,
+    )
+    await db.commit()
+    await db.refresh(application)
+    _schedule_application_email(
+        background_tasks,
+        application,
+        org_id=org_id,
+        org_name=org.name if org is not None else None,
+        title=template.name,
+    )
+    return application
+
+
+@router.post("/applications/{app_id}/send", response_model=ApplicationResponse)
+async def send_application(
+    app_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Editor),
+):
+    """(Re)send the invitation email for a template-based application."""
+    org_id = current_user.organization_id
+    application = await _get_application(db, app_id, org_id)
+    if application.invite_token is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This application was not created from a template and cannot be emailed.",
+        )
+    if application.status in ("approved", "denied", "withdrawn", "converted"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"An application in status '{application.status}' can no longer be sent.",
+        )
+    org = (
+        await db.execute(select(Organization).where(Organization.id == org_id))
+    ).scalar_one_or_none()
+    title = "Rental Application"
+    if application.application_template_id is not None:
+        tmpl = (
+            await db.execute(
+                select(ApplicationTemplate).where(
+                    ApplicationTemplate.id == application.application_template_id
+                )
+            )
+        ).scalar_one_or_none()
+        if tmpl is not None:
+            title = tmpl.name
+    _schedule_application_email(
+        background_tasks,
+        application,
+        org_id=org_id,
+        org_name=org.name if org is not None else None,
+        title=title,
+    )
     return application
 
 
@@ -759,6 +1009,81 @@ async def submit_application(
     await db.commit()
     await db.refresh(application)
     return application
+
+
+# ─── Public: staff-sent application (fill + e-sign) ───────────────────────────
+
+async def _load_application_public(db: AsyncSession, token: str) -> RentalApplication:
+    application = await svc.load_application_by_token(db, token)
+    if application is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Application link not found.")
+    return application
+
+
+async def _application_public_view(
+    db: AsyncSession, application: RentalApplication
+) -> PublicApplicationView:
+    field_schema = None
+    if application.application_template_id is not None:
+        tmpl = (
+            await db.execute(
+                select(ApplicationTemplate).where(
+                    ApplicationTemplate.id == application.application_template_id
+                )
+            )
+        ).scalar_one_or_none()
+        if tmpl is not None:
+            field_schema = tmpl.field_schema
+    return PublicApplicationView(
+        title="Rental Application",
+        body=application.rendered_body or "",
+        status=application.status,
+        applicant_name=(
+            f"{application.applicant_first_name} {application.applicant_last_name}".strip()
+        ),
+        field_schema=field_schema,
+        application_data=application.application_data,
+        consent_text=waiver_service.ESIGN_CONSENT_TEXT,
+        signed=application.status
+        not in ("draft", "sent", "viewed"),
+    )
+
+
+@public_router.get("/apply/{token}", response_model=PublicApplicationView)
+async def public_view_application(token: str, db: AsyncSession = Depends(get_db)):
+    application = await _load_application_public(db, token)
+    await svc.mark_application_viewed(db, application)
+    await db.commit()
+    return await _application_public_view(db, application)
+
+
+@public_router.post("/apply/{token}", response_model=PublicApplicationView)
+async def public_submit_application(
+    token: str,
+    payload: ApplicationSignSubmission,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user_agent: str | None = Header(None, alias="User-Agent"),
+):
+    application = await _load_application_public(db, token)
+    if payload.signature_type not in LEASE_SIGNATURE_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid signature type.")
+    try:
+        await svc.sign_application(
+            db,
+            application,
+            signature_type=payload.signature_type,
+            signature_data=payload.signature_data,
+            consent_agreed=payload.consent_agreed,
+            field_values=payload.field_values,
+            ip_address=request.client.host if request.client else None,
+            user_agent=(user_agent or "")[:500] or None,
+        )
+    except FunnelError as e:
+        await db.commit()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+    await db.commit()
+    return await _application_public_view(db, application)
 
 
 # ─── Public: lease signing ────────────────────────────────────────────────────
