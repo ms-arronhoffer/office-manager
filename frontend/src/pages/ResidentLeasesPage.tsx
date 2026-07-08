@@ -21,6 +21,7 @@ import type {
   RentalUnit,
   Resident,
   LeaseTemplate,
+  LeaseSignatureRequest,
 } from '@/types';
 
 const fmtMoney = (v: string | null) =>
@@ -51,11 +52,65 @@ const leaseBadge = (s: ResidentLeaseStatus) => {
 
 interface Opt { label: string; value: string; }
 
+// Merge fields the backend fills automatically from the lease/unit/occupant
+// record (see leasing_funnel_service.build_lease_merge_context). Any other
+// ``{{field}}`` in a template body is a custom field the user must supply.
+const STANDARD_MERGE_FIELDS = new Set([
+  'recipient_name',
+  'signer_name',
+  'organization_name',
+  'date',
+  'tenant_name',
+  'tenant_names',
+  'lease_name',
+  'unit_number',
+  'unit_name',
+  'property_address',
+  'rent_amount',
+  'rent_frequency',
+  'security_deposit',
+  'pet_deposit',
+  'lease_start',
+  'lease_end',
+  'lease_type',
+]);
+
+const MERGE_FIELD_RE = /\{\{\s*(\w+)\s*\}\}/g;
+
+// Extract the custom (non-standard) merge fields from a template body, in order
+// of first appearance and de-duplicated.
+const customMergeFields = (body: string): string[] => {
+  const seen = new Set<string>();
+  const fields: string[] = [];
+  let m: RegExpExecArray | null;
+  MERGE_FIELD_RE.lastIndex = 0;
+  while ((m = MERGE_FIELD_RE.exec(body)) !== null) {
+    const key = m[1];
+    if (!STANDARD_MERGE_FIELDS.has(key) && !seen.has(key)) {
+      seen.add(key);
+      fields.push(key);
+    }
+  }
+  return fields;
+};
+
+const humanizeField = (key: string): string =>
+  key
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+const sigStatusBadge = (s: string) => {
+  const color =
+    s === 'completed' ? 'green' : s === 'declined' || s === 'voided' ? 'red' : 'blue';
+  return <Badge color={color as 'green' | 'red' | 'blue'}>{s.replace(/_/g, ' ')}</Badge>;
+};
+
 const ResidentLeasesPage: React.FC = () => {
   const { addFlash } = useFlashbar();
   const [leases, setLeases] = useState<ResidentLease[]>([]);
   const [units, setUnits] = useState<RentalUnit[]>([]);
   const [residents, setResidents] = useState<Resident[]>([]);
+  const [signatures, setSignatures] = useState<LeaseSignatureRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<Opt>({ label: 'All statuses', value: '' });
 
@@ -90,21 +145,25 @@ const ResidentLeasesPage: React.FC = () => {
   // "Add lease" template selection. When set, all lease fields are required and,
   // once saved, the lease is rendered from the template and emailed for e-sign.
   const [formTemplateId, setFormTemplateId] = useState('');
+  // Values for the selected template's custom (non-standard) merge fields.
+  const [templateFieldValues, setTemplateFieldValues] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = statusFilter.value ? { status: statusFilter.value } : undefined;
-      const [l, u, r, t] = await Promise.all([
+      const [l, u, r, t, s] = await Promise.all([
         leasing.listLeases(params),
         leasing.listUnits(),
         leasing.listResidents(),
         leaseTemplates.list({ active_only: true }),
+        leasingFunnel.listSignatures(),
       ]);
       setLeases(l.data);
       setUnits(u.data);
       setResidents(r.data);
       setTemplates(t.data);
+      setSignatures(s.data);
     } catch {
       addFlash({ type: 'error', content: 'Failed to load leases.' });
     } finally {
@@ -157,6 +216,7 @@ const ResidentLeasesPage: React.FC = () => {
     setOccupantIds([]);
     setNotes('');
     setFormTemplateId('');
+    setTemplateFieldValues({});
     setModalOpen(true);
   };
 
@@ -187,6 +247,7 @@ const ResidentLeasesPage: React.FC = () => {
     );
     setNotes(l.notes ?? '');
     setFormTemplateId('');
+    setTemplateFieldValues({});
     setModalOpen(true);
   };
 
@@ -207,6 +268,9 @@ const ResidentLeasesPage: React.FC = () => {
       if (!deposit.trim()) missing.push('security deposit');
       if (!petDeposit.trim()) missing.push('pet deposit');
       if (!leaseType) missing.push('lease type');
+      for (const f of formCustomFields) {
+        if (!(templateFieldValues[f] ?? '').trim()) missing.push(humanizeField(f));
+      }
       if (missing.length > 0) {
         addFlash({
           type: 'error',
@@ -221,6 +285,12 @@ const ResidentLeasesPage: React.FC = () => {
         resident_id: o.value,
         is_primary: i === 0,
       }));
+      // Only persist values for the fields the chosen template actually uses.
+      const fieldValues: Record<string, string> = {};
+      for (const f of formCustomFields) {
+        const v = (templateFieldValues[f] ?? '').trim();
+        if (v) fieldValues[f] = v;
+      }
       const common = {
         name: name.trim() || null,
         status: statusValue,
@@ -242,7 +312,12 @@ const ResidentLeasesPage: React.FC = () => {
         await leasing.updateLease(editing.id, common);
         addFlash({ type: 'success', content: 'Lease updated.' });
       } else {
-        const created = await leasing.createLease({ unit_id: unitId, ...common });
+        const created = await leasing.createLease({
+          unit_id: unitId,
+          ...common,
+          lease_template_id: formTemplateId || null,
+          template_field_values: Object.keys(fieldValues).length > 0 ? fieldValues : null,
+        });
         if (formTemplateId) {
           try {
             await leasingFunnel.createSignatureFromTemplate({
@@ -287,7 +362,8 @@ const ResidentLeasesPage: React.FC = () => {
 
   const openEsign = async (l: ResidentLease) => {
     setEsignLease(l);
-    setTemplateId('');
+    // Reuse the template already set on the lease so staff don't re-pick it.
+    setTemplateId(l.lease_template_id ?? '');
     setEsignTitle('');
     setEsignOpen(true);
     try {
@@ -300,7 +376,9 @@ const ResidentLeasesPage: React.FC = () => {
 
   const sendEsign = async () => {
     if (!esignLease) return;
-    if (!templateId) {
+    // Fall back to the lease's stored template when none is chosen explicitly.
+    const effectiveTemplateId = templateId || esignLease.lease_template_id || '';
+    if (!effectiveTemplateId) {
       addFlash({ type: 'error', content: 'Select a lease template.' });
       return;
     }
@@ -308,11 +386,12 @@ const ResidentLeasesPage: React.FC = () => {
     try {
       await leasingFunnel.createSignatureFromTemplate({
         resident_lease_id: esignLease.id,
-        template_id: templateId,
+        template_id: effectiveTemplateId,
         title: esignTitle.trim() || null,
       });
       addFlash({ type: 'success', content: 'Lease sent for e-signature.' });
       setEsignOpen(false);
+      await load();
     } catch {
       addFlash({
         type: 'error',
@@ -327,6 +406,37 @@ const ResidentLeasesPage: React.FC = () => {
     () => templates.map((t) => ({ label: t.name + (t.is_default ? ' (default)' : ''), value: t.id })),
     [templates],
   );
+
+  // Latest signature request per lease (backend returns newest first).
+  const signatureByLease = useMemo(() => {
+    const map = new Map<string, LeaseSignatureRequest>();
+    for (const s of signatures) {
+      if (s.resident_lease_id && !map.has(s.resident_lease_id)) {
+        map.set(s.resident_lease_id, s);
+      }
+    }
+    return map;
+  }, [signatures]);
+
+  // Custom merge fields required by the template chosen in the "Add lease" form.
+  const formCustomFields = useMemo(() => {
+    const tmpl = templates.find((t) => t.id === formTemplateId);
+    return tmpl ? customMergeFields(tmpl.body) : [];
+  }, [templates, formTemplateId]);
+
+  const downloadSigned = async (s: LeaseSignatureRequest) => {
+    try {
+      const res = await leasingFunnel.downloadSignedLease(s.id);
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${s.title}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      addFlash({ type: 'error', content: 'Failed to download signed lease PDF.' });
+    }
+  };
 
   return (
     <SpaceBetween size="l">
@@ -377,21 +487,37 @@ const ResidentLeasesPage: React.FC = () => {
           { id: 'end', header: 'End', cell: (l) => l.end_date ?? '—' },
           { id: 'status', header: 'Status', cell: (l) => leaseBadge(l.status) },
           {
+            id: 'signature',
+            header: 'Signature',
+            cell: (l) => {
+              const sig = signatureByLease.get(l.id);
+              return sig ? sigStatusBadge(sig.status) : <Box color="text-status-inactive">Not sent</Box>;
+            },
+          },
+          {
             id: 'actions',
             header: 'Actions',
-            cell: (l) => (
-              <SpaceBetween direction="horizontal" size="xs">
-                <Button variant="inline-link" onClick={() => openEdit(l)}>
-                  Edit
-                </Button>
-                <Button variant="inline-link" onClick={() => openEsign(l)}>
-                  Send for e-sign
-                </Button>
-                <Button variant="inline-link" onClick={() => remove(l)}>
-                  Delete
-                </Button>
-              </SpaceBetween>
-            ),
+            cell: (l) => {
+              const sig = signatureByLease.get(l.id);
+              return (
+                <SpaceBetween direction="horizontal" size="xs">
+                  <Button variant="inline-link" onClick={() => openEdit(l)}>
+                    Edit
+                  </Button>
+                  <Button variant="inline-link" onClick={() => openEsign(l)}>
+                    Send for e-sign
+                  </Button>
+                  {sig && sig.status === 'completed' && (
+                    <Button variant="inline-link" onClick={() => downloadSigned(sig)}>
+                      View signed PDF
+                    </Button>
+                  )}
+                  <Button variant="inline-link" onClick={() => remove(l)}>
+                    Delete
+                  </Button>
+                </SpaceBetween>
+              );
+            },
           },
         ]}
         empty={<Box textAlign="center">No leases yet.</Box>}
@@ -422,6 +548,25 @@ const ResidentLeasesPage: React.FC = () => {
                 placeholder="Select a lease template"
                 empty="No active templates"
               />
+            </FormField>
+          )}
+          {!editing && formTemplateId && formCustomFields.length > 0 && (
+            <FormField
+              label="Template fields"
+              description="This lease template defines custom fields. Their values are merged into the document sent for signature."
+            >
+              <SpaceBetween size="xs">
+                {formCustomFields.map((f) => (
+                  <FormField key={f} label={humanizeField(f)}>
+                    <Input
+                      value={templateFieldValues[f] ?? ''}
+                      onChange={({ detail }) =>
+                        setTemplateFieldValues((prev) => ({ ...prev, [f]: detail.value }))
+                      }
+                    />
+                  </FormField>
+                ))}
+              </SpaceBetween>
             </FormField>
           )}
           <FormField label="Unit">
@@ -564,10 +709,17 @@ const ResidentLeasesPage: React.FC = () => {
       >
         <SpaceBetween size="m">
           <Box variant="p">
-            A signature request is generated from the selected template and sent to every
+            A signature request is generated from the lease's template and sent to every
             occupant on this lease that has an email address.
           </Box>
-          <FormField label="Lease template">
+          <FormField
+            label="Lease template"
+            description={
+              esignLease?.lease_template_id
+                ? 'Defaults to the template set on this lease. Change it only to override.'
+                : 'This lease has no template set; choose one to send it for signature.'
+            }
+          >
             <Select
               selectedOption={templateOptions.find((o) => o.value === templateId) ?? null}
               onChange={({ detail }) => setTemplateId(detail.selectedOption.value ?? '')}

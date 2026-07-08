@@ -3151,6 +3151,8 @@ export interface ResidentLease {
   renewal_option: boolean;
   currency: string;
   notes: string | null;
+  lease_template_id: string | null;
+  template_field_values: Record<string, string> | null;
   created_at: string;
   updated_at: string;
   occupants: Occupant[];
@@ -3177,6 +3179,8 @@ export interface ResidentLeaseCreate {
   renewal_option?: boolean;
   currency?: string;
   notes?: string | null;
+  lease_template_id?: string | null;
+  template_field_values?: Record<string, string> | null;
   occupants?: OccupantInput[];
 }
 
@@ -3376,7 +3380,7 @@ export interface LeaseSignatureCreate {
 
 export interface LeaseSignatureFromTemplate {
   resident_lease_id: string;
-  template_id: string;
+  template_id?: string | null;
   title?: string | null;
   parties?: LeaseSignaturePartyInput[] | null;
   expires_at?: string | null;
