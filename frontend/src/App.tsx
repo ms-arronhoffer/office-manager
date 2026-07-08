@@ -185,7 +185,6 @@ const App: React.FC = () => {
                         <Route path="administration/automation" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
                         <Route path="administration/integrations" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
                         <Route path="administration/system" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
-                        <Route path="administration/platform" element={<SuperAdminGuard><AdministrationPage /></SuperAdminGuard>} />
                         <Route path="platform" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
                         <Route path="platform/orgs" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
                         <Route path="platform/billing" element={<SuperAdminGuard><PlatformAdminPage /></SuperAdminGuard>} />
