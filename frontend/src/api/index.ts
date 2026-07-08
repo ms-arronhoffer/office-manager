@@ -1751,7 +1751,7 @@ export const ai = {
   draftTicketFromEmail: (emailText: string) =>
     client.post<DocumentParseResult>('/ai/tickets/draft-from-email', { email_text: emailText }),
 
-  assistantQuery: (question: string, limit = 8) =>
+  assistantQuery: (question: string, limit = 12) =>
     client.post<AssistantQueryResult>('/ai/assistant/query', { question, limit }),
 
   assistantReindex: () =>
