@@ -233,6 +233,7 @@ const LeasingFunnelPage: React.FC = () => {
         new Blob([res.data as BlobPart], { type: 'application/pdf' }),
       );
       window.open(url, '_blank', 'noopener');
+      // Revoke the object URL after the new tab has had time to load the PDF.
       setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
     } catch {
       addFlash({ type: 'error', content: 'Failed to load signed application.' });
