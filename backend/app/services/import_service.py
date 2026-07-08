@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.office import Office, Manager
 from app.models.lease import Lease
+from app.schemas.lease import normalize_lease_status
 from app.models.landlord import Landlord
 from app.models.vendor import Vendor, vendor_offices
 from app.models.transition import OfficeTransition
@@ -283,8 +284,7 @@ async def import_leases(db: AsyncSession, file_bytes: bytes) -> ImportResult:
             notice_period_days=parse_notice_days(safe_str(row.get("Notice Days"))) if safe_str(row.get("Notice Days")) else safe_int(row.get("Notice Days")),
             lease_notice_date=safe_date(row.get("Notice Date")),
             notice_given_date=safe_date(row.get("Notice Given Date")),
-            quarem_date=safe_date(row.get("Quarem Date")),
-            quarem_status=safe_str(row.get("Quarem Status")),
+            status=normalize_lease_status(row.get("Status")),
             expiration_year=exp_year,
         )
 

@@ -248,8 +248,7 @@ export interface Lease {
   notice_period_days?: number;
   lease_notice_date?: string;
   notice_given_date?: string;
-  quarem_date?: string;
-  quarem_status?: string;
+  status?: string;
   expiration_year?: number;
   notes?: LeaseNote[];
   // ASC 842 / IFRS 16 financial fields
@@ -281,8 +280,7 @@ export interface LeaseCreate {
   notice_period_days?: number;
   lease_notice_date?: string;
   notice_given_date?: string;
-  quarem_date?: string;
-  quarem_status?: string;
+  status?: string;
   expiration_year?: number;
   // ASC 842 / IFRS 16 financial fields
   lease_commencement_date?: string;

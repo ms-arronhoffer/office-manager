@@ -2,6 +2,7 @@ from seed.helpers import (
     get_workbook, safe_str, safe_date, parse_notice_days, parse_office_number_from_name
 )
 from app.models import Lease, LeaseNote, Manager
+from app.schemas.lease import normalize_lease_status
 from sqlalchemy import select
 
 
@@ -72,8 +73,7 @@ def import_leases(session, manager_map, office_map, organization_id=None):
                 notice_given = safe_date(row[5])
                 quarem_val = row[6] if len(row) > 6 else None
 
-            quarem_date = safe_date(quarem_val)
-            quarem_status = safe_str(quarem_val) if not quarem_date else None
+            lease_status = normalize_lease_status(quarem_val)
 
             lease = Lease(
                 office_id=office_id,
@@ -86,8 +86,7 @@ def import_leases(session, manager_map, office_map, organization_id=None):
                 notice_period_days=parse_notice_days(notice_period),
                 lease_notice_date=notice_date,
                 notice_given_date=notice_given,
-                quarem_date=quarem_date,
-                quarem_status=quarem_status,
+                status=lease_status,
                 expiration_year=year,
             )
             session.add(lease)

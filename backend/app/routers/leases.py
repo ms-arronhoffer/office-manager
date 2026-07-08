@@ -47,11 +47,11 @@ async def export_leases(
     leases = result.scalars().unique().all()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Lease Name", "Lessor", "Expiration", "Notice Date", "Notice Given", "Manager", "Year"])
+    writer.writerow(["Lease Name", "Lessor", "Expiration", "Notice Date", "Notice Given", "Manager", "Year", "Status"])
     for l in leases:
         writer.writerow([
             l.lease_name, l.lessor_name, l.lease_expiration, l.lease_notice_date,
-            l.notice_given_date, l.manager.name if l.manager else "", l.expiration_year,
+            l.notice_given_date, l.manager.name if l.manager else "", l.expiration_year, l.status or "",
         ])
     output.seek(0)
     return StreamingResponse(
@@ -109,11 +109,13 @@ async def export_leases_ical(
     )
 
 
-def _apply_filters(stmt, year: int | None, manager_id: uuid.UUID | None, notice_status: str | None):
+def _apply_filters(stmt, year: int | None, manager_id: uuid.UUID | None, notice_status: str | None, status: str | None = None):
     if year is not None:
         stmt = stmt.where(Lease.expiration_year == year)
     if manager_id is not None:
         stmt = stmt.where(Lease.manager_id == manager_id)
+    if status:
+        stmt = stmt.where(Lease.status == status)
     if notice_status == "given":
         stmt = stmt.where(Lease.notice_given_date.is_not(None))
     elif notice_status == "not_given":
@@ -258,6 +260,7 @@ async def list_leases(
     year: int | None = Query(default=None),
     manager_id: uuid.UUID | None = Query(default=None),
     notice_status: str | None = Query(default=None, description="given | not_given"),
+    status: str | None = Query(default=None, description="Lease lifecycle status"),
     expiring_within_days: int | None = Query(default=None, ge=1),
     sort_by: str | None = Query(default=None),
     sort_order: str = Query(default="asc", pattern="^(asc|desc)$"),
@@ -266,7 +269,7 @@ async def list_leases(
 ):
     base_stmt = select(Lease).options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes)).where(Lease.is_deleted.is_(False))
     base_stmt = base_stmt.where(Lease.organization_id == current_user.organization_id)
-    base_stmt = _apply_filters(base_stmt, year, manager_id, notice_status)
+    base_stmt = _apply_filters(base_stmt, year, manager_id, notice_status, status)
 
     if expiring_within_days is not None:
         cutoff = date.today() + timedelta(days=expiring_within_days)
@@ -288,6 +291,7 @@ async def list_leases(
         "lease_expiration": Lease.lease_expiration,
         "lessor_name": Lease.lessor_name,
         "expiration_year": Lease.expiration_year,
+        "status": Lease.status,
     }
     stmt = apply_sorting(base_stmt, sort_by, sort_order, _LEASE_SORT_COLS, [Lease.lease_expiration])
     stmt = stmt.offset(offset).limit(page_size)
