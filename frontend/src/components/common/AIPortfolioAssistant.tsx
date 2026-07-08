@@ -39,6 +39,8 @@ const SOURCE_LABELS: Record<string, string> = {
   budget: 'Budget',
   inspection: 'Inspection',
   listing: 'Vacancy listing',
+  rental_application: 'Rental application',
+  screening_report: 'Screening report',
 };
 
 /**

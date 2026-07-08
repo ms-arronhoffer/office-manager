@@ -53,6 +53,8 @@ from app.models.knowledge_chunk import (
     SOURCE_BUDGET,
     SOURCE_INSPECTION,
     SOURCE_LISTING,
+    SOURCE_RENTAL_APPLICATION,
+    SOURCE_SCREENING_REPORT,
     KnowledgeChunk,
 )
 from app.models.hvac_contract import HvacContract
@@ -75,6 +77,7 @@ from app.models.bank_account import BankAccount
 from app.models.budget import Budget
 from app.models.inspection import Inspection
 from app.models.listing import VacancyListing
+from app.models.leasing_funnel import RentalApplication, ScreeningReport
 from app.services import ai_service
 
 logger = logging.getLogger(__name__)
@@ -604,6 +607,55 @@ def _listing_text(listing: VacancyListing, unit_label: str | None) -> str:
     return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
 
 
+def _application_name(app: RentalApplication) -> str:
+    name = " ".join(
+        p for p in (app.applicant_first_name, app.applicant_last_name) if p
+    ).strip()
+    return name or app.applicant_email or "Applicant"
+
+
+def _rental_application_text(
+    app: RentalApplication, unit_label: str | None
+) -> str:
+    parts = [f"Rental application: {_application_name(app)}"]
+    if app.applicant_email:
+        parts.append(f"Email: {app.applicant_email}")
+    if app.applicant_phone:
+        parts.append(f"Phone: {app.applicant_phone}")
+    if unit_label:
+        parts.append(f"Unit: {unit_label}")
+    if app.status:
+        parts.append(f"Status: {app.status}")
+    if app.desired_move_in:
+        parts.append(f"Desired move-in: {app.desired_move_in}")
+    if app.monthly_income is not None:
+        parts.append(f"Monthly income: {app.monthly_income}")
+    if app.decision_notes:
+        parts.append(f"Decision notes: {app.decision_notes}")
+    if app.notes:
+        parts.append(f"Notes: {app.notes}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
+def _screening_report_text(
+    report: ScreeningReport, applicant_label: str | None
+) -> str:
+    parts = ["Tenant screening report"]
+    if applicant_label:
+        parts.append(f"Applicant: {applicant_label}")
+    if report.provider:
+        parts.append(f"Provider: {report.provider}")
+    if report.status:
+        parts.append(f"Status: {report.status}")
+    if report.recommendation:
+        parts.append(f"Recommendation: {report.recommendation}")
+    if report.credit_score is not None:
+        parts.append(f"Credit score: {report.credit_score}")
+    if report.completed_at:
+        parts.append(f"Completed: {report.completed_at}")
+    return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
+
+
 # ── Indexing ──────────────────────────────────────────────────────────────────
 
 def _portfolio_summary_text(counts: dict[str, int]) -> str:
@@ -643,13 +695,16 @@ def _portfolio_summary_text(counts: dict[str, int]) -> str:
         f"Total budgets: {counts['budgets']}.",
         f"Total inspections: {counts['inspections']}.",
         f"Total vacancy listings: {counts['listings']}.",
+        f"Total rental applications: {counts['applications']} "
+        f"(applications in screening: {counts['applications_screening']}).",
+        f"Total tenant screening reports: {counts['screening_reports']}.",
         "Use these totals to answer how many / count / total questions about "
         "offices, leases, landlords, vendors, maintenance tickets, management "
         "companies, HVAC contracts, office transitions, insurance certificates, "
         "rental units, residents, resident leases, rent charges, property "
         "owners, owner distributions, vendor bills, customer invoices, bank "
-        "accounts, budgets, inspections, and vacancy listings across the "
-        "portfolio.",
+        "accounts, budgets, inspections, vacancy listings, rental applications, "
+        "and tenant screening reports across the portfolio.",
     ]
     return _clean(" ".join(parts))[:MAX_CHUNK_CHARS]
 
@@ -1171,6 +1226,52 @@ async def _collect_chunks(
             }
         )
 
+    # ── Rental applications (leasing funnel) ───────────────────────────────
+    applications = (
+        await db.execute(
+            select(RentalApplication)
+            .where(
+                RentalApplication.organization_id == organization_id,
+                RentalApplication.is_deleted.is_(False),
+            )
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    application_label_by_id: dict[uuid.UUID, str] = {}
+    for app in applications:
+        label = _application_name(app)
+        application_label_by_id[app.id] = label
+        unit_label = unit_label_by_id.get(app.unit_id)
+        chunks.append(
+            {
+                "source_type": SOURCE_RENTAL_APPLICATION,
+                "source_id": app.id,
+                "title": f"Rental application: {label}",
+                "reference": "residential/applications",
+                "content": _rental_application_text(app, unit_label),
+            }
+        )
+
+    # ── Screening reports ──────────────────────────────────────────────────
+    screening_reports = (
+        await db.execute(
+            select(ScreeningReport)
+            .where(ScreeningReport.organization_id == organization_id)
+            .limit(MAX_RECORDS_PER_KIND)
+        )
+    ).scalars().all()
+    for report in screening_reports:
+        applicant_label = application_label_by_id.get(report.application_id)
+        chunks.append(
+            {
+                "source_type": SOURCE_SCREENING_REPORT,
+                "source_id": report.id,
+                "title": "Tenant screening report",
+                "reference": "residential/applications",
+                "content": _screening_report_text(report, applicant_label),
+            }
+        )
+
     # ── Portfolio summary (organization-level rollup of totals) ────────────
     # Prepended so aggregate "how many"/"count" questions are answerable even
     # though retrieval only returns a few individual record chunks.
@@ -1203,6 +1304,11 @@ async def _collect_chunks(
         "budgets": len(budgets),
         "inspections": len(inspections),
         "listings": len(listings),
+        "applications": len(applications),
+        "applications_screening": sum(
+            1 for a in applications if a.status == "screening"
+        ),
+        "screening_reports": len(screening_reports),
     }
     chunks.insert(
         0,
