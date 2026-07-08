@@ -172,6 +172,11 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       text: 'Settings',
       href: '/settings',
     },
+    {
+      type: 'link' as const,
+      text: 'Help',
+      href: '/help',
+    },
   ], [isEditorOrAdmin, isFinance, isSuperAdmin, pinnedOffices]);
 
   return (
@@ -200,6 +205,14 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
                   },
                 ]
               : []),
+            {
+              type: 'button',
+              iconName: 'status-info',
+              text: 'Help',
+              title: 'Open the help guide',
+              ariaLabel: 'Open the help guide',
+              onClick: () => navigate('/help'),
+            },
             {
               type: 'button',
               iconName: 'support',

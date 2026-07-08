@@ -50,6 +50,7 @@ const ManagementCompaniesPage = lazy(() => import('@/pages/ManagementCompaniesPa
 const ManagementCompanyDetailPage = lazy(() => import('@/pages/ManagementCompanyDetailPage'));
 const ManagementCompanyFormPage = lazy(() => import('@/pages/ManagementCompanyFormPage'));
 const DataDictionaryPage = lazy(() => import('@/pages/DataDictionaryPage'));
+const HelpPage = lazy(() => import('@/pages/HelpPage'));
 const EmailRulesPage = lazy(() => import('@/pages/EmailRulesPage'));
 const WaiversPage = lazy(() => import('@/pages/WaiversPage'));
 const WaiverSignPage = lazy(() => import('@/pages/WaiverSignPage'));
@@ -210,6 +211,7 @@ const App: React.FC = () => {
                         <Route path="email-rules" element={<RoleGuard allowedRoles={['admin']}><EmailRulesPage /></RoleGuard>} />
                         <Route path="waivers" element={<RoleGuard allowedRoles={['admin', 'editor']}><WaiversPage /></RoleGuard>} />
                         <Route path="settings" element={<SettingsPage />} />
+                        <Route path="help" element={<HelpPage />} />
                         <Route path="activity-log" element={<RoleGuard allowedRoles={['admin']}><ActivityLogPage /></RoleGuard>} />
                         <Route path="trash" element={<RoleGuard allowedRoles={['admin']}><TrashPage /></RoleGuard>} />
                         <Route path="admin/site-settings" element={<RoleGuard allowedRoles={['admin']}><SiteSettingsPage /></RoleGuard>} />
