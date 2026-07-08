@@ -440,10 +440,12 @@ const HelpPage: React.FC = () => {
   const visibleTopics = useMemo(
     () =>
       HELP_TOPICS.map((topic) => {
-        // When searching, only show articles that match; otherwise show all.
-        const articles = term
-          ? topic.articles.filter((a) => articleMatches(a, term) || topic.title.toLowerCase().includes(term) || topic.description.toLowerCase().includes(term))
-          : topic.articles;
+        // When searching, show every article for a topic whose title/description
+        // matches; otherwise only the articles that match the term.
+        const topicHeaderMatches =
+          topic.title.toLowerCase().includes(term) || topic.description.toLowerCase().includes(term);
+        const articles =
+          term && !topicHeaderMatches ? topic.articles.filter((a) => articleMatches(a, term)) : topic.articles;
         return { topic, articles };
       }).filter(({ topic, articles }) => topicMatches(topic, term) && articles.length > 0),
     [term],
