@@ -15,12 +15,14 @@ mirror the public waiver-signing surface (token-based, ESIGN/UETA controls).
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     Header,
     HTTPException,
@@ -35,7 +37,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.dependencies import get_current_user, require_role
-from app.database import get_db
+from app.config import settings
+from app.database import async_session, get_db
+from app.models.email import EmailLog
 from app.models.leasing_funnel import (
     APPLICATION_STATUSES,
     LEASE_PARTY_ROLES,
@@ -54,8 +58,12 @@ from app.models.resident import (
 )
 from app.models.user import User
 from app.services import leasing_funnel_service as svc
+from app.services import usage_service
 from app.services import waiver_service
 from app.services.leasing_funnel_service import FunnelError
+from app.utils.email_client import send_email
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 public_router = APIRouter()
@@ -369,6 +377,104 @@ async def convert_application(
 
 # ─── Lease e-signing (staff) ──────────────────────────────────────────────────
 
+def _lease_sign_url(token: str) -> str:
+    return f"{settings.FRONTEND_URL.rstrip('/')}/lease-sign/{token}"
+
+
+async def _deliver_lease_email(
+    *,
+    org_id: uuid.UUID | None,
+    request_id: uuid.UUID,
+    recipient_email: str,
+    recipient_name: str | None,
+    title: str,
+    org_name: str | None,
+    token: str,
+    expires_at: datetime | None,
+) -> None:
+    """Email one signing party their lease link out-of-band and log the outcome.
+
+    Mirrors the waiver delivery pattern: runs as a FastAPI background task on its
+    own DB session so a slow or failing SMTP send never blocks or fails the HTTP
+    response. Delivery outcome is observable via the EmailLog row.
+    """
+    email_subject = f"Signature requested: {title}"
+    sent = False
+    error_detail: str | None = None
+    try:
+        sign_url = _lease_sign_url(token)
+        expiry_line = (
+            f"<p>This link expires on {expires_at:%B %d, %Y}.</p>"
+            if expires_at is not None
+            else ""
+        )
+        html = (
+            f"<p>Hello{(' ' + recipient_name) if recipient_name else ''},</p>"
+            f"<p>{org_name or 'An organization'} has requested your signature on "
+            f"the lease <strong>{title}</strong>.</p>"
+            f"<p><a href=\"{sign_url}\">Review and sign the lease</a></p>"
+            f"{expiry_line}"
+        )
+        sent = bool(await send_email(recipient_email, email_subject, html))
+        if not sent:
+            error_detail = (
+                "send_email returned False — SMTP is not configured "
+                "(SMTP_HOST unset) or the provider rejected the message."
+            )
+            logger.warning(
+                "Lease email not delivered to %s for request %s: %s",
+                recipient_email,
+                request_id,
+                error_detail,
+            )
+    except Exception as exc:  # pragma: no cover - email best-effort
+        error_detail = str(exc)
+        logger.exception(
+            "Lease email send raised for %s (request %s)", recipient_email, request_id
+        )
+
+    async with async_session() as db:
+        try:
+            db.add(
+                EmailLog(
+                    rule_id=None,
+                    sent_to=recipient_email,
+                    subject=email_subject,
+                    body=error_detail,
+                    status="sent" if sent else "failed",
+                )
+            )
+            await db.commit()
+        except Exception:
+            logger.exception("Failed to write lease EmailLog for request %s", request_id)
+            await db.rollback()
+        await usage_service.record_event(db, org_id, "lease_sent", success=sent)
+
+
+def _schedule_lease_emails(
+    background_tasks: BackgroundTasks,
+    req: LeaseSignatureRequest,
+    *,
+    org_id: uuid.UUID | None,
+    org_name: str | None,
+) -> None:
+    """Queue a signing email for each party on a freshly-created envelope."""
+    for party in req.parties:
+        if not party.signer_email:
+            continue
+        background_tasks.add_task(
+            _deliver_lease_email,
+            org_id=org_id,
+            request_id=req.id,
+            recipient_email=party.signer_email,
+            recipient_name=party.signer_name,
+            title=req.title,
+            org_name=org_name,
+            token=party.sign_token,
+            expires_at=req.expires_at,
+        )
+
+
 async def _load_signature_request(
     db: AsyncSession, request_id: uuid.UUID, org_id
 ) -> LeaseSignatureRequest:
@@ -390,6 +496,7 @@ async def _load_signature_request(
 @router.post("/lease-signatures", response_model=LeaseSignatureResponse, status_code=status.HTTP_201_CREATED)
 async def create_lease_signature(
     payload: LeaseSignatureCreate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(Editor),
 ):
@@ -422,6 +529,9 @@ async def create_lease_signature(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     await db.commit()
     req = await _load_signature_request(db, req.id, current_user.organization_id)
+    _schedule_lease_emails(
+        background_tasks, req, org_id=current_user.organization_id, org_name=None
+    )
     return req
 
 
@@ -432,6 +542,7 @@ async def create_lease_signature(
 )
 async def create_lease_signature_from_template(
     payload: LeaseSignatureFromTemplate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(Editor),
 ):
@@ -507,6 +618,12 @@ async def create_lease_signature_from_template(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     await db.commit()
     req = await _load_signature_request(db, req.id, org_id)
+    _schedule_lease_emails(
+        background_tasks,
+        req,
+        org_id=org_id,
+        org_name=org.name if org is not None else None,
+    )
     return req
 
 

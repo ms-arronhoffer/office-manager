@@ -3405,6 +3405,30 @@ export interface LeaseTemplateCreate {
 
 export type LeaseTemplateUpdate = Partial<LeaseTemplateCreate>;
 
+// A full, ready-to-modify sample lease used to seed the create form.
+export interface LeaseTemplateSample {
+  name: string;
+  description: string;
+  body: string;
+}
+
+// Public (token-addressed) lease signing surface.
+export interface PublicLeaseView {
+  title: string;
+  body: string;
+  request_status: string;
+  party_status: string;
+  signer_name: string;
+  consent_text: string;
+  expired: boolean;
+}
+
+export interface LeaseSignSubmission {
+  signature_type: 'typed' | 'drawn';
+  signature_data: string;
+  consent_agreed: boolean;
+}
+
 // Vacancy listings
 export type ListingStatus = 'draft' | 'published' | 'leased';
 

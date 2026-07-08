@@ -87,18 +87,24 @@ const ResidentLeasesPage: React.FC = () => {
   const [esignTitle, setEsignTitle] = useState('');
   const [esignSending, setEsignSending] = useState(false);
 
+  // "Add lease" template selection. When set, all lease fields are required and,
+  // once saved, the lease is rendered from the template and emailed for e-sign.
+  const [formTemplateId, setFormTemplateId] = useState('');
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = statusFilter.value ? { status: statusFilter.value } : undefined;
-      const [l, u, r] = await Promise.all([
+      const [l, u, r, t] = await Promise.all([
         leasing.listLeases(params),
         leasing.listUnits(),
         leasing.listResidents(),
+        leaseTemplates.list({ active_only: true }),
       ]);
       setLeases(l.data);
       setUnits(u.data);
       setResidents(r.data);
+      setTemplates(t.data);
     } catch {
       addFlash({ type: 'error', content: 'Failed to load leases.' });
     } finally {
@@ -150,6 +156,7 @@ const ResidentLeasesPage: React.FC = () => {
     setRenewalOption(false);
     setOccupantIds([]);
     setNotes('');
+    setFormTemplateId('');
     setModalOpen(true);
   };
 
@@ -179,6 +186,7 @@ const ResidentLeasesPage: React.FC = () => {
       })),
     );
     setNotes(l.notes ?? '');
+    setFormTemplateId('');
     setModalOpen(true);
   };
 
@@ -186,6 +194,26 @@ const ResidentLeasesPage: React.FC = () => {
     if (!editing && !unitId) {
       addFlash({ type: 'error', content: 'A unit is required.' });
       return;
+    }
+    // When a lease template is chosen, every field the template can render must
+    // be present so no merge field is left blank on the signed document.
+    if (!editing && formTemplateId) {
+      const missing: string[] = [];
+      if (occupantIds.length === 0) missing.push('at least one occupant');
+      if (!name.trim()) missing.push('lease name');
+      if (!startDate) missing.push('start date');
+      if (!endDate) missing.push('end date');
+      if (!rentAmount.trim()) missing.push('rent amount');
+      if (!deposit.trim()) missing.push('security deposit');
+      if (!petDeposit.trim()) missing.push('pet deposit');
+      if (!leaseType) missing.push('lease type');
+      if (missing.length > 0) {
+        addFlash({
+          type: 'error',
+          content: `To send a lease from a template, complete: ${missing.join(', ')}.`,
+        });
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -214,8 +242,28 @@ const ResidentLeasesPage: React.FC = () => {
         await leasing.updateLease(editing.id, common);
         addFlash({ type: 'success', content: 'Lease updated.' });
       } else {
-        await leasing.createLease({ unit_id: unitId, ...common });
-        addFlash({ type: 'success', content: 'Lease created.' });
+        const created = await leasing.createLease({ unit_id: unitId, ...common });
+        if (formTemplateId) {
+          try {
+            await leasingFunnel.createSignatureFromTemplate({
+              resident_lease_id: created.data.id,
+              template_id: formTemplateId,
+              title: null,
+            });
+            addFlash({
+              type: 'success',
+              content: 'Lease created and emailed to occupants for e-signature.',
+            });
+          } catch {
+            addFlash({
+              type: 'warning',
+              content:
+                'Lease created, but it could not be sent for e-signature. Ensure occupants have email addresses, then use "Send for e-sign".',
+            });
+          }
+        } else {
+          addFlash({ type: 'success', content: 'Lease created.' });
+        }
       }
       setModalOpen(false);
       await load();
@@ -359,6 +407,23 @@ const ResidentLeasesPage: React.FC = () => {
         onSubmit={save}
       >
         <SpaceBetween size="m">
+          {!editing && (
+            <FormField
+              label="Lease template (optional)"
+              description="Choose a template to email this lease to the occupants for e-signature after saving. All lease fields become required so the document has no blanks."
+            >
+              <Select
+                selectedOption={
+                  templateOptions.find((o) => o.value === formTemplateId) ?? null
+                }
+                onChange={({ detail }) => setFormTemplateId(detail.selectedOption.value ?? '')}
+                options={[{ label: 'None — just save the lease', value: '' }, ...templateOptions]}
+                filteringType="auto"
+                placeholder="Select a lease template"
+                empty="No active templates"
+              />
+            </FormField>
+          )}
           <FormField label="Unit">
             <Select
               disabled={!!editing}

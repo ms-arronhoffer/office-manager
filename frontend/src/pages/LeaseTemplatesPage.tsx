@@ -76,6 +76,26 @@ const LeaseTemplatesPage: React.FC = () => {
     setModalOpen(true);
   };
 
+  // Seed the create form with a full, ready-to-modify sample lease so staff can
+  // edit a complete document rather than authoring one from scratch.
+  const openSample = async () => {
+    setDrafting(true);
+    try {
+      const { data } = await leaseTemplates.getSample();
+      setEditing(null);
+      setName(data.name);
+      setDescription(data.description);
+      setBody(data.body);
+      setIsDefault(false);
+      setIsActive(true);
+      setModalOpen(true);
+    } catch {
+      addFlash({ type: 'error', content: 'Failed to load the sample lease.' });
+    } finally {
+      setDrafting(false);
+    }
+  };
+
   const openEdit = (t: LeaseTemplate) => {
     setEditing(t);
     setName(t.name);
@@ -188,6 +208,7 @@ const LeaseTemplatesPage: React.FC = () => {
                 >
                   Create template from a lease (AI)
                 </Button>
+                <Button onClick={openSample}>Start from sample lease</Button>
                 <Button variant="primary" onClick={openCreate}>
                   Add template
                 </Button>

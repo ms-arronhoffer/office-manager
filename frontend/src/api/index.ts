@@ -1893,6 +1893,9 @@ import type {
   LeaseTemplate,
   LeaseTemplateCreate,
   LeaseTemplateUpdate,
+  LeaseTemplateSample,
+  PublicLeaseView,
+  LeaseSignSubmission,
   VacancyListing,
   VacancyListingCreate,
   VacancyListingUpdate,
@@ -2018,11 +2021,32 @@ export const leasingFunnel = {
 export const leaseTemplates = {
   list: (params?: { active_only?: boolean }) =>
     client.get<LeaseTemplate[]>('/lease-templates', { params }),
+  getSample: () => client.get<LeaseTemplateSample>('/lease-templates/sample'),
   get: (id: string) => client.get<LeaseTemplate>(`/lease-templates/${id}`),
   create: (data: LeaseTemplateCreate) => client.post<LeaseTemplate>('/lease-templates', data),
   update: (id: string, data: LeaseTemplateUpdate) =>
     client.patch<LeaseTemplate>(`/lease-templates/${id}`, data),
   delete: (id: string) => client.delete(`/lease-templates/${id}`),
+};
+
+// ─── Leasing funnel (public, token-based lease signing) ──────────────────────
+const _leaseSignBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+
+export const leasingFunnelPublic = {
+  view: (token: string) =>
+    axios
+      .create({ baseURL: _leaseSignBase })
+      .get<PublicLeaseView>(`/leasing-funnel/lease-sign/${token}`),
+
+  sign: (token: string, data: LeaseSignSubmission) =>
+    axios
+      .create({ baseURL: _leaseSignBase })
+      .post<PublicLeaseView>(`/leasing-funnel/lease-sign/${token}`, data),
+
+  decline: (token: string) =>
+    axios
+      .create({ baseURL: _leaseSignBase })
+      .post<PublicLeaseView>(`/leasing-funnel/lease-sign/${token}/decline`),
 };
 
 export const listings = {
