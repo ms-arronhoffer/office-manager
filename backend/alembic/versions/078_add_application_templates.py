@@ -6,16 +6,16 @@ and extends ``rental_applications`` so a staff-sent, template-based application
 can be emailed to a named person and e-signed by the applicant, carrying the same
 ESIGN/UETA evidentiary trail used for lease signing.
 
-Revision ID: 077
-Revises: 076
+Revision ID: 078
+Revises: 077
 Create Date: 2026-07-08
 """
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-revision = "077"
-down_revision = "076"
+revision = "078"
+down_revision = "077"
 branch_labels = None
 depends_on = None
 
