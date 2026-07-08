@@ -80,6 +80,9 @@ const STANDARD_MERGE_FIELDS = new Set([
 // backend render_body regex in waiver_service).
 const MERGE_FIELD_RE = /\{\{\s*(\w+)\s*\}\}/g;
 
+// Cap generated download filenames to a length safe across filesystems.
+const MAX_FILENAME_LENGTH = 120;
+
 // Extract the custom (non-standard) merge fields from a template body, in order
 // of first appearance and de-duplicated.
 const customMergeFields = (body: string): string[] => {
@@ -434,7 +437,7 @@ const ResidentLeasesPage: React.FC = () => {
       const a = document.createElement('a');
       a.href = url;
       // Sanitize the title into a safe, non-empty filename across platforms.
-      const safeName = (s.title || 'signed-lease').replace(/[^\w.-]+/g, '_').slice(0, 120);
+      const safeName = (s.title || 'signed-lease').replace(/[^\w.-]+/g, '_').slice(0, MAX_FILENAME_LENGTH);
       a.download = `${safeName}.pdf`;
       a.click();
       URL.revokeObjectURL(url);

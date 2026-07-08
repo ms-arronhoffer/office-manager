@@ -158,7 +158,8 @@ class LeaseSignatureCreate(BaseModel):
 class LeaseSignatureFromTemplate(BaseModel):
     resident_lease_id: uuid.UUID
     # When omitted, the template stored on the resident lease is used so staff
-    # don't have to re-select the template they already chose for the lease.
+    # don't have to re-select the template they already chose for the lease. When
+    # provided, this template is used instead and becomes the lease's stored one.
     template_id: uuid.UUID | None = None
     title: str | None = None
     # When omitted, the lease occupants with an email become the signing parties.
