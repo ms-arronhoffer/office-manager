@@ -50,6 +50,8 @@ SOURCE_BANK_ACCOUNT = "bank_account"
 SOURCE_BUDGET = "budget"
 SOURCE_INSPECTION = "inspection"
 SOURCE_LISTING = "listing"
+SOURCE_RENTAL_APPLICATION = "rental_application"
+SOURCE_SCREENING_REPORT = "screening_report"
 # Synthetic, organization-level rollup of portfolio totals (one per org). It lets
 # the assistant answer aggregate "how many" / "count" questions that individual
 # record chunks cannot, since retrieval only ever returns a handful of records.
@@ -79,6 +81,8 @@ KNOWLEDGE_SOURCE_TYPES = frozenset({
     SOURCE_BUDGET,
     SOURCE_INSPECTION,
     SOURCE_LISTING,
+    SOURCE_RENTAL_APPLICATION,
+    SOURCE_SCREENING_REPORT,
     SOURCE_PORTFOLIO_SUMMARY,
 })
 

@@ -14,6 +14,7 @@ from app.models.organization import Organization
 from app.models.resident import RentalUnit, Resident
 from app.models.owner import PropertyOwner
 from app.models.budget import Budget
+from app.models.leasing_funnel import RentalApplication
 from app.services import ai_service, knowledge_service
 
 
@@ -105,3 +106,48 @@ async def test_portfolio_summary_counts_new_domains(db_session, monkeypatch):
     )
     assert summary is not None
     assert "Total residents: 2" in summary["content"]
+
+@pytest.mark.asyncio
+async def test_rental_applications_indexed_and_retrievable(db_session, monkeypatch):
+    """Regression: applications must be indexed so the assistant can answer
+    questions like "do I have any open residential applications" instead of
+    falling back to unrelated lease-document chunks."""
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+    org = await _make_org(db_session, "cov-apps")
+
+    db_session.add_all(
+        [
+            RentalApplication(
+                organization_id=org.id,
+                applicant_first_name="Zorbtron",
+                applicant_last_name="Applicanthanks",
+                applicant_email="zorbtron@example.com",
+                status="screening",
+            ),
+            RentalApplication(
+                organization_id=org.id,
+                applicant_first_name="Quibbly",
+                applicant_last_name="Screenerson",
+                applicant_email="quibbly@example.com",
+                status="screening",
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    await knowledge_service.reindex_organization(db_session, org.id)
+
+    results = await knowledge_service.retrieve(
+        db_session,
+        organization_id=org.id,
+        query="rental applications in screening",
+        limit=20,
+    )
+    assert any(r["source_type"] == "rental_application" for r in results)
+
+    summary = next(
+        (r for r in results if r["source_type"] == "portfolio_summary"), None
+    )
+    assert summary is not None
+    assert "Total rental applications: 2" in summary["content"]
+    assert "applications in screening: 2" in summary["content"]
