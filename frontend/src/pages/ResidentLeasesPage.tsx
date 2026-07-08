@@ -75,6 +75,9 @@ const STANDARD_MERGE_FIELDS = new Set([
   'lease_type',
 ]);
 
+// Matches Mustache-style merge placeholders like `{{ field_name }}`, capturing
+// the field name and allowing optional whitespace around it (mirrors the
+// backend render_body regex in waiver_service).
 const MERGE_FIELD_RE = /\{\{\s*(\w+)\s*\}\}/g;
 
 // Extract the custom (non-standard) merge fields from a template body, in order
@@ -430,7 +433,9 @@ const ResidentLeasesPage: React.FC = () => {
       const url = URL.createObjectURL(res.data as Blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${s.title}.pdf`;
+      // Sanitize the title into a safe, non-empty filename across platforms.
+      const safeName = (s.title || 'signed-lease').replace(/[^\w.-]+/g, '_').slice(0, 120);
+      a.download = `${safeName}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {

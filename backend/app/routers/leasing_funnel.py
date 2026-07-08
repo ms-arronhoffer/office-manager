@@ -625,10 +625,10 @@ async def create_lease_signature_from_template(
         )
     except FunnelError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
-    # Remember the template on the lease so a later re-send reuses it without
-    # asking the user to pick a template again.
-    if lease.lease_template_id is None:
-        lease.lease_template_id = template.id
+    # Remember the template used on the lease so a later re-send reuses it without
+    # asking the user to pick a template again. Update it whenever a template is
+    # resolved so an explicit override on re-send is remembered too.
+    lease.lease_template_id = template.id
     await db.commit()
     req = await _load_signature_request(db, req.id, org_id)
     _schedule_lease_emails(
