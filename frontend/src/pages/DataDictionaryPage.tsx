@@ -591,7 +591,7 @@ const entities: Record<string, EntityDef[]> = {
     },
     {
       table: 'support_requests',
-      description: 'In-app support requests submitted by users. Surfaced on the Administration → Support Requests page, where admins can review them and forward them to the configured support email (site_settings.support_email).',
+      description: 'In-app support requests submitted by users. Surfaced on the Administration → Support Requests page, where admins can review them and forward them to the configured support email (SUPPORT_EMAIL environment variable).',
       softDelete: false,
       fields: [
         { name: 'id', type: 'UUID', required: true, description: 'Primary key' },

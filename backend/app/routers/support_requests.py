@@ -4,7 +4,7 @@ A lightweight in-app help channel:
 
 * Any authenticated user can submit a support request (``POST /``). On submit
   the request is stored and best-effort forwarded to the address configured to
-  receive support requests (``SiteSettings.support_email``).
+  receive support requests (the ``SUPPORT_EMAIL`` environment variable).
 * Admins review submissions (``GET /``), update their status
   (``PATCH /{id}``), forward/re-send them to the configured support address
   (``POST /{id}/email``), and delete them (``DELETE /{id}``).
@@ -22,8 +22,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_role
+from app.config import settings
 from app.database import get_db
-from app.models.site_settings import SiteSettings
 from app.models.support_request import SUPPORT_REQUEST_STATUSES, SupportRequest
 from app.models.user import User
 from app.utils.email_client import send_email
@@ -64,19 +64,20 @@ class SupportEmailResult(BaseModel):
     detail: str
 
 
+class SupportConfigResponse(BaseModel):
+    support_email: str | None
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-async def _support_email(db: AsyncSession, organization_id: uuid.UUID | None) -> str | None:
-    """Return the configured support recipient address for the org, if any."""
-    if organization_id is None:
-        return None
-    res = await db.execute(
-        select(SiteSettings.support_email).where(
-            SiteSettings.organization_id == organization_id
-        )
-    )
-    value = res.scalar_one_or_none()
-    return value.strip() if value and value.strip() else None
+def _support_email() -> str | None:
+    """Return the configured support recipient address, if any.
+
+    Configured via the ``SUPPORT_EMAIL`` environment variable (not admin UI),
+    so it applies platform-wide and can't be changed without deploy access.
+    """
+    value = settings.SUPPORT_EMAIL
+    return (value or "").strip() or None
 
 
 def _format_body(req: SupportRequest) -> str:
@@ -98,9 +99,9 @@ def _format_body(req: SupportRequest) -> str:
     )
 
 
-async def _forward(db: AsyncSession, req: SupportRequest, organization_id: uuid.UUID | None) -> tuple[bool, str | None]:
+async def _forward(req: SupportRequest) -> tuple[bool, str | None]:
     """Best-effort forward a support request to the configured support address."""
-    support_email = await _support_email(db, organization_id)
+    support_email = _support_email()
     if not support_email:
         return False, None
     try:
@@ -137,9 +138,17 @@ async def create_support_request(
     await db.refresh(req)
 
     # Best-effort forward to the configured support address; never blocks submit.
-    await _forward(db, req, current_user.organization_id)
+    await _forward(req)
 
     return SupportRequestResponse.model_validate(req)
+
+
+@router.get("/config", response_model=SupportConfigResponse)
+async def get_support_config(
+    current_user: User = Depends(require_role("admin")),
+):
+    """Expose the platform-wide support recipient (set via SUPPORT_EMAIL env var)."""
+    return SupportConfigResponse(support_email=_support_email())
 
 
 @router.get("", response_model=list[SupportRequestResponse])
@@ -200,12 +209,12 @@ async def email_support_request(
     current_user: User = Depends(require_role("admin")),
 ):
     req = await _get_owned(request_id, db, current_user)
-    sent, support_email = await _forward(db, req, current_user.organization_id)
+    sent, support_email = await _forward(req)
     if support_email is None:
         return SupportEmailResult(
             sent=False,
             support_email=None,
-            detail="No support email is configured. Set one in Site Settings.",
+            detail="No support email is configured. Set SUPPORT_EMAIL in the environment.",
         )
     detail = (
         f"Support request forwarded to {support_email}."

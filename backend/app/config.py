@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = "noreply@officemanager.local"
+    # Address that receives in-app support requests (see app.routers.support_requests).
+    # Configured via the environment rather than admin UI so it can't be changed
+    # per-tenant or without deploy access.
+    SUPPORT_EMAIL: str = ""
     # SMS / text-message provider (Twilio-style). Optional; when unset the SMS
     # channel degrades to a logged no-op (see app.utils.sms_client).
     SMS_ACCOUNT_SID: str = ""
