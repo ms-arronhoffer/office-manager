@@ -208,3 +208,23 @@ async def test_lease_esign_from_template_requires_signer_email(client, admin_use
         headers=auth_headers(admin_user),
     )
     assert resp.status_code == 409, resp.text
+
+
+async def test_sample_lease_template_endpoint(client, admin_user):
+    resp = await client.get(f"{TEMPLATES}/sample", headers=auth_headers(admin_user))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["name"]
+    assert body["description"]
+    # The sample must reference merge fields so no lease detail is missed.
+    assert "{{tenant_names}}" in body["body"]
+    assert "{{rent_amount}}" in body["body"]
+    assert "{{property_address}}" in body["body"]
+
+    # It must be usable directly as a new template body.
+    created = await client.post(
+        TEMPLATES,
+        json={"name": body["name"], "description": body["description"], "body": body["body"]},
+        headers=auth_headers(admin_user),
+    )
+    assert created.status_code == 201, created.text

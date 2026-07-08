@@ -27,6 +27,70 @@ Editor = require_role("admin", "editor")
 Admin = require_role("admin")
 
 
+# A complete, ready-to-modify residential lease body that exercises every merge
+# field exposed by ``leasing_funnel_service.build_lease_merge_context``. Staff can
+# start from this sample (via ``GET /lease-templates/sample``) and edit it rather
+# than authoring a lease from scratch, ensuring every dynamically-allocated field
+# is present in the document.
+SAMPLE_LEASE_NAME = "Standard Residential Lease Agreement"
+SAMPLE_LEASE_DESCRIPTION = (
+    "A full sample residential lease you can modify. Every field is filled from "
+    "the lease record via merge fields, so nothing is missed."
+)
+SAMPLE_LEASE_BODY = """\
+RESIDENTIAL LEASE AGREEMENT
+
+This Residential Lease Agreement ("Agreement") is made on {{date}} between
+{{organization_name}} ("Landlord") and {{tenant_names}} ("Tenant").
+
+1. PREMISES
+   The Landlord agrees to rent to the Tenant the residential premises located at
+   {{property_address}} (Unit {{unit_number}} — {{unit_name}}) (the "Premises").
+
+2. TERM
+   This Agreement is a {{lease_type}} lease beginning on {{lease_start}} and
+   ending on {{lease_end}}, unless terminated earlier in accordance with its
+   terms.
+
+3. RENT
+   The Tenant shall pay rent of {{rent_amount}} per {{rent_frequency}}, due on
+   the first day of each rental period, without demand, at the address designated
+   by the Landlord.
+
+4. SECURITY DEPOSIT
+   Upon signing this Agreement, the Tenant shall pay a security deposit of
+   {{security_deposit}}, to be held and returned in accordance with applicable
+   law.
+
+5. PET DEPOSIT
+   A pet deposit of {{pet_deposit}} is required for any authorized pet kept on
+   the Premises.
+
+6. USE OF PREMISES
+   The Premises shall be used solely as a private residence for the Tenant and
+   the occupants named in this Agreement. The primary occupant of record is
+   {{tenant_name}}.
+
+7. MAINTENANCE
+   The Tenant shall keep the Premises clean and in good condition and shall
+   promptly notify the Landlord of any needed repairs.
+
+8. GOVERNING LAW
+   This Agreement shall be governed by the laws of the jurisdiction in which the
+   Premises are located.
+
+9. ENTIRE AGREEMENT
+   This Agreement, titled "{{lease_name}}", constitutes the entire agreement
+   between the parties and supersedes any prior understandings.
+
+IN WITNESS WHEREOF, the parties have executed this Agreement as of {{date}}.
+
+Landlord: {{organization_name}}
+
+Tenant(s): {{tenant_names}}
+"""
+
+
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
 class LeaseTemplateCreate(BaseModel):
@@ -57,6 +121,14 @@ class LeaseTemplateResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class LeaseTemplateSample(BaseModel):
+    """A ready-to-modify sample lease used to seed the create form."""
+
+    name: str
+    description: str
+    body: str
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -127,6 +199,18 @@ async def create_template(
     await db.commit()
     await db.refresh(tmpl)
     return LeaseTemplateResponse.model_validate(tmpl)
+
+
+@router.get("/sample", response_model=LeaseTemplateSample)
+async def get_sample_template(
+    current_user: User = Depends(get_current_user),
+):
+    """Return a full, ready-to-modify sample lease to seed a new template."""
+    return LeaseTemplateSample(
+        name=SAMPLE_LEASE_NAME,
+        description=SAMPLE_LEASE_DESCRIPTION,
+        body=SAMPLE_LEASE_BODY,
+    )
 
 
 @router.get("/{template_id}", response_model=LeaseTemplateResponse)

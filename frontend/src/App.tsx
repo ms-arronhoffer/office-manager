@@ -53,6 +53,7 @@ const DataDictionaryPage = lazy(() => import('@/pages/DataDictionaryPage'));
 const EmailRulesPage = lazy(() => import('@/pages/EmailRulesPage'));
 const WaiversPage = lazy(() => import('@/pages/WaiversPage'));
 const WaiverSignPage = lazy(() => import('@/pages/WaiverSignPage'));
+const LeaseSignPage = lazy(() => import('@/pages/LeaseSignPage'));
 const AckPage = lazy(() => import('@/pages/AckPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
@@ -104,6 +105,7 @@ const App: React.FC = () => {
             <Route path="/owner-portal" element={<OwnerPortalPage />} />
             <Route path="/owner-portal/signup" element={<OwnerPortalPage />} />
             <Route path="/sign/:token" element={<WaiverSignPage />} />
+            <Route path="/lease-sign/:token" element={<LeaseSignPage />} />
             <Route path="/ack/:token" element={<AckPage />} />
             <Route
               path="/onboarding"

@@ -286,3 +286,31 @@ async def test_lease_esign_bad_role_rejected(client, admin_user):
 async def test_funnel_reads_require_auth(client):
     resp = await client.get(f"{FUNNEL}/applications")
     assert resp.status_code in (401, 403)
+
+
+async def test_lease_esign_emails_each_party(client, admin_user, db_session):
+    """Sending a lease for e-sign queues a signing email per party (EmailLog)."""
+    from sqlalchemy import select
+    from app.models.email import EmailLog
+
+    before = (
+        await db_session.execute(select(EmailLog).where(EmailLog.subject.like("Signature requested:%")))
+    ).scalars().all()
+    before_ids = {e.id for e in before}
+
+    created = await _create_envelope(
+        client, admin_user,
+        [
+            {"signer_name": "Pat Party", "signer_email": "pat@example.com", "role": "tenant"},
+            {"signer_name": "Sam Signer", "signer_email": "sam@example.com", "role": "cosigner"},
+        ],
+    )
+    assert created.status_code == 201, created.text
+
+    logs = (
+        await db_session.execute(select(EmailLog).where(EmailLog.subject.like("Signature requested:%")))
+    ).scalars().all()
+    new_logs = [e for e in logs if e.id not in before_ids]
+    recipients = {e.sent_to for e in new_logs}
+    assert "pat@example.com" in recipients
+    assert "sam@example.com" in recipients
