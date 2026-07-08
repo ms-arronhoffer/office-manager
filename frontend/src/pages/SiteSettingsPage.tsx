@@ -22,7 +22,6 @@ const DEFAULTS: SiteSettings = {
   login_subtitle: 'Sign in to manage your offices, leases, and facilities',
   login_form_header: 'Sign In',
   login_form_description: 'Enter your credentials to access the application',
-  support_email: '',
   sla_high_days: 1,
   sla_medium_days: 3,
   sla_low_days: 7,
@@ -63,7 +62,6 @@ const SiteSettingsPage: React.FC = () => {
         login_subtitle: form.login_subtitle.trim(),
         login_form_header: form.login_form_header.trim(),
         login_form_description: form.login_form_description.trim(),
-        support_email: form.support_email.trim(),
         sla_high_days: form.sla_high_days,
         sla_medium_days: form.sla_medium_days,
         sla_low_days: form.sla_low_days,
@@ -179,22 +177,6 @@ const SiteSettingsPage: React.FC = () => {
                     onChange={({ detail }) => setForm((f) => ({ ...f, login_form_description: detail.value }))}
                     placeholder="e.g., Enter your credentials to access the application"
                     rows={3}
-                  />
-                </FormField>
-              </SpaceBetween>
-            </Container>
-
-            <Container header={<Header variant="h2">Support</Header>}>
-              <SpaceBetween size="l">
-                <FormField
-                  label="Support Email"
-                  description="Address that receives support requests submitted from within the app. Admins can review and forward requests on the Support Requests page."
-                >
-                  <Input
-                    type="email"
-                    value={form.support_email}
-                    onChange={({ detail }) => setForm((f) => ({ ...f, support_email: detail.value }))}
-                    placeholder="e.g., support@yourcompany.com"
                   />
                 </FormField>
               </SpaceBetween>

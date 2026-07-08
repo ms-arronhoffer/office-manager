@@ -12,7 +12,7 @@ import Alert from '@cloudscape-design/components/alert';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
 import ExpandableSection from '@cloudscape-design/components/expandable-section';
 import { useNavigate } from 'react-router-dom';
-import { supportRequests, siteSettings as siteSettingsApi } from '@/api';
+import { supportRequests } from '@/api';
 import type { SupportRequest } from '@/api';
 
 const SupportRequestsPage: React.FC = () => {
@@ -27,12 +27,12 @@ const SupportRequestsPage: React.FC = () => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [reqRes, settingsRes] = await Promise.all([
+      const [reqRes, configRes] = await Promise.all([
         supportRequests.list(),
-        siteSettingsApi.get(),
+        supportRequests.getConfig(),
       ]);
       setItems(reqRes.data);
-      setSupportEmail(settingsRes.data.support_email || '');
+      setSupportEmail(configRes.data.support_email || '');
       setError(null);
     } catch {
       setError('Failed to load support requests.');
@@ -123,11 +123,8 @@ const SupportRequestsPage: React.FC = () => {
             </Box>
           ) : (
             <Box variant="p" color="text-status-warning">
-              No support email is configured.{' '}
-              <Link onFollow={(e) => { e.preventDefault(); navigate('/admin/site-settings'); }} href="/admin/site-settings">
-                Configure one in Site Settings
-              </Link>{' '}
-              to forward support requests by email.
+              No support email is configured. Set the <code>SUPPORT_EMAIL</code> environment
+              variable in your deployment configuration to forward support requests by email.
             </Box>
           )}
         </Container>

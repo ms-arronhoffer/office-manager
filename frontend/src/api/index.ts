@@ -853,7 +853,6 @@ export interface SiteSettings {
   login_subtitle: string;
   login_form_header: string;
   login_form_description: string;
-  support_email: string;
   sla_high_days: number;
   sla_medium_days: number;
   sla_low_days: number;
@@ -883,11 +882,16 @@ export interface SupportEmailResult {
   detail: string;
 }
 
+export interface SupportConfig {
+  support_email: string | null;
+}
+
 export const supportRequests = {
   create: (data: { subject: string; message: string }) =>
     client.post<SupportRequest>('/support-requests', data),
   list: (params?: { status?: string }) =>
     client.get<SupportRequest[]>('/support-requests', { params }),
+  getConfig: () => client.get<SupportConfig>('/support-requests/config'),
   updateStatus: (id: string, status: 'open' | 'resolved') =>
     client.patch<SupportRequest>(`/support-requests/${id}`, { status }),
   email: (id: string) =>

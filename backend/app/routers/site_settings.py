@@ -13,7 +13,6 @@ from app.schemas.site_settings import (
     DEFAULT_LOGIN_SUBTITLE,
     DEFAULT_LOGIN_FORM_HEADER,
     DEFAULT_LOGIN_FORM_DESCRIPTION,
-    DEFAULT_SUPPORT_EMAIL,
     DEFAULT_SLA_HIGH_DAYS,
     DEFAULT_SLA_MEDIUM_DAYS,
     DEFAULT_SLA_LOW_DAYS,
@@ -57,7 +56,6 @@ async def get_site_settings(
         login_subtitle=row.login_subtitle or DEFAULT_LOGIN_SUBTITLE,
         login_form_header=row.login_form_header or DEFAULT_LOGIN_FORM_HEADER,
         login_form_description=row.login_form_description or DEFAULT_LOGIN_FORM_DESCRIPTION,
-        support_email=row.support_email or DEFAULT_SUPPORT_EMAIL,
         sla_high_days=row.sla_high_days if row.sla_high_days is not None else DEFAULT_SLA_HIGH_DAYS,
         sla_medium_days=row.sla_medium_days if row.sla_medium_days is not None else DEFAULT_SLA_MEDIUM_DAYS,
         sla_low_days=row.sla_low_days if row.sla_low_days is not None else DEFAULT_SLA_LOW_DAYS,
@@ -80,7 +78,6 @@ async def update_site_settings(
     row.login_subtitle = payload.login_subtitle
     row.login_form_header = payload.login_form_header
     row.login_form_description = payload.login_form_description
-    row.support_email = payload.support_email
     row.sla_high_days = payload.sla_high_days
     row.sla_medium_days = payload.sla_medium_days
     row.sla_low_days = payload.sla_low_days

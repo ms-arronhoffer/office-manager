@@ -2,7 +2,6 @@
 import pytest
 
 from app.models.organization import Organization
-from app.models.site_settings import SiteSettings
 from app.models.support_request import SupportRequest
 from app.models.user import User
 from tests.conftest import auth_headers
@@ -142,7 +141,7 @@ async def test_email_without_configured_address(client, viewer_user: User, admin
 async def test_email_forwards_to_configured_address(
     client, db_session, monkeypatch
 ):
-    """When a support_email is configured, the email endpoint forwards to it."""
+    """When SUPPORT_EMAIL is configured, the email endpoint forwards to it."""
     org = Organization(name="Acme", slug="acme")
     db_session.add(org)
     await db_session.commit()
@@ -160,9 +159,6 @@ async def test_email_forwards_to_configured_address(
         organization_id=org.id,
     )
     db_session.add(user)
-    db_session.add(
-        SiteSettings(organization_id=org.id, app_name="Acme", support_email="help@acme.com")
-    )
     await db_session.commit()
     await db_session.refresh(user)
 
@@ -176,6 +172,7 @@ async def test_email_forwards_to_configured_address(
     import app.routers.support_requests as sr
 
     monkeypatch.setattr(sr, "send_email", fake_send_email)
+    monkeypatch.setattr(sr.settings, "SUPPORT_EMAIL", "help@acme.com")
 
     created = await client.post(
         "/api/v1/support-requests",
@@ -193,3 +190,17 @@ async def test_email_forwards_to_configured_address(
     assert body["support_email"] == "help@acme.com"
     assert sent["to"] == "help@acme.com"
     assert "Printer" in sent["subject"]
+
+
+@pytest.mark.asyncio
+async def test_config_endpoint_reports_configured_address(
+    client, admin_user: User, monkeypatch
+):
+    import app.routers.support_requests as sr
+
+    monkeypatch.setattr(sr.settings, "SUPPORT_EMAIL", "help@acme.com")
+    resp = await client.get(
+        "/api/v1/support-requests/config", headers=auth_headers(admin_user)
+    )
+    assert resp.status_code == 200
+    assert resp.json()["support_email"] == "help@acme.com"
