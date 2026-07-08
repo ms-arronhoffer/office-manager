@@ -4,48 +4,85 @@ import Navbar from '../../components/Navbar.astro';
 import Footer from '../../components/Footer.astro';
 import PageHero from '../../components/PageHero.astro';
 import Cta from '../../components/Cta.astro';
-import { tutorials } from '../../config/site';
+import { tutorials, roleSections } from '../../config/site';
 
 const levelColor: Record<string, string> = {
   Beginner: 'bg-green-100 text-green-700',
   Intermediate: 'bg-blue-100 text-blue-700',
   Advanced: 'bg-purple-100 text-purple-700',
 };
+
+const internalSections = roleSections.filter(r => r.group === 'internal');
+const portalSections = roleSections.filter(r => r.group === 'portal');
 ---
 <Layout
   title="Tutorials & Guides — Learn Portfolio Desk"
-  description="Step-by-step tutorials for Portfolio Desk: getting started, importing leases, maintenance workflows, AI lease abstraction, digital waivers, and analytics."
+  description="Role-by-role tutorials for Portfolio Desk, with real product screenshots: viewer, editor, accountant, and admin guides, plus resident, owner, vendor, and client portal tours."
 >
   <Navbar />
   <main>
     <PageHero
       eyebrow="Tutorials"
       title="Guides to get the most out of Portfolio Desk"
-      subtitle="Short, practical walkthroughs of the workflows your team relies on — from first login to board-ready reporting."
+      subtitle="Organized by role, with real screenshots of the actual product — every task lives under the least-privileged role that can perform it."
     />
 
-    <section class="py-16 lg:py-24">
+    <section class="py-16 lg:py-20">
       <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {tutorials.map(t => (
-            <a href={`/tutorials/${t.slug}`} class="group flex flex-col p-6 rounded-2xl border border-slate-200 bg-white hover:border-blue-200 hover:shadow-lg hover:shadow-blue-50 transition-all duration-200">
-              <div class="flex items-center gap-2 mb-4">
-                <span class={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${levelColor[t.level] ?? 'bg-slate-100 text-slate-600'}`}>{t.level}</span>
-                <span class="text-xs text-slate-400">{t.minutes} min read</span>
-              </div>
-              <h2 class="font-bold text-slate-900 text-lg leading-snug group-hover:text-blue-700 transition-colors">{t.title}</h2>
-              <p class="mt-2 text-sm text-slate-500 leading-relaxed flex-1">{t.summary}</p>
-              <div class="mt-4 flex flex-wrap gap-1.5">
-                {t.topics.map(topic => (
-                  <span class="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{topic}</span>
-                ))}
-              </div>
-              <span class="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600">
-                Read guide
-                <svg class="w-4 h-4 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6"/></svg>
-              </span>
-            </a>
-          ))}
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400 mb-6">Internal roles</h2>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
+          {internalSections.map(section => {
+            const t = tutorials.find(x => x.role === section.slug);
+            if (!t) return null;
+            return (
+              <a href={`/tutorials/${t.slug}`} class="group flex flex-col p-6 rounded-2xl border border-slate-200 bg-white hover:border-blue-200 hover:shadow-lg hover:shadow-blue-50 transition-all duration-200">
+                <div class="flex items-center gap-2 mb-4">
+                  <span class={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${levelColor[t.level] ?? 'bg-slate-100 text-slate-600'}`}>{t.level}</span>
+                  <span class="text-xs text-slate-400">{t.minutes} min read</span>
+                </div>
+                <div class="text-xs font-semibold text-blue-600 mb-1">{section.label}</div>
+                <h3 class="font-bold text-slate-900 text-lg leading-snug group-hover:text-blue-700 transition-colors">{t.title}</h3>
+                <p class="mt-2 text-sm text-slate-500 leading-relaxed flex-1">{t.summary}</p>
+                <div class="mt-4 flex flex-wrap gap-1.5">
+                  {t.topics.map(topic => (
+                    <span class="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{topic}</span>
+                  ))}
+                </div>
+                <span class="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600">
+                  Read guide
+                  <svg class="w-4 h-4 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </span>
+              </a>
+            );
+          })}
+        </div>
+
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400 mb-6">External portals</h2>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {portalSections.map(section => {
+            const t = tutorials.find(x => x.role === section.slug);
+            if (!t) return null;
+            return (
+              <a href={`/tutorials/${t.slug}`} class="group flex flex-col p-6 rounded-2xl border border-slate-200 bg-white hover:border-blue-200 hover:shadow-lg hover:shadow-blue-50 transition-all duration-200">
+                <div class="flex items-center gap-2 mb-4">
+                  <span class={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${levelColor[t.level] ?? 'bg-slate-100 text-slate-600'}`}>{t.level}</span>
+                  <span class="text-xs text-slate-400">{t.minutes} min read</span>
+                </div>
+                <div class="text-xs font-semibold text-blue-600 mb-1">{section.label}</div>
+                <h3 class="font-bold text-slate-900 text-lg leading-snug group-hover:text-blue-700 transition-colors">{t.title}</h3>
+                <p class="mt-2 text-sm text-slate-500 leading-relaxed flex-1">{t.summary}</p>
+                <div class="mt-4 flex flex-wrap gap-1.5">
+                  {t.topics.map(topic => (
+                    <span class="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{topic}</span>
+                  ))}
+                </div>
+                <span class="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600">
+                  Read guide
+                  <svg class="w-4 h-4 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6"/></svg>
+                </span>
+              </a>
+            );
+          })}
         </div>
       </div>
     </section>

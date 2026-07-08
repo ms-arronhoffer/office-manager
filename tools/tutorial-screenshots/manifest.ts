@@ -43,12 +43,10 @@ export const personas: PersonaSpec[] = [
       { id: 'dashboard', path: '/', description: 'Portfolio dashboard hub after login' },
       { id: 'offices', path: '/offices', description: 'Offices directory list' },
       { id: 'users', path: '/users', description: 'Team members and role management' },
-      { id: 'administration', path: '/administration', description: 'Administration hub' },
       { id: 'site-settings', path: '/admin/site-settings', description: 'Organization site settings' },
       { id: 'api-keys', path: '/api-keys', description: 'API keys management' },
       { id: 'webhooks', path: '/webhooks', description: 'Webhook subscriptions' },
       { id: 'activity-log', path: '/activity-log', description: 'Full audit / activity log' },
-      { id: 'insurance-certificates', path: '/insurance-certificates', description: 'Insurance certificate tracking' },
     ],
   },
   {
@@ -62,6 +60,8 @@ export const personas: PersonaSpec[] = [
       { id: 'transitions', path: '/transitions', description: 'Office transition checklist' },
       { id: 'waivers', path: '/waivers', description: 'Digital waiver templates' },
       { id: 'operating-expenses', path: '/finance/operating-expenses', description: 'Operating expense tracking' },
+      { id: 'administration', path: '/administration', description: 'Administration hub' },
+      { id: 'insurance-certificates', path: '/insurance-certificates', description: 'Insurance certificate tracking' },
     ],
   },
   {

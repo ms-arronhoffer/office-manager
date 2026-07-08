@@ -2,11 +2,6 @@
 import Layout from '../../layouts/Layout.astro';
 import Navbar from '../../components/Navbar.astro';
 import Footer from '../../components/Footer.astro';
-import DashboardScreen from '../../components/screens/DashboardScreen.astro';
-import LeaseAbstractScreen from '../../components/screens/LeaseAbstractScreen.astro';
-import MaintenanceScreen from '../../components/screens/MaintenanceScreen.astro';
-import WaiversScreen from '../../components/screens/WaiversScreen.astro';
-import AnalyticsScreen from '../../components/screens/AnalyticsScreen.astro';
 import { tutorials } from '../../config/site';
 import { tutorialContent } from '../../config/tutorialContent';
 
@@ -42,23 +37,26 @@ const nextMeta = body.next ? tutorials.find(t => t.slug === body.next) : undefin
 
     <article class="py-14">
       <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-        {body.screen && (
-          <div class="relative mb-12">
-            {body.screen === 'dashboard' && <DashboardScreen />}
-            {body.screen === 'lease' && <LeaseAbstractScreen />}
-            {body.screen === 'maintenance' && <MaintenanceScreen />}
-            {body.screen === 'waivers' && <WaiversScreen />}
-            {body.screen === 'analytics' && <AnalyticsScreen />}
-          </div>
-        )}
-
-        <ol class="space-y-8">
+        <ol class="space-y-12">
           {body.steps.map((step, i) => (
             <li class="flex gap-5">
               <div class="flex-shrink-0 w-9 h-9 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm">{i + 1}</div>
-              <div>
+              <div class="flex-1 min-w-0">
                 <h2 class="text-lg font-bold text-slate-900">{step.title}</h2>
                 <p class="mt-1.5 text-slate-600 leading-relaxed">{step.body}</p>
+                {step.screenshotSrc && (
+                  <div class="mt-5 bg-white rounded-2xl border border-slate-200 shadow-xl shadow-slate-900/5 overflow-hidden">
+                    <img
+                      src={step.screenshotSrc}
+                      alt={step.screenshotAlt ?? step.title}
+                      width="1440"
+                      height="900"
+                      loading="lazy"
+                      decoding="async"
+                      class="block w-full h-auto"
+                    />
+                  </div>
+                )}
               </div>
             </li>
           ))}
