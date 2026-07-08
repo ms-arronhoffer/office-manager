@@ -11,7 +11,7 @@
  *
  * Bump CACHE_VERSION to invalidate old caches on deploy.
  */
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const SHELL_CACHE = `pd-shell-${CACHE_VERSION}`;
 const ASSET_CACHE = `pd-assets-${CACHE_VERSION}`;
 const API_CACHE = `pd-api-${CACHE_VERSION}`;
