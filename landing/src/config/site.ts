@@ -14,61 +14,120 @@ export const primaryNav: NavLink[] = [
   { label: 'Contact', href: '/contact' },
 ];
 
+// Tutorials are sectioned by "who can actually do this" rather than by
+// feature area. Internal roles (admin/editor/accountant/viewer) are ordered
+// by permission tier, lowest first; external, token-gated portal personas
+// (resident/owner/vendor/client) are separate because they never log in
+// with an internal role at all.
+//
+// A task available to more than one internal role is always homed under the
+// *lowest* tier that can reach it (e.g. a page open to viewer+editor+admin
+// is a Viewer tutorial; a page open to accountant+admin is an Accountant
+// tutorial). `viewer` is a real, first-class tier here even though it has
+// no explicit RoleGuard in the app — it is simply the default/fallback
+// role every authenticated internal user has.
+export type RoleGroup = 'internal' | 'portal';
+
+export interface RoleSection {
+  slug: string;
+  label: string;
+  tagline: string;
+  group: RoleGroup;
+}
+
+export const roleSections: RoleSection[] = [
+  { slug: 'viewer', label: 'Viewer', tagline: 'Read-only portfolio visibility', group: 'internal' },
+  { slug: 'editor', label: 'Editor', tagline: 'Day-to-day leasing & operations', group: 'internal' },
+  { slug: 'accountant', label: 'Accountant', tagline: 'Books, billing & owner accounting', group: 'internal' },
+  { slug: 'admin', label: 'Admin', tagline: 'Team, security & organization settings', group: 'internal' },
+  { slug: 'resident', label: 'Resident portal', tagline: 'For your residential tenants', group: 'portal' },
+  { slug: 'owner', label: 'Owner portal', tagline: 'For property owners you manage for', group: 'portal' },
+  { slug: 'vendor', label: 'Vendor portal', tagline: 'For contractors and service vendors', group: 'portal' },
+  { slug: 'client', label: 'Client portal', tagline: 'For commercial landlords & clients', group: 'portal' },
+];
+
 export const tutorials = [
   {
-    slug: 'getting-started',
-    title: 'Getting Started: Your First Hour',
+    slug: 'viewer-guide',
+    title: 'Viewer Guide: Portfolio Visibility & Reporting',
     summary:
-      'Stand up your portfolio, invite your team, and configure your first alerts — from empty account to operational in under 60 minutes.',
+      'Everything a read-only teammate can do out of the box — analytics dashboards, report exports, the lease expiration calendar, residential unit and vacancy overviews, and resident announcements.',
     minutes: 8,
     level: 'Beginner',
-    topics: ['Onboarding', 'Setup', 'Team'],
+    topics: ['Analytics', 'Reporting', 'Residential'],
+    role: 'viewer',
   },
   {
-    slug: 'importing-leases',
-    title: 'Importing Leases & Office Data',
+    slug: 'editor-guide',
+    title: 'Editor Guide: Leasing, Maintenance & Operations',
     summary:
-      'Bring your existing spreadsheets and lease PDFs into the platform with the guided importer and document upload.',
-    minutes: 10,
-    level: 'Beginner',
-    topics: ['Leases', 'Import', 'Documents'],
-  },
-  {
-    slug: 'maintenance-workflow',
-    title: 'Running a Maintenance Workflow',
-    summary:
-      'From a submitted work order to a resolved ticket — assign vendors, track SLA timers, and keep a full audit trail.',
-    minutes: 9,
+      'Run the day-to-day: the lease register and lease detail pages, the maintenance ticket queue, HVAC contracts, office transitions, digital waivers, operating expenses, the administration hub, and insurance certificate tracking.',
+    minutes: 14,
     level: 'Intermediate',
-    topics: ['Tickets', 'Vendors', 'SLA'],
+    topics: ['Leases', 'Maintenance', 'Administration'],
+    role: 'editor',
   },
   {
-    slug: 'ai-lease-abstraction',
-    title: 'AI Lease Abstraction & Briefings',
+    slug: 'accountant-guide',
+    title: 'Accountant Guide: Books, Billing & Owner Accounting',
     summary:
-      'Let AI read an uploaded lease, extract the key terms, draft an abstract, and write your weekly portfolio briefing.',
-    minutes: 7,
+      'Work the general ledger and journal entries, financial statements, accounts payable and receivable, budget vs. actuals, owner/trust accounting, and the rent collection dashboard.',
+    minutes: 12,
     level: 'Intermediate',
-    topics: ['AI', 'Leases', 'Reporting'],
+    topics: ['General Ledger', 'AP/AR', 'Owner Accounting'],
+    role: 'accountant',
   },
   {
-    slug: 'digital-waivers',
-    title: 'Sending Digital Waivers & e-Signatures',
+    slug: 'admin-guide',
+    title: 'Admin Guide: Team, Security & Organization Settings',
     summary:
-      'Build a reusable waiver template, send it to contacts or self-serve visitors, and capture a tamper-evident audit trail.',
-    minutes: 6,
-    level: 'Intermediate',
-    topics: ['Waivers', 'e-Signature', 'Compliance'],
-  },
-  {
-    slug: 'analytics-reporting',
-    title: 'Analytics, Reporting & Exports',
-    summary:
-      'Read portfolio-level dashboards, track SLA compliance, and export board-ready PDF and CSV reports.',
-    minutes: 6,
+      'Set up the organization from scratch: the portfolio dashboard, offices directory, team members and role assignment, organization site settings, API keys, webhooks, and the full activity/audit log.',
+    minutes: 12,
     level: 'Advanced',
-    topics: ['Analytics', 'Reporting', 'Export'],
+    topics: ['Onboarding', 'Security', 'Audit'],
+    role: 'admin',
+  },
+  {
+    slug: 'resident-portal-guide',
+    title: 'Resident Portal: What Your Tenants See',
+    summary:
+      'A tour of the self-serve resident portal — lease details, account balance, maintenance requests, documents, and announcements — from the invite link to the portal home.',
+    minutes: 5,
+    level: 'Beginner',
+    topics: ['Resident Portal', 'Self-Serve'],
+    role: 'resident',
+  },
+  {
+    slug: 'owner-portal-guide',
+    title: 'Owner Portal: What Property Owners See',
+    summary:
+      'A tour of the owner portal that gives the property owners you manage for their own view of statements and distributions, without giving them access to your internal tools.',
+    minutes: 5,
+    level: 'Beginner',
+    topics: ['Owner Portal', 'Self-Serve'],
+    role: 'owner',
+  },
+  {
+    slug: 'vendor-portal-guide',
+    title: 'Vendor Portal: What Contractors See',
+    summary:
+      'A tour of the vendor work portal — assigned work orders, status updates, and the flow a contractor uses to close out a maintenance ticket.',
+    minutes: 5,
+    level: 'Beginner',
+    topics: ['Vendor Portal', 'Maintenance'],
+    role: 'vendor',
+  },
+  {
+    slug: 'client-portal-guide',
+    title: 'Client Portal: What Commercial Landlords See',
+    summary:
+      'A tour of the client portal for commercial landlords — property and contact details shared without exposing your internal management tools.',
+    minutes: 5,
+    level: 'Beginner',
+    topics: ['Client Portal', 'Self-Serve'],
+    role: 'client',
   },
 ];
 
 export type Tutorial = (typeof tutorials)[number];
+

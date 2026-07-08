@@ -1,0 +1,54 @@
+name: Regenerate tutorial screenshots
+
+# Manually triggered pipeline that re-seeds a fictional "demo org" and
+# re-captures every screenshot used by the landing site's /tutorials pages,
+# then opens a PR with the updated images if anything changed. Run this
+# whenever the app's UI changes enough that tutorial screenshots go stale.
+on:
+  workflow_dispatch: {}
+  schedule:
+    # Monthly, so screenshots don't silently drift too far from the UI.
+    - cron: '0 6 1 * *'
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pipeline dependencies
+        working-directory: tools/tutorial-screenshots
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+          pip install -r requirements.txt
+
+      - name: Run the capture pipeline
+        working-directory: tools/tutorial-screenshots
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.TUTORIAL_DB_PASSWORD || 'ci-pipeline-password' }}
+          JWT_SECRET: ${{ secrets.TUTORIAL_JWT_SECRET || 'ci-pipeline-jwt-secret-please-override' }}
+          DEFAULT_ADMIN_EMAIL: admin@officemanager.local
+          DEFAULT_ADMIN_PASSWORD: ${{ secrets.TUTORIAL_ADMIN_PASSWORD || 'CiPipelineAdmin123!' }}
+        run: ./run.sh
+
+      - name: Open a PR with any changed screenshots
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: 'chore(landing): regenerate tutorial screenshots'
+          title: 'chore(landing): regenerate tutorial screenshots'
+          body: |
+            Automated regeneration of `landing/public/tutorials/**` via
+            `tools/tutorial-screenshots/run.sh`, capturing real product
+            screenshots against a fictional demo org.
+          branch: automation/tutorial-screenshots
+          add-paths: landing/public/tutorials/**

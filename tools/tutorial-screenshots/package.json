@@ -1,0 +1,14 @@
+{
+  "name": "tutorial-screenshots",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Playwright pipeline that seeds a demo org and captures real, role-scoped screenshots for the landing site tutorials.",
+  "scripts": {
+    "capture": "playwright test --config=playwright.config.ts",
+    "install-browsers": "playwright install --with-deps chromium",
+    "capture:all": "bash run.sh"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}
