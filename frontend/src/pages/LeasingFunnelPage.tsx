@@ -13,7 +13,7 @@ import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
-import { leasingFunnel, leasing } from '@/api';
+import { leasingFunnel, leasing, applicationTemplates } from '@/api';
 import type {
   RentalApplication,
   ApplicationStatus,
@@ -21,18 +21,21 @@ import type {
   LeaseSignatureRequest,
   LeaseSignaturePartyInput,
   RentalUnit,
+  ApplicationTemplate,
 } from '@/types';
 
 interface Opt { label: string; value: string; }
 
 const appBadge = (s: ApplicationStatus) => {
   const color =
-    s === 'approved' || s === 'converted'
+    s === 'approved' || s === 'converted' || s === 'signed'
       ? 'green'
       : s === 'denied' || s === 'withdrawn'
         ? 'red'
-        : 'blue';
-  return <Badge color={color as 'green' | 'red' | 'blue'}>{s}</Badge>;
+        : s === 'sent' || s === 'viewed'
+          ? 'grey'
+          : 'blue';
+  return <Badge color={color as 'green' | 'red' | 'blue' | 'grey'}>{s.replace('_', ' ')}</Badge>;
 };
 
 const sigBadge = (s: string) => {
@@ -45,6 +48,7 @@ const LeasingFunnelPage: React.FC = () => {
   const [apps, setApps] = useState<RentalApplication[]>([]);
   const [signatures, setSignatures] = useState<LeaseSignatureRequest[]>([]);
   const [units, setUnits] = useState<RentalUnit[]>([]);
+  const [templates, setTemplates] = useState<ApplicationTemplate[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Application modal
@@ -56,6 +60,16 @@ const LeasingFunnelPage: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [income, setIncome] = useState('');
   const [savingApp, setSavingApp] = useState(false);
+
+  // Send-application (from template) modal
+  const [sendOpen, setSendOpen] = useState(false);
+  const [sendTemplateId, setSendTemplateId] = useState('');
+  const [sendFirst, setSendFirst] = useState('');
+  const [sendLast, setSendLast] = useState('');
+  const [sendEmail, setSendEmail] = useState('');
+  const [sendPhone, setSendPhone] = useState('');
+  const [sendUnitId, setSendUnitId] = useState('');
+  const [sendingApp, setSendingApp] = useState(false);
 
   // Screening detail modal
   const [screenOpen, setScreenOpen] = useState(false);
@@ -73,14 +87,16 @@ const LeasingFunnelPage: React.FC = () => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [a, s, u] = await Promise.all([
+      const [a, s, u, t] = await Promise.all([
         leasingFunnel.listApplications(),
         leasingFunnel.listSignatures(),
         leasing.listUnits(),
+        applicationTemplates.list(),
       ]);
       setApps(a.data);
       setSignatures(s.data);
       setUnits(u.data);
+      setTemplates(t.data);
     } catch {
       addFlash({ type: 'error', content: 'Failed to load leasing funnel.' });
     } finally {
@@ -101,6 +117,17 @@ const LeasingFunnelPage: React.FC = () => {
       })),
     ],
     [units],
+  );
+
+  const templateOptions: Opt[] = useMemo(
+    () => [
+      { label: '— Default template —', value: '' },
+      ...templates.map((t) => ({
+        label: t.name + (t.is_default ? ' (default)' : ''),
+        value: t.id,
+      })),
+    ],
+    [templates],
   );
 
   const openApp = () => {
@@ -135,6 +162,47 @@ const LeasingFunnelPage: React.FC = () => {
       addFlash({ type: 'error', content: 'Failed to create application.' });
     } finally {
       setSavingApp(false);
+    }
+  };
+
+  const sendFromTemplate = async () => {
+    if (!sendFirst.trim() || !sendLast.trim() || !sendEmail.trim()) {
+      addFlash({ type: 'error', content: 'Applicant name and email are required.' });
+      return;
+    }
+    setSendingApp(true);
+    try {
+      await leasingFunnel.createApplicationFromTemplate({
+        template_id: sendTemplateId || null,
+        unit_id: sendUnitId || null,
+        applicant_first_name: sendFirst.trim(),
+        applicant_last_name: sendLast.trim(),
+        applicant_email: sendEmail.trim(),
+        applicant_phone: sendPhone.trim() || null,
+      });
+      addFlash({ type: 'success', content: `Application sent to ${sendEmail.trim()}.` });
+      setSendOpen(false);
+      setSendFirst('');
+      setSendLast('');
+      setSendEmail('');
+      setSendPhone('');
+      setSendUnitId('');
+      setSendTemplateId('');
+      await load();
+    } catch {
+      addFlash({ type: 'error', content: 'Failed to send application.' });
+    } finally {
+      setSendingApp(false);
+    }
+  };
+
+  const resend = async (a: RentalApplication) => {
+    try {
+      await leasingFunnel.sendApplication(a.id);
+      addFlash({ type: 'success', content: 'Application re-sent.' });
+      await load();
+    } catch {
+      addFlash({ type: 'error', content: 'Failed to re-send application.' });
     }
   };
 
@@ -238,9 +306,12 @@ const LeasingFunnelPage: React.FC = () => {
           <Header
             counter={`(${apps.length})`}
             actions={
-              <Button variant="primary" onClick={openApp}>
-                Add application
-              </Button>
+              <SpaceBetween direction="horizontal" size="xs">
+                <Button onClick={() => setSendOpen(true)}>Send application</Button>
+                <Button variant="primary" onClick={openApp}>
+                  Add application
+                </Button>
+              </SpaceBetween>
             }
           >
             Rental applications
@@ -259,6 +330,12 @@ const LeasingFunnelPage: React.FC = () => {
             header: 'Actions',
             cell: (a) => (
               <SpaceBetween direction="horizontal" size="xs">
+                {a.application_template_id &&
+                  (a.status === 'sent' || a.status === 'viewed' || a.status === 'draft') && (
+                    <Button variant="inline-link" onClick={() => resend(a)}>
+                      Resend
+                    </Button>
+                  )}
                 <Button variant="inline-link" onClick={() => runScreen(a)}>
                   Screen
                 </Button>
@@ -362,6 +439,53 @@ const LeasingFunnelPage: React.FC = () => {
             </FormField>
             <FormField label="Monthly income">
               <Input type="number" value={income} onChange={({ detail }) => setIncome(detail.value)} />
+            </FormField>
+          </ColumnLayout>
+        </SpaceBetween>
+      </EntityFormModal>
+
+      <EntityFormModal
+        visible={sendOpen}
+        onCancel={() => setSendOpen(false)}
+        title="Send application to applicant"
+        submitLabel="Send"
+        submitting={sendingApp}
+        onSubmit={sendFromTemplate}
+      >
+        <SpaceBetween size="m">
+          <FormField
+            label="Application template"
+            description="Leave blank to use the organization's default template."
+          >
+            <Select
+              selectedOption={
+                templateOptions.find((o) => o.value === sendTemplateId) ?? templateOptions[0]
+              }
+              onChange={({ detail }) => setSendTemplateId(detail.selectedOption.value ?? '')}
+              options={templateOptions}
+              filteringType="auto"
+            />
+          </FormField>
+          <FormField label="Unit">
+            <Select
+              selectedOption={unitOptions.find((o) => o.value === sendUnitId) ?? unitOptions[0]}
+              onChange={({ detail }) => setSendUnitId(detail.selectedOption.value ?? '')}
+              options={unitOptions}
+              filteringType="auto"
+            />
+          </FormField>
+          <ColumnLayout columns={2}>
+            <FormField label="First name">
+              <Input value={sendFirst} onChange={({ detail }) => setSendFirst(detail.value)} />
+            </FormField>
+            <FormField label="Last name">
+              <Input value={sendLast} onChange={({ detail }) => setSendLast(detail.value)} />
+            </FormField>
+            <FormField label="Email">
+              <Input value={sendEmail} onChange={({ detail }) => setSendEmail(detail.value)} />
+            </FormField>
+            <FormField label="Phone">
+              <Input value={sendPhone} onChange={({ detail }) => setSendPhone(detail.value)} />
             </FormField>
           </ColumnLayout>
         </SpaceBetween>

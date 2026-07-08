@@ -3286,7 +3286,12 @@ export interface LateFeeRunResult {
 
 // Leasing funnel: applications, screening, lease e-signature
 export type ApplicationStatus =
+  | 'draft'
   | 'submitted'
+  | 'sent'
+  | 'viewed'
+  | 'signed'
+  | 'in_review'
   | 'screening'
   | 'approved'
   | 'denied'
@@ -3308,6 +3313,10 @@ export interface RentalApplication {
   decision_notes: string | null;
   decided_at: string | null;
   resident_id: string | null;
+  application_template_id: string | null;
+  sent_at: string | null;
+  viewed_at: string | null;
+  signed_at: string | null;
 }
 
 export interface RentalApplicationCreate {
@@ -3431,6 +3440,77 @@ export interface LeaseSignSubmission {
   signature_type: 'typed' | 'drawn';
   signature_data: string;
   consent_agreed: boolean;
+}
+
+// ─── Custom residential application templates + send-by-email/e-sign ──────────
+export interface ApplicationTemplateField {
+  key: string;
+  label: string;
+  type?: string; // text | textarea | number | date | select
+  required?: boolean;
+  options?: string[];
+}
+
+export interface ApplicationTemplate {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  description: string | null;
+  body: string;
+  field_schema: ApplicationTemplateField[] | null;
+  is_default: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApplicationTemplateCreate {
+  name: string;
+  description?: string | null;
+  body: string;
+  field_schema?: ApplicationTemplateField[] | null;
+  is_default?: boolean;
+  is_active?: boolean;
+}
+
+export type ApplicationTemplateUpdate = Partial<ApplicationTemplateCreate>;
+
+export interface ApplicationTemplateSample {
+  name: string;
+  description: string;
+  body: string;
+  field_schema: ApplicationTemplateField[];
+}
+
+// Create an application from a template and email it to a named prospect.
+export interface ApplicationFromTemplate {
+  applicant_first_name: string;
+  applicant_last_name: string;
+  applicant_email: string;
+  applicant_phone?: string | null;
+  unit_id?: string | null;
+  desired_move_in?: string | null;
+  monthly_income?: string | null;
+  template_id?: string | null;
+}
+
+// Public (token-addressed) application surface.
+export interface PublicApplicationView {
+  title: string;
+  body: string;
+  status: string;
+  applicant_name: string;
+  field_schema: ApplicationTemplateField[] | null;
+  application_data: Record<string, unknown> | null;
+  consent_text: string;
+  signed: boolean;
+}
+
+export interface ApplicationSignSubmission {
+  signature_type: 'typed' | 'drawn';
+  signature_data: string;
+  consent_agreed: boolean;
+  field_values?: Record<string, unknown> | null;
 }
 
 // Vacancy listings

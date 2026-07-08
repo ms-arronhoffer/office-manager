@@ -1896,6 +1896,13 @@ import type {
   LeaseTemplateSample,
   PublicLeaseView,
   LeaseSignSubmission,
+  ApplicationTemplate,
+  ApplicationTemplateCreate,
+  ApplicationTemplateUpdate,
+  ApplicationTemplateSample,
+  ApplicationFromTemplate,
+  PublicApplicationView,
+  ApplicationSignSubmission,
   VacancyListing,
   VacancyListingCreate,
   VacancyListingUpdate,
@@ -2005,6 +2012,10 @@ export const leasingFunnel = {
     client.get<ScreeningReport[]>(`/leasing-funnel/applications/${id}/screening`),
   convert: (id: string) =>
     client.post<RentalApplication>(`/leasing-funnel/applications/${id}/convert`),
+  createApplicationFromTemplate: (data: ApplicationFromTemplate) =>
+    client.post<RentalApplication>('/leasing-funnel/applications/from-template', data),
+  sendApplication: (id: string) =>
+    client.post<RentalApplication>(`/leasing-funnel/applications/${id}/send`),
 
   listSignatures: (params?: { status?: string }) =>
     client.get<LeaseSignatureRequest[]>('/leasing-funnel/lease-signatures', { params }),
@@ -2031,6 +2042,18 @@ export const leaseTemplates = {
   delete: (id: string) => client.delete(`/lease-templates/${id}`),
 };
 
+export const applicationTemplates = {
+  list: (params?: { active_only?: boolean }) =>
+    client.get<ApplicationTemplate[]>('/application-templates', { params }),
+  getSample: () => client.get<ApplicationTemplateSample>('/application-templates/sample'),
+  get: (id: string) => client.get<ApplicationTemplate>(`/application-templates/${id}`),
+  create: (data: ApplicationTemplateCreate) =>
+    client.post<ApplicationTemplate>('/application-templates', data),
+  update: (id: string, data: ApplicationTemplateUpdate) =>
+    client.patch<ApplicationTemplate>(`/application-templates/${id}`, data),
+  delete: (id: string) => client.delete(`/application-templates/${id}`),
+};
+
 // ─── Leasing funnel (public, token-based lease signing) ──────────────────────
 const _leaseSignBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -2049,6 +2072,17 @@ export const leasingFunnelPublic = {
     axios
       .create({ baseURL: _leaseSignBase })
       .post<PublicLeaseView>(`/leasing-funnel/lease-sign/${token}/decline`),
+
+  // Staff-sent, template-based application: applicant fills + e-signs.
+  viewApplication: (token: string) =>
+    axios
+      .create({ baseURL: _leaseSignBase })
+      .get<PublicApplicationView>(`/leasing-funnel/apply/${token}`),
+
+  submitApplication: (token: string, data: ApplicationSignSubmission) =>
+    axios
+      .create({ baseURL: _leaseSignBase })
+      .post<PublicApplicationView>(`/leasing-funnel/apply/${token}`, data),
 };
 
 export const listings = {
