@@ -226,6 +226,19 @@ const LeasingFunnelPage: React.FC = () => {
     }
   };
 
+  const viewSignedApplication = async (a: RentalApplication) => {
+    try {
+      const res = await leasingFunnel.downloadSignedApplication(a.id);
+      const url = window.URL.createObjectURL(
+        new Blob([res.data as BlobPart], { type: 'application/pdf' }),
+      );
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+    } catch {
+      addFlash({ type: 'error', content: 'Failed to load signed application.' });
+    }
+  };
+
   const setStatus = async (a: RentalApplication, status: ApplicationStatus) => {
     try {
       await leasingFunnel.updateApplication(a.id, { status });
@@ -342,6 +355,11 @@ const LeasingFunnelPage: React.FC = () => {
                 <Button variant="inline-link" onClick={() => viewScreening(a)}>
                   Reports
                 </Button>
+                {a.signed_at && (
+                  <Button variant="inline-link" onClick={() => viewSignedApplication(a)}>
+                    View signed
+                  </Button>
+                )}
                 {a.status !== 'approved' && a.status !== 'converted' && (
                   <Button variant="inline-link" onClick={() => setStatus(a, 'approved')}>
                     Approve

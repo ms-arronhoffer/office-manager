@@ -314,6 +314,32 @@ async def test_application_public_view_and_sign(client, admin_user, db_session):
     assert review.status_code == 200
     assert review.json()["status"] == "in_review"
 
+    # The executed application is surfaced as a downloadable PDF.
+    pdf = await client.get(
+        f"{FUNNEL}/applications/{app_id}/signed-pdf", headers=auth_headers(admin_user)
+    )
+    assert pdf.status_code == 200, pdf.text
+    assert pdf.headers["content-type"] == "application/pdf"
+    assert pdf.content[:4] == b"%PDF"
+
+
+async def test_signed_pdf_requires_signature(client, admin_user, db_session):
+    await _make_app_template(client, admin_user)
+    created = await client.post(
+        f"{FUNNEL}/applications/from-template",
+        json={
+            "applicant_first_name": "Un",
+            "applicant_last_name": "Signed",
+            "applicant_email": "unsigned@example.com",
+        },
+        headers=auth_headers(admin_user),
+    )
+    app_id = created.json()["id"]
+    resp = await client.get(
+        f"{FUNNEL}/applications/{app_id}/signed-pdf", headers=auth_headers(admin_user)
+    )
+    assert resp.status_code == 409
+
 
 async def test_application_sign_requires_consent(client, admin_user, db_session):
     await _make_app_template(client, admin_user)

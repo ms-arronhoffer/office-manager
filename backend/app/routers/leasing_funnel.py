@@ -401,6 +401,47 @@ async def list_screening(
     return reports
 
 
+@router.get("/applications/{app_id}/signed-pdf")
+async def download_signed_application(
+    app_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Render the applicant's signed application (document + e-signature trail) as a PDF.
+
+    Mirrors the signed-lease download so staff can surface the executed
+    application. Only available once the applicant has e-signed.
+    """
+    application = await _get_application(db, app_id, current_user.organization_id)
+    if application.signed_at is None or not application.rendered_body:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "The application has not been signed yet."
+        )
+    applicant_name = (
+        f"{application.applicant_first_name} {application.applicant_last_name}".strip()
+    )
+    pdf = waiver_service.generate_signed_pdf(
+        title="Rental application",
+        body=application.rendered_body,
+        document_hash=application.document_hash or "",
+        signer_name=applicant_name,
+        signer_email=application.applicant_email,
+        signature_type=application.signature_type or "typed",
+        signature_data=application.signature_data or "",
+        consent_text=application.consent_text or waiver_service.ESIGN_CONSENT_TEXT,
+        signed_at=application.signed_at,
+        ip_address=application.ip_address,
+        user_agent=application.user_agent,
+    )
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="application-{application.id}.pdf"'
+        },
+    )
+
+
 @router.post("/applications/{app_id}/convert", response_model=ApplicationResponse)
 async def convert_application(
     app_id: uuid.UUID,
