@@ -1509,6 +1509,14 @@ MAX_QA_CHUNK_CHARS = 4000
 
 # ── Portfolio assistant (RAG Q&A, Phase 3) ────────────────────────────────────
 
+# Standard message used to decline questions the portfolio context cannot
+# answer. Kept as a constant so the system prompt and the deterministic
+# no-context guard stay in sync (and so callers/tests can assert on it).
+ASSISTANT_REFUSAL = (
+    "I can only answer questions about your organization's portfolio, and I "
+    "couldn't find any information in your records to answer that."
+)
+
 PORTFOLIO_ASSISTANT_SYSTEM = (
     "You are a portfolio assistant for a commercial property management team. "
     "Answer the user's question using ONLY the numbered context passages "
@@ -1524,11 +1532,18 @@ PORTFOLIO_ASSISTANT_SYSTEM = (
     "- Base every statement on the context. Never invent facts, figures, names, "
     "or dates that are not present in the passages, and never rely on outside "
     "knowledge.\n"
+    "- Answer ONLY questions about this organization's portfolio that the "
+    "supplied passages address. If the question is unrelated to the portfolio "
+    "(for example general knowledge, current events, coding help, math puzzles, "
+    "opinions, or small talk), or the passages do not contain information that "
+    "answers it, you MUST decline. Do not answer from your own knowledge, and "
+    "do not speculate.\n"
+    f"- When you decline, respond with exactly: '{ASSISTANT_REFUSAL}' You may "
+    "add one short sentence naming the portfolio information that is missing, "
+    "but never provide an out-of-scope answer.\n"
     "- Cite the passages you rely on inline using square-bracket numbers that "
     "match the passage numbers, e.g. [1] or [2][3]. Cite only passages you "
     "actually used and never cite a number that was not provided.\n"
-    "- If the context does not contain enough information to answer, say so "
-    "plainly and, when useful, name what is missing rather than guessing.\n"
     "- Do not compute totals, averages, or counts unless every value needed "
     "appears in the passages; when some are missing, report the values you can "
     "cite and note the answer is partial.\n"
@@ -1538,10 +1553,15 @@ PORTFOLIO_ASSISTANT_SYSTEM = (
     "or round them.\n"
     "- Be concise and factual. Use Markdown when it aids readability.\n"
     "\n"
-    "Example:\n"
+    "Example (in scope):\n"
     "Passage [1] 'Office 42 (Galaxy Tower) is managed by Orbit Realty.'\n"
     "Question: 'Who manages office 42?'\n"
-    "Answer: 'Office 42 (Galaxy Tower) is managed by Orbit Realty [1].'"
+    "Answer: 'Office 42 (Galaxy Tower) is managed by Orbit Realty [1].'\n"
+    "\n"
+    "Example (out of scope):\n"
+    "Passage [1] 'Office 42 (Galaxy Tower) is managed by Orbit Realty.'\n"
+    "Question: 'What is the capital of France?'\n"
+    f"Answer: '{ASSISTANT_REFUSAL}'"
 )
 
 # Bound the context assembled into the assistant prompt.
@@ -1815,7 +1835,12 @@ async def answer_assistant_question(
         lines.append(passage)
         used += len(passage)
 
-    context = "\n\n".join(lines) if lines else "(no relevant context found)"
+    context = "\n\n".join(lines) if lines else ""
+    # No org-scoped passages were retrieved: the question is not answerable from
+    # this organization's portfolio, so deny it deterministically rather than
+    # letting the model improvise from outside knowledge.
+    if not context:
+        return ASSISTANT_REFUSAL
     prompt = (
         "Context passages:\n"
         f"{context}\n"
@@ -1823,7 +1848,8 @@ async def answer_assistant_question(
         f"Question: {question}\n"
         "\n"
         "Answer the question using only the context above, citing passages by "
-        "their number."
+        "their number. If the context does not answer the question, decline as "
+        "instructed."
     )
     return await _generate(
         [{"text": prompt}], system_instruction=PORTFOLIO_ASSISTANT_SYSTEM, temperature=0.2

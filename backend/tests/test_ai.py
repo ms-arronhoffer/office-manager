@@ -1567,6 +1567,69 @@ async def test_assistant_query_degrades_when_unconfigured(client, db_session, mo
 
 
 @pytest.mark.asyncio
+async def test_answer_assistant_question_refuses_without_context(monkeypatch):
+    """With no retrieved passages the assistant denies without calling the model."""
+    called = False
+
+    async def fake_generate(parts, **kwargs):
+        nonlocal called
+        called = True
+        return "should not be used"
+
+    monkeypatch.setattr(ai_service, "_generate", fake_generate)
+
+    answer = await ai_service.answer_assistant_question(
+        "What is the capital of France?", []
+    )
+    assert answer == ai_service.ASSISTANT_REFUSAL
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_answer_assistant_question_grounds_in_context(monkeypatch):
+    """With passages present the model is invoked with the grounded prompt."""
+    captured = {}
+
+    async def fake_generate(parts, **kwargs):
+        captured["prompt"] = parts[0]["text"]
+        captured["system"] = kwargs.get("system_instruction")
+        return "Office 42 is managed by Orbit Realty [1]."
+
+    monkeypatch.setattr(ai_service, "_generate", fake_generate)
+
+    answer = await ai_service.answer_assistant_question(
+        "Who manages office 42?",
+        [{"title": "Office 42", "content": "Office 42 is managed by Orbit Realty."}],
+    )
+    assert "Orbit Realty" in answer
+    assert "Office 42" in captured["prompt"]
+    assert ai_service.ASSISTANT_REFUSAL in captured["system"]
+
+
+@pytest.mark.asyncio
+async def test_assistant_query_denies_out_of_scope(client, db_session, monkeypatch):
+    """An out-of-scope question with no org matches returns the refusal (no model)."""
+    from app.services import knowledge_service
+
+    headers, user, org = await _make_org_user_full(db_session, "pro", "assist-deny@test.com")
+
+    async def fake_retrieve(db, *, organization_id, query, limit=8):
+        return []
+
+    monkeypatch.setattr(knowledge_service, "retrieve", fake_retrieve)
+
+    resp = await client.post(
+        "/api/v1/ai/assistant/query",
+        headers=headers,
+        json={"question": "What is the capital of France?"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["answer"] == ai_service.ASSISTANT_REFUSAL
+    assert body["citations"] == []
+
+
+@pytest.mark.asyncio
 async def test_assistant_reindex_builds_and_keyword_retrieves(client, db_session):
     """Reindex builds keyword-only chunks (AI off) that keyword retrieval finds."""
     from sqlalchemy import select
