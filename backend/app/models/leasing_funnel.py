@@ -36,8 +36,24 @@ from app.models.base import Base, TimestampMixin
 from app.models.mixins import SoftDeleteMixin
 
 # Application review lifecycle.
+#
+# The funnel supports two intake paths that share this status vocabulary:
+#   * prospect-initiated public form → starts at ``submitted``
+#   * staff-initiated "send an application to a person" → starts at ``draft``
+#     then ``sent`` (emailed), ``viewed`` (opened), ``signed`` (applicant
+#     completed + e-signed), before staff review.
 APPLICATION_STATUSES = (
-    "submitted", "screening", "approved", "denied", "withdrawn", "converted",
+    "draft",
+    "submitted",
+    "sent",
+    "viewed",
+    "signed",
+    "in_review",
+    "screening",
+    "approved",
+    "denied",
+    "withdrawn",
+    "converted",
 )
 
 # Screening lifecycle + recommendation.
@@ -94,6 +110,37 @@ class RentalApplication(SoftDeleteMixin, TimestampMixin, Base):
     resident_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("residents.id", ondelete="SET NULL"), nullable=True
     )
+
+    # ── Staff-sent, template-based application (send-by-email + e-sign) ──────
+    # When an application is prepared from an :class:`ApplicationTemplate` and
+    # emailed to a named person, these fields drive the token-addressed public
+    # ``/apply/{token}`` page and capture the applicant's e-signature with the
+    # same ESIGN/UETA evidentiary trail used for waivers and lease signing.
+    application_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("application_templates.id", ondelete="SET NULL"), nullable=True
+    )
+    # Unguessable per-application token for the emailed application link.
+    invite_token: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True
+    )
+    sent_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Immutable snapshot + hash of the exact application document sent.
+    rendered_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    document_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # ESIGN/UETA evidentiary fields (mirrors LeaseSignatureParty).
+    signature_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    signature_data: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consent_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consent_agreed: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     unit: Mapped["RentalUnit | None"] = relationship("RentalUnit")
     screening_reports: Mapped[list["ScreeningReport"]] = relationship(

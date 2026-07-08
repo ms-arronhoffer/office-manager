@@ -29,6 +29,7 @@ from app.models.leasing_funnel import (
     RentalApplication,
     ScreeningReport,
 )
+from app.models.application_template import ApplicationTemplate
 from app.models.lease_template import LeaseTemplate
 from app.models.resident import RentalUnit, Resident, ResidentLease
 from app.services import waiver_service
@@ -49,13 +50,22 @@ def _now() -> datetime:
 
 # Allowed application status transitions (from -> {to}).
 _APP_TRANSITIONS: dict[str, set[str]] = {
-    "submitted": {"screening", "approved", "denied", "withdrawn"},
-    "screening": {"approved", "denied", "withdrawn"},
+    "draft": {"sent", "withdrawn"},
+    "sent": {"viewed", "signed", "in_review", "screening", "approved", "denied", "withdrawn"},
+    "viewed": {"signed", "in_review", "screening", "approved", "denied", "withdrawn"},
+    "signed": {"in_review", "screening", "approved", "denied", "withdrawn"},
+    "submitted": {"in_review", "screening", "approved", "denied", "withdrawn"},
+    "in_review": {"screening", "approved", "denied", "withdrawn"},
+    "screening": {"in_review", "approved", "denied", "withdrawn"},
     "approved": {"converted", "withdrawn"},
     "denied": set(),
     "withdrawn": set(),
     "converted": set(),
 }
+
+# States from which requesting screening auto-advances the application to
+# ``screening`` (i.e. it has not yet reached a decision).
+_PRE_DECISION_STATUSES = {"draft", "submitted", "sent", "viewed", "signed", "in_review"}
 
 
 def can_transition(current: str, target: str) -> bool:
@@ -119,6 +129,161 @@ async def convert_to_resident(
 
 
 # ---------------------------------------------------------------------------
+# Application templates: create-from-template, send, view, e-sign
+# ---------------------------------------------------------------------------
+
+def build_application_merge_context(
+    application: RentalApplication, *, organization_name: str | None
+) -> dict[str, str]:
+    """Build the ``{{merge_field}}`` context for a rental-application document.
+
+    Reuses the base waiver context (``date``, ``organization_name``,
+    ``recipient_name``) and layers applicant detail on top so a template renders a
+    fully populated, signable application.
+    """
+    full_name = f"{application.applicant_first_name} {application.applicant_last_name}".strip()
+    context = waiver_service.build_merge_context(
+        recipient_name=full_name or None, organization_name=organization_name
+    )
+    context.update(
+        {
+            "applicant_name": full_name,
+            "applicant_first_name": application.applicant_first_name or "",
+            "applicant_last_name": application.applicant_last_name or "",
+            "applicant_email": application.applicant_email or "",
+            "applicant_phone": application.applicant_phone or "",
+            "desired_move_in": _fmt_date(application.desired_move_in),
+            "monthly_income": _fmt_money(application.monthly_income),
+        }
+    )
+    # Layer any structured field values already captured on the application so
+    # custom ``{{merge_field}}`` placeholders can render without clobbering the
+    # standard fields above.
+    for key, value in (application.application_data or {}).items():
+        if value is None:
+            continue
+        context.setdefault(str(key), str(value))
+    return context
+
+
+async def create_application_from_template(
+    db: AsyncSession,
+    organization_id: uuid.UUID | None,
+    *,
+    template: ApplicationTemplate,
+    applicant_first_name: str,
+    applicant_last_name: str,
+    applicant_email: str,
+    applicant_phone: str | None = None,
+    unit_id: uuid.UUID | None = None,
+    desired_move_in=None,
+    monthly_income=None,
+    organization_name: str | None = None,
+    sent_by_id: uuid.UUID | None = None,
+) -> RentalApplication:
+    """Render an application template for a named prospect and open a send-envelope.
+
+    Snapshots + hashes the rendered application body, mints an unguessable
+    ``invite_token`` for the emailed ``/apply/{token}`` link, and sets the status
+    to ``sent`` so the applicant can view and e-sign it.
+    """
+    application = RentalApplication(
+        organization_id=organization_id,
+        unit_id=unit_id,
+        applicant_first_name=applicant_first_name,
+        applicant_last_name=applicant_last_name,
+        applicant_email=waiver_service.normalize_email(applicant_email),
+        applicant_phone=applicant_phone,
+        desired_move_in=desired_move_in,
+        monthly_income=monthly_income,
+        application_template_id=template.id,
+        status="sent",
+        invite_token=_gen_token(),
+        sent_by_id=sent_by_id,
+        sent_at=_now(),
+    )
+    context = build_application_merge_context(
+        application, organization_name=organization_name
+    )
+    rendered = waiver_service.render_body(template.body, context)
+    application.rendered_body = rendered
+    application.document_hash = waiver_service.compute_document_hash(rendered)
+    db.add(application)
+    await db.flush()
+    return application
+
+
+async def load_application_by_token(
+    db: AsyncSession, token: str
+) -> RentalApplication | None:
+    """Resolve a rental application from its emailed ``invite_token``."""
+    return (
+        await db.execute(
+            select(RentalApplication).where(
+                RentalApplication.invite_token == token,
+                RentalApplication.is_deleted.is_(False),
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def mark_application_viewed(
+    db: AsyncSession, application: RentalApplication
+) -> RentalApplication:
+    """Record that the applicant opened a sent application (``sent`` → ``viewed``)."""
+    if application.status == "sent":
+        application.status = "viewed"
+        if application.viewed_at is None:
+            application.viewed_at = _now()
+    return application
+
+
+async def sign_application(
+    db: AsyncSession,
+    application: RentalApplication,
+    *,
+    signature_type: str,
+    signature_data: str,
+    consent_agreed: bool,
+    field_values: dict | None = None,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+) -> RentalApplication:
+    """Record the applicant's completed, e-signed application.
+
+    Enforces ESIGN/UETA controls: explicit consent, attribution, and binding the
+    signature to the document hash. Structured ``field_values`` the applicant
+    filled in are merged into ``application_data``. Advances the status to
+    ``signed`` for staff review.
+    """
+    if application.status in ("signed", "in_review", "screening", "approved", "denied", "withdrawn", "converted"):
+        raise FunnelError(
+            f"This application can no longer be signed (status '{application.status}')."
+        )
+    if application.status not in ("sent", "viewed"):
+        raise FunnelError("This application is not open for signing.")
+    if not consent_agreed:
+        raise FunnelError("You must consent to sign electronically.")
+    if not signature_data:
+        raise FunnelError("A signature is required.")
+
+    if field_values:
+        merged = dict(application.application_data or {})
+        merged.update(field_values)
+        application.application_data = merged
+
+    application.signature_type = signature_type
+    application.signature_data = signature_data
+    application.consent_text = waiver_service.ESIGN_CONSENT_TEXT
+    application.consent_agreed = True
+    application.ip_address = ip_address
+    application.user_agent = user_agent
+    application.status = "signed"
+    application.signed_at = _now()
+    return application
+
+
+# ---------------------------------------------------------------------------
 # Screening
 # ---------------------------------------------------------------------------
 
@@ -147,8 +312,8 @@ async def run_screening(
         completed_at=_now() if result.status == "completed" else None,
     )
     db.add(report)
-    # Advance the application into screening if it was still fresh.
-    if application.status == "submitted":
+    # Advance the application into screening if it was still pre-decision.
+    if application.status in _PRE_DECISION_STATUSES:
         application.status = "screening"
     return report
 

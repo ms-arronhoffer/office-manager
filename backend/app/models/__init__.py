@@ -85,6 +85,7 @@ from app.models.resident import (
     OCCUPANT_ROLES, ACTIVE_LEASE_STATUSES, LEASE_TYPES,
 )
 from app.models.lease_template import LeaseTemplate
+from app.models.application_template import ApplicationTemplate
 from app.models.announcement import (
     Announcement, AnnouncementRecipient,
     ANNOUNCEMENT_CHANNELS, ANNOUNCEMENT_STATUSES,
@@ -163,6 +164,7 @@ __all__ = [
     "UNIT_STATUSES", "RESIDENT_LEASE_STATUSES", "RESIDENT_STATUSES",
     "OCCUPANT_ROLES", "ACTIVE_LEASE_STATUSES", "LEASE_TYPES",
     "LeaseTemplate",
+    "ApplicationTemplate",
     "Announcement", "AnnouncementRecipient",
     "ANNOUNCEMENT_CHANNELS", "ANNOUNCEMENT_STATUSES",
     "RentCharge", "SecurityDeposit",
