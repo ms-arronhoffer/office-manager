@@ -69,6 +69,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       ? [{
           type: 'section' as const,
           text: 'Pinned Offices',
+          defaultExpanded: false,
           items: pinnedOffices.map((o) => ({
             type: 'link' as const,
             text: o.label,
@@ -79,6 +80,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
     {
       type: 'section' as const,
       text: 'Portfolio',
+      defaultExpanded: false,
       items: [
         { type: 'link' as const, text: 'Offices', href: '/offices' },
         { type: 'link' as const, text: 'Leases', href: '/leases' },
@@ -90,6 +92,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
     {
       type: 'section' as const,
       text: 'Residential',
+      defaultExpanded: false,
       items: [
         { type: 'link' as const, text: 'Units', href: '/residential' },
         { type: 'link' as const, text: 'Residents', href: '/residential/residents' },
@@ -109,6 +112,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
     {
       type: 'section' as const,
       text: 'Operations',
+      defaultExpanded: false,
       items: [
         { type: 'link' as const, text: 'Maintenance Tickets', href: '/maintenance-tickets' },
         { type: 'link' as const, text: 'Inspections', href: '/inspections' },
@@ -121,6 +125,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
     {
       type: 'section' as const,
       text: 'Maintenance',
+      defaultExpanded: false,
       items: [
         { type: 'link' as const, text: 'Overview', href: '/maintenance' },
         { type: 'link' as const, text: 'HVAC Systems', href: '/maintenance/hvac' },
@@ -134,6 +139,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
     {
       type: 'section' as const,
       text: 'Finance',
+      defaultExpanded: false,
       items: [
         { type: 'link' as const, text: 'Rent Roll', href: '/finance' },
         ...(isEditorOrAdmin ? [{ type: 'link' as const, text: 'Operating Expenses', href: '/finance/operating-expenses' }] : []),
