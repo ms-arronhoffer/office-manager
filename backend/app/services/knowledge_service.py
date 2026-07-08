@@ -21,6 +21,7 @@ an explicit admin action) without duplicating rows.
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 import uuid
@@ -28,6 +29,12 @@ import uuid
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
+
+from app.models.base import Base
+# Importing the models package ensures *every* mapped model is registered on
+# ``Base.registry`` so the generic catch-all indexer below can discover any
+# organization-scoped table, not just the ones explicitly imported here.
+import app.models  # noqa: F401
 
 from app.models.knowledge_chunk import (
     SOURCE_HVAC_CONTRACT,
@@ -149,8 +156,161 @@ def _keyword_terms(query: str) -> list[str]:
     return deduped
 
 
-# ── Source → text builders ────────────────────────────────────────────────────
+# ── Generic catch-all indexing ────────────────────────────────────────────────
+# The builders below produce hand-tuned, richly-labelled text for the core
+# entities. Everything else that is organization-scoped is picked up generically
+# by reflecting over its columns (see ``_collect_generic_chunks``) so the
+# assistant can answer questions about *any* data in the database, not only the
+# entities with a bespoke builder.
 
+# Tables already covered by a bespoke builder above — skipped by the generic
+# indexer to avoid duplicate chunks.
+_BESPOKE_TABLES = frozenset({
+    "maintenance_tickets", "leases", "lease_abstract_clauses", "offices",
+    "landlords", "vendors", "management_companies", "hvac_contracts",
+    "office_transitions", "insurance_certificates", "rental_units", "residents",
+    "resident_leases", "rent_charges", "property_owners", "owner_distributions",
+    "vendor_bills", "customer_invoices", "bank_accounts", "budgets",
+    "inspections", "vacancy_listings", "rental_applications", "screening_reports",
+})
+
+# Tables the generic indexer must never touch: the embedding indexes themselves,
+# credential/secret stores, and low-signal internal metering/billing/audit noise.
+# Indexing these would either leak secrets into the assistant's context or bloat
+# the index with rows that carry no answerable business meaning.
+_GENERIC_SKIP_TABLES = frozenset({
+    "knowledge_chunks", "lease_document_chunks",
+    "users", "api_keys", "client_portal_accounts", "webhooks",
+    "impersonation_sessions", "auth_lockouts", "site_settings",
+    "usage_events", "activity_log", "email_log",
+    "billing_charges", "billing_credits", "billing_invoices",
+    "billing_refunds", "billing_subscriptions", "billing_coupons",
+})
+
+# Column-name fragments whose values must never be embedded or returned.
+_SENSITIVE_COLUMN_FRAGMENTS = (
+    "password", "secret", "token", "hash", "api_key", "apikey",
+    "private_key", "signature", "ssn", "salt",
+)
+
+# Structural columns that carry no natural-language signal.
+_GENERIC_SKIP_COLUMNS = frozenset({
+    "id", "organization_id", "is_deleted", "deleted_at", "embedding",
+    "search_vector", "created_at", "updated_at",
+})
+
+# Columns (in priority order) used to derive a human-readable record label.
+_LABEL_COLUMNS = (
+    "name", "title", "subject", "label", "display_name", "code",
+    "number", "reference",
+)
+
+# Bound how many rows and how much text the generic indexer emits per table.
+_GENERIC_MAX_RECORDS_PER_TABLE = 2000
+_GENERIC_VALUE_MAXLEN = 500
+
+# Cached discovery result; computed once per process from the ORM registry.
+_GENERIC_MODELS_CACHE: list[tuple[type, object, str]] | None = None
+
+
+def _humanize(name: str) -> str:
+    """Turn a snake_case column/table name into a display label."""
+    return name.replace("_", " ").strip().capitalize()
+
+
+def _is_sensitive_column(name: str) -> bool:
+    lowered = name.lower()
+    return any(frag in lowered for frag in _SENSITIVE_COLUMN_FRAGMENTS)
+
+
+def _generic_indexable_models() -> list[tuple[type, object, str]]:
+    """Discover every organization-scoped model without a bespoke builder.
+
+    Returns ``(class, mapper, tablename)`` tuples for models that (a) carry an
+    ``organization_id`` column, (b) have a single UUID ``id`` primary key (so the
+    row fits :class:`KnowledgeChunk.source_id`), and (c) are neither already
+    covered by a hand-tuned builder nor on the sensitive/low-signal skip list.
+    The result is cached and sorted by table name for deterministic output.
+    """
+    global _GENERIC_MODELS_CACHE
+    if _GENERIC_MODELS_CACHE is not None:
+        return _GENERIC_MODELS_CACHE
+
+    discovered: list[tuple[type, object, str]] = []
+    for mapper in Base.registry.mappers:
+        cls = mapper.class_
+        table = getattr(cls, "__tablename__", None)
+        if not table or table in _BESPOKE_TABLES or table in _GENERIC_SKIP_TABLES:
+            continue
+        column_keys = {col.key for col in mapper.columns}
+        if "organization_id" not in column_keys:
+            continue
+        primary_key = list(mapper.primary_key)
+        if len(primary_key) != 1 or primary_key[0].key != "id":
+            continue
+        discovered.append((cls, mapper, table))
+
+    discovered.sort(key=lambda item: item[2])
+    _GENERIC_MODELS_CACHE = discovered
+    return discovered
+
+
+def _format_generic_value(value) -> str | None:
+    """Render a column value as compact text, or ``None`` to skip it."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, uuid.UUID):
+        # Opaque identifiers add noise without answerable meaning.
+        return None
+    if isinstance(value, (list, dict)):
+        try:
+            text = json.dumps(value, default=str, ensure_ascii=False)
+        except (TypeError, ValueError):
+            text = str(value)
+    else:
+        text = str(value)
+    text = _clean(text)
+    if not text:
+        return None
+    if len(text) > _GENERIC_VALUE_MAXLEN:
+        text = text[:_GENERIC_VALUE_MAXLEN] + "…"
+    return text
+
+
+def _generic_record_text(instance, mapper) -> str:
+    """Build a labelled ``Field: value`` description from a record's columns.
+
+    Foreign-key/opaque id columns, structural bookkeeping columns, and sensitive
+    columns (passwords, tokens, hashes, …) are omitted.
+    """
+    parts: list[str] = []
+    for col in mapper.columns:
+        key = col.key
+        if key in _GENERIC_SKIP_COLUMNS or key.endswith("_id"):
+            continue
+        if _is_sensitive_column(key):
+            continue
+        formatted = _format_generic_value(getattr(instance, key, None))
+        if formatted is None:
+            continue
+        parts.append(f"{_humanize(key)}: {formatted}")
+    return _clean("\n".join(parts))[:MAX_CHUNK_CHARS] if parts else ""
+
+
+def _generic_record_title(instance, mapper, table: str) -> str:
+    human = _humanize(table)
+    column_keys = mapper.columns.keys()
+    for col in _LABEL_COLUMNS:
+        if col in column_keys:
+            value = getattr(instance, col, None)
+            if value not in (None, ""):
+                return f"{human}: {_clean(str(value))[:120]}"
+    return human
+
+
+# ── Source → text builders ────────────────────────────────────────────────────
 def _ticket_text(ticket: MaintenanceTicket) -> str:
     parts = [
         f"Maintenance ticket: {ticket.subject}",
@@ -658,7 +818,9 @@ def _screening_report_text(
 
 # ── Indexing ──────────────────────────────────────────────────────────────────
 
-def _portfolio_summary_text(counts: dict[str, int]) -> str:
+def _portfolio_summary_text(
+    counts: dict[str, int], generic_counts: dict[str, int] | None = None
+) -> str:
     """Build a single rollup chunk of portfolio totals for aggregate questions.
 
     Retrieval only ever returns a handful of individual record chunks, so a
@@ -706,6 +868,10 @@ def _portfolio_summary_text(counts: dict[str, int]) -> str:
         "accounts, budgets, inspections, vacancy listings, rental applications, "
         "and tenant screening reports across the portfolio.",
     ]
+    # Fold in counts for every other organization-scoped table picked up by the
+    # generic indexer so "how many <anything>" questions are answerable too.
+    for table in sorted(generic_counts or {}):
+        parts.append(f"Total {table.replace('_', ' ')}: {generic_counts[table]}.")
     return _clean(" ".join(parts))[:MAX_CHUNK_CHARS]
 
 
@@ -1272,6 +1438,13 @@ async def _collect_chunks(
             }
         )
 
+    # ── Generic catch-all: every remaining organization-scoped table ───────
+    # So the assistant can answer questions about *any* data in the database,
+    # not just the entities with a bespoke builder above. Each row becomes one
+    # keyword/semantic-searchable chunk built by reflecting over its columns
+    # (sensitive columns such as passwords/tokens are redacted).
+    generic_counts = await _collect_generic_chunks(db, organization_id, chunks)
+
     # ── Portfolio summary (organization-level rollup of totals) ────────────
     # Prepended so aggregate "how many"/"count" questions are answerable even
     # though retrieval only returns a few individual record chunks.
@@ -1317,12 +1490,52 @@ async def _collect_chunks(
             "source_id": organization_id,
             "title": "Portfolio summary (totals)",
             "reference": "dashboard",
-            "content": _portfolio_summary_text(summary_counts),
+            "content": _portfolio_summary_text(summary_counts, generic_counts),
         },
     )
 
     # Drop empty-content chunks (nothing useful to embed or match).
     return [c for c in chunks if c["content"]]
+
+
+async def _collect_generic_chunks(
+    db: AsyncSession, organization_id: uuid.UUID, chunks: list[dict]
+) -> dict[str, int]:
+    """Append one chunk per row for every generically-indexable table.
+
+    Returns a ``{table: row_count}`` map so aggregate counts can be folded into
+    the portfolio summary. Each query is explicitly organization-scoped (and
+    soft-delete-aware when the model supports it) so no other org's rows are
+    ever indexed.
+    """
+    generic_counts: dict[str, int] = {}
+    for cls, mapper, table in _generic_indexable_models():
+        stmt = select(cls).where(cls.organization_id == organization_id)
+        if "is_deleted" in mapper.columns.keys():
+            stmt = stmt.where(cls.is_deleted.is_(False))
+        stmt = stmt.limit(_GENERIC_MAX_RECORDS_PER_TABLE)
+        records = (await db.execute(stmt)).scalars().all()
+        count = 0
+        for record in records:
+            source_id = getattr(record, "id", None)
+            if not isinstance(source_id, uuid.UUID):
+                continue
+            content = _generic_record_text(record, mapper)
+            if not content:
+                continue
+            chunks.append(
+                {
+                    "source_type": table,
+                    "source_id": source_id,
+                    "title": _generic_record_title(record, mapper, table),
+                    "reference": None,
+                    "content": content,
+                }
+            )
+            count += 1
+        if count:
+            generic_counts[table] = count
+    return generic_counts
 
 
 async def reindex_organization(

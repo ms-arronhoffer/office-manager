@@ -44,11 +44,22 @@ const SOURCE_LABELS: Record<string, string> = {
 };
 
 /**
+ * Humanize an unrecognized source type (a raw table name emitted by the generic
+ * catch-all indexer, e.g. ``gl_accounts``) into a readable label
+ * (``Gl accounts``) so citations for any indexed table still read cleanly.
+ */
+function sourceLabel(sourceType: string): string {
+  if (SOURCE_LABELS[sourceType]) return SOURCE_LABELS[sourceType];
+  const words = sourceType.replace(/_/g, ' ').trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : sourceType;
+}
+
+/**
  * AI portfolio assistant (Pro+). Answers natural-language questions across the
- * whole organization — offices, leases, lease documents, lease abstracts,
- * landlords, vendors, management companies, maintenance tickets, HVAC contracts,
- * office transitions and insurance certificates — using retrieval-augmented
- * generation, returning a grounded answer plus the source passages it cited.
+ * whole organization — offices, leases, lease documents, residents, owners,
+ * finances and, via a generic catch-all indexer, any other organization-scoped
+ * data in the database — using retrieval-augmented generation, returning a
+ * grounded answer plus the source passages it cited.
  * Rendered as the content of a global, expandable side drawer (see
  * {@link AppNavigation}) so it is reachable from every view. Locked with an
  * upgrade prompt when the org lacks the ``ai_assist`` entitlement, and degrades
@@ -168,7 +179,7 @@ const AIPortfolioAssistant: React.FC = () => {
                     {result.citations.map((c) => (
                       <Box key={c.index}>
                         <Box variant="awsui-key-label">
-                          [{c.index}] {SOURCE_LABELS[c.source_type] || c.source_type}
+                          [{c.index}] {sourceLabel(c.source_type)}
                           {c.reference ? (
                             <>
                               {' — '}
