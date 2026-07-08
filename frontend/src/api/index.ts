@@ -2016,6 +2016,8 @@ export const leasingFunnel = {
     client.post<LeaseSignatureRequest>('/leasing-funnel/lease-signatures/from-template', data),
   voidSignature: (id: string) =>
     client.post<LeaseSignatureRequest>(`/leasing-funnel/lease-signatures/${id}/void`),
+  downloadSignedLease: (id: string) =>
+    client.get(`/leasing-funnel/lease-signatures/${id}/pdf`, { responseType: 'blob' }),
 };
 
 export const leaseTemplates = {

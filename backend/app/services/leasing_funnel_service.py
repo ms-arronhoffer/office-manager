@@ -270,6 +270,13 @@ def build_lease_merge_context(
             "lease_type": lease.lease_type or "",
         }
     )
+    # Layer any custom template field values captured on the lease. These fill the
+    # template's custom ``{{merge_field}}`` placeholders without clobbering the
+    # standard fields above.
+    for key, value in (lease.template_field_values or {}).items():
+        if value is None:
+            continue
+        context.setdefault(str(key), str(value))
     return context
 
 

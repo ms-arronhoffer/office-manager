@@ -210,6 +210,97 @@ async def test_lease_esign_from_template_requires_signer_email(client, admin_use
     assert resp.status_code == 409, resp.text
 
 
+async def test_lease_stores_template_and_custom_fields(client, admin_user, sample_office):
+    """A lease can remember its template + custom merge-field values, and the
+    e-sign 'from-template' call can reuse the stored template and render the
+    custom fields into the signed document."""
+    unit = await _make_unit(client, admin_user, sample_office)
+    resident = await client.post(
+        f"{LEASING}/residents",
+        json={"first_name": "Cara", "last_name": "Custom", "email": "cara@example.com"},
+        headers=auth_headers(admin_user),
+    )
+    resident_id = resident.json()["id"]
+
+    template = await client.post(
+        TEMPLATES,
+        json={
+            "name": "Custom Lease",
+            "body": "Tenant {{tenant_name}} parks at {{parking_spot}} for {{rent_amount}}.",
+        },
+        headers=auth_headers(admin_user),
+    )
+    template_id = template.json()["id"]
+
+    lease = await client.post(
+        f"{LEASING}/leases",
+        json={
+            "unit_id": unit["id"],
+            "rent_amount": "2000.00",
+            "lease_template_id": template_id,
+            "template_field_values": {"parking_spot": "Space 42"},
+            "occupants": [{"resident_id": resident_id, "is_primary": True}],
+        },
+        headers=auth_headers(admin_user),
+    )
+    assert lease.status_code == 201, lease.text
+    lease_body = lease.json()
+    lease_id = lease_body["id"]
+    assert lease_body["lease_template_id"] == template_id
+    assert lease_body["template_field_values"] == {"parking_spot": "Space 42"}
+
+    # Send for e-sign WITHOUT passing a template — it should reuse the lease's.
+    resp = await client.post(
+        f"{FUNNEL}/lease-signatures/from-template",
+        json={"resident_lease_id": lease_id},
+        headers=auth_headers(admin_user),
+    )
+    assert resp.status_code == 201, resp.text
+    req_id = resp.json()["id"]
+
+    # The rendered/signed body must include the custom field value.
+    detail = await client.get(
+        f"{FUNNEL}/lease-signatures/{req_id}", headers=auth_headers(admin_user)
+    )
+    assert detail.status_code == 200
+
+    from sqlalchemy import select
+    from app.models.leasing_funnel import LeaseSignatureRequest
+    from tests.conftest import _test_session  # type: ignore
+
+    async with _test_session() as session:
+        stored = (
+            await session.execute(
+                select(LeaseSignatureRequest).where(LeaseSignatureRequest.id == req_id)
+            )
+        ).scalar_one()
+        assert "Space 42" in stored.rendered_body
+
+
+async def test_from_template_without_template_errors(client, admin_user, sample_office):
+    """Sending a lease for e-sign with no template passed and none stored fails."""
+    unit = await _make_unit(client, admin_user, sample_office)
+    resident = await client.post(
+        f"{LEASING}/residents",
+        json={"first_name": "No", "last_name": "Template", "email": "nt@example.com"},
+        headers=auth_headers(admin_user),
+    )
+    lease = await client.post(
+        f"{LEASING}/leases",
+        json={
+            "unit_id": unit["id"],
+            "occupants": [{"resident_id": resident.json()["id"], "is_primary": True}],
+        },
+        headers=auth_headers(admin_user),
+    )
+    resp = await client.post(
+        f"{FUNNEL}/lease-signatures/from-template",
+        json={"resident_lease_id": lease.json()["id"]},
+        headers=auth_headers(admin_user),
+    )
+    assert resp.status_code == 422, resp.text
+
+
 async def test_sample_lease_template_endpoint(client, admin_user):
     resp = await client.get(f"{TEMPLATES}/sample", headers=auth_headers(admin_user))
     assert resp.status_code == 200, resp.text

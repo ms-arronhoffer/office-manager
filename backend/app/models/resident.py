@@ -41,6 +41,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -206,6 +207,16 @@ class ResidentLease(SoftDeleteMixin, TimestampMixin, Base):
     )
     currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # The lease template this lease was prepared from. Remembering it lets staff
+    # send the lease for e-signature without re-selecting a template, and drives
+    # which custom merge fields (``template_field_values``) the lease captures.
+    lease_template_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("lease_templates.id", ondelete="SET NULL"), nullable=True
+    )
+    # Values for any custom ``{{merge_field}}`` placeholders a template defines
+    # beyond the standard lease/unit/occupant fields, keyed by field name.
+    template_field_values: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     unit: Mapped["RentalUnit"] = relationship(back_populates="leases")
     occupants: Mapped[list["ResidentLeaseOccupant"]] = relationship(

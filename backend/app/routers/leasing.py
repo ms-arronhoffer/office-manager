@@ -233,6 +233,8 @@ class ResidentLeaseCreate(BaseModel):
     renewal_option: bool = False
     currency: str = "USD"
     notes: str | None = None
+    lease_template_id: uuid.UUID | None = None
+    template_field_values: dict | None = None
     occupants: list[OccupantInput] = []
 
 
@@ -256,6 +258,8 @@ class ResidentLeaseUpdate(BaseModel):
     renewal_option: bool | None = None
     currency: str | None = None
     notes: str | None = None
+    lease_template_id: uuid.UUID | None = None
+    template_field_values: dict | None = None
     occupants: list[OccupantInput] | None = None
 
 
@@ -282,6 +286,8 @@ class ResidentLeaseResponse(BaseModel):
     renewal_option: bool
     currency: str
     notes: str | None
+    lease_template_id: uuid.UUID | None
+    template_field_values: dict | None
     created_at: datetime
     updated_at: datetime
     occupants: list[OccupantResponse]

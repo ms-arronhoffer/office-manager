@@ -157,7 +157,10 @@ class LeaseSignatureCreate(BaseModel):
 
 class LeaseSignatureFromTemplate(BaseModel):
     resident_lease_id: uuid.UUID
-    template_id: uuid.UUID
+    # When omitted, the template stored on the resident lease is used so staff
+    # don't have to re-select the template they already chose for the lease. When
+    # provided, this template is used instead and becomes the lease's stored one.
+    template_id: uuid.UUID | None = None
     title: str | None = None
     # When omitted, the lease occupants with an email become the signing parties.
     parties: list[PartyInput] | None = None
@@ -574,10 +577,17 @@ async def create_lease_signature_from_template(
     if lease is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Resident lease not found")
 
+    template_id = payload.template_id or lease.lease_template_id
+    if template_id is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "No lease template was provided and this lease has no template set.",
+        )
+
     template = (
         await db.execute(
             select(LeaseTemplate).where(
-                LeaseTemplate.id == payload.template_id,
+                LeaseTemplate.id == template_id,
                 LeaseTemplate.organization_id == org_id,
                 LeaseTemplate.is_deleted.is_(False),
             )
@@ -616,6 +626,10 @@ async def create_lease_signature_from_template(
         )
     except FunnelError as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+    # Remember the template used on the lease so a later re-send reuses it without
+    # asking the user to pick a template again. Update it whenever a template is
+    # resolved so an explicit override on re-send is remembered too.
+    lease.lease_template_id = template.id
     await db.commit()
     req = await _load_signature_request(db, req.id, org_id)
     _schedule_lease_emails(
