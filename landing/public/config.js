@@ -1,9 +1,10 @@
 // Landing page runtime configuration.
 // Edit these URLs to point at your deployment — no image rebuild required.
 window.SITE_CONFIG = {
-  APP_URL:       "https://dev.officemanager.techtools.host",
-  SIGNUP_URL:    "https://dev.officemanager.techtools.host/signup",
-  LOGIN_URL:     "https://dev.officemanager.techtools.host/login",
+  APP_URL:       "https://app.portfoliodesk.ai",
+  SIGNUP_URL:    "https://app.portfoliodesk.ai/signup",
+  LOGIN_URL:     "https://app.portfoliodesk.ai/login",
+  MANAGE_URL:    "https://manage.portfoliodesk.ai",
 
   // Contact handling. The on-site /contact form posts JSON to CONTACT_ENDPOINT
   // (e.g. a serverless function or form backend). When left blank, the form
