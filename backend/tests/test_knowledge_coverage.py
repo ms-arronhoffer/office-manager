@@ -151,3 +151,57 @@ async def test_rental_applications_indexed_and_retrievable(db_session, monkeypat
     assert summary is not None
     assert "Total rental applications: 2" in summary["content"]
     assert "applications in screening: 2" in summary["content"]
+
+
+@pytest.mark.asyncio
+async def test_open_residential_applications_answerable(db_session, monkeypatch):
+    """Regression for the screenshot: a query using the word "residential" and
+    asking for "open" applications must surface the portfolio summary with an
+    explicit open-applications count and the residential synonym."""
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+    org = await _make_org(db_session, "cov-open-apps")
+
+    db_session.add_all(
+        [
+            # Two open/in-progress applications (non-terminal statuses).
+            RentalApplication(
+                organization_id=org.id,
+                applicant_first_name="Opennly",
+                applicant_last_name="Pending",
+                applicant_email="openly@example.com",
+                status="screening",
+            ),
+            RentalApplication(
+                organization_id=org.id,
+                applicant_first_name="Stilly",
+                applicant_last_name="Reviewing",
+                applicant_email="stilly@example.com",
+                status="in_review",
+            ),
+            # One closed/decided application (terminal status) — not "open".
+            RentalApplication(
+                organization_id=org.id,
+                applicant_first_name="Donely",
+                applicant_last_name="Approved",
+                applicant_email="donely@example.com",
+                status="approved",
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    await knowledge_service.reindex_organization(db_session, org.id)
+
+    results = await knowledge_service.retrieve(
+        db_session,
+        organization_id=org.id,
+        query="how many open residential applications are there",
+        limit=20,
+    )
+    summary = next(
+        (r for r in results if r["source_type"] == "portfolio_summary"), None
+    )
+    assert summary is not None
+    assert "Total rental applications: 3" in summary["content"]
+    assert "open residential applications: 2" in summary["content"]
+    assert "residential applications" in summary["content"]
