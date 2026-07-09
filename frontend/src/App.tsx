@@ -21,6 +21,7 @@ const OnboardingPage = lazy(() => import('@/pages/OnboardingPage'));
 const BillingPage = lazy(() => import('@/pages/BillingPage'));
 const ApiKeysPage = lazy(() => import('@/pages/ApiKeysPage'));
 const WebhooksPage = lazy(() => import('@/pages/WebhooksPage'));
+const BuildiumConnectorPage = lazy(() => import('@/pages/BuildiumConnectorPage'));
 const OfficesPage = lazy(() => import('@/pages/OfficesPage'));
 const OfficeDetailPage = lazy(() => import('@/pages/OfficeDetailPage'));
 const OfficeFormPage = lazy(() => import('@/pages/OfficeFormPage'));
@@ -219,6 +220,7 @@ const App: React.FC = () => {
                         <Route path="billing" element={<RoleGuard allowedRoles={['admin']}><BillingPage /></RoleGuard>} />
                         <Route path="api-keys" element={<RoleGuard allowedRoles={['admin']}><ApiKeysPage /></RoleGuard>} />
                         <Route path="webhooks" element={<RoleGuard allowedRoles={['admin']}><WebhooksPage /></RoleGuard>} />
+                        <Route path="buildium" element={<RoleGuard allowedRoles={['admin']}><BuildiumConnectorPage /></RoleGuard>} />
                         <Route path="ticket-templates" element={<RoleGuard allowedRoles={['admin', 'editor']}><TicketTemplatesPage /></RoleGuard>} />
                         <Route path="recurring-ticket-rules" element={<RoleGuard allowedRoles={['admin', 'editor']}><RecurringTicketsPage /></RoleGuard>} />
                         <Route path="insurance-certificates" element={<RoleGuard allowedRoles={['admin', 'editor']}><InsuranceCertificatesPage /></RoleGuard>} />

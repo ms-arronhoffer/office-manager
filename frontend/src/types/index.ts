@@ -3814,3 +3814,77 @@ export interface TrustAccountCreate {
 }
 
 export type TrustAccountUpdate = Partial<Omit<TrustAccountCreate, 'currency'>>;
+
+// ─── Buildium migration connector ─────────────────────────────────────────
+
+export interface BuildiumConnection {
+  configured: boolean;
+  client_id: string | null;
+  client_secret_hint: string | null;
+  base_url: string | null;
+  is_enabled: boolean;
+  last_verified_at: string | null;
+  last_verify_ok: boolean | null;
+  last_verify_error: string | null;
+  last_sync_at: string | null;
+  last_sync_summary: Record<string, BuildiumEntityProgress> | null;
+}
+
+export interface BuildiumConnectionInput {
+  client_id: string;
+  client_secret: string;
+  base_url?: string | null;
+  is_enabled?: boolean;
+}
+
+export interface BuildiumTestConnectionResult {
+  ok: boolean;
+  error: string | null;
+}
+
+export interface BuildiumEntityType {
+  key: string;
+  label: string;
+}
+
+export interface BuildiumGLAccountMapping {
+  id: string;
+  buildium_gl_account_id: string;
+  buildium_account_name: string | null;
+  buildium_account_type: string | null;
+  gl_account_id: string | null;
+  gl_account_name: string | null;
+  auto_created: boolean;
+}
+
+export interface BuildiumEntityProgress {
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+}
+
+export type BuildiumMigrationRunStatus =
+  | 'pending'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'partial'
+  | 'cancelled';
+
+export interface BuildiumMigrationRun {
+  id: string;
+  status: BuildiumMigrationRunStatus;
+  dry_run: boolean;
+  requested_entities: string[] | null;
+  progress: Record<string, BuildiumEntityProgress>;
+  error_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+}
+
+export interface BuildiumMigrateRequest {
+  entities?: string[] | null;
+  dry_run?: boolean;
+}

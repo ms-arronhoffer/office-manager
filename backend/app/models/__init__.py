@@ -116,6 +116,10 @@ from app.models.owner import (
     DISTRIBUTION_METHODS, DISTRIBUTION_STATUSES,
     TRUST_ACCOUNT_STATUSES, COMPLIANCE_STATUSES,
 )
+from app.models.buildium import (
+    BuildiumConnection, BuildiumEntityMap, BuildiumGLAccountMap, BuildiumMigrationRun,
+    BUILDIUM_ENTITY_TYPES, MIGRATION_RUN_STATUSES,
+)
 
 __all__ = [
     "Base", "Organization", "User", "AuthLockout", "Manager", "Office",    "Lease", "LeaseNote", "LeaseRenewal", "LeaseOption",
@@ -181,4 +185,6 @@ __all__ = [
     "OWNER_TYPES", "OWNER_STATUSES", "LEDGER_ENTRY_TYPES",
     "DISTRIBUTION_METHODS", "DISTRIBUTION_STATUSES",
     "TRUST_ACCOUNT_STATUSES", "COMPLIANCE_STATUSES",
+    "BuildiumConnection", "BuildiumEntityMap", "BuildiumGLAccountMap", "BuildiumMigrationRun",
+    "BUILDIUM_ENTITY_TYPES", "MIGRATION_RUN_STATUSES",
 ]

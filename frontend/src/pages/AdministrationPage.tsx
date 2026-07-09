@@ -65,6 +65,7 @@ const GROUPS: AdminGroup[] = [
       { text: 'Data Dictionary', href: '/data-dictionary', description: 'Reference for data fields and meanings.', roles: ['admin'] },
       { text: 'Audit Log', href: '/activity-log', description: 'Review system and user activity.', roles: ['admin'] },
       { text: 'Trash', href: '/trash', description: 'Restore or purge deleted records.', roles: ['admin'] },
+      { text: 'Buildium Migration', href: '/buildium', description: 'Configure and run the Buildium data migration connector.', roles: ['admin'] },
     ],
   },
 ];
