@@ -105,7 +105,7 @@ def _kind_for_type(py_type: type) -> str:
     """Classify a Python type into a coarse catalog "kind" for prompting."""
     if py_type is bool:
         return "boolean"
-    if py_type in (int,):
+    if py_type is int:
         return "integer"
     if py_type in (float, Decimal):
         return "number"
