@@ -1984,6 +1984,15 @@ export interface AssistantReindexResult {
   indexed: number;
 }
 
+export interface DataQueryResult {
+  answer: string;
+  spec: Record<string, unknown>;
+  columns: string[];
+  rows: Array<Array<string | number | boolean | null>>;
+  total: number;
+  model: string;
+}
+
 export interface LeaseDocumentSearchMatch {
   lease_id: string;
   lease_name: string | null;

@@ -1660,6 +1660,7 @@ import type {
   SimilarTicketsResult,
   AssistantQueryResult,
   AssistantReindexResult,
+  DataQueryResult,
   LeaseDocumentSearchResult,
   LeaseIndexedDocumentsResult,
   LeaseDocumentTextResult,
@@ -1760,6 +1761,9 @@ export const ai = {
 
   assistantReindex: () =>
     client.post<AssistantReindexResult>('/ai/assistant/reindex', {}),
+
+  dataQuery: (question: string) =>
+    client.post<DataQueryResult>('/ai/data/query', { question }),
 
   exportSummary: (narrative: string, periodLabel: string, format: 'pdf' | 'docx') =>
     client.post<Blob>(

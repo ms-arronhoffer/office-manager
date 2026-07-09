@@ -9,10 +9,12 @@ import Box from '@cloudscape-design/components/box';
 import Alert from '@cloudscape-design/components/alert';
 import Badge from '@cloudscape-design/components/badge';
 import ExpandableSection from '@cloudscape-design/components/expandable-section';
+import SegmentedControl from '@cloudscape-design/components/segmented-control';
+import Table from '@cloudscape-design/components/table';
 import DOMPurify from 'dompurify';
 import { ai } from '@/api';
 import { useEntitlements } from '@/hooks/useEntitlements';
-import type { AssistantQueryResult } from '@/types';
+import type { AssistantQueryResult, DataQueryResult } from '@/types';
 
 const SOURCE_LABELS: Record<string, string> = {
   lease: 'Lease',
@@ -67,12 +69,28 @@ function sourceLabel(sourceType: string): string {
  */
 const AIPortfolioAssistant: React.FC = () => {
   const { hasFeature, loading: entLoading } = useEntitlements();
+  const [mode, setMode] = useState<'answer' | 'data'>('answer');
   const [question, setQuestion] = useState('');
   const [result, setResult] = useState<AssistantQueryResult | null>(null);
+  const [dataResult, setDataResult] = useState<DataQueryResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const enabled = hasFeature('ai_assist');
+
+  const describeError = (err: unknown): string => {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 503) {
+      return 'AI assist is not configured on the server. Add a Gemini API key to enable the assistant.';
+    }
+    if (status === 402) {
+      return 'The portfolio assistant requires the Pro plan or higher.';
+    }
+    if (status === 422) {
+      return "I couldn't map that to your data. Try rephrasing with a specific record type or field.";
+    }
+    return 'Failed to answer the question. Please try again.';
+  };
 
   const ask = async () => {
     const trimmed = question.trim();
@@ -80,17 +98,17 @@ const AIPortfolioAssistant: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await ai.assistantQuery(trimmed);
-      setResult(res.data);
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 503) {
-        setError('AI assist is not configured on the server. Add a Gemini API key to enable the assistant.');
-      } else if (status === 402) {
-        setError('The portfolio assistant requires the Pro plan or higher.');
+      if (mode === 'data') {
+        setResult(null);
+        const res = await ai.dataQuery(trimmed);
+        setDataResult(res.data);
       } else {
-        setError('Failed to answer the question. Please try again.');
+        setDataResult(null);
+        const res = await ai.assistantQuery(trimmed);
+        setResult(res.data);
       }
+    } catch (err: unknown) {
+      setError(describeError(err));
     } finally {
       setLoading(false);
     }
@@ -129,11 +147,32 @@ const AIPortfolioAssistant: React.FC = () => {
         >
           AI portfolio assistant <Badge color="blue">Pro</Badge>
         </Header>
-        <FormField label="Your question">
+        <FormField label="Mode">
+          <SegmentedControl
+            selectedId={mode}
+            onChange={({ detail }) => setMode(detail.selectedId as 'answer' | 'data')}
+            options={[
+              { id: 'answer', text: 'Grounded answer' },
+              { id: 'data', text: 'Data query' },
+            ]}
+          />
+        </FormField>
+        <FormField
+          label="Your question"
+          description={
+            mode === 'data'
+              ? 'Get precise counts, totals, and filtered lists from any table — e.g. "how many open residential applications" or "total rent charged by status".'
+              : 'Ask anything about your portfolio; answers are grounded in your own data with citations.'
+          }
+        >
           <Textarea
             value={question}
             onChange={({ detail }) => setQuestion(detail.value)}
-            placeholder="e.g. Which leases expire in the next 6 months, and what are their notice periods?"
+            placeholder={
+              mode === 'data'
+                ? 'e.g. How many vendors are in Texas? Total rent charged this month?'
+                : 'e.g. Which leases expire in the next 6 months, and what are their notice periods?'
+            }
             rows={3}
           />
         </FormField>
@@ -141,7 +180,36 @@ const AIPortfolioAssistant: React.FC = () => {
           Ask
         </Button>
         {error && <Alert type="warning">{error}</Alert>}
-        {result && (
+        {dataResult && mode === 'data' && (
+          <Box>
+            <Box variant="awsui-key-label">Answer</Box>
+            <div style={{ paddingTop: '8px', lineHeight: 1.5 }}>{dataResult.answer}</div>
+            {dataResult.rows.length > 0 && (
+              <Box padding={{ top: 'm' }}>
+                <Table
+                  variant="embedded"
+                  columnDefinitions={dataResult.columns.map((col, i) => ({
+                    id: col,
+                    header: col.replace(/_/g, ' '),
+                    cell: (row: Array<string | number | boolean | null>) => {
+                      const v = row[i];
+                      return v === null || v === undefined ? '' : String(v);
+                    },
+                  }))}
+                  items={dataResult.rows}
+                  empty="No matching records."
+                />
+              </Box>
+            )}
+            <Box variant="small" color="text-status-inactive" padding={{ top: 's' }}>
+              {dataResult.rows.length < dataResult.total
+                ? `Showing ${dataResult.rows.length} of ${dataResult.total} matching records. `
+                : ''}
+              Answered from your data via a validated query (no free-form SQL). Review before acting.
+            </Box>
+          </Box>
+        )}
+        {result && mode === 'answer' && (
           <Box>
             <Box variant="awsui-key-label">Answer</Box>
             {result.answer_html ? (
