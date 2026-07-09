@@ -767,6 +767,11 @@ def _listing_text(listing: VacancyListing, unit_label: str | None) -> str:
     return _clean(". ".join(str(p) for p in parts))[:MAX_CHUNK_CHARS]
 
 
+_CLOSED_APPLICATION_STATUSES = frozenset(
+    {"approved", "denied", "withdrawn", "converted"}
+)
+
+
 def _application_name(app: RentalApplication) -> str:
     name = " ".join(
         p for p in (app.applicant_first_name, app.applicant_last_name) if p
@@ -777,7 +782,9 @@ def _application_name(app: RentalApplication) -> str:
 def _rental_application_text(
     app: RentalApplication, unit_label: str | None
 ) -> str:
-    parts = [f"Rental application: {_application_name(app)}"]
+    # Repeat the "residential" synonym so questions phrased as "residential
+    # application" match the same chunk that says "rental application".
+    parts = [f"Rental application (residential application): {_application_name(app)}"]
     if app.applicant_email:
         parts.append(f"Email: {app.applicant_email}")
     if app.applicant_phone:
@@ -785,7 +792,12 @@ def _rental_application_text(
     if unit_label:
         parts.append(f"Unit: {unit_label}")
     if app.status:
-        parts.append(f"Status: {app.status}")
+        stage = (
+            "closed/decided"
+            if app.status in _CLOSED_APPLICATION_STATUSES
+            else "open/in progress"
+        )
+        parts.append(f"Status: {app.status} ({stage})")
     if app.desired_move_in:
         parts.append(f"Desired move-in: {app.desired_move_in}")
     if app.monthly_income is not None:
@@ -858,7 +870,10 @@ def _portfolio_summary_text(
         f"Total inspections: {counts['inspections']}.",
         f"Total vacancy listings: {counts['listings']}.",
         f"Total rental applications: {counts['applications']} "
-        f"(applications in screening: {counts['applications_screening']}).",
+        f"(open residential applications: {counts['applications_open']}, "
+        f"applications in screening: {counts['applications_screening']}). "
+        "Rental applications are also called residential applications or "
+        "leasing applications.",
         f"Total tenant screening reports: {counts['screening_reports']}.",
         "Use these totals to answer how many / count / total questions about "
         "offices, leases, landlords, vendors, maintenance tickets, management "
@@ -866,7 +881,8 @@ def _portfolio_summary_text(
         "rental units, residents, resident leases, rent charges, property "
         "owners, owner distributions, vendor bills, customer invoices, bank "
         "accounts, budgets, inspections, vacancy listings, rental applications, "
-        "and tenant screening reports across the portfolio.",
+        "residential applications, and tenant screening reports across the "
+        "portfolio.",
     ]
     # Fold in counts for every other organization-scoped table picked up by the
     # generic indexer so "how many <anything>" questions are answerable too.
@@ -1478,6 +1494,11 @@ async def _collect_chunks(
         "inspections": len(inspections),
         "listings": len(listings),
         "applications": len(applications),
+        "applications_open": sum(
+            1
+            for a in applications
+            if a.status not in _CLOSED_APPLICATION_STATUSES
+        ),
         "applications_screening": sum(
             1 for a in applications if a.status == "screening"
         ),
