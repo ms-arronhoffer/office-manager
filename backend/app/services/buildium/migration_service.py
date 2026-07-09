@@ -55,6 +55,15 @@ def safe_decimal(val: Any) -> Decimal | None:
         return None
 
 
+def safe_amount(val: Any) -> Decimal | None:
+    """Normalize a Buildium money-ish field: either a plain number/string, or a
+    nested ``{"Amount": ...}`` object (as returned for e.g. ``MarketRent``/
+    ``RentAmount``)."""
+    if isinstance(val, dict):
+        return safe_decimal(val.get("Amount"))
+    return safe_decimal(val)
+
+
 def safe_date(val: Any) -> date | None:
     if val is None:
         return None
@@ -75,6 +84,9 @@ def safe_date(val: Any) -> date | None:
 
 
 def _payload_hash(payload: dict) -> str:
+    """Hash the raw Buildium payload so future runs can detect an unchanged
+    record (reserved for a skip-if-unchanged optimization; not yet used to
+    skip writes, just recorded on ``BuildiumEntityMap.payload_hash``)."""
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
 
@@ -192,7 +204,8 @@ async def migrate_properties(
             else:
                 result.updated += 1
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"property {buildium_id}: {exc}")
+            name = safe_str(item.get("Name")) or "unknown"
+            result.errors.append(f"property {buildium_id} ({name}): {exc}")
     if not dry_run:
         await db.commit()
     else:
@@ -227,8 +240,7 @@ async def migrate_units(
                     )
                     db.add(unit)
                 unit.unit_number = safe_str(item.get("UnitNumber")) or unit.unit_number
-                unit.market_rent = safe_decimal((item.get("MarketRent") or {}).get("Amount")) \
-                    if isinstance(item.get("MarketRent"), dict) else safe_decimal(item.get("MarketRent"))
+                unit.market_rent = safe_amount(item.get("MarketRent"))
                 unit.bedrooms = item.get("UnitBedrooms")
                 unit.bathrooms = safe_decimal(item.get("UnitBathrooms"))
                 unit.square_feet = safe_decimal(item.get("UnitSize"))
@@ -406,8 +418,7 @@ async def migrate_leases(
             lease.unit_id = unit_id
             lease.start_date = safe_date(item.get("LeaseFromDate"))
             lease.end_date = safe_date(item.get("LeaseToDate"))
-            lease.rent_amount = safe_decimal((item.get("RentAmount") or {}).get("Amount")) \
-                if isinstance(item.get("RentAmount"), dict) else safe_decimal(item.get("RentAmount"))
+            lease.rent_amount = safe_amount(item.get("RentAmount"))
             raw_status = (safe_str(item.get("LeaseStatus")) or "").lower()
             lease.status = {
                 "active": "active", "past": "ended", "future": "pending",
@@ -640,7 +651,10 @@ async def migrate_tasks(
 ) -> MigrationResult:
     result = MigrationResult()
     if created_by_id is None:
-        result.errors.append("tasks: no user available to attribute imported tickets to; skipped")
+        result.errors.append(
+            "tasks: no user available to attribute imported tickets to; skipped "
+            "(ensure an admin user is logged in when starting the migration)"
+        )
         return result
 
     category = (

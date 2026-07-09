@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+import hashlib
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -43,7 +44,6 @@ Admin = require_role("admin")
 
 
 def _advisory_key(organization_id: uuid.UUID) -> int:
-    import hashlib
     digest = hashlib.sha256(f"buildium-migration:{organization_id}".encode("utf-8")).digest()[:8]
     return int.from_bytes(digest, "big", signed=True)
 

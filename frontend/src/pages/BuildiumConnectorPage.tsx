@@ -37,6 +37,8 @@ const RUN_STATUS_TYPE: Record<string, 'success' | 'error' | 'in-progress' | 'pen
 
 const ENTITY_PROGRESS_TOTAL = (p: BuildiumEntityProgress) => p.created + p.updated + p.skipped;
 
+const POLL_INTERVAL_MS = 3000;
+
 const BuildiumConnectorPage: React.FC = () => {
   const { addFlashMessage } = useFlashbar();
 
@@ -124,7 +126,7 @@ const BuildiumConnectorPage: React.FC = () => {
   useEffect(() => {
     const active = runs.some((r) => r.status === 'pending' || r.status === 'running');
     if (active && !pollRef.current) {
-      pollRef.current = setInterval(() => { loadRuns(); }, 3000);
+      pollRef.current = setInterval(() => { loadRuns(); }, POLL_INTERVAL_MS);
     }
     if (!active && pollRef.current) {
       clearInterval(pollRef.current);

@@ -21,6 +21,9 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+# Upper bound on the jittered backoff delay between retries, regardless of
+# attempt count or a large Retry-After value from Buildium.
+_MAX_BACKOFF_SECONDS = 60.0
 
 
 class BuildiumApiError(Exception):
@@ -107,6 +110,7 @@ class BuildiumClient:
                     delay = self.retry_base_seconds * (2 ** attempt)
             else:
                 delay = self.retry_base_seconds * (2 ** attempt)
+            delay = min(delay, _MAX_BACKOFF_SECONDS)
             await asyncio.sleep(random.uniform(0.0, delay) if delay > 0 else 0.0)
 
         if last_exc:
