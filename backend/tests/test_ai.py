@@ -1778,3 +1778,111 @@ async def test_assistant_index_includes_portfolio_summary_totals(client, db_sess
         assert label in summary["content"]
     # The summary must rank first for an aggregate question.
     assert matches[0]["source_type"] == SOURCE_PORTFOLIO_SUMMARY
+
+
+# ── Structured data query (NL → validated query spec) ─────────────────────────
+
+@pytest.mark.asyncio
+async def test_data_query_gated_for_starter(client, db_session):
+    headers = await _make_org_user(db_session, "starter", "dq-gate@test.com")
+    resp = await client.post(
+        "/api/v1/ai/data/query",
+        headers=headers,
+        json={"question": "how many managers are there"},
+    )
+    assert resp.status_code == 402, resp.text
+
+
+@pytest.mark.asyncio
+async def test_data_query_counts_via_validated_spec(client, db_session, monkeypatch):
+    """A Pro org gets an exact COUNT executed from an AI-produced spec."""
+    from app.models.office import Manager
+
+    headers, user, org = await _make_org_user_full(db_session, "pro", "dq-count@test.com")
+    db_session.add_all([
+        Manager(organization_id=org.id, name="One"),
+        Manager(organization_id=org.id, name="Two"),
+    ])
+    await db_session.commit()
+
+    async def fake_build(question, entities):
+        # The catalog must be passed so the model can only pick real entities.
+        assert any(e["entity"] == "managers" for e in entities)
+        return {"entity": "managers", "aggregate": "count"}
+
+    monkeypatch.setattr(ai_service, "build_data_query_spec", fake_build)
+
+    resp = await client.post(
+        "/api/v1/ai/data/query",
+        headers=headers,
+        json={"question": "how many managers are there"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["rows"] == [[2]]
+    assert body["total"] == 1
+    assert "2" in body["answer"]
+    assert body["spec"]["entity"] == "managers"
+
+
+@pytest.mark.asyncio
+async def test_data_query_rejects_unknown_entity(client, db_session, monkeypatch):
+    """A hallucinated entity from the model surfaces as a clean 422."""
+    headers, user, org = await _make_org_user_full(db_session, "pro", "dq-bad@test.com")
+
+    async def fake_build(question, entities):
+        return {"entity": "secret_table", "aggregate": "count"}
+
+    monkeypatch.setattr(ai_service, "build_data_query_spec", fake_build)
+
+    resp = await client.post(
+        "/api/v1/ai/data/query",
+        headers=headers,
+        json={"question": "how many secret rows"},
+    )
+    assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_data_query_is_org_scoped(client, db_session, monkeypatch):
+    """The executed query never returns another org's rows."""
+    from app.models.office import Manager
+
+    headers, user, org = await _make_org_user_full(db_session, "pro", "dq-scope@test.com")
+    other = Organization(name="Other", slug="dq-other", plan="pro")
+    db_session.add(other)
+    await db_session.commit()
+    await db_session.refresh(other)
+    db_session.add_all([
+        Manager(organization_id=org.id, name="Mine"),
+        Manager(organization_id=other.id, name="Theirs A"),
+        Manager(organization_id=other.id, name="Theirs B"),
+    ])
+    await db_session.commit()
+
+    async def fake_build(question, entities):
+        return {"entity": "managers", "aggregate": "count"}
+
+    monkeypatch.setattr(ai_service, "build_data_query_spec", fake_build)
+
+    resp = await client.post(
+        "/api/v1/ai/data/query",
+        headers=headers,
+        json={"question": "how many managers"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["rows"] == [[1]]
+
+
+@pytest.mark.asyncio
+async def test_data_query_degrades_when_unconfigured(client, db_session, monkeypatch):
+    """With no API key, the endpoint returns 503 (translation needs the model)."""
+    headers, user, org = await _make_org_user_full(db_session, "pro", "dq-503@test.com")
+    monkeypatch.setattr(ai_service, "is_configured", lambda: False)
+
+    resp = await client.post(
+        "/api/v1/ai/data/query",
+        headers=headers,
+        json={"question": "how many managers"},
+    )
+    assert resp.status_code == 503, resp.text

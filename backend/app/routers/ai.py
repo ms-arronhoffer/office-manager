@@ -16,6 +16,8 @@ Gating:
 * ``POST /ai/tickets/draft-from-email`` — **email → ticket draft**, Pro+ (``ai_assist``).
 * ``POST /ai/assistant/query`` — **portfolio Q&A (RAG)**, Pro+ (``ai_assist``).
 * ``POST /ai/assistant/reindex`` — **rebuild the knowledge index**, Pro+ (``ai_assist``).
+* ``POST /ai/data/query`` — **structured NL data query** (validated query spec,
+  never SQL), Pro+ (``ai_assist``).
 * ``POST /ai/reports/summary`` — Pro+ (``ai_assist``).
 * ``POST /ai/portfolio/ask`` — Pro+ (``ai_assist``); grounded portfolio Q&A (RAG).
 """
@@ -47,6 +49,7 @@ from app.models.vendor_bill import VendorBill
 from app.services import (
     ai_service,
     ap_service,
+    data_query_service,
     document_extraction,
     document_search_service,
     entitlements as ent,
@@ -279,6 +282,27 @@ class AssistantQueryResponse(BaseModel):
 
 class AssistantReindexResponse(BaseModel):
     indexed: int
+
+
+class DataQueryRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+
+
+class DataQueryResponse(BaseModel):
+    """Result of a structured natural-language data query.
+
+    ``spec`` is the validated query spec that was executed (never free-form SQL),
+    ``columns``/``rows`` hold the tabular result, ``total`` is the unbounded match
+    count (so the client can tell when ``rows`` was truncated by the limit), and
+    ``answer`` is a short plain-English summary.
+    """
+
+    answer: str
+    spec: dict
+    columns: list[str]
+    rows: list[list]
+    total: int
+    model: str
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1526,3 +1550,56 @@ async def assistant_reindex(
     return AssistantReindexResponse(indexed=indexed)
 
 
+
+# ── Structured data query (NL → validated query spec, Pro+) ───────────────────
+
+@router.post(
+    "/data/query",
+    response_model=DataQueryResponse,
+    dependencies=[Depends(require_feature("ai_assist")), Depends(enforce_ai_token_budget)],
+)
+async def data_query(
+    payload: DataQueryRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Answer a precise/aggregate question by executing a validated query spec.
+
+    Unlike the RAG assistant (``/assistant/query``), this endpoint maps the
+    question onto a constrained ``{entity, filters, aggregate, group_by, …}``
+    spec — validated against an allow-listed catalog of every organization-scoped
+    table — and runs a single read-only ``SELECT`` scoped to the caller's
+    organization. It never generates or executes free-form SQL. This makes
+    "how many", "total by", and "which have X > Y" questions exact instead of
+    similarity-limited.
+
+    Requires Gemini to translate the question into a spec (returns 503 when AI is
+    not configured). Unknown entities/columns/operators produce a clean 422.
+    """
+    entities = data_query_service.catalog_for_prompt()
+    try:
+        raw_spec = await ai_service.build_data_query_spec(payload.question, entities)
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+
+    try:
+        spec = data_query_service.validate_spec(raw_spec)
+    except data_query_service.DataQueryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        )
+
+    result = await data_query_service.execute_spec(
+        db, organization_id=current_user.organization_id, spec=spec
+    )
+    answer = data_query_service.summarize(spec, result)
+
+    await _log_ai_usage(db, current_user.organization_id, "ai_data_query")
+    return DataQueryResponse(
+        answer=answer,
+        spec=spec,
+        columns=result["columns"],
+        rows=result["rows"],
+        total=result["total"],
+        model=settings.GEMINI_MODEL,
+    )

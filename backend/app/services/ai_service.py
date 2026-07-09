@@ -1703,6 +1703,80 @@ async def build_report_spec(
     return {"dataset": dataset, "columns": columns, "filters": filters}
 
 
+# ── Natural-language data query (structured, Pro+) ────────────────────────────
+
+DATA_QUERY_SYSTEM = (
+    "You translate a plain-English question about a property-management database "
+    "into ONE structured query spec. You never write SQL. Respond ONLY with a "
+    "JSON object with these keys: entity, select, filters, aggregate, "
+    "aggregate_column, group_by, order_by, limit.\n"
+    "\n"
+    "Rules:\n"
+    "- entity MUST be exactly one of the provided entity names. Pick the single "
+    "best fit for the question.\n"
+    "- select is a list of column names from that entity (empty list = all "
+    "columns). Only use it for 'show/list/which' questions.\n"
+    "- filters is a list of {column, op, value}. op is one of: eq, ne, gt, gte, "
+    "lt, lte, contains, starts_with, in, is_null, not_null. Use 'contains' for "
+    "partial text matches, 'in' with a list of values, and omit 'value' for "
+    "is_null/not_null. Only reference columns that exist on the chosen entity.\n"
+    "- For 'how many/count/total number' questions set aggregate to 'count'. For "
+    "'total/sum/average/max/min of <numeric field>' set aggregate to "
+    "sum|avg|min|max and aggregate_column to that numeric column.\n"
+    "- group_by is a list of columns; only use it with an aggregate for "
+    "'... by <field>' / 'per <field>' questions.\n"
+    "- order_by is {column, direction} where direction is asc or desc. limit is "
+    "an integer (default 100, max 500).\n"
+    "- NEVER invent entity, column, or operator names. NEVER produce SQL."
+)
+
+
+def _format_query_catalog(entities: list[dict[str, Any]]) -> str:
+    """Render the data-query catalog as a compact prompt block."""
+    blocks: list[str] = []
+    for ent_cfg in entities:
+        cols = ", ".join(
+            f"{c['name']} ({c['kind']})" for c in ent_cfg.get("columns", [])
+        )
+        blocks.append(
+            f"- {ent_cfg['entity']} — {ent_cfg.get('title', ent_cfg['entity'])}\n"
+            f"    columns: {cols}"
+        )
+    return "\n".join(blocks)
+
+
+async def build_data_query_spec(
+    question: str,
+    entities: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Map a plain-English question onto a raw structured query spec.
+
+    ``entities`` is the safe catalog produced by
+    :func:`app.services.data_query_service.catalog_for_prompt` — the model only
+    ever sees entity/column names and kinds, never the ORM or SQL. The returned
+    dict is a raw suggestion the caller MUST validate against the real catalog
+    (via ``data_query_service.validate_spec``) before executing.
+    """
+    clean = (question or "").strip()
+    if not clean:
+        raise AIRequestError("A data-query question is required.")
+
+    user_prompt = (
+        "AVAILABLE ENTITIES:\n"
+        f"{_format_query_catalog(entities)}\n\n"
+        "USER QUESTION:\n"
+        f"{clean[:MAX_TEXT_CHARS]}"
+    )
+    text = await _generate(
+        [{"text": user_prompt}],
+        system_instruction=DATA_QUERY_SYSTEM,
+        json_response=True,
+        model="fast",
+    )
+    parsed = _parse_json_object(text)
+    return parsed if isinstance(parsed, dict) else {}
+
+
 # ── In-app assistant: intent parsing (Pro+) ───────────────────────────────────
 
 # The constrained set of intents the assistant can recognise, mapped to the
