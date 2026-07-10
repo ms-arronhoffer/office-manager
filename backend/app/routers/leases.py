@@ -39,7 +39,7 @@ router = APIRouter()
 async def _load_lease(
     db: AsyncSession,
     lease_id: uuid.UUID,
-    org_id,
+    org_id: uuid.UUID | None,
     *,
     is_deleted: bool = False,
 ) -> Lease:
