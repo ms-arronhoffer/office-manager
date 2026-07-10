@@ -75,7 +75,7 @@ const HELP_TOPICS: HelpTopic[] = [
           'Viewer — read-only access to most records; cannot create or edit.',
           'Editor — can create and edit operational records such as offices, leases, tickets, and vendors.',
           'Accountant — can access the Finance area, including the general ledger, statements, AP/AR, and owner/trust accounting.',
-          'Admin — full access, including user management, administration, and site settings.',
+          'Admin — full access, including user management, administration, and company settings.',
         ],
         tips: [
           'If a menu item or button is missing, your role may not include that permission — ask an administrator if you need access.',
@@ -400,7 +400,7 @@ const HELP_TOPICS: HelpTopic[] = [
         steps: [
           'Configure email rules, ticket templates, and recurring ticket rules to automate routine work.',
           'Manage API keys and webhooks to integrate with external systems.',
-          'Adjust site settings, such as the application name and branding, from the administration area.',
+          'Adjust company settings, such as the company name and contact information, from the administration area.',
         ],
       },
       {

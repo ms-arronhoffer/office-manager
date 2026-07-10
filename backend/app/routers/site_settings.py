@@ -9,7 +9,10 @@ from app.models.site_settings import SiteSettings
 from app.models.user import User
 from app.schemas.site_settings import (
     SiteSettingsSchema,
-    DEFAULT_APP_NAME,
+    DEFAULT_COMPANY_NAME,
+    DEFAULT_COMPANY_ADDRESS,
+    DEFAULT_COMPANY_PHONE,
+    DEFAULT_COMPANY_EMAIL,
     DEFAULT_LOGIN_SUBTITLE,
     DEFAULT_LOGIN_FORM_HEADER,
     DEFAULT_LOGIN_FORM_DESCRIPTION,
@@ -29,7 +32,10 @@ async def _get_or_create(db: AsyncSession, organization_id: uuid.UUID) -> SiteSe
     if row is None:
         row = SiteSettings(
             organization_id=organization_id,
-            app_name=DEFAULT_APP_NAME,
+            company_name=DEFAULT_COMPANY_NAME,
+            company_address=DEFAULT_COMPANY_ADDRESS,
+            company_phone=DEFAULT_COMPANY_PHONE,
+            company_email=DEFAULT_COMPANY_EMAIL,
             login_subtitle=DEFAULT_LOGIN_SUBTITLE,
             login_form_header=DEFAULT_LOGIN_FORM_HEADER,
             login_form_description=DEFAULT_LOGIN_FORM_DESCRIPTION,
@@ -52,7 +58,10 @@ async def get_site_settings(
         )
     row = await _get_or_create(db, current_user.organization_id)
     return SiteSettingsSchema(
-        app_name=row.app_name or DEFAULT_APP_NAME,
+        company_name=row.company_name or DEFAULT_COMPANY_NAME,
+        company_address=row.company_address or DEFAULT_COMPANY_ADDRESS,
+        company_phone=row.company_phone or DEFAULT_COMPANY_PHONE,
+        company_email=row.company_email or DEFAULT_COMPANY_EMAIL,
         login_subtitle=row.login_subtitle or DEFAULT_LOGIN_SUBTITLE,
         login_form_header=row.login_form_header or DEFAULT_LOGIN_FORM_HEADER,
         login_form_description=row.login_form_description or DEFAULT_LOGIN_FORM_DESCRIPTION,
@@ -74,7 +83,10 @@ async def update_site_settings(
             detail="User must belong to an organization",
         )
     row = await _get_or_create(db, current_user.organization_id)
-    row.app_name = payload.app_name
+    row.company_name = payload.company_name
+    row.company_address = payload.company_address
+    row.company_phone = payload.company_phone
+    row.company_email = payload.company_email
     row.login_subtitle = payload.login_subtitle
     row.login_form_header = payload.login_form_header
     row.login_form_description = payload.login_form_description

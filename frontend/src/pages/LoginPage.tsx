@@ -469,7 +469,7 @@ const LoginPage: React.FC = () => {
             marginBottom: '12px',
           }}
         >
-          {settings.app_name}
+          Portfolio Desk
         </div>
         <div style={{ fontSize: '1.1rem', color: 'rgba(255, 255, 255, 0.85)', maxWidth: '480px', margin: '0 auto' }}>
           {settings.login_subtitle}

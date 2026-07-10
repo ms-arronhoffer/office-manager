@@ -856,7 +856,10 @@ export const trash = {
 
 // ─── Site Settings ────────────────────────────────────────────────────────────
 export interface SiteSettings {
-  app_name: string;
+  company_name: string;
+  company_address: string;
+  company_phone: string;
+  company_email: string;
   login_subtitle: string;
   login_form_header: string;
   login_form_description: string;

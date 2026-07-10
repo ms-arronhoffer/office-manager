@@ -18,7 +18,10 @@ import type { SiteSettings } from '@/api';
 import { useSiteSettings } from '@/context/SiteSettingsContext';
 
 const DEFAULTS: SiteSettings = {
-  app_name: 'Portfolio Desk',
+  company_name: 'Portfolio Desk',
+  company_address: '',
+  company_phone: '',
+  company_email: '',
   login_subtitle: 'Sign in to manage your offices, leases, and facilities',
   login_form_header: 'Sign In',
   login_form_description: 'Enter your credentials to access the application',
@@ -49,8 +52,8 @@ const SiteSettingsPage: React.FC = () => {
   }, []);
 
   const handleSubmit = async () => {
-    if (!form.app_name.trim()) {
-      setError('App Name is required.');
+    if (!form.company_name.trim()) {
+      setError('Company Name is required.');
       return;
     }
     setSaving(true);
@@ -58,7 +61,10 @@ const SiteSettingsPage: React.FC = () => {
     setSuccess(false);
     try {
       await siteSettingsApi.update({
-        app_name: form.app_name.trim(),
+        company_name: form.company_name.trim(),
+        company_address: form.company_address.trim(),
+        company_phone: form.company_phone.trim(),
+        company_email: form.company_email.trim(),
         login_subtitle: form.login_subtitle.trim(),
         login_form_header: form.login_form_header.trim(),
         login_form_description: form.login_form_description.trim(),
@@ -90,7 +96,7 @@ const SiteSettingsPage: React.FC = () => {
           <BreadcrumbGroup
             items={[
               { text: 'Settings', href: '/settings' },
-              { text: 'Site Settings', href: '/admin/site-settings' },
+              { text: 'Company Settings', href: '/admin/site-settings' },
             ]}
             onFollow={(e) => {
               e.preventDefault();
@@ -99,9 +105,9 @@ const SiteSettingsPage: React.FC = () => {
           />
           <Header
             variant="h1"
-            description="Customize the branding and text displayed on the login page and navigation."
+            description="Customize the company branding and contact information displayed on reports and navigation."
           >
-            Site Settings
+            Company Settings
           </Header>
         </SpaceBetween>
       }
@@ -114,7 +120,7 @@ const SiteSettingsPage: React.FC = () => {
         )}
         {success && (
           <Alert type="success" dismissible onDismiss={() => setSuccess(false)}>
-            Site settings saved successfully.
+            Company settings saved successfully.
           </Alert>
         )}
         <Form
@@ -128,55 +134,51 @@ const SiteSettingsPage: React.FC = () => {
           }
         >
           <SpaceBetween size="l">
-            <Container header={<Header variant="h2">Application Branding</Header>}>
+            <Container header={<Header variant="h2">Company Information</Header>}>
               <SpaceBetween size="l">
                 <FormField
-                  label="App Name"
-                  description="Displayed in the top navigation bar and side navigation header."
+                  label="Company Name"
+                  description="Used as the report header and shown in the side navigation."
                   constraintText="Required"
                 >
                   <Input
-                    value={form.app_name}
-                    onChange={({ detail }) => setForm((f) => ({ ...f, app_name: detail.value }))}
-                    placeholder="e.g., Portfolio Desk"
-                  />
-                </FormField>
-              </SpaceBetween>
-            </Container>
-
-            <Container header={<Header variant="h2">Login Page</Header>}>
-              <SpaceBetween size="l">
-                <FormField
-                  label="Page Subtitle"
-                  description="Text shown beneath the app name on the login page."
-                >
-                  <Input
-                    value={form.login_subtitle}
-                    onChange={({ detail }) => setForm((f) => ({ ...f, login_subtitle: detail.value }))}
-                    placeholder="e.g., Sign in to manage your offices, leases, and facilities"
+                    value={form.company_name}
+                    onChange={({ detail }) => setForm((f) => ({ ...f, company_name: detail.value }))}
+                    placeholder="e.g., Acme Property Management"
                   />
                 </FormField>
 
                 <FormField
-                  label="Form Header"
-                  description="Heading inside the sign-in card."
-                >
-                  <Input
-                    value={form.login_form_header}
-                    onChange={({ detail }) => setForm((f) => ({ ...f, login_form_header: detail.value }))}
-                    placeholder="e.g., Sign In"
-                  />
-                </FormField>
-
-                <FormField
-                  label="Form Description"
-                  description="Subtext below the form header."
+                  label="Company Address"
+                  description="Shown as report header contact information."
                 >
                   <Textarea
-                    value={form.login_form_description}
-                    onChange={({ detail }) => setForm((f) => ({ ...f, login_form_description: detail.value }))}
-                    placeholder="e.g., Enter your credentials to access the application"
-                    rows={3}
+                    value={form.company_address}
+                    onChange={({ detail }) => setForm((f) => ({ ...f, company_address: detail.value }))}
+                    placeholder="e.g., 123 Main St, Suite 100, Anytown, ST 12345"
+                    rows={2}
+                  />
+                </FormField>
+
+                <FormField
+                  label="Company Phone"
+                  description="Shown as report header contact information."
+                >
+                  <Input
+                    value={form.company_phone}
+                    onChange={({ detail }) => setForm((f) => ({ ...f, company_phone: detail.value }))}
+                    placeholder="e.g., (555) 123-4567"
+                  />
+                </FormField>
+
+                <FormField
+                  label="Company Email"
+                  description="Shown as report header contact information."
+                >
+                  <Input
+                    value={form.company_email}
+                    onChange={({ detail }) => setForm((f) => ({ ...f, company_email: detail.value }))}
+                    placeholder="e.g., contact@example.com"
                   />
                 </FormField>
               </SpaceBetween>

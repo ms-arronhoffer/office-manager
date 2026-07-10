@@ -185,7 +185,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
         <TopNavigation
           identity={{
             href: '/',
-            title: settings.app_name,
+            title: 'Portfolio Desk',
             onFollow: (e) => {
               e.preventDefault();
               navigate('/');
@@ -273,7 +273,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
           <div className="app-side-nav">
             <SideNavigation
               activeHref={location.pathname}
-              header={{ href: '/', text: settings.app_name }}
+              header={{ href: '/', text: settings.company_name }}
               items={navItems}
               onFollow={(e) => {
                 e.preventDefault();
