@@ -24,7 +24,7 @@ export const primaryNav: NavLink[] = [
 // *lowest* tier that can reach it (e.g. a page open to viewer+editor+admin
 // is a Viewer tutorial; a page open to accountant+admin is an Accountant
 // tutorial). `viewer` is a real, first-class tier here even though it has
-// no explicit RoleGuard in the app — it is simply the default/fallback
+// no explicit RoleGuard in the app, it is simply the default/fallback
 // role every authenticated internal user has.
 export type RoleGroup = 'internal' | 'portal';
 
@@ -51,7 +51,7 @@ export const tutorials = [
     slug: 'viewer-guide',
     title: 'Viewer Guide: Portfolio Visibility & Reporting',
     summary:
-      'Everything a read-only teammate can do out of the box — analytics dashboards, report exports, the lease expiration calendar, residential unit and vacancy overviews, and resident announcements.',
+      'Everything a read-only teammate can do out of the box: analytics dashboards, report exports, the lease expiration calendar, residential unit and vacancy overviews, and resident announcements.',
     minutes: 8,
     level: 'Beginner',
     topics: ['Analytics', 'Reporting', 'Residential'],
@@ -91,7 +91,7 @@ export const tutorials = [
     slug: 'resident-portal-guide',
     title: 'Resident Portal: What Your Tenants See',
     summary:
-      'A tour of the self-serve resident portal — lease details, account balance, maintenance requests, documents, and announcements — from the invite link to the portal home.',
+      'A tour of the self-serve resident portal: lease details, account balance, maintenance requests, documents, and announcements, from the invite link to the portal home.',
     minutes: 5,
     level: 'Beginner',
     topics: ['Resident Portal', 'Self-Serve'],
@@ -111,7 +111,7 @@ export const tutorials = [
     slug: 'vendor-portal-guide',
     title: 'Vendor Portal: What Contractors See',
     summary:
-      'A tour of the vendor work portal — assigned work orders, status updates, and the flow a contractor uses to close out a maintenance ticket.',
+      'A tour of the vendor work portal: assigned work orders, status updates, and the flow a contractor uses to close out a maintenance ticket.',
     minutes: 5,
     level: 'Beginner',
     topics: ['Vendor Portal', 'Maintenance'],
@@ -121,7 +121,7 @@ export const tutorials = [
     slug: 'client-portal-guide',
     title: 'Client Portal: What Commercial Landlords See',
     summary:
-      'A tour of the client portal for commercial landlords — property and contact details shared without exposing your internal management tools.',
+      'A tour of the client portal for commercial landlords: property and contact details shared without exposing your internal management tools.',
     minutes: 5,
     level: 'Beginner',
     topics: ['Client Portal', 'Self-Serve'],
