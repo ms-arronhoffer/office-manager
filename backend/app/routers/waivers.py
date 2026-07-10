@@ -42,6 +42,7 @@ from app.seeds.waiver_seed import seed_prebuilt_templates_for_org
 from app.services import waiver_service
 from app.services import usage_service
 from app.utils.email_client import send_email
+from app.utils.tenant_scope import load_or_404
 
 logger = logging.getLogger(__name__)
 
@@ -247,16 +248,9 @@ async def _deliver_waiver_email(
 
 
 async def _load_template(db: AsyncSession, template_id: uuid.UUID, org_id) -> WaiverTemplate:
-    result = await db.execute(
-        select(WaiverTemplate).where(
-            WaiverTemplate.id == template_id,
-            WaiverTemplate.organization_id == org_id,
-        )
+    return await load_or_404(
+        db, WaiverTemplate, template_id, org_id, detail="Template not found"
     )
-    tpl = result.scalar_one_or_none()
-    if not tpl:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
-    return tpl
 
 
 async def _org_name(db: AsyncSession, org_id) -> str | None:
@@ -560,16 +554,9 @@ async def list_requests(
 
 
 async def _load_request(db: AsyncSession, request_id: uuid.UUID, org_id) -> WaiverRequest:
-    result = await db.execute(
-        select(WaiverRequest).where(
-            WaiverRequest.id == request_id,
-            WaiverRequest.organization_id == org_id,
-        )
+    return await load_or_404(
+        db, WaiverRequest, request_id, org_id, detail="Waiver request not found"
     )
-    req = result.scalar_one_or_none()
-    if not req:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Waiver request not found")
-    return req
 
 
 @router.get("/requests/{request_id}", response_model=WaiverRequestResponse)

@@ -37,6 +37,7 @@ from app.models.office import Office
 from app.models.user import User
 from app.services import inspection_service as svc
 from app.services.inspection_service import InspectionError
+from app.utils.tenant_scope import load_or_404
 
 router = APIRouter()
 
@@ -165,17 +166,19 @@ async def _get_office(db: AsyncSession, office_id: uuid.UUID, org_id) -> Office:
 
 async def _load_template(db: AsyncSession, template_id: uuid.UUID, org_id) -> InspectionTemplate:
     db.expunge_all()
-    template = await svc.get_template(db, template_id, org_id)
-    if not template:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    template = await load_or_404(
+        db, InspectionTemplate, template_id, org_id, detail="Template not found"
+    )
+    await db.refresh(template, attribute_names=["items"])
     return template
 
 
 async def _load_inspection(db: AsyncSession, inspection_id: uuid.UUID, org_id) -> Inspection:
     db.expunge_all()
-    inspection = await svc.get_inspection(db, inspection_id, org_id)
-    if not inspection:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Inspection not found")
+    inspection = await load_or_404(
+        db, Inspection, inspection_id, org_id, detail="Inspection not found"
+    )
+    await db.refresh(inspection, attribute_names=["results"])
     return inspection
 
 

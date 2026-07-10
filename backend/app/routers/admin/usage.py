@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import require_super_admin
+from app.auth.dependencies import require_console_role
 from app.database import get_db
 from app.models.organization import Organization
 from app.models.user import User
@@ -90,7 +90,7 @@ async def feature_adoption(
     months: int = Query(default=6, ge=1, le=24),
     org_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_super_admin()),
+    _: User = Depends(require_console_role("super_admin", "support")),
 ):
     """Feature usage broken down by feature over the last ``months`` periods."""
     rows = await usage_service.feature_adoption(db, months=months, org_id=org_id)
@@ -106,7 +106,7 @@ async def platform_tokens(
     period: str | None = Query(default=None),
     limit: int = Query(default=10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_super_admin()),
+    _: User = Depends(require_console_role("super_admin", "support")),
 ):
     """Platform-wide token totals plus the top token-consuming orgs."""
     period = period or usage_service.current_period()
@@ -145,7 +145,7 @@ async def platform_tokens(
 async def org_usage(
     org_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_super_admin()),
+    _: User = Depends(require_console_role("super_admin", "support")),
 ):
     """Per-org token usage (current + prior period) and feature breakdown."""
     org = (

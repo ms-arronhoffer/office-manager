@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     JWT_SECRET: str
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRY_HOURS: int = 8
+    # Defense-in-depth: when true, every authenticated request sets the
+    # Postgres session GUC `app.current_org` so that Row-Level Security
+    # policies (see docs/RLS_EVALUATION.md) fail closed even if an app-level
+    # org filter is ever missed. Off by default — enabling it requires the
+    # matching RLS policies to be applied via alembic first (see the
+    # `082_rls_backstop_leases_pilot` migration) or every read on protected
+    # tables will return zero rows.
+    RLS_BACKSTOP_ENABLED: bool = False
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     SMTP_HOST: str = ""

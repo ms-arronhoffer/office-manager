@@ -189,6 +189,7 @@ async def update_landlord(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
+    org_id = current_user.organization_id
     result = await db.execute(select(Landlord).where(Landlord.id == landlord_id, Landlord.is_deleted.is_(False), Landlord.organization_id == current_user.organization_id))
     landlord = result.scalar_one_or_none()
     if not landlord:
@@ -216,7 +217,11 @@ async def update_landlord(
     result = await db.execute(
         select(Landlord)
         .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices), joinedload(Landlord.management_company_ref))
-        .where(Landlord.id == landlord_id, Landlord.is_deleted.is_(False))
+        .where(
+            Landlord.id == landlord_id,
+            Landlord.is_deleted.is_(False),
+            Landlord.organization_id == org_id,
+        )
     )
     return LandlordResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
 
@@ -247,6 +252,7 @@ async def restore_landlord(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin")),
 ):
+    org_id = current_user.organization_id
     result = await db.execute(select(Landlord).where(Landlord.id == landlord_id, Landlord.is_deleted.is_(True), Landlord.organization_id == current_user.organization_id))
     landlord = result.scalar_one_or_none()
     if not landlord:
@@ -262,7 +268,11 @@ async def restore_landlord(
     result = await db.execute(
         select(Landlord)
         .options(joinedload(Landlord.additional_names), joinedload(Landlord.contacts), joinedload(Landlord.owned_offices), joinedload(Landlord.management_company_ref))
-        .where(Landlord.id == landlord_id, Landlord.is_deleted.is_(False))
+        .where(
+            Landlord.id == landlord_id,
+            Landlord.is_deleted.is_(False),
+            Landlord.organization_id == org_id,
+        )
     )
     return LandlordResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
 
@@ -280,9 +290,9 @@ async def add_contact(
     landlord_id: uuid.UUID,
     payload: LandlordContactCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
-    result = await db.execute(select(Landlord).where(Landlord.id == landlord_id, Landlord.is_deleted.is_(False)))
+    result = await db.execute(select(Landlord).where(Landlord.id == landlord_id, Landlord.is_deleted.is_(False), Landlord.organization_id == current_user.organization_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Landlord not found")
 
@@ -302,8 +312,11 @@ async def update_contact(
     contact_id: uuid.UUID,
     payload: LandlordContactUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
+    landlord = await db.execute(select(Landlord.id).where(Landlord.id == landlord_id, Landlord.is_deleted.is_(False), Landlord.organization_id == current_user.organization_id))
+    if landlord.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
     result = await db.execute(
         select(LandlordContact).where(
             LandlordContact.id == contact_id,
@@ -330,8 +343,11 @@ async def delete_contact(
     landlord_id: uuid.UUID,
     contact_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
+    landlord = await db.execute(select(Landlord.id).where(Landlord.id == landlord_id, Landlord.is_deleted.is_(False), Landlord.organization_id == current_user.organization_id))
+    if landlord.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
     result = await db.execute(
         select(LandlordContact).where(
             LandlordContact.id == contact_id,

@@ -48,6 +48,7 @@ from app.models.general_ledger import GLAccount
 from app.models.user import User
 from app.services import ar_service as svc
 from app.services.ar_service import ARError
+from app.utils.tenant_scope import load_or_404
 
 router = APIRouter()
 
@@ -274,9 +275,8 @@ async def _load_invoice(db: AsyncSession, invoice_id: uuid.UUID, org_id) -> Cust
     # Detach cached instances so the reload builds fresh objects with all
     # columns/relationships populated (derived totals reflect the latest writes).
     db.expunge_all()
-    invoice = await svc.get_invoice(db, invoice_id, org_id)
-    if not invoice:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    invoice = await load_or_404(db, CustomerInvoice, invoice_id, org_id, detail="Invoice not found")
+    await db.refresh(invoice, attribute_names=["lines", "receipts"])
     return invoice
 
 

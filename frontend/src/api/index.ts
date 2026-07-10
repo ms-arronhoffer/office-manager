@@ -233,6 +233,12 @@ export const auth = {
   resetPassword: (token: string, new_password: string) =>
     client.post('/auth/reset-password', { token, new_password }),
 
+  verifyEmail: (token: string) =>
+    client.post('/auth/verify-email', { token }),
+
+  resendVerification: () =>
+    client.post('/auth/resend-verification'),
+
   verifyMfa: (mfa_token: string, code: string) =>
     client.post<TokenResponse>('/auth/mfa/verify', { mfa_token, code }),
 };
@@ -674,7 +680,7 @@ export const users = {
   list: (params?: Record<string, unknown>) =>
     client.get<PaginatedResponse<User>>('/users', { params }),
 
-  create: (data: { email: string; display_name: string; password: string; role?: string }) =>
+  create: (data: { email: string; display_name: string; role?: string }) =>
     client.post<User>('/users', data),
 
   update: (id: string, data: Partial<User>) => client.put<User>(`/users/${id}`, data),

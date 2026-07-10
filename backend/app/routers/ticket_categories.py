@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models.maintenance_ticket import MaintenanceTicket, TicketCategory
 from app.models.user import User
 from app.schemas.maintenance_ticket import TicketCategoryCreate, TicketCategoryResponse
+from app.utils.tenant_scope import load_or_404
 
 router = APIRouter()
 
@@ -48,12 +49,15 @@ async def create_category(
 async def delete_category(
     category_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
 ):
-    result = await db.execute(select(TicketCategory).where(TicketCategory.id == category_id))
-    category = result.scalar_one_or_none()
-    if not category:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+    category = await load_or_404(
+        db,
+        TicketCategory,
+        category_id,
+        current_user.organization_id,
+        detail="Category not found",
+    )
 
     ticket_count = (
         await db.execute(

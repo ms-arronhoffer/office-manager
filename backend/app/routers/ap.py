@@ -42,6 +42,7 @@ from app.models.vendor_bill import (
 )
 from app.services import ap_service as svc
 from app.services.ap_service import APError
+from app.utils.tenant_scope import load_or_404
 
 router = APIRouter()
 
@@ -194,9 +195,8 @@ async def _load_bill(db: AsyncSession, bill_id: uuid.UUID, org_id) -> VendorBill
     # Detach cached instances so the reload builds fresh objects with all
     # columns/relationships populated (derived totals reflect the latest writes).
     db.expunge_all()
-    bill = await svc.get_bill(db, bill_id, org_id)
-    if not bill:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bill not found")
+    bill = await load_or_404(db, VendorBill, bill_id, org_id, detail="Bill not found")
+    await db.refresh(bill, attribute_names=["lines", "payments"])
     return bill
 
 

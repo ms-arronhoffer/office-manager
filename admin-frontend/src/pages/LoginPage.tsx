@@ -41,8 +41,8 @@ export default function LoginPage() {
 
   function storeAndNavigate(token: string) {
     const payload = decodePayload(token);
-    if (!payload?.is_super_admin) {
-      setError("This account does not have super-admin access.");
+    if (!payload?.console_role) {
+      setError("This account does not have admin console access.");
       setPhase("credentials");
       return;
     }

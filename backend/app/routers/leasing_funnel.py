@@ -63,6 +63,7 @@ from app.services import usage_service
 from app.services import waiver_service
 from app.services.leasing_funnel_service import FunnelError
 from app.utils.email_client import send_email
+from app.utils.tenant_scope import load_or_404
 
 logger = logging.getLogger(__name__)
 
@@ -772,18 +773,14 @@ def _schedule_lease_emails(
 async def _load_signature_request(
     db: AsyncSession, request_id: uuid.UUID, org_id
 ) -> LeaseSignatureRequest:
-    req = (
-        await db.execute(
-            select(LeaseSignatureRequest)
-            .where(
-                LeaseSignatureRequest.id == request_id,
-                LeaseSignatureRequest.organization_id == org_id,
-            )
-            .options(selectinload(LeaseSignatureRequest.parties))
-        )
-    ).scalar_one_or_none()
-    if req is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Lease signature request not found.")
+    req = await load_or_404(
+        db,
+        LeaseSignatureRequest,
+        request_id,
+        org_id,
+        detail="Lease signature request not found.",
+    )
+    await db.refresh(req, attribute_names=["parties"])
     return req
 
 

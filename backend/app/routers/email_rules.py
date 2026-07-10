@@ -11,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.auth.dependencies import require_role
 from app.models.email import EmailReminderRule, EmailLog, EmailAcknowledgement, DELIVERY_MODES
+from app.models.user import User
 from app.utils.email_client import send_email
+from app.utils.tenant_scope import load_or_404
 
 router = APIRouter()
 # Public, token-addressed acknowledgement surface (no JWT). Mounted alongside
@@ -126,14 +128,22 @@ RULE_TYPE_LABELS: dict[str, str] = {
 VALID_RULE_TYPES = list(RULE_TYPE_LABELS.keys())
 
 
+async def _load_rule(db: AsyncSession, rule_id: uuid.UUID, org_id) -> EmailReminderRule:
+    return await load_or_404(db, EmailReminderRule, rule_id, org_id, detail="Rule not found")
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────
 
 @router.get("/", response_model=list[RuleResponse])
 async def list_rules(
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
 ):
-    stmt = select(EmailReminderRule).order_by(EmailReminderRule.rule_type, EmailReminderRule.days_before)
+    stmt = (
+        select(EmailReminderRule)
+        .where(EmailReminderRule.organization_id == current_user.organization_id)
+        .order_by(EmailReminderRule.rule_type, EmailReminderRule.days_before)
+    )
     result = await db.scalars(stmt)
     return result.all()
 
@@ -149,10 +159,11 @@ async def list_rule_types(
 async def create_rule(
     data: RuleCreate,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
 ):
     _validate_rule_payload(data.rule_type, data.delivery_mode, data.recipient_roles)
     rule = EmailReminderRule(
+        organization_id=current_user.organization_id,
         rule_name=data.rule_name,
         rule_type=data.rule_type,
         days_before=data.days_before,
@@ -176,11 +187,9 @@ async def update_rule(
     rule_id: uuid.UUID,
     data: RuleUpdate,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
 ):
-    rule = await db.get(EmailReminderRule, rule_id)
-    if not rule:
-        raise HTTPException(status_code=404, detail="Rule not found")
+    rule = await _load_rule(db, rule_id, current_user.organization_id)
     _validate_rule_payload(data.rule_type, data.delivery_mode, data.recipient_roles)
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(rule, field, value)
@@ -193,11 +202,9 @@ async def update_rule(
 async def delete_rule(
     rule_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
 ):
-    rule = await db.get(EmailReminderRule, rule_id)
-    if not rule:
-        raise HTTPException(status_code=404, detail="Rule not found")
+    rule = await _load_rule(db, rule_id, current_user.organization_id)
     await db.delete(rule)
     await db.commit()
 
@@ -206,11 +213,9 @@ async def delete_rule(
 async def test_rule(
     rule_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
 ):
-    rule = await db.get(EmailReminderRule, rule_id)
-    if not rule:
-        raise HTTPException(status_code=404, detail="Rule not found")
+    rule = await _load_rule(db, rule_id, current_user.organization_id)
 
     recipients = rule.recipient_emails or []
     if not recipients:

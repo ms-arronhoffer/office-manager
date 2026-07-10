@@ -317,7 +317,14 @@ async def update_ticket(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
-    result = await db.execute(select(MaintenanceTicket).where(MaintenanceTicket.id == ticket_id, MaintenanceTicket.is_deleted.is_(False)))
+    org_id = current_user.organization_id
+    result = await db.execute(
+        select(MaintenanceTicket).where(
+            MaintenanceTicket.id == ticket_id,
+            MaintenanceTicket.is_deleted.is_(False),
+            MaintenanceTicket.organization_id == org_id,
+        )
+    )
     ticket = result.scalar_one_or_none()
     if not ticket:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
@@ -345,7 +352,11 @@ async def update_ticket(
         pass
 
     result = await db.execute(
-        select(MaintenanceTicket).options(*_LOAD_OPTIONS).where(MaintenanceTicket.id == ticket_id, MaintenanceTicket.is_deleted.is_(False))
+        select(MaintenanceTicket).options(*_LOAD_OPTIONS).where(
+            MaintenanceTicket.id == ticket_id,
+            MaintenanceTicket.is_deleted.is_(False),
+            MaintenanceTicket.organization_id == org_id,
+        )
     )
     updated = result.unique().scalar_one()
 
@@ -411,7 +422,14 @@ async def delete_ticket(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin")),
 ):
-    result = await db.execute(select(MaintenanceTicket).where(MaintenanceTicket.id == ticket_id, MaintenanceTicket.is_deleted.is_(False)))
+    org_id = current_user.organization_id
+    result = await db.execute(
+        select(MaintenanceTicket).where(
+            MaintenanceTicket.id == ticket_id,
+            MaintenanceTicket.is_deleted.is_(False),
+            MaintenanceTicket.organization_id == org_id,
+        )
+    )
     ticket = result.scalar_one_or_none()
     if not ticket:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
@@ -428,7 +446,14 @@ async def restore_ticket(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin")),
 ):
-    result = await db.execute(select(MaintenanceTicket).where(MaintenanceTicket.id == ticket_id, MaintenanceTicket.is_deleted.is_(True)))
+    org_id = current_user.organization_id
+    result = await db.execute(
+        select(MaintenanceTicket).where(
+            MaintenanceTicket.id == ticket_id,
+            MaintenanceTicket.is_deleted.is_(True),
+            MaintenanceTicket.organization_id == org_id,
+        )
+    )
     ticket = result.scalar_one_or_none()
     if not ticket:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found or not deleted")
@@ -437,7 +462,11 @@ async def restore_ticket(
     await db.commit()
     await log_activity(db, user=current_user, action="updated", entity_type="maintenance_ticket", entity_id=ticket_id, entity_label=ticket.subject)
     result = await db.execute(
-        select(MaintenanceTicket).options(*_LOAD_OPTIONS).where(MaintenanceTicket.id == ticket_id, MaintenanceTicket.is_deleted.is_(False))
+        select(MaintenanceTicket).options(*_LOAD_OPTIONS).where(
+            MaintenanceTicket.id == ticket_id,
+            MaintenanceTicket.is_deleted.is_(False),
+            MaintenanceTicket.organization_id == org_id,
+        )
     )
     return MaintenanceTicketResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
 
@@ -452,7 +481,13 @@ async def add_ticket_note(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
-    result = await db.execute(select(MaintenanceTicket).options(*_LOAD_OPTIONS).where(MaintenanceTicket.id == ticket_id, MaintenanceTicket.is_deleted.is_(False)))
+    result = await db.execute(
+        select(MaintenanceTicket).options(*_LOAD_OPTIONS).where(
+            MaintenanceTicket.id == ticket_id,
+            MaintenanceTicket.is_deleted.is_(False),
+            MaintenanceTicket.organization_id == current_user.organization_id,
+        )
+    )
     ticket = result.unique().scalar_one_or_none()
     if not ticket:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")

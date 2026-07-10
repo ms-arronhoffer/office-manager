@@ -1,0 +1,23 @@
+name: Tenant scoping lint
+
+on:
+  push:
+    paths:
+      - "backend/app/routers/**"
+      - "backend/scripts/check_tenant_scoping.py"
+      - ".github/workflows/tenant-scoping-lint.yml"
+  pull_request:
+    paths:
+      - "backend/app/routers/**"
+      - "backend/scripts/check_tenant_scoping.py"
+      - ".github/workflows/tenant-scoping-lint.yml"
+
+jobs:
+  tenant-scoping-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python backend/scripts/check_tenant_scoping.py

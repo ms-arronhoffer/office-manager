@@ -19,6 +19,7 @@ from app.schemas.common import PaginatedResponse
 from app.schemas.vendor import VendorCreate, VendorResponse, VendorUpdate
 from app.services.activity_service import log_activity, compute_changes
 from app.utils.sorting import apply_sorting
+from app.utils.tenant_scope import load_or_404
 
 router = APIRouter()
 
@@ -31,14 +32,15 @@ async def _sync_offices(db: AsyncSession, vendor_id: uuid.UUID, office_ids: list
 
 
 async def _load_vendor(db: AsyncSession, vendor_id: uuid.UUID, org_id: uuid.UUID) -> Vendor:
-    result = await db.execute(
-        select(Vendor)
-        .options(joinedload(Vendor.offices))
-        .where(Vendor.id == vendor_id, Vendor.is_deleted.is_(False), Vendor.organization_id == org_id)
+    vendor = await load_or_404(
+        db,
+        Vendor,
+        vendor_id,
+        org_id,
+        extra_filters=[Vendor.is_deleted.is_(False)],
+        detail="Vendor not found",
     )
-    vendor = result.unique().scalar_one_or_none()
-    if not vendor:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vendor not found")
+    await db.refresh(vendor, attribute_names=["offices"])
     return vendor
 
 

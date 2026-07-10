@@ -3,7 +3,7 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +12,7 @@ from app.auth.jwt_handler import create_access_token
 from app.auth.password import hash_password
 from app.config import settings
 from app.database import get_db
+from app.main import limiter
 from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.office import Office
 from app.models.organization import Organization
@@ -21,6 +22,7 @@ from app.schemas.organization import (
     SignupRequest, SignupResponse,
 )
 from app.services import entitlements as ent
+from app.services.email_verification_service import issue_verification_token, send_verification_email
 
 router = APIRouter()
 
@@ -36,7 +38,13 @@ def _slug_from_name(name: str) -> str:
 # ─── Public: Self-service signup ───────────────────────────────────────────────
 
 @router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
-async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/hour")
+async def signup(
+    request: Request,
+    payload: SignupRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
     """Create a new organization and admin user. No authentication required."""
     # Check for duplicate email
     existing_user = await db.execute(select(User).where(User.email == payload.email))
@@ -80,6 +88,8 @@ async def signup(payload: SignupRequest, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(org)
     await db.refresh(user)
+    verification_token = await issue_verification_token(user, db)
+    send_verification_email(user, verification_token, background_tasks)
 
     token = create_access_token({
         "sub": str(user.id),

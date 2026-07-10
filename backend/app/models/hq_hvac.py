@@ -10,6 +10,7 @@ class HqHeatPump(TimestampMixin, Base):
     __tablename__ = "hq_heat_pumps"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
     unit_id: Mapped[str] = mapped_column(String(10), unique=True, nullable=False)
     location_desc: Mapped[str | None] = mapped_column(String(255), nullable=True)
     make: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -51,6 +52,7 @@ class HqHvacIssue(TimestampMixin, Base):
     __tablename__ = "hq_hvac_issues"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
     issue_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     invoice_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -66,6 +68,7 @@ class HqPmTask(TimestampMixin, Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
     equipment_category: Mapped[str] = mapped_column(String(30), nullable=False)
     equipment_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     task_description: Mapped[str] = mapped_column(Text, nullable=False)
@@ -81,6 +84,7 @@ class HqPmLog(Base):
     __tablename__ = "hq_pm_log"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
     timestamp: Mapped[datetime | None] = mapped_column(nullable=True)
     tech_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     date_of_visit: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -97,6 +101,7 @@ class HqMaintenanceContract(TimestampMixin, Base):
     __tablename__ = "hq_maintenance_contracts"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
     contractor_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contract_start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     cancellation_notice: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -129,6 +134,7 @@ class HqTowerSprayLog(Base):
     __tablename__ = "hq_tower_spray_log"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
     entry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     invoice_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
     cost: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
@@ -140,6 +146,7 @@ class HqBackflow(TimestampMixin, Base):
     __tablename__ = "hq_backflows"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
     location_desc: Mapped[str] = mapped_column(Text, nullable=False)
     replaced_year: Mapped[str | None] = mapped_column(String(20), nullable=True)
     last_tested_by: Mapped[str | None] = mapped_column(String(255), nullable=True)

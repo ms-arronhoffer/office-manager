@@ -13,6 +13,7 @@ from app.models.office import Office as OfficeModel
 from app.models.ticket_template import TicketTemplate
 from app.models.user import User
 from app.schemas.ticket_template import TicketTemplateCreate, TicketTemplateUpdate, TicketTemplateResponse
+from app.utils.tenant_scope import load_or_404
 
 router = APIRouter()
 
@@ -26,10 +27,13 @@ _LOAD_OPTIONS = [
 @router.get("", response_model=list[TicketTemplateResponse])
 async def list_templates(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(TicketTemplate).options(*_LOAD_OPTIONS).order_by(TicketTemplate.name)
+        select(TicketTemplate)
+        .options(*_LOAD_OPTIONS)
+        .where(TicketTemplate.organization_id == current_user.organization_id)
+        .order_by(TicketTemplate.name)
     )
     return [TicketTemplateResponse.model_validate(t, from_attributes=True) for t in result.scalars().unique().all()]
 
@@ -38,13 +42,20 @@ async def list_templates(
 async def create_template(
     payload: TicketTemplateCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
-    template = TicketTemplate(**payload.model_dump())
+    template = TicketTemplate(
+        organization_id=current_user.organization_id, **payload.model_dump()
+    )
     db.add(template)
     await db.commit()
     result = await db.execute(
-        select(TicketTemplate).options(*_LOAD_OPTIONS).where(TicketTemplate.id == template.id)
+        select(TicketTemplate)
+        .options(*_LOAD_OPTIONS)
+        .where(
+            TicketTemplate.id == template.id,
+            TicketTemplate.organization_id == current_user.organization_id,
+        )
     )
     return TicketTemplateResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
 
@@ -54,17 +65,25 @@ async def update_template(
     template_id: uuid.UUID,
     payload: TicketTemplateUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
-    result = await db.execute(select(TicketTemplate).where(TicketTemplate.id == template_id))
-    template = result.scalar_one_or_none()
-    if not template:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    template = await load_or_404(
+        db,
+        TicketTemplate,
+        template_id,
+        current_user.organization_id,
+        detail="Template not found",
+    )
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(template, field, value)
     await db.commit()
     result = await db.execute(
-        select(TicketTemplate).options(*_LOAD_OPTIONS).where(TicketTemplate.id == template_id)
+        select(TicketTemplate)
+        .options(*_LOAD_OPTIONS)
+        .where(
+            TicketTemplate.id == template_id,
+            TicketTemplate.organization_id == current_user.organization_id,
+        )
     )
     return TicketTemplateResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
 
@@ -73,12 +92,15 @@ async def update_template(
 async def delete_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
-    result = await db.execute(select(TicketTemplate).where(TicketTemplate.id == template_id))
-    template = result.scalar_one_or_none()
-    if not template:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    template = await load_or_404(
+        db,
+        TicketTemplate,
+        template_id,
+        current_user.organization_id,
+        detail="Template not found",
+    )
     await db.delete(template)
     await db.commit()
 
@@ -94,10 +116,13 @@ async def bulk_create_from_template(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
-    result = await db.execute(select(TicketTemplate).where(TicketTemplate.id == template_id))
-    template = result.scalar_one_or_none()
-    if not template:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    template = await load_or_404(
+        db,
+        TicketTemplate,
+        template_id,
+        current_user.organization_id,
+        detail="Template not found",
+    )
     if not template.category_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
