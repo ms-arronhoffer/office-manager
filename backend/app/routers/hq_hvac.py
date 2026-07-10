@@ -50,10 +50,13 @@ router = APIRouter()
 @router.get("/heat-pumps", response_model=list[HeatPumpResponse])
 async def list_heat_pumps(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(HqHeatPump).options(joinedload(HqHeatPump.service_logs)).order_by(HqHeatPump.unit_id)
+        select(HqHeatPump)
+        .options(joinedload(HqHeatPump.service_logs))
+        .where(HqHeatPump.organization_id == current_user.organization_id)
+        .order_by(HqHeatPump.unit_id)
     )
     return [HeatPumpResponse.model_validate(p, from_attributes=True) for p in result.scalars().unique().all()]
 
@@ -62,9 +65,9 @@ async def list_heat_pumps(
 async def create_heat_pump(
     payload: HeatPumpCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    pump = HqHeatPump(**payload.model_dump())
+    pump = HqHeatPump(organization_id=current_user.organization_id, **payload.model_dump())
     db.add(pump)
     await db.commit()
     await db.refresh(pump)
@@ -78,12 +81,12 @@ async def create_heat_pump(
 async def get_heat_pump(
     pump_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
         select(HqHeatPump)
         .options(joinedload(HqHeatPump.service_logs))
-        .where(HqHeatPump.id == pump_id)
+        .where(HqHeatPump.id == pump_id, HqHeatPump.organization_id == current_user.organization_id)
     )
     pump = result.unique().scalar_one_or_none()
     if not pump:
@@ -96,9 +99,11 @@ async def update_heat_pump(
     pump_id: uuid.UUID,
     payload: HeatPumpUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqHeatPump).where(HqHeatPump.id == pump_id))
+    result = await db.execute(
+        select(HqHeatPump).where(HqHeatPump.id == pump_id, HqHeatPump.organization_id == current_user.organization_id)
+    )
     pump = result.scalar_one_or_none()
     if not pump:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Heat pump not found")
@@ -125,10 +130,14 @@ async def add_service_log(
     pump_id: uuid.UUID,
     payload: HeatPumpServiceLogCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqHeatPump).where(HqHeatPump.id == pump_id))
-    if not result.scalar_one_or_none():
+    result = await db.execute(
+        select(HqHeatPump.id).where(
+            HqHeatPump.id == pump_id, HqHeatPump.organization_id == current_user.organization_id
+        )
+    )
+    if result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Heat pump not found")
 
     log = HqHeatPumpServiceLog(heat_pump_id=pump_id, **payload.model_dump())
@@ -142,9 +151,11 @@ async def add_service_log(
 async def delete_heat_pump(
     pump_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqHeatPump).where(HqHeatPump.id == pump_id))
+    result = await db.execute(
+        select(HqHeatPump).where(HqHeatPump.id == pump_id, HqHeatPump.organization_id == current_user.organization_id)
+    )
     pump = result.scalar_one_or_none()
     if not pump:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Heat pump not found")
@@ -160,9 +171,9 @@ async def delete_heat_pump(
 async def list_issues(
     issue_status: str | None = Query(default=None, alias="status"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    stmt = select(HqHvacIssue)
+    stmt = select(HqHvacIssue).where(HqHvacIssue.organization_id == current_user.organization_id)
     if issue_status:
         stmt = stmt.where(HqHvacIssue.status == issue_status)
     stmt = stmt.order_by(HqHvacIssue.issue_date.desc())
@@ -174,9 +185,9 @@ async def list_issues(
 async def create_issue(
     payload: HvacIssueCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    issue = HqHvacIssue(**payload.model_dump())
+    issue = HqHvacIssue(organization_id=current_user.organization_id, **payload.model_dump())
     db.add(issue)
     await db.commit()
     await db.refresh(issue)
@@ -188,9 +199,11 @@ async def update_issue(
     issue_id: uuid.UUID,
     payload: HvacIssueUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqHvacIssue).where(HqHvacIssue.id == issue_id))
+    result = await db.execute(
+        select(HqHvacIssue).where(HqHvacIssue.id == issue_id, HqHvacIssue.organization_id == current_user.organization_id)
+    )
     issue = result.scalar_one_or_none()
     if not issue:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
@@ -207,9 +220,11 @@ async def update_issue(
 async def delete_issue(
     issue_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqHvacIssue).where(HqHvacIssue.id == issue_id))
+    result = await db.execute(
+        select(HqHvacIssue).where(HqHvacIssue.id == issue_id, HqHvacIssue.organization_id == current_user.organization_id)
+    )
     issue = result.scalar_one_or_none()
     if not issue:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Issue not found")
@@ -226,9 +241,9 @@ async def list_pm_tasks(
     category: str | None = Query(default=None),
     task_status: str | None = Query(default=None, alias="status"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    stmt = select(HqPmTask)
+    stmt = select(HqPmTask).where(HqPmTask.organization_id == current_user.organization_id)
     if category:
         stmt = stmt.where(HqPmTask.equipment_category == category)
     if task_status:
@@ -242,9 +257,9 @@ async def list_pm_tasks(
 async def create_pm_task(
     payload: PmTaskCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    task = HqPmTask(**payload.model_dump())
+    task = HqPmTask(organization_id=current_user.organization_id, **payload.model_dump())
     db.add(task)
     await db.commit()
     await db.refresh(task)
@@ -256,9 +271,11 @@ async def update_pm_task(
     task_id: uuid.UUID,
     payload: PmTaskUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqPmTask).where(HqPmTask.id == task_id))
+    result = await db.execute(
+        select(HqPmTask).where(HqPmTask.id == task_id, HqPmTask.organization_id == current_user.organization_id)
+    )
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PM task not found")
@@ -275,9 +292,11 @@ async def update_pm_task(
 async def delete_pm_task(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqPmTask).where(HqPmTask.id == task_id))
+    result = await db.execute(
+        select(HqPmTask).where(HqPmTask.id == task_id, HqPmTask.organization_id == current_user.organization_id)
+    )
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PM task not found")
@@ -292,9 +311,13 @@ async def delete_pm_task(
 @router.get("/pm-log", response_model=list[PmLogResponse])
 async def list_pm_log(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqPmLog).order_by(HqPmLog.date_of_visit.desc()))
+    result = await db.execute(
+        select(HqPmLog)
+        .where(HqPmLog.organization_id == current_user.organization_id)
+        .order_by(HqPmLog.date_of_visit.desc())
+    )
     return [PmLogResponse.model_validate(l, from_attributes=True) for l in result.scalars().all()]
 
 
@@ -302,10 +325,14 @@ async def list_pm_log(
 async def create_pm_log(
     payload: PmLogCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     from datetime import datetime, timezone
-    log = HqPmLog(timestamp=datetime.now(timezone.utc), **payload.model_dump())
+    log = HqPmLog(
+        organization_id=current_user.organization_id,
+        timestamp=datetime.now(timezone.utc),
+        **payload.model_dump(),
+    )
     db.add(log)
     await db.commit()
     await db.refresh(log)
@@ -317,9 +344,11 @@ async def update_pm_log(
     log_id: uuid.UUID,
     payload: PmLogUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqPmLog).where(HqPmLog.id == log_id))
+    result = await db.execute(
+        select(HqPmLog).where(HqPmLog.id == log_id, HqPmLog.organization_id == current_user.organization_id)
+    )
     log = result.scalar_one_or_none()
     if not log:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PM log entry not found")
@@ -336,9 +365,11 @@ async def update_pm_log(
 async def delete_pm_log(
     log_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqPmLog).where(HqPmLog.id == log_id))
+    result = await db.execute(
+        select(HqPmLog).where(HqPmLog.id == log_id, HqPmLog.organization_id == current_user.organization_id)
+    )
     log = result.scalar_one_or_none()
     if not log:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PM log entry not found")
@@ -353,10 +384,12 @@ async def delete_pm_log(
 @router.get("/maintenance-contracts", response_model=list[MaintenanceContractResponse])
 async def list_maintenance_contracts(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(HqMaintenanceContract).order_by(HqMaintenanceContract.contractor_name)
+        select(HqMaintenanceContract)
+        .where(HqMaintenanceContract.organization_id == current_user.organization_id)
+        .order_by(HqMaintenanceContract.contractor_name)
     )
     return [MaintenanceContractResponse.model_validate(c, from_attributes=True) for c in result.scalars().all()]
 
@@ -365,9 +398,9 @@ async def list_maintenance_contracts(
 async def create_maintenance_contract(
     payload: MaintenanceContractCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    contract = HqMaintenanceContract(**payload.model_dump())
+    contract = HqMaintenanceContract(organization_id=current_user.organization_id, **payload.model_dump())
     db.add(contract)
     await db.commit()
     await db.refresh(contract)
@@ -379,9 +412,14 @@ async def update_maintenance_contract(
     contract_id: uuid.UUID,
     payload: MaintenanceContractUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqMaintenanceContract).where(HqMaintenanceContract.id == contract_id))
+    result = await db.execute(
+        select(HqMaintenanceContract).where(
+            HqMaintenanceContract.id == contract_id,
+            HqMaintenanceContract.organization_id == current_user.organization_id,
+        )
+    )
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maintenance contract not found")
@@ -398,9 +436,14 @@ async def update_maintenance_contract(
 async def delete_maintenance_contract(
     contract_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqMaintenanceContract).where(HqMaintenanceContract.id == contract_id))
+    result = await db.execute(
+        select(HqMaintenanceContract).where(
+            HqMaintenanceContract.id == contract_id,
+            HqMaintenanceContract.organization_id == current_user.organization_id,
+        )
+    )
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Maintenance contract not found")
@@ -415,9 +458,13 @@ async def delete_maintenance_contract(
 @router.get("/backflows", response_model=list[BackflowResponse])
 async def list_backflows(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqBackflow).order_by(HqBackflow.location_desc))
+    result = await db.execute(
+        select(HqBackflow)
+        .where(HqBackflow.organization_id == current_user.organization_id)
+        .order_by(HqBackflow.location_desc)
+    )
     return [BackflowResponse.model_validate(b, from_attributes=True) for b in result.scalars().all()]
 
 
@@ -425,9 +472,9 @@ async def list_backflows(
 async def create_backflow(
     payload: BackflowCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    backflow = HqBackflow(**payload.model_dump())
+    backflow = HqBackflow(organization_id=current_user.organization_id, **payload.model_dump())
     db.add(backflow)
     await db.commit()
     await db.refresh(backflow)
@@ -439,9 +486,11 @@ async def update_backflow(
     backflow_id: uuid.UUID,
     payload: BackflowUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqBackflow).where(HqBackflow.id == backflow_id))
+    result = await db.execute(
+        select(HqBackflow).where(HqBackflow.id == backflow_id, HqBackflow.organization_id == current_user.organization_id)
+    )
     backflow = result.scalar_one_or_none()
     if not backflow:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backflow not found")
@@ -458,9 +507,11 @@ async def update_backflow(
 async def delete_backflow(
     backflow_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(HqBackflow).where(HqBackflow.id == backflow_id))
+    result = await db.execute(
+        select(HqBackflow).where(HqBackflow.id == backflow_id, HqBackflow.organization_id == current_user.organization_id)
+    )
     backflow = result.scalar_one_or_none()
     if not backflow:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backflow not found")

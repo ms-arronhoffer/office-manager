@@ -36,6 +36,31 @@ from app.utils.sorting import apply_sorting
 router = APIRouter()
 
 
+async def _load_lease(
+    db: AsyncSession,
+    lease_id: uuid.UUID,
+    org_id,
+    *,
+    is_deleted: bool = False,
+) -> Lease:
+    """Load a lease scoped to the caller's organization, or raise 404.
+
+    Centralizes the tenancy boundary for lease sub-resources so no endpoint can
+    read or mutate another organization's lease by primary key.
+    """
+    result = await db.execute(
+        select(Lease).where(
+            Lease.id == lease_id,
+            Lease.is_deleted.is_(is_deleted),
+            Lease.organization_id == org_id,
+        )
+    )
+    lease = result.scalar_one_or_none()
+    if not lease:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
+    return lease
+
+
 @router.get("/export")
 async def export_leases(
     db: AsyncSession = Depends(get_db),
@@ -456,7 +481,7 @@ async def clone_lease(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
-    result = await db.execute(select(Lease).where(Lease.id == lease_id, Lease.is_deleted.is_(False)))
+    result = await db.execute(select(Lease).where(Lease.id == lease_id, Lease.is_deleted.is_(False), Lease.organization_id == current_user.organization_id))
     original = result.scalar_one_or_none()
     if not original:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
@@ -496,11 +521,9 @@ async def add_lease_note(
     lease_id: uuid.UUID,
     payload: LeaseNoteCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
-    result = await db.execute(select(Lease).where(Lease.id == lease_id, Lease.is_deleted.is_(False)))
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
+    await _load_lease(db, lease_id, current_user.organization_id)
 
     # Determine next order value
     from sqlalchemy import func
@@ -525,8 +548,9 @@ async def delete_lease_note(
     lease_id: uuid.UUID,
     note_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
+    await _load_lease(db, lease_id, current_user.organization_id)
     result = await db.execute(
         select(LeaseNote).where(LeaseNote.id == note_id, LeaseNote.lease_id == lease_id)
     )
@@ -552,7 +576,7 @@ async def get_lease_accounting(
     result = await db.execute(
         select(Lease)
         .options(joinedload(Lease.office))
-        .where(Lease.id == lease_id, Lease.is_deleted.is_(False))
+        .where(Lease.id == lease_id, Lease.is_deleted.is_(False), Lease.organization_id == current_user.organization_id)
     )
     lease = result.unique().scalar_one_or_none()
     if not lease:
@@ -610,9 +634,7 @@ async def create_renewal(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
-    result = await db.execute(select(Lease).where(Lease.id == lease_id, Lease.is_deleted.is_(False)))
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
+    await _load_lease(db, lease_id, current_user.organization_id)
 
     from datetime import date as _date
     renewal = LeaseRenewal(
@@ -634,6 +656,7 @@ async def list_renewals(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await _load_lease(db, lease_id, current_user.organization_id)
     result = await db.execute(
         select(LeaseRenewal)
         .where(LeaseRenewal.lease_id == lease_id)
@@ -648,8 +671,9 @@ async def update_renewal(
     renewal_id: uuid.UUID,
     payload: RenewalUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
+    await _load_lease(db, lease_id, current_user.organization_id)
     result = await db.execute(
         select(LeaseRenewal).where(LeaseRenewal.id == renewal_id, LeaseRenewal.lease_id == lease_id)
     )
@@ -684,8 +708,9 @@ async def delete_renewal(
     lease_id: uuid.UUID,
     renewal_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
 ):
+    await _load_lease(db, lease_id, current_user.organization_id)
     result = await db.execute(
         select(LeaseRenewal).where(LeaseRenewal.id == renewal_id, LeaseRenewal.lease_id == lease_id)
     )
@@ -746,9 +771,7 @@ async def create_option(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
-    result = await db.execute(select(Lease).where(Lease.id == lease_id, Lease.is_deleted.is_(False)))
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
+    await _load_lease(db, lease_id, current_user.organization_id)
 
     from datetime import date as _date
     option = LeaseOption(
@@ -774,6 +797,7 @@ async def list_options(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await _load_lease(db, lease_id, current_user.organization_id)
     result = await db.execute(
         select(LeaseOption)
         .where(LeaseOption.lease_id == lease_id)
@@ -788,8 +812,9 @@ async def update_option(
     option_id: uuid.UUID,
     payload: OptionUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
+    await _load_lease(db, lease_id, current_user.organization_id)
     result = await db.execute(
         select(LeaseOption).where(LeaseOption.id == option_id, LeaseOption.lease_id == lease_id)
     )
@@ -826,8 +851,9 @@ async def delete_option(
     lease_id: uuid.UUID,
     option_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
+    await _load_lease(db, lease_id, current_user.organization_id)
     result = await db.execute(
         select(LeaseOption).where(LeaseOption.id == option_id, LeaseOption.lease_id == lease_id)
     )

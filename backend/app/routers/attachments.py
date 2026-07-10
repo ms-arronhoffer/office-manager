@@ -77,23 +77,40 @@ def _sanitize_filename(name: str) -> str:
     return name.strip() or "download"
 
 
-async def _ensure_parent_exists(db: AsyncSession, entity_type: str, entity_id: uuid.UUID) -> None:
+async def _ensure_parent_exists(
+    db: AsyncSession, entity_type: str, entity_id: uuid.UUID, user: User
+) -> None:
     """
-    Verify the parent entity exists and is not soft-deleted.
-    Prevents creating orphan attachments and blocks attempts to read/write
-    files for entities the user shouldn't be able to see.
+    Verify the parent entity exists, is not soft-deleted, and belongs to the
+    current user's organization. Enforcing the tenancy boundary here blocks
+    cross-tenant reads/writes/deletes of attachments (every attachment operation
+    is gated through its parent entity).
     """
     Model = ENTITY_MODELS[entity_type]
     stmt = select(Model.id).where(Model.id == entity_id)
     # All entity models in this app use SoftDeleteMixin.
     if hasattr(Model, "is_deleted"):
         stmt = stmt.where(Model.is_deleted.is_(False))
+    # Every attachable entity is organization-scoped; require the parent to
+    # belong to the caller's org so no tenant can reach another tenant's files.
+    if hasattr(Model, "organization_id"):
+        stmt = stmt.where(Model.organization_id == user.organization_id)
     result = await db.execute(stmt)
     if result.scalar_one_or_none() is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Parent {entity_type} not found.",
         )
+
+
+def _assert_attachment_in_org(attachment: Attachment, user: User) -> None:
+    """Fallback tenancy check for attachments whose entity_type has no model
+    mapping (legacy types). Compares the attachment's own organization_id."""
+    if (
+        attachment.organization_id is not None
+        and attachment.organization_id != user.organization_id
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment not found")
 
 
 # ── List attachments ──────────────────────────────────────────────────────────
@@ -106,12 +123,12 @@ async def list_attachments(
     entity_type: str,
     entity_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     if entity_type not in ALLOWED_ENTITY_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
 
-    await _ensure_parent_exists(db, entity_type, entity_id)
+    await _ensure_parent_exists(db, entity_type, entity_id, current_user)
 
     result = await db.execute(
         select(Attachment)
@@ -139,7 +156,7 @@ async def upload_attachment(
     if entity_type not in ALLOWED_ENTITY_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
 
-    await _ensure_parent_exists(db, entity_type, entity_id)
+    await _ensure_parent_exists(db, entity_type, entity_id, current_user)
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
@@ -214,16 +231,19 @@ async def upload_attachment(
 async def download_attachment(
     attachment_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(select(Attachment).where(Attachment.id == attachment_id))
     attachment = result.scalar_one_or_none()
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
-    # If the parent entity has been soft-deleted, deny download.
+    # Enforce tenant isolation: the parent entity must exist, not be
+    # soft-deleted, and belong to the caller's organization.
     if attachment.entity_type in ENTITY_MODELS:
-        await _ensure_parent_exists(db, attachment.entity_type, attachment.entity_id)
+        await _ensure_parent_exists(db, attachment.entity_type, attachment.entity_id, current_user)
+    else:
+        _assert_attachment_in_org(attachment, current_user)
 
     file_path = Path(settings.UPLOAD_DIR) / attachment.entity_type / attachment.stored_filename
     if not file_path.exists():
@@ -242,12 +262,18 @@ async def download_attachment(
 async def delete_attachment(
     attachment_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
     result = await db.execute(select(Attachment).where(Attachment.id == attachment_id))
     attachment = result.scalar_one_or_none()
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
+
+    # Enforce tenant isolation before allowing deletion of the file/row.
+    if attachment.entity_type in ENTITY_MODELS:
+        await _ensure_parent_exists(db, attachment.entity_type, attachment.entity_id, current_user)
+    else:
+        _assert_attachment_in_org(attachment, current_user)
 
     file_path = Path(settings.UPLOAD_DIR) / attachment.entity_type / attachment.stored_filename
     try:
@@ -280,7 +306,7 @@ async def get_attachment_counts(
     entity_type: str = Query(..., description="Entity type, e.g. 'lease'"),
     ids: str = Query(..., description="Comma-separated UUIDs of parent entities"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     if entity_type not in ALLOWED_ENTITY_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid entity type: {entity_type}")
@@ -298,16 +324,28 @@ async def get_attachment_counts(
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid UUID: {s}")
 
+    # Restrict to parent entities that belong to the caller's organization so we
+    # never surface attachment counts for another tenant's records.
+    counts: dict[str, int] = {str(eid): 0 for eid in parsed_ids}
+    Model = ENTITY_MODELS[entity_type]
+    allowed_stmt = select(Model.id).where(Model.id.in_(parsed_ids))
+    if hasattr(Model, "is_deleted"):
+        allowed_stmt = allowed_stmt.where(Model.is_deleted.is_(False))
+    if hasattr(Model, "organization_id"):
+        allowed_stmt = allowed_stmt.where(Model.organization_id == current_user.organization_id)
+    allowed_ids = [row[0] for row in (await db.execute(allowed_stmt)).all()]
+    if not allowed_ids:
+        return counts
+
     stmt = (
         select(Attachment.entity_id, func.count(Attachment.id))
         .where(
             Attachment.entity_type == entity_type,
-            Attachment.entity_id.in_(parsed_ids),
+            Attachment.entity_id.in_(allowed_ids),
         )
         .group_by(Attachment.entity_id)
     )
     result = await db.execute(stmt)
-    counts: dict[str, int] = {str(eid): 0 for eid in parsed_ids}
     for entity_id, count in result.all():
         counts[str(entity_id)] = int(count)
     return counts
