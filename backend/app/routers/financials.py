@@ -220,9 +220,9 @@ async def _report_header(db: AsyncSession, current_user: User) -> tuple[str, str
         return org_name, ""
     company_name = settings.company_name or org_name
     contact_parts = [
-        part
+        part.strip()
         for part in (settings.company_address, settings.company_phone, settings.company_email)
-        if part
+        if part and part.strip()
     ]
     return company_name, " · ".join(contact_parts)
 

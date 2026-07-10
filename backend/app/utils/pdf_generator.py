@@ -123,10 +123,6 @@ def generate_statement_pdf(
         "Company", parent=styles["Normal"], fontSize=11, textColor=colors.HexColor("#232f3e"),
         alignment=TA_CENTER, spaceAfter=2,
     )
-    contact_style = ParagraphStyle(
-        "CompanyContact", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#545b64"),
-        alignment=TA_CENTER, spaceAfter=4,
-    )
     title_style = ParagraphStyle(
         "StatementTitle", parent=styles["Heading1"], fontSize=18, alignment=TA_CENTER, spaceAfter=2,
     )
@@ -151,6 +147,10 @@ def generate_statement_pdf(
         Paragraph(company_name, company_style),
     ]
     if company_contact:
+        contact_style = ParagraphStyle(
+            "CompanyContact", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#545b64"),
+            alignment=TA_CENTER, spaceAfter=4,
+        )
         elements.append(Paragraph(company_contact, contact_style))
     elements.extend([
         Paragraph(statement_title, title_style),
