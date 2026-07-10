@@ -20,6 +20,7 @@ import DunningPage from "./pages/DunningPage"
 import LoginPage from "./pages/LoginPage"
 import OrgDetailPage from "./pages/OrgDetailPage"
 import OrgsPage from "./pages/OrgsPage"
+import SupportRequestsPage from "./pages/SupportRequestsPage"
 import UsagePage from "./pages/UsagePage"
 import UsersPage from "./pages/UsersPage"
 
@@ -67,6 +68,7 @@ function Shell() {
       { text: "Dunning", href: "/dunning", roles: ["super_admin", "finance"] as ConsoleRole[] },
       { text: "Users", href: "/users", roles: ["super_admin"] as ConsoleRole[] },
       { text: "Audit Log", href: "/audit", roles: ["super_admin", "support"] as ConsoleRole[] },
+      { text: "Support", href: "/support-requests", roles: ["super_admin", "support"] as ConsoleRole[] },
     ]
     return items.filter((item) => hasAnyRole(consoleRole, item.roles))
   }, [consoleRole])
@@ -136,6 +138,7 @@ export default function App() {
             <Route element={<RequireConsoleRole allowed={["super_admin", "support"]} />}>
               <Route path="/usage" element={<UsagePage />} />
               <Route path="/audit" element={<AuditPage />} />
+              <Route path="/support-requests" element={<SupportRequestsPage />} />
             </Route>
             <Route element={<RequireConsoleRole allowed={["super_admin", "finance"]} />}>
               <Route path="/billing" element={<BillingPage />} />

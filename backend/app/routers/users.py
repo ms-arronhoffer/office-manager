@@ -9,13 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_role
 from app.auth.password import hash_password
-from app.config import settings
 from app.database import get_db
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.user import UserInviteRequest, UserResponse, UserUpdateRequest
 from app.services import entitlements as ent
+from app.services.stripe_settings import resolve_stripe_secret_key
 from app.services.password_reset_service import issue_password_reset_token, send_password_reset_email
 
 router = APIRouter()
@@ -25,11 +25,14 @@ logger = logging.getLogger(__name__)
 
 async def _sync_stripe_seats(org: Organization, db: AsyncSession) -> None:
     """Best-effort: update the Stripe subscription quantity to match active seat count."""
-    if not org or not org.stripe_subscription_id or not settings.STRIPE_SECRET_KEY:
+    if not org or not org.stripe_subscription_id:
+        return
+    stripe_key = await resolve_stripe_secret_key(db)
+    if not stripe_key:
         return
     try:
         import stripe
-        stripe.api_key = settings.STRIPE_SECRET_KEY
+        stripe.api_key = stripe_key
         seat_count = (
             await db.execute(
                 select(func.count()).select_from(User).where(

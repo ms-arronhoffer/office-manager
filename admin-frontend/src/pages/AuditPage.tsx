@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select"
 import { AlertCircle } from "lucide-react"
 
-import { getAudit } from "../api"
+import { getAudit, downloadAudit } from "../api"
 import type { AuditEntry } from "../types"
 
 const AUDIT_PER_PAGE = 50
@@ -44,6 +44,24 @@ export default function AuditPage() {
   const [endDate, setEndDate] = useState("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [exporting, setExporting] = useState(false)
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      await downloadAudit({
+        action: action || undefined,
+        entity_type: entityType || undefined,
+        date_from: startDate ? inputToIso(startDate) : undefined,
+        date_to: endDate ? inputToIso(endDate) : undefined,
+      })
+      setError("")
+    } catch {
+      setError("Failed to export audit log.")
+    } finally {
+      setExporting(false)
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -74,6 +92,12 @@ export default function AuditPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900 mb-2">Audit Log</h1>
         <p className="text-slate-600">Activity log across all organizations</p>
+      </div>
+
+      <div className="mb-4 flex justify-end">
+        <Button variant="outline" onClick={handleExport} disabled={exporting}>
+          {exporting ? "Exporting…" : "Export CSV"}
+        </Button>
       </div>
 
       {error && (

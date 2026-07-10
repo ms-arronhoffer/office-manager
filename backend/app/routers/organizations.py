@@ -11,6 +11,7 @@ from app.auth.dependencies import get_current_user, require_role, require_super_
 from app.auth.jwt_handler import create_access_token
 from app.auth.password import hash_password
 from app.config import settings
+from app.services.stripe_settings import resolve_stripe_secret_key
 from app.database import get_db
 from app.main import limiter
 from app.models.maintenance_ticket import MaintenanceTicket
@@ -259,10 +260,11 @@ async def delete_my_organization(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
 
     # Cancel Stripe subscription best-effort
-    if org.stripe_subscription_id and settings.STRIPE_SECRET_KEY:
+    stripe_key = await resolve_stripe_secret_key(db)
+    if org.stripe_subscription_id and stripe_key:
         try:
             import stripe
-            stripe.api_key = settings.STRIPE_SECRET_KEY
+            stripe.api_key = stripe_key
             stripe.Subscription.delete(org.stripe_subscription_id)
         except Exception as e:
             logger.warning("Failed to cancel Stripe subscription on org self-delete: %s", e)

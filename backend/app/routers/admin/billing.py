@@ -12,16 +12,18 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_console_role
-from app.config import settings
 from app.database import get_db
 from app.models.billing_ledger import (
     BillingCharge, BillingCredit, BillingInvoice,
     BillingRefund, BillingSubscription,
 )
 from app.models.organization import Organization
+from app.models.platform_stripe_config import PlatformStripeConfig
 from app.models.user import User
 from app.services import billing_ledger_service as ledger
+from app.services import stripe_settings as stripe_cfg
 from app.services.activity_service import log_activity
+from app.utils.crypto import decrypt_secret, encrypt_secret, mask_secret
 
 router = APIRouter()
 
@@ -167,10 +169,11 @@ async def cancel_subscription(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
 
     # Cancel Stripe subscription if configured
-    if org.stripe_subscription_id and settings.STRIPE_SECRET_KEY:
+    stripe_key = await stripe_cfg.resolve_stripe_secret_key(db)
+    if org.stripe_subscription_id and stripe_key:
         try:
             import stripe
-            stripe.api_key = settings.STRIPE_SECRET_KEY
+            stripe.api_key = stripe_key
             stripe.Subscription.cancel(org.stripe_subscription_id)
         except Exception as exc:
             raise HTTPException(
@@ -415,10 +418,11 @@ async def issue_refund(
 ):
     """Refund a charge via Stripe and mirror the result into the ledger."""
     await _get_org_or_404(org_id, db)
-    if not settings.STRIPE_SECRET_KEY:
+    stripe_key = await stripe_cfg.resolve_stripe_secret_key(db)
+    if not stripe_key:
         raise HTTPException(status_code=503, detail="Billing is not configured on this server.")
     import stripe
-    stripe.api_key = settings.STRIPE_SECRET_KEY
+    stripe.api_key = stripe_key
     kwargs: dict = {"charge": payload.stripe_charge_id}
     if payload.amount_cents:
         kwargs["amount"] = payload.amount_cents
@@ -491,3 +495,149 @@ async def reconcile_report(
                 drift.append({"org_id": str(o.id), "name": o.name,
                               "ledger_status": sub.status, "org_status": o.payment_status})
     return {"orgs_with_subscriptions": len(latest), "drift_count": len(drift), "drift": drift}
+
+
+# ─── Stripe integration credentials ─────────────────────────────────────────────
+#
+# A super-admin control for establishing/rotating the platform's Stripe
+# credentials from the console instead of requiring deploy access. Secret values
+# are encrypted at rest and never returned — only a masked hint is exposed.
+
+class StripeConfigOut(BaseModel):
+    configured: bool
+    is_enabled: bool
+    secret_key_hint: str | None = None
+    webhook_secret_hint: str | None = None
+    publishable_key: str | None = None
+    price_id_pro: str | None = None
+    price_id_enterprise: str | None = None
+    # True when the effective value comes from an environment variable rather
+    # than the stored config (helps the console explain where creds originate).
+    secret_key_from_env: bool = False
+    last_verified_at: datetime | None = None
+    last_verify_ok: bool | None = None
+    last_verify_error: str | None = None
+
+
+class StripeConfigIn(BaseModel):
+    # Secrets are optional so a save can update non-secret fields (or toggle
+    # is_enabled) without resubmitting the secret. Send an empty string to clear.
+    secret_key: str | None = None
+    webhook_secret: str | None = None
+    publishable_key: str | None = None
+    price_id_pro: str | None = None
+    price_id_enterprise: str | None = None
+    is_enabled: bool | None = None
+
+
+class StripeTestOut(BaseModel):
+    ok: bool
+    error: str | None = None
+
+
+async def _stripe_config_out(db: AsyncSession) -> StripeConfigOut:
+    cfg = await stripe_cfg.get_stripe_config(db)
+    resolved = await stripe_cfg.resolve_stripe_settings(db)
+    stored_secret = cfg.secret_key_encrypted if cfg else None
+    stored_webhook = cfg.webhook_secret_encrypted if cfg else None
+    return StripeConfigOut(
+        configured=resolved.configured,
+        is_enabled=cfg.is_enabled if cfg else True,
+        secret_key_hint=mask_secret(decrypt_secret(stored_secret)) if stored_secret else None,
+        webhook_secret_hint=mask_secret(decrypt_secret(stored_webhook)) if stored_webhook else None,
+        publishable_key=cfg.publishable_key if cfg else None,
+        price_id_pro=resolved.price_id_pro or None,
+        price_id_enterprise=resolved.price_id_enterprise or None,
+        secret_key_from_env=bool(resolved.secret_key) and not (cfg and cfg.is_enabled and stored_secret),
+        last_verified_at=cfg.last_verified_at if cfg else None,
+        last_verify_ok=cfg.last_verify_ok if cfg else None,
+        last_verify_error=cfg.last_verify_error if cfg else None,
+    )
+
+
+@router.get("/stripe-config", response_model=StripeConfigOut)
+async def get_stripe_config(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_console_role("super_admin", "finance")),
+):
+    """Return the platform Stripe configuration (secrets masked)."""
+    return await _stripe_config_out(db)
+
+
+@router.put("/stripe-config", response_model=StripeConfigOut)
+async def save_stripe_config(
+    payload: StripeConfigIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_console_role("super_admin", "finance")),
+):
+    """Create or update the platform Stripe credentials.
+
+    Secret fields are only changed when a non-``None`` value is supplied; an
+    empty string clears the stored secret (falling back to env). Non-secret
+    fields follow the same convention.
+    """
+    cfg = await stripe_cfg.get_stripe_config(db)
+    if cfg is None:
+        cfg = PlatformStripeConfig()
+        db.add(cfg)
+
+    secret_changed = False
+    if payload.secret_key is not None:
+        cfg.secret_key_encrypted = encrypt_secret(payload.secret_key) if payload.secret_key.strip() else None
+        secret_changed = True
+    if payload.webhook_secret is not None:
+        cfg.webhook_secret_encrypted = (
+            encrypt_secret(payload.webhook_secret) if payload.webhook_secret.strip() else None
+        )
+    if payload.publishable_key is not None:
+        cfg.publishable_key = payload.publishable_key.strip() or None
+    if payload.price_id_pro is not None:
+        cfg.price_id_pro = payload.price_id_pro.strip() or None
+    if payload.price_id_enterprise is not None:
+        cfg.price_id_enterprise = payload.price_id_enterprise.strip() or None
+    if payload.is_enabled is not None:
+        cfg.is_enabled = payload.is_enabled
+    cfg.updated_by_id = current_user.id
+
+    if secret_changed:
+        # Credentials changed — clear any stale verification state.
+        cfg.last_verified_at = None
+        cfg.last_verify_ok = None
+        cfg.last_verify_error = None
+
+    await db.commit()
+    await log_activity(
+        db, user=current_user, action="updated", entity_type="platform_stripe_config",
+        entity_id=cfg.id, entity_label="Stripe integration",
+        changes={"action": "stripe_config_saved"},
+    )
+    return await _stripe_config_out(db)
+
+
+@router.post("/stripe-config/test", response_model=StripeTestOut)
+async def test_stripe_config(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_console_role("super_admin", "finance")),
+):
+    """Verify the effective Stripe secret key by making a lightweight API call."""
+    cfg = await stripe_cfg.get_stripe_config(db)
+    resolved = await stripe_cfg.resolve_stripe_settings(db)
+    ok = False
+    error: str | None = None
+    if not resolved.secret_key:
+        error = "No Stripe secret key configured."
+    else:
+        try:
+            import stripe
+            stripe.api_key = resolved.secret_key
+            stripe.Balance.retrieve()
+            ok = True
+        except Exception as exc:  # pragma: no cover - network/credential errors
+            error = str(exc)
+
+    if cfg is not None:
+        cfg.last_verified_at = datetime.now(timezone.utc)
+        cfg.last_verify_ok = ok
+        cfg.last_verify_error = error
+        await db.commit()
+    return StripeTestOut(ok=ok, error=error)
