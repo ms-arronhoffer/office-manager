@@ -60,6 +60,7 @@ const GROUPS: AdminGroup[] = [
     label: 'System & Data',
     href: '/administration/system',
     links: [
+      { text: 'Personal Settings', href: '/settings', description: 'Your personal preferences: appearance, dashboard layout, notifications, and password.', roles: ['admin', 'editor'] },
       { text: 'Company Settings', href: '/admin/site-settings', description: 'Company branding, contact information, and global application settings.', roles: ['admin'] },
       { text: 'Support Requests', href: '/support-requests', description: 'Review and forward in-app support requests.', roles: ['admin'] },
       { text: 'Data Dictionary', href: '/data-dictionary', description: 'Reference for data fields and meanings.', roles: ['admin'] },
