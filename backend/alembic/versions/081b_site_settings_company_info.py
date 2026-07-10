@@ -38,10 +38,13 @@ def upgrade() -> None:
         columns.add("company_name")
     if "company_address" not in columns:
         op.add_column("site_settings", sa.Column("company_address", sa.Text(), nullable=True))
+        columns.add("company_address")
     if "company_phone" not in columns:
         op.add_column("site_settings", sa.Column("company_phone", sa.String(length=50), nullable=True))
+        columns.add("company_phone")
     if "company_email" not in columns:
         op.add_column("site_settings", sa.Column("company_email", sa.String(length=320), nullable=True))
+        columns.add("company_email")
     if "app_name" in columns and "company_name" in columns:
         op.execute("UPDATE site_settings SET company_name = app_name")
     if "app_name" in columns:
