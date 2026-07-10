@@ -51,6 +51,7 @@ from app.models.general_ledger import GLAccount
 from app.models.user import User
 from app.services import bank_service as svc
 from app.services.bank_service import BankError
+from app.utils.tenant_scope import load_or_404
 
 router = APIRouter()
 
@@ -215,18 +216,10 @@ def _serialize_reconciliation(recon: BankReconciliation) -> ReconciliationRespon
 # ─── Loading helpers ──────────────────────────────────────────────────────────
 
 async def _load_account(db: AsyncSession, account_id: uuid.UUID, org_id) -> BankAccount:
-    account = (
-        await db.execute(
-            select(BankAccount)
-            .where(
-                BankAccount.id == account_id,
-                BankAccount.organization_id == org_id,
-            )
-            .options(selectinload(BankAccount.gl_account))
-        )
-    ).scalar_one_or_none()
-    if not account:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bank account not found")
+    account = await load_or_404(
+        db, BankAccount, account_id, org_id, detail="Bank account not found"
+    )
+    await db.refresh(account, attribute_names=["gl_account"])
     return account
 
 
@@ -254,9 +247,14 @@ async def _validate_cash_account(db: AsyncSession, gl_account_id: uuid.UUID, org
 
 async def _load_reconciliation(db: AsyncSession, reconciliation_id: uuid.UUID, org_id) -> BankReconciliation:
     db.expunge_all()
-    recon = await svc.get_reconciliation(db, reconciliation_id, org_id)
-    if not recon:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reconciliation not found")
+    recon = await load_or_404(
+        db,
+        BankReconciliation,
+        reconciliation_id,
+        org_id,
+        detail="Reconciliation not found",
+    )
+    await db.refresh(recon, attribute_names=["transactions"])
     return recon
 
 

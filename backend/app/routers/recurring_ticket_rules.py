@@ -16,6 +16,7 @@ from app.schemas.recurring_ticket_rule import (
     RecurringTicketRuleUpdate,
     RecurringTicketRuleResponse,
 )
+from app.utils.tenant_scope import load_or_404
 
 router = APIRouter()
 
@@ -74,10 +75,13 @@ def compute_next_run(frequency: str, day_of_week: int | None, day_of_month: int 
 @router.get("", response_model=list[RecurringTicketRuleResponse])
 async def list_rules(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
     result = await db.execute(
-        select(RecurringTicketRule).options(*_LOAD_OPTIONS).order_by(RecurringTicketRule.name)
+        select(RecurringTicketRule)
+        .options(*_LOAD_OPTIONS)
+        .where(RecurringTicketRule.organization_id == current_user.organization_id)
+        .order_by(RecurringTicketRule.name)
     )
     return [RecurringTicketRuleResponse.model_validate(r, from_attributes=True) for r in result.scalars().unique().all()]
 
@@ -90,11 +94,21 @@ async def create_rule(
 ):
     data = payload.model_dump()
     next_run = compute_next_run(data["frequency"], data.get("day_of_week"), data.get("day_of_month"))
-    rule = RecurringTicketRule(**data, created_by_id=current_user.id, next_run_at=next_run)
+    rule = RecurringTicketRule(
+        **data,
+        organization_id=current_user.organization_id,
+        created_by_id=current_user.id,
+        next_run_at=next_run,
+    )
     db.add(rule)
     await db.commit()
     result = await db.execute(
-        select(RecurringTicketRule).options(*_LOAD_OPTIONS).where(RecurringTicketRule.id == rule.id)
+        select(RecurringTicketRule)
+        .options(*_LOAD_OPTIONS)
+        .where(
+            RecurringTicketRule.id == rule.id,
+            RecurringTicketRule.organization_id == current_user.organization_id,
+        )
     )
     return RecurringTicketRuleResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
 
@@ -104,12 +118,15 @@ async def update_rule(
     rule_id: uuid.UUID,
     payload: RecurringTicketRuleUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
-    result = await db.execute(select(RecurringTicketRule).where(RecurringTicketRule.id == rule_id))
-    rule = result.scalar_one_or_none()
-    if not rule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
+    rule = await load_or_404(
+        db,
+        RecurringTicketRule,
+        rule_id,
+        current_user.organization_id,
+        detail="Rule not found",
+    )
 
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -121,7 +138,12 @@ async def update_rule(
 
     await db.commit()
     result = await db.execute(
-        select(RecurringTicketRule).options(*_LOAD_OPTIONS).where(RecurringTicketRule.id == rule_id)
+        select(RecurringTicketRule)
+        .options(*_LOAD_OPTIONS)
+        .where(
+            RecurringTicketRule.id == rule_id,
+            RecurringTicketRule.organization_id == current_user.organization_id,
+        )
     )
     return RecurringTicketRuleResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
 
@@ -130,16 +152,24 @@ async def update_rule(
 async def toggle_rule(
     rule_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
-    result = await db.execute(select(RecurringTicketRule).where(RecurringTicketRule.id == rule_id))
-    rule = result.scalar_one_or_none()
-    if not rule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
+    rule = await load_or_404(
+        db,
+        RecurringTicketRule,
+        rule_id,
+        current_user.organization_id,
+        detail="Rule not found",
+    )
     rule.is_active = not rule.is_active
     await db.commit()
     result = await db.execute(
-        select(RecurringTicketRule).options(*_LOAD_OPTIONS).where(RecurringTicketRule.id == rule_id)
+        select(RecurringTicketRule)
+        .options(*_LOAD_OPTIONS)
+        .where(
+            RecurringTicketRule.id == rule_id,
+            RecurringTicketRule.organization_id == current_user.organization_id,
+        )
     )
     return RecurringTicketRuleResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
 
@@ -148,11 +178,14 @@ async def toggle_rule(
 async def delete_rule(
     rule_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
 ):
-    result = await db.execute(select(RecurringTicketRule).where(RecurringTicketRule.id == rule_id))
-    rule = result.scalar_one_or_none()
-    if not rule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Rule not found")
+    rule = await load_or_404(
+        db,
+        RecurringTicketRule,
+        rule_id,
+        current_user.organization_id,
+        detail="Rule not found",
+    )
     await db.delete(rule)
     await db.commit()

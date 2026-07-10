@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import require_super_admin
+from app.auth.dependencies import require_console_role
 from app.database import get_db
 from app.models.activity_log import ActivityLog
 from app.models.user import User
@@ -75,7 +75,7 @@ async def export_audit(
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_super_admin()),
+    _: User = Depends(require_console_role("super_admin", "support")),
 ):
     """Export matching audit log entries to CSV (max 10,000 rows)."""
     stmt = _build_audit_stmt(org_id, user_id, action, entity_type, date_from, date_to)
@@ -113,7 +113,7 @@ async def list_audit(
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_super_admin()),
+    _: User = Depends(require_console_role("super_admin", "support")),
 ):
     stmt = _build_audit_stmt(org_id, user_id, action, entity_type, date_from, date_to)
 

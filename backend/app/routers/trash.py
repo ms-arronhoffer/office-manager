@@ -44,7 +44,7 @@ async def list_trash(
     entity_type: str | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
 ):
     """
     List soft-deleted records.
@@ -55,7 +55,10 @@ async def list_trash(
     if entity_type is None:
         counts: dict[str, int] = {}
         for et, (Model, _label) in ENTITY_CONFIG.items():
-            stmt = select(Model.id).where(Model.is_deleted.is_(True))
+            stmt = select(Model.id).where(
+                Model.is_deleted.is_(True),
+                Model.organization_id == current_user.organization_id,
+            )
             res = await db.execute(stmt)
             counts[et] = len(res.scalars().all())
         return {"counts": counts, "supported_types": list(ENTITY_CONFIG.keys())}
@@ -66,7 +69,10 @@ async def list_trash(
     Model, label_attr = ENTITY_CONFIG[entity_type]
     stmt = (
         select(Model)
-        .where(Model.is_deleted.is_(True))
+        .where(
+            Model.is_deleted.is_(True),
+            Model.organization_id == current_user.organization_id,
+        )
         .order_by(Model.deleted_at.desc())
         .limit(limit)
     )
@@ -91,7 +97,7 @@ async def permanent_delete(
     entity_type: str,
     entity_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
 ):
     """
     Hard-delete a soft-deleted record. Use with care — there is no undo.
@@ -101,7 +107,11 @@ async def permanent_delete(
     Model, _label = ENTITY_CONFIG[entity_type]
 
     res = await db.execute(
-        select(Model).where(Model.id == entity_id, Model.is_deleted.is_(True))
+        select(Model).where(
+            Model.id == entity_id,
+            Model.is_deleted.is_(True),
+            Model.organization_id == current_user.organization_id,
+        )
     )
     row = res.scalar_one_or_none()
     if row is None:

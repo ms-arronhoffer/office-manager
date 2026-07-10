@@ -39,6 +39,7 @@ from app.models.resident import (
 from app.models.user import User
 from app.services import leasing_service as svc
 from app.services.leasing_service import LeasingError
+from app.utils.tenant_scope import load_or_404
 
 router = APIRouter()
 
@@ -351,23 +352,17 @@ async def _get_resident(db: AsyncSession, resident_id: uuid.UUID, org_id) -> Res
 
 async def _load_lease(db: AsyncSession, lease_id: uuid.UUID, org_id) -> ResidentLease:
     db.expunge_all()
-    lease = (
-        await db.execute(
-            select(ResidentLease)
-            .where(
-                ResidentLease.id == lease_id,
-                ResidentLease.organization_id == org_id,
-                ResidentLease.is_deleted.is_(False),
-            )
-            .options(
-                selectinload(ResidentLease.occupants).selectinload(
-                    ResidentLeaseOccupant.resident
-                )
-            )
-        )
-    ).scalar_one_or_none()
-    if not lease:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resident lease not found")
+    lease = await load_or_404(
+        db,
+        ResidentLease,
+        lease_id,
+        org_id,
+        extra_filters=[ResidentLease.is_deleted.is_(False)],
+        detail="Resident lease not found",
+    )
+    await db.refresh(lease, attribute_names=["occupants"])
+    for occupant in lease.occupants:
+        await db.refresh(occupant, attribute_names=["resident"])
     return lease
 
 

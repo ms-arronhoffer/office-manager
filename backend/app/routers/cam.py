@@ -34,6 +34,7 @@ from app.models.user import User
 from app.services import ai_service, cam_service
 from app.services.cam_service import CamError
 from app.services.lease_abstract_catalog import CATEGORY_BY_KEY
+from app.utils.tenant_scope import load_or_404
 
 router = APIRouter()
 
@@ -231,14 +232,18 @@ def _normalize_lines(line_inputs: list[CamLineInput]) -> list[dict]:
     return out
 
 
-async def _load_with_lines(db: AsyncSession, recon_id: uuid.UUID) -> CamReconciliation:
-    return (
-        await db.execute(
-            select(CamReconciliation)
-            .where(CamReconciliation.id == recon_id)
-            .options(selectinload(CamReconciliation.lines))
-        )
-    ).scalar_one()
+async def _load_with_lines(
+    db: AsyncSession, recon_id: uuid.UUID, org_id: uuid.UUID | None
+) -> CamReconciliation:
+    recon = await load_or_404(
+        db,
+        CamReconciliation,
+        recon_id,
+        org_id,
+        detail="Reconciliation not found",
+    )
+    await db.refresh(recon, attribute_names=["lines"])
+    return recon
 
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────
@@ -360,7 +365,7 @@ async def create_reconciliation(
     cam_service.apply_computation(recon, result)
     db.add(recon)
     await db.commit()
-    recon = await _load_with_lines(db, recon.id)
+    recon = await _load_with_lines(db, recon.id, current_user.organization_id)
     return CamReconciliationResponse.model_validate(recon)
 
 
@@ -417,7 +422,7 @@ async def update_reconciliation(
 
     cam_service.apply_computation(recon, result)
     await db.commit()
-    recon = await _load_with_lines(db, recon.id)
+    recon = await _load_with_lines(db, recon.id, current_user.organization_id)
     return CamReconciliationResponse.model_validate(recon)
 
 
@@ -476,7 +481,7 @@ async def finalize_reconciliation(
     recon.finalized_at = datetime.now(timezone.utc)
     recon.finalized_by_id = current_user.id
     await db.commit()
-    recon = await _load_with_lines(db, recon.id)
+    recon = await _load_with_lines(db, recon.id, current_user.organization_id)
     return CamReconciliationResponse.model_validate(recon)
 
 

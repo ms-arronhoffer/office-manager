@@ -200,7 +200,9 @@ async def upload_attachment(
     try:
         Model = ENTITY_MODELS[entity_type]
         parent = (
-            await db.execute(select(Model).where(Model.id == entity_id))
+            await db.execute(
+                select(Model).where(Model.id == entity_id, Model.organization_id == current_user.organization_id)
+            )
         ).scalar_one_or_none()
         parent_org = getattr(parent, "organization_id", None) if parent else None
         if attachment.organization_id is None and parent_org is not None:
@@ -233,7 +235,13 @@ async def download_attachment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Attachment).where(Attachment.id == attachment_id))
+    result = await db.execute(
+        select(Attachment).where(
+            Attachment.id == attachment_id,
+            (Attachment.organization_id == current_user.organization_id)
+            | Attachment.organization_id.is_(None),
+        )
+    )
     attachment = result.scalar_one_or_none()
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
@@ -264,7 +272,13 @@ async def delete_attachment(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
-    result = await db.execute(select(Attachment).where(Attachment.id == attachment_id))
+    result = await db.execute(
+        select(Attachment).where(
+            Attachment.id == attachment_id,
+            (Attachment.organization_id == current_user.organization_id)
+            | Attachment.organization_id.is_(None),
+        )
+    )
     attachment = result.scalar_one_or_none()
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")

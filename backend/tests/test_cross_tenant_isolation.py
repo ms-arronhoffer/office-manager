@@ -264,3 +264,45 @@ async def test_hq_hvac_cross_tenant_blocked(client, two_orgs):
     assert (
         await client.get(f"/api/v1/hq-hvac/heat-pumps/{pump_id}", headers=auth_headers(admin_a))
     ).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_email_rules_cross_tenant_blocked(client, two_orgs):
+    admin_a, admin_b = two_orgs
+
+    created = await client.post(
+        "/api/v1/email-rules/",
+        headers=auth_headers(admin_a),
+        json={
+            "rule_name": "Org A Rule",
+            "rule_type": "lease_expiration",
+            "days_before": 30,
+            "recipient_emails": ["ops@tenant-a.test"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    rule_id = created.json()["id"]
+
+    listed = await client.get("/api/v1/email-rules/", headers=auth_headers(admin_b))
+    assert listed.status_code == 200, listed.text
+    assert all(rule["id"] != rule_id for rule in listed.json())
+
+    assert (
+        await client.put(
+            f"/api/v1/email-rules/{rule_id}",
+            headers=auth_headers(admin_b),
+            json={"rule_name": "Tampered"},
+        )
+    ).status_code == 404
+    assert (
+        await client.post(
+            f"/api/v1/email-rules/{rule_id}/test",
+            headers=auth_headers(admin_b),
+        )
+    ).status_code == 404
+    assert (
+        await client.delete(
+            f"/api/v1/email-rules/{rule_id}",
+            headers=auth_headers(admin_b),
+        )
+    ).status_code == 404

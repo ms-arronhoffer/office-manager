@@ -215,6 +215,7 @@ async def update_hvac_contract(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
+    org_id = current_user.organization_id
     result = await db.execute(select(HvacContract).where(HvacContract.id == contract_id, HvacContract.is_deleted.is_(False), HvacContract.organization_id == current_user.organization_id))
     contract = result.scalar_one_or_none()
     if not contract:
@@ -232,7 +233,11 @@ async def update_hvac_contract(
     result = await db.execute(
         select(HvacContract)
         .options(joinedload(HvacContract.manager), joinedload(HvacContract.details))
-        .where(HvacContract.id == contract_id, HvacContract.is_deleted.is_(False))
+        .where(
+            HvacContract.id == contract_id,
+            HvacContract.is_deleted.is_(False),
+            HvacContract.organization_id == org_id,
+        )
     )
     return HvacContractResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
 
@@ -260,6 +265,7 @@ async def restore_hvac_contract(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin")),
 ):
+    org_id = current_user.organization_id
     result = await db.execute(select(HvacContract).where(HvacContract.id == contract_id, HvacContract.is_deleted.is_(True), HvacContract.organization_id == current_user.organization_id))
     contract = result.scalar_one_or_none()
     if not contract:
@@ -272,6 +278,10 @@ async def restore_hvac_contract(
     result = await db.execute(
         select(HvacContract)
         .options(joinedload(HvacContract.manager), joinedload(HvacContract.details))
-        .where(HvacContract.id == contract_id, HvacContract.is_deleted.is_(False))
+        .where(
+            HvacContract.id == contract_id,
+            HvacContract.is_deleted.is_(False),
+            HvacContract.organization_id == org_id,
+        )
     )
     return HvacContractResponse.model_validate(result.unique().scalar_one(), from_attributes=True)

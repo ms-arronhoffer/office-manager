@@ -1,41 +1,24 @@
-import { useEffect, useState } from "react"
-import { useParams, useNavigate } from "react-router-dom"
-import { Button } from "../components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
+import { useEffect, useMemo, useState } from "react"
+import { useNavigate, useParams } from "react-router-dom"
+import { AlertCircle, Check, Copy } from "lucide-react"
+
+import { getOrg, getOrgUsage, getUsers, impersonateOrg, patchOrg } from "../api"
+import { useAuth } from "../context/AuthContext"
 import { Alert, AlertDescription } from "../components/ui/alert"
 import { Badge } from "../components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
-import { Label } from "../components/ui/label"
+import { Button } from "../components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
-import { Textarea } from "../components/ui/textarea"
+import { Label } from "../components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table"
-import { AlertCircle, Copy, Check, RotateCcw } from "lucide-react"
-
-import { getOrg, patchOrg, impersonateOrg, getUsers, getOrgUsage } from "../api"
+import { Textarea } from "../components/ui/textarea"
 import type { AdminOrgDetail, AdminUser, OrgUsageResponse } from "../types"
 
 const PLAN_OPTIONS = ["starter", "pro", "enterprise"]
 const PAYMENT_OPTIONS = ["active", "past_due", "trial", "canceled"]
-
-// Catalog keys — keep in sync with backend app/services/entitlements.py
-const LIMIT_KEYS = [
-  "max_offices",
-  "max_seats",
-  "audit_retention_days",
-  "monthly_ai_input_tokens",
-  "monthly_ai_output_tokens",
-] as const
-const FEATURE_KEYS = [
-  "hvac",
-  "transitions",
-  "advanced_analytics",
-  "pdf_export",
-  "api_access",
-  "webhooks",
-  "sso",
-  "custom_fields",
-] as const
+const LIMIT_KEYS = ["max_offices", "max_seats", "audit_retention_days", "monthly_ai_input_tokens", "monthly_ai_output_tokens"] as const
+const FEATURE_KEYS = ["hvac", "maintenance", "transitions", "advanced_analytics", "pdf_export", "api_access", "webhooks", "sso", "custom_fields", "ai_assist", "digital_waivers", "client_portal"] as const
 
 const LABELS: Record<string, string> = {
   max_offices: "Max offices",
@@ -43,74 +26,56 @@ const LABELS: Record<string, string> = {
   audit_retention_days: "Audit retention (days)",
   monthly_ai_input_tokens: "Monthly AI input tokens",
   monthly_ai_output_tokens: "Monthly AI output tokens",
-  hvac: "HVAC & equipment",
-  transitions: "Transition management",
+  hvac: "HVAC",
+  maintenance: "Maintenance",
+  transitions: "Transitions",
   advanced_analytics: "Advanced analytics",
   pdf_export: "PDF export",
   api_access: "API access",
   webhooks: "Webhooks",
-  sso: "SSO / SAML",
+  sso: "SSO",
   custom_fields: "Custom fields",
+  ai_assist: "AI assist",
+  digital_waivers: "Digital waivers",
+  client_portal: "Client portal",
 }
 
 type OverrideValue = number | boolean | null
+
 type Overrides = Record<string, OverrideValue>
 
-function fmtLimit(v: OverrideValue): string {
-  return v === null || v === undefined ? "Unlimited" : String(v)
+function fmtLimit(value: OverrideValue) {
+  return value === null || value === undefined ? "Unlimited" : String(value)
 }
 
-function KV({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="py-2">
-      <p className="text-sm text-slate-600 mb-1">{label}</p>
-      <p className="text-slate-900 font-medium">{value ?? "—"}</p>
-    </div>
-  )
-}
-
-function TokenMeter({
-  label,
-  used,
-  limit,
-}: {
-  label: string
-  used: number
-  limit: number | null
-}) {
+function TokenMeter({ label, used, limit }: { label: string; used: number; limit: number | null }) {
   const unlimited = limit === null || limit === undefined
-  const pct = unlimited
-    ? 0
-    : limit === 0
-      ? used > 0
-        ? 100
-        : 0
-      : Math.min(100, Math.round((used / limit) * 100))
-  const over = !unlimited && (limit === 0 ? used > 0 : used >= (limit as number))
-  const near = !unlimited && !over && pct >= 80
-  const barColor = over ? "bg-red-600" : near ? "bg-amber-500" : "bg-blue-600"
+  const pct = unlimited ? 0 : Math.min(100, Math.round((used / Math.max(limit, 1)) * 100))
   return (
-    <div>
-      <div className="flex justify-between text-sm mb-1">
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-sm">
         <span className="text-slate-600">{label}</span>
-        <span className="font-medium text-slate-900">
-          {used.toLocaleString()} / {unlimited ? "Unlimited" : (limit as number).toLocaleString()}{" "}
-          {over && <Badge variant="destructive">limit reached</Badge>}
-        </span>
+        <span className="font-medium text-slate-900">{used.toLocaleString()} / {unlimited ? "Unlimited" : limit.toLocaleString()}</span>
       </div>
-      <div className="h-2 w-full bg-slate-200 rounded">
-        <div
-          className={`h-2 rounded ${barColor}`}
-          style={{ width: `${unlimited ? 0 : pct}%` }}
-        />
+      <div className="h-2 rounded-full bg-slate-200">
+        <div className="h-2 rounded-full bg-primary" style={{ width: `${pct}%` }} />
       </div>
     </div>
   )
+}
+
+function healthClasses(band: AdminOrgDetail["health_band"]) {
+  return {
+    healthy: "bg-emerald-100 text-emerald-900",
+    at_risk: "bg-amber-100 text-amber-900",
+    critical: "bg-red-100 text-red-900",
+  }[band]
 }
 
 export default function OrgDetailPage() {
   const { orgId } = useParams()
   const navigate = useNavigate()
+  const { payload } = useAuth()
   const [org, setOrg] = useState<AdminOrgDetail | null>(null)
   const [users, setUsers] = useState<AdminUser[]>([])
   const [usage, setUsage] = useState<OrgUsageResponse | null>(null)
@@ -118,38 +83,37 @@ export default function OrgDetailPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [copied, setCopied] = useState(false)
-
-  // Form state
   const [name, setName] = useState("")
   const [plan, setPlan] = useState("")
   const [paymentStatus, setPaymentStatus] = useState("")
-  const [maxSeats, setMaxSeats] = useState<number | null>(0)
+  const [maxSeats, setMaxSeats] = useState<number | null>(null)
   const [notes, setNotes] = useState("")
   const [overrides, setOverrides] = useState<Overrides>({})
+
+  const canImpersonate = payload?.console_role === "super_admin" || payload?.console_role === "support"
+  const canChangeBilling = payload?.console_role === "super_admin" || payload?.console_role === "finance"
+  const canEditOperational = payload?.console_role === "super_admin" || payload?.console_role === "support"
 
   useEffect(() => {
     async function load() {
       if (!orgId) return
       setLoading(true)
       try {
-        const orgData = await getOrg(orgId)
+        const [orgData, usersData, usageData] = await Promise.all([
+          getOrg(orgId),
+          getUsers({ page: 1, page_size: 100, org_id: orgId }).catch(() => ({ items: [], total: 0, page: 1, page_size: 100, total_pages: 1 })),
+          getOrgUsage(orgId).catch(() => null),
+        ])
         setOrg(orgData)
+        setUsers(usersData.items || [])
+        setUsage(usageData)
         setName(orgData.name)
         setPlan(orgData.plan)
         setPaymentStatus(orgData.payment_status)
         setMaxSeats(orgData.max_seats)
         setNotes(orgData.admin_notes || "")
         setOverrides({ ...(orgData.entitlement_overrides || {}) })
-
-        const usersData = await getUsers({ page: 1, page_size: 100, org_id: orgId })
-        setUsers(usersData.items || [])
-
-        try {
-          setUsage(await getOrgUsage(orgId))
-        } catch (err) {
-          console.error("Failed to load usage data", err)
-          setUsage(null)
-        }
+        setError("")
       } catch {
         setError("Failed to load organization")
       } finally {
@@ -159,41 +123,22 @@ export default function OrgDetailPage() {
     load()
   }, [orgId])
 
-  const setOverride = (key: string, value: OverrideValue) => {
-    setOverrides((prev) => ({ ...prev, [key]: value }))
-  }
-  const clearOverride = (key: string) => {
-    setOverrides((prev) => {
-      const next = { ...prev }
-      delete next[key]
-      return next
-    })
-  }
-
-  const handleSave = async () => {
+  const saveChanges = async () => {
     if (!org) return
     setSaving(true)
     try {
-      const trimmedName = name.trim()
-      if (!trimmedName) {
-        setError("Organization name cannot be empty")
-        setSaving(false)
-        return
-      }
       const updated = await patchOrg(org.id, {
-        name: trimmedName,
-        plan,
-        payment_status: paymentStatus,
-        max_seats: maxSeats,
+        name,
+        plan: canChangeBilling ? plan : undefined,
+        payment_status: canChangeBilling ? paymentStatus : undefined,
+        max_seats: canEditOperational || canChangeBilling ? maxSeats : undefined,
         admin_notes: notes,
-        entitlement_overrides: overrides,
+        entitlement_overrides: canEditOperational || canChangeBilling ? overrides : undefined,
       })
       setOrg(updated)
-      setName(updated.name)
-      setOverrides({ ...(updated.entitlement_overrides || {}) })
       setError("")
     } catch {
-      setError("Failed to save changes")
+      setError("Failed to save organization")
     } finally {
       setSaving(false)
     }
@@ -203,440 +148,262 @@ export default function OrgDetailPage() {
     if (!org) return
     try {
       const res = await impersonateOrg(org.id)
-      // Show token in a modal or copy to clipboard
-      if (res.token) {
-        navigator.clipboard.writeText(res.token)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-        alert(`Token copied to clipboard:\n\n${res.token}`)
-      }
+      await navigator.clipboard.writeText(res.token)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
     } catch {
-      setError("Failed to impersonate organization")
+      setError("Failed to generate impersonation token")
     }
   }
 
-  if (loading) {
-    return (
-      <div className="p-8">
-        <p className="text-slate-600">Loading organization...</p>
-      </div>
-    )
-  }
+  const healthRows = useMemo(() => {
+    if (!org) return []
+    return Object.entries(org.health_factors || {})
+  }, [org])
 
-  if (!org) {
-    return (
-      <div className="p-8">
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>Organization not found</AlertDescription>
-        </Alert>
-      </div>
-    )
-  }
+  if (loading) return <div className="p-8 text-slate-600">Loading organization…</div>
+  if (!org) return <div className="p-8"><Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>Organization not found.</AlertDescription></Alert></div>
 
   return (
-    <div className="p-8">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="p-8 space-y-8">
+      <div className="flex items-start justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">{org.name}</h1>
-          <p className="text-slate-600">{org.slug}</p>
+          <Button variant="ghost" className="mb-2 px-0" onClick={() => navigate(-1)}>← Back to organizations</Button>
+          <h1 className="font-serif text-4xl font-semibold text-slate-900">{org.name}</h1>
+          <p className="mt-2 text-slate-600">{org.slug} · created {new Date(org.created_at).toLocaleDateString()}</p>
         </div>
-        <Badge>{org.payment_status}</Badge>
+        <div className="flex items-center gap-3">
+          <Badge className={healthClasses(org.health_band)}>{org.health_score} · {org.health_band.replace("_", " ")}</Badge>
+          <Badge variant="outline">{org.payment_status.replace("_", " ")}</Badge>
+          {canImpersonate && (
+            <Button onClick={handleImpersonate}>
+              {copied ? <><Check className="mr-2 h-4 w-4" />Copied</> : <><Copy className="mr-2 h-4 w-4" />Impersonate</>}
+            </Button>
+          )}
+        </div>
       </div>
 
-      {error && (
-        <Alert variant="destructive" className="mb-6">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+      {error && <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>{error}</AlertDescription></Alert>}
 
-      <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="entitlements">Entitlements</TabsTrigger>
-          <TabsTrigger value="users">Users ({users.length})</TabsTrigger>
-          <TabsTrigger value="billing">Billing</TabsTrigger>
-        </TabsList>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-serif text-2xl">Org 360 overview</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              <div><p className="text-xs uppercase tracking-[0.16em] text-slate-500">Seats</p><p className="mt-2 text-2xl font-semibold">{org.seat_count}<span className="text-base text-slate-500"> / {org.effective_entitlements.max_seats ?? "∞"}</span></p></div>
+              <div><p className="text-xs uppercase tracking-[0.16em] text-slate-500">Offices</p><p className="mt-2 text-2xl font-semibold">{org.office_count}<span className="text-base text-slate-500"> / {org.effective_entitlements.max_offices ?? "∞"}</span></p></div>
+              <div><p className="text-xs uppercase tracking-[0.16em] text-slate-500">Tickets</p><p className="mt-2 text-2xl font-semibold">{org.open_ticket_count}<span className="text-base text-slate-500"> open</span></p></div>
+              <div><p className="text-xs uppercase tracking-[0.16em] text-slate-500">Plan</p><p className="mt-2 text-2xl font-semibold capitalize">{org.plan}</p></div>
+            </div>
 
-        {/* Overview Tab */}
-        <TabsContent value="overview" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Organization Details</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-2 gap-8">
-                <div>
-                  <KV label="ID" value={org.id} />
-                  <KV label="Created" value={new Date(org.created_at).toLocaleDateString()} />
-                  <KV label="Active" value={org.is_active ? "Yes" : "No"} />
-                  <KV label="Trial Ends" value={org.trial_ends_at ? new Date(org.trial_ends_at).toLocaleDateString() : "—"} />
-                </div>
-                <div>
-                  <KV label="Plan" value={org.plan} />
-                  <KV
-                    label="Users"
-                    value={`${org.seat_count} / ${fmtLimit(org.effective_entitlements?.max_seats)}`}
-                  />
-                  <KV
-                    label="Offices"
-                    value={`${org.office_count} / ${fmtLimit(org.effective_entitlements?.max_offices)}`}
-                  />
-                  <KV label="Stripe ID" value={org.stripe_customer_id ? org.stripe_customer_id.slice(0, 20) + "..." : "—"} />
-                </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <Label>Name</Label>
+                <Input className="mt-2" value={name} onChange={(e) => setName(e.target.value)} disabled={!canEditOperational} />
               </div>
-
-              <div className="border-t pt-6 space-y-4">
-                <div>
-                  <Label htmlFor="org-name">Name</Label>
-                  <Input
-                    id="org-name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="mt-2"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="plan">Plan</Label>
-                  <Select value={plan} onValueChange={setPlan}>
-                    <SelectTrigger id="plan" className="mt-2">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PLAN_OPTIONS.map((p) => (
-                        <SelectItem key={p} value={p}>
-                          {p.charAt(0).toUpperCase() + p.slice(1)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor="status">Payment Status</Label>
-                  <Select value={paymentStatus} onValueChange={setPaymentStatus}>
-                    <SelectTrigger id="status" className="mt-2">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PAYMENT_OPTIONS.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s.replace("_", " ").charAt(0).toUpperCase() + s.replace("_", " ").slice(1)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor="seats">Max Seats</Label>
-                  <Input
-                    id="seats"
-                    type="number"
-                    value={maxSeats ?? ""}
-                    onChange={(e) => setMaxSeats(e.target.value ? parseInt(e.target.value) : null)}
-                    className="mt-2"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="notes">Internal Notes</Label>
-                  <Textarea
-                    id="notes"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    className="mt-2"
-                    rows={4}
-                  />
-                </div>
-
-                <Button onClick={handleSave} disabled={saving}>
-                  {saving ? "Saving..." : "Save Changes"}
-                </Button>
+              <div>
+                <Label>Plan</Label>
+                <Select value={plan} onValueChange={setPlan} disabled={!canChangeBilling}>
+                  <SelectTrigger className="mt-2"><SelectValue /></SelectTrigger>
+                  <SelectContent>{PLAN_OPTIONS.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
+                </Select>
               </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Admin Impersonation</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-slate-600 mb-4">
-                Generate a temporary token to log in as this organization's admin.
-              </p>
-              <Button onClick={handleImpersonate}>
-                {copied ? (
-                  <>
-                    <Check className="h-4 w-4 mr-2" />
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-4 w-4 mr-2" />
-                    Generate Token
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Entitlements Tab */}
-        <TabsContent value="entitlements" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Usage vs. limits</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-8">
-                {(() => {
-                  const officeLimit = org.effective_entitlements?.max_offices
-                  const seatLimit = org.effective_entitlements?.max_seats
-                  const officeOver = officeLimit != null && org.office_count > (officeLimit as number)
-                  const seatOver = seatLimit != null && org.seat_count > (seatLimit as number)
-                  return (
-                    <>
-                      <div>
-                        <p className="text-sm text-slate-600 mb-1">Offices</p>
-                        <p className="font-medium">
-                          {org.office_count} / {fmtLimit(officeLimit)}{" "}
-                          {officeOver && <Badge variant="destructive">over limit</Badge>}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-slate-600 mb-1">Seats</p>
-                        <p className="font-medium">
-                          {org.seat_count} / {fmtLimit(seatLimit)}{" "}
-                          {seatOver && <Badge variant="destructive">over limit</Badge>}
-                        </p>
-                      </div>
-                    </>
-                  )
-                })()}
+              <div>
+                <Label>Payment status</Label>
+                <Select value={paymentStatus} onValueChange={setPaymentStatus} disabled={!canChangeBilling}>
+                  <SelectTrigger className="mt-2"><SelectValue /></SelectTrigger>
+                  <SelectContent>{PAYMENT_OPTIONS.map((value) => <SelectItem key={value} value={value}>{value.replace("_", " ")}</SelectItem>)}</SelectContent>
+                </Select>
               </div>
-            </CardContent>
-          </Card>
+              <div>
+                <Label>Max seats</Label>
+                <Input className="mt-2" type="number" value={maxSeats ?? ""} onChange={(e) => setMaxSeats(e.target.value ? Number(e.target.value) : null)} disabled={!(canEditOperational || canChangeBilling)} />
+              </div>
+            </div>
 
+            <div>
+              <Label>Internal notes</Label>
+              <Textarea className="mt-2 min-h-32" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </div>
+            <Button onClick={saveChanges} disabled={saving}>{saving ? "Saving…" : "Save org updates"}</Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-serif text-2xl">Health factors</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {healthRows.map(([key, value]) => (
+                <div key={key} className="flex items-center justify-between rounded-md border border-slate-200 px-4 py-3 text-sm">
+                  <span className="capitalize text-slate-600">{key.replace(/_/g, " ")}</span>
+                  <span className="font-medium text-slate-900">{typeof value === "number" ? value.toLocaleString() : String(value ?? "—")}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-serif text-2xl">Combined timeline</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {org.timeline.map((entry) => (
+                <div key={`${entry.source}-${entry.occurred_at}-${entry.title}`} className="rounded-md border border-slate-200 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-medium text-slate-900">{entry.title}</p>
+                      {entry.description && <p className="mt-1 text-sm text-slate-600">{entry.description}</p>}
+                    </div>
+                    <Badge variant="outline">{entry.source.replace(/_/g, " ")}</Badge>
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500">{new Date(entry.occurred_at).toLocaleString()}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>AI token usage</CardTitle>
+              <CardTitle className="font-serif text-2xl">AI usage trend</CardTitle>
             </CardHeader>
             <CardContent>
               {usage ? (
-                <div className="space-y-6">
-                  <p className="text-sm text-slate-600">
-                    Current period <span className="font-medium">{usage.period}</span>
-                    {" · "}previous period {usage.previous_period}:{" "}
-                    {usage.previous.total_tokens.toLocaleString()} tokens
-                  </p>
-                  <TokenMeter
-                    label="Input tokens"
-                    used={usage.current.input_tokens}
-                    limit={usage.input_token_limit}
-                  />
-                  <TokenMeter
-                    label="Output tokens"
-                    used={usage.current.output_tokens}
-                    limit={usage.output_token_limit}
-                  />
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-500">Current period {usage.period} vs previous {usage.previous_period} ({usage.previous.total_tokens.toLocaleString()} total tokens).</p>
+                  <TokenMeter label="Input tokens" used={usage.current.input_tokens} limit={usage.input_token_limit} />
+                  <TokenMeter label="Output tokens" used={usage.current.output_tokens} limit={usage.output_token_limit} />
                   {usage.by_feature.length > 0 && (
-                    <div>
-                      <p className="text-sm font-medium text-slate-700 mb-2">
-                        By feature (this period)
-                      </p>
-                      <div className="space-y-1">
-                        {usage.by_feature.map((f) => (
-                          <div
-                            key={f.feature}
-                            className="flex justify-between text-sm text-slate-600"
-                          >
-                            <span>{f.label}</span>
-                            <span>
-                              {f.events} calls ·{" "}
-                              {(f.input_tokens + f.output_tokens).toLocaleString()} tokens
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                    <div className="space-y-2">
+                      {usage.by_feature.map((row) => (
+                        <div key={row.feature} className="flex items-center justify-between rounded-md bg-slate-50 px-4 py-2 text-sm">
+                          <span>{row.label}</span>
+                          <span className="text-slate-600">{row.events} events · {(row.input_tokens + row.output_tokens).toLocaleString()} tokens</span>
+                        </div>
+                      ))}
                     </div>
                   )}
-                  <p className="text-xs text-slate-500">
-                    Token limits follow the org's tier; raise or comp a single org's
-                    cap with the <strong>monthly_ai_input_tokens</strong> /{" "}
-                    <strong>monthly_ai_output_tokens</strong> overrides below.
-                  </p>
                 </div>
               ) : (
-                <p className="text-sm text-slate-500">No token usage recorded.</p>
+                <p className="text-sm text-slate-500">No token activity recorded.</p>
               )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Feature overrides</CardTitle>
+              <CardTitle className="font-serif text-2xl">Organization users</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-slate-600 mb-4">
-                Overrides take precedence over the plan default. "Default" inherits from the{" "}
-                <span className="font-medium capitalize">{plan}</span> plan.
-              </p>
-              <div className="space-y-3">
-                {FEATURE_KEYS.map((key) => {
-                  const planDefault = !!org.plan_defaults?.[key]
-                  const isOverridden = key in overrides
-                  const current = isOverridden ? !!overrides[key] : planDefault
-                  const selectValue = isOverridden ? (current ? "true" : "false") : "default"
-                  return (
-                    <div key={key} className="flex items-center justify-between gap-4 border-b pb-2">
-                      <div>
-                        <p className="font-medium text-slate-900">{LABELS[key]}</p>
-                        <p className="text-xs text-slate-500">
-                          Plan default: {planDefault ? "Enabled" : "Disabled"}
-                          {isOverridden && <span className="ml-2 text-amber-600 font-medium">• overridden</span>}
-                        </p>
-                      </div>
-                      <Select
-                        value={selectValue}
-                        onValueChange={(v) => {
-                          if (v === "default") clearOverride(key)
-                          else setOverride(key, v === "true")
-                        }}
-                      >
-                        <SelectTrigger className="w-40">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="default">Default ({planDefault ? "on" : "off"})</SelectItem>
-                          <SelectItem value="true">Enabled</SelectItem>
-                          <SelectItem value="false">Disabled</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )
-                })}
-              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Last login</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {users.map((user) => (
+                    <TableRow key={user.id}>
+                      <TableCell className="font-medium">{user.display_name}</TableCell>
+                      <TableCell>{user.email}</TableCell>
+                      <TableCell className="capitalize">{user.role}</TableCell>
+                      <TableCell>{user.last_login_at ? new Date(user.last_login_at).toLocaleDateString() : "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
+        </div>
+      </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Limit overrides</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {LIMIT_KEYS.map((key) => {
-                  const planDefault = org.plan_defaults?.[key] as number | null | undefined
-                  const isOverridden = key in overrides
-                  const value = overrides[key]
-                  const mode = !isOverridden ? "default" : value === null ? "unlimited" : "custom"
-                  return (
-                    <div key={key} className="flex items-center justify-between gap-4 border-b pb-2">
-                      <div>
-                        <p className="font-medium text-slate-900">{LABELS[key]}</p>
-                        <p className="text-xs text-slate-500">
-                          Plan default: {fmtLimit(planDefault ?? null)}
-                          {isOverridden && <span className="ml-2 text-amber-600 font-medium">• overridden</span>}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Select
-                          value={mode}
-                          onValueChange={(v) => {
-                            if (v === "default") clearOverride(key)
-                            else if (v === "unlimited") setOverride(key, null)
-                            else setOverride(key, typeof value === "number" ? value : 0)
-                          }}
-                        >
-                          <SelectTrigger className="w-36">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="default">Default</SelectItem>
-                            <SelectItem value="unlimited">Unlimited</SelectItem>
-                            <SelectItem value="custom">Custom</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {mode === "custom" && (
-                          <Input
-                            type="number"
-                            min={0}
-                            className="w-24"
-                            value={typeof value === "number" ? value : 0}
-                            onChange={(e) => setOverride(key, e.target.value ? parseInt(e.target.value) : 0)}
-                          />
-                        )}
-                        {isOverridden && (
-                          <Button variant="ghost" size="sm" onClick={() => clearOverride(key)} title="Reset to plan default">
-                            <RotateCcw className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-              <div className="mt-6">
-                <Button onClick={handleSave} disabled={saving}>
-                  {saving ? "Saving..." : "Save Entitlements"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        <TabsContent value="users">
-          <Card>
-            <CardContent className="pt-6">
-              {users.length === 0 ? (
-                <p className="text-slate-600">No users found</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Role</TableHead>
-                        <TableHead>Active</TableHead>
-                        <TableHead>Created</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {users.map((user) => (
-                        <TableRow key={user.id}>
-                          <TableCell>{user.email}</TableCell>
-                          <TableCell className="capitalize">{user.role}</TableCell>
-                          <TableCell>{user.is_active ? "Yes" : "No"}</TableCell>
-                          <TableCell className="text-sm text-slate-600">
-                            {new Date(user.created_at).toLocaleDateString()}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-serif text-2xl">Feature overrides</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {FEATURE_KEYS.map((key) => {
+              const overridden = key in overrides
+              const value = overridden ? Boolean(overrides[key]) : Boolean(org.plan_defaults[key])
+              return (
+                <div key={key} className="flex items-center justify-between rounded-md border border-slate-200 px-4 py-3">
+                  <div>
+                    <p className="font-medium text-slate-900">{LABELS[key]}</p>
+                    <p className="text-xs text-slate-500">Default: {String(Boolean(org.plan_defaults[key]))}</p>
+                  </div>
+                  <Select
+                    value={overridden ? String(value) : "default"}
+                    onValueChange={(next) => {
+                      if (next === "default") {
+                        const clone = { ...overrides }
+                        delete clone[key]
+                        setOverrides(clone)
+                      } else {
+                        setOverrides((prev) => ({ ...prev, [key]: next === "true" }))
+                      }
+                    }}
+                    disabled={!(canEditOperational || canChangeBilling)}
+                  >
+                    <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Default</SelectItem>
+                      <SelectItem value="true">Enabled</SelectItem>
+                      <SelectItem value="false">Disabled</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+              )
+            })}
+          </CardContent>
+        </Card>
 
-        {/* Billing Tab */}
-        <TabsContent value="billing">
-          <Card>
-            <CardHeader>
-              <CardTitle>Billing Info</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <KV label="Plan" value={org.plan} />
-              <KV label="Payment Status" value={org.payment_status} />
-              <KV label="Stripe Customer ID" value={org.stripe_customer_id || "—"} />
-              <KV label="Trial Ends" value={org.trial_ends_at ? new Date(org.trial_ends_at).toLocaleDateString() : "—"} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-serif text-2xl">Limit overrides</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {LIMIT_KEYS.map((key) => (
+              <div key={key} className="grid grid-cols-[1fr_auto] items-center gap-4 rounded-md border border-slate-200 px-4 py-3">
+                <div>
+                  <p className="font-medium text-slate-900">{LABELS[key]}</p>
+                  <p className="text-xs text-slate-500">Default: {fmtLimit(org.plan_defaults[key])}</p>
+                </div>
+                <Input
+                  className="w-36"
+                  placeholder="blank = default"
+                  value={typeof overrides[key] === "number" ? String(overrides[key]) : overrides[key] === null ? "unlimited" : ""}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim()
+                    if (!raw) {
+                      const clone = { ...overrides }
+                      delete clone[key]
+                      setOverrides(clone)
+                    } else if (raw.toLowerCase() === "unlimited") {
+                      setOverrides((prev) => ({ ...prev, [key]: null }))
+                    } else {
+                      setOverrides((prev) => ({ ...prev, [key]: Number(raw) }))
+                    }
+                  }}
+                  disabled={!(canEditOperational || canChangeBilling)}
+                />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

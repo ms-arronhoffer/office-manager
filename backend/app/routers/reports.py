@@ -444,7 +444,7 @@ async def lease_accounting_portfolio(
 async def export_amortization_schedule(
     lease_id: str,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     _pdf: User = Depends(require_feature("pdf_export")),
 ):
     """
@@ -465,7 +465,11 @@ async def export_amortization_schedule(
     result = await db.execute(
         select(Lease)
         .options(joinedload(Lease.office))
-        .where(Lease.id == lease_uuid, Lease.is_deleted.is_(False))
+        .where(
+            Lease.id == lease_uuid,
+            Lease.is_deleted.is_(False),
+            Lease.organization_id == current_user.organization_id,
+        )
     )
     lease = result.scalar_one_or_none()
     if lease is None:

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import require_super_admin
+from app.auth.dependencies import require_console_role
 from app.config import settings
 from app.database import get_db
 from app.models.billing_ledger import (
@@ -57,7 +57,7 @@ async def list_billing(
     payment_status: str | None = Query(default=None),
     plan: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_super_admin()),
+    _: User = Depends(require_console_role("super_admin", "finance")),
 ):
     stmt = select(Organization)
     if payment_status:
@@ -106,11 +106,61 @@ async def list_billing(
     )
 
 
+class DunningRow(BaseModel):
+    id: uuid.UUID
+    name: str
+    plan: str
+    payment_status: str
+    past_due_since: datetime | None
+    overdue_days: int
+    seat_count: int
+    trial_ends_at: datetime | None
+    stripe_customer_id: str | None
+
+
+@router.get("/dunning-queue", response_model=list[DunningRow])
+async def dunning_queue(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_console_role("super_admin", "finance")),
+):
+    rows = (
+        await db.execute(
+            select(Organization)
+            .where(Organization.payment_status == "past_due")
+            .order_by(Organization.past_due_since.asc().nullslast(), Organization.created_at.asc())
+        )
+    ).scalars().all()
+    org_ids = [o.id for o in rows]
+    seat_counts: dict[uuid.UUID, int] = {}
+    if org_ids:
+        seat_rows = await db.execute(
+            select(User.organization_id, func.count(User.id))
+            .where(User.organization_id.in_(org_ids), User.is_active.is_(True))
+            .group_by(User.organization_id)
+        )
+        seat_counts = {r[0]: r[1] for r in seat_rows.all()}
+    now = datetime.now(timezone.utc)
+    return [
+        DunningRow(
+            id=o.id,
+            name=o.name,
+            plan=o.plan,
+            payment_status=o.payment_status,
+            past_due_since=o.past_due_since,
+            overdue_days=max(0, (now - (o.past_due_since or now)).days),
+            seat_count=seat_counts.get(o.id, 0),
+            trial_ends_at=o.trial_ends_at,
+            stripe_customer_id=o.stripe_customer_id,
+        )
+        for o in rows
+    ]
+
+
 @router.post("/{org_id}/cancel", response_model=BillingRow)
 async def cancel_subscription(
     org_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_super_admin()),
+    current_user: User = Depends(require_console_role("super_admin", "finance")),
 ):
     org = (await db.execute(select(Organization).where(Organization.id == org_id))).scalar_one_or_none()
     if not org:
@@ -165,7 +215,7 @@ async def cancel_subscription(
 async def restore_subscription(
     org_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_super_admin()),
+    current_user: User = Depends(require_console_role("super_admin", "finance")),
 ):
     org = (await db.execute(select(Organization).where(Organization.id == org_id))).scalar_one_or_none()
     if not org:
@@ -241,7 +291,7 @@ async def _get_org_or_404(org_id: uuid.UUID, db: AsyncSession) -> Organization:
 async def billing_detail(
     org_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_super_admin()),
+    _: User = Depends(require_console_role("super_admin", "finance")),
 ):
     """Full per-org billing history from the persisted ledger: subscriptions,
     invoices, charges, refunds, and manual credits with running credit balance."""
@@ -298,7 +348,7 @@ async def issue_credit(
     org_id: uuid.UUID,
     payload: CreditRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_super_admin()),
+    current_user: User = Depends(require_console_role("super_admin", "finance")),
 ):
     """Issue a manual account credit/adjustment (positive grants, negative debits)."""
     org = await _get_org_or_404(org_id, db)
@@ -325,7 +375,7 @@ async def extend_trial(
     org_id: uuid.UUID,
     payload: ExtendTrialRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_super_admin()),
+    current_user: User = Depends(require_console_role("super_admin", "finance")),
 ):
     """Extend (or set) an org's trial end date by ``days`` from the current end."""
     if payload.days <= 0 or payload.days > 365:
@@ -361,7 +411,7 @@ async def issue_refund(
     org_id: uuid.UUID,
     payload: RefundRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_super_admin()),
+    current_user: User = Depends(require_console_role("super_admin", "finance")),
 ):
     """Refund a charge via Stripe and mirror the result into the ledger."""
     await _get_org_or_404(org_id, db)
@@ -393,7 +443,7 @@ async def export_invoices(
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_super_admin()),
+    _: User = Depends(require_console_role("super_admin", "finance")),
 ):
     """Export invoices (incl. tax) to CSV for finance reconciliation (max 10k)."""
     stmt = select(BillingInvoice)
@@ -417,7 +467,7 @@ async def export_invoices(
 @router.get("/reconcile", response_model=dict)
 async def reconcile_report(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_super_admin()),
+    _: User = Depends(require_console_role("super_admin", "finance")),
 ):
     """Detect drift between org payment_status and the latest ledger subscription
     status. Read-only; surfaces orgs whose snapshot disagrees with the ledger."""

@@ -8,6 +8,7 @@ from app.database import get_db
 from app.auth.jwt_handler import decode_access_token
 from app.models.user import User
 from app.models.organization import Organization
+from app.services.console_roles import require_resolved_console_role
 
 security = HTTPBearer()
 
@@ -94,6 +95,22 @@ def require_role(*roles: str):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
         return user
     return checker
+
+
+
+def require_console_role(*roles: str):
+    """Require that the current user has one of the allowed admin-console roles."""
+    async def checker(
+        user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        console_role = await require_resolved_console_role(db, user)
+        if roles and console_role not in roles:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient console permissions")
+        setattr(user, "console_role", console_role)
+        return user
+    return checker
+
 
 
 def require_super_admin():

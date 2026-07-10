@@ -101,8 +101,9 @@ async def update_heat_pump(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    org_id = current_user.organization_id
     result = await db.execute(
-        select(HqHeatPump).where(HqHeatPump.id == pump_id, HqHeatPump.organization_id == current_user.organization_id)
+        select(HqHeatPump).where(HqHeatPump.id == pump_id, HqHeatPump.organization_id == org_id)
     )
     pump = result.scalar_one_or_none()
     if not pump:
@@ -116,7 +117,10 @@ async def update_heat_pump(
     result = await db.execute(
         select(HqHeatPump)
         .options(joinedload(HqHeatPump.service_logs))
-        .where(HqHeatPump.id == pump_id)
+        .where(
+            HqHeatPump.id == pump_id,
+            HqHeatPump.organization_id == org_id,
+        )
     )
     return HeatPumpResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
 

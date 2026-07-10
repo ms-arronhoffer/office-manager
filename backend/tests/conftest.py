@@ -23,6 +23,11 @@ from app.models.user import User  # noqa: E402
 from app.models.office import Manager, Office  # noqa: E402
 from app.models.maintenance_ticket import TicketCategory, MaintenanceTicket  # noqa: E402
 
+ADMIN_PASSWORD = "AdminPass123!"
+EDITOR_PASSWORD = "EditorPass123!"
+VIEWER_PASSWORD = "ViewerPass123!"
+ACCOUNTANT_PASSWORD = "Accountant123!"
+
 
 # Build test settings (picks up POSTGRES_DB=office_manager_test)
 _settings = Settings()
@@ -92,7 +97,7 @@ async def admin_user(db_session: AsyncSession) -> User:
     user = User(
         email="admin@test.com",
         display_name="Test Admin",
-        password_hash=hash_password("admin123"),
+        password_hash=hash_password(ADMIN_PASSWORD),
         auth_provider="internal",
         role="admin",
         is_active=True,
@@ -108,7 +113,7 @@ async def editor_user(db_session: AsyncSession) -> User:
     user = User(
         email="editor@test.com",
         display_name="Test Editor",
-        password_hash=hash_password("editor123"),
+        password_hash=hash_password(EDITOR_PASSWORD),
         auth_provider="internal",
         role="editor",
         is_active=True,
@@ -124,7 +129,7 @@ async def viewer_user(db_session: AsyncSession) -> User:
     user = User(
         email="viewer@test.com",
         display_name="Test Viewer",
-        password_hash=hash_password("viewer123"),
+        password_hash=hash_password(VIEWER_PASSWORD),
         auth_provider="internal",
         role="viewer",
         is_active=True,
@@ -140,7 +145,7 @@ async def accountant_user(db_session: AsyncSession) -> User:
     user = User(
         email="accountant@test.com",
         display_name="Test Accountant",
-        password_hash=hash_password("acct123"),
+        password_hash=hash_password(ACCOUNTANT_PASSWORD),
         auth_provider="internal",
         role="accountant",
         is_active=True,

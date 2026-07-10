@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import secrets
 
 import pyotp
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
@@ -22,6 +23,7 @@ from app.schemas.user import (
 )
 from app.services.email_verification_service import issue_verification_token, send_verification_email
 from app.services.password_reset_service import issue_password_reset_token, send_password_reset_email
+from app.services.console_roles import resolve_console_role
 
 router = APIRouter()
 
@@ -89,12 +91,14 @@ async def _clear_lockout(db: AsyncSession, email: str) -> None:
 
 # ── MFA helpers ───────────────────────────────────────────────────────────────
 
-def _make_jwt(user: User) -> str:
+async def _make_jwt(db: AsyncSession, user: User) -> str:
+    console_role = await resolve_console_role(db, user)
     return create_access_token({
         "sub": str(user.id),
         "role": user.role,
         "org_id": str(user.organization_id) if user.organization_id else None,
         "is_super_admin": user.is_super_admin,
+        "console_role": console_role,
     })
 
 
@@ -213,7 +217,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
         return LoginResponse(mfa_required=True, mfa_token=tok)
 
     await db.commit()
-    return LoginResponse(access_token=_make_jwt(user), token_type="bearer")
+    return LoginResponse(access_token=await _make_jwt(db, user), token_type="bearer")
 
 
 @router.post("/google", response_model=LoginResponse)
@@ -261,7 +265,7 @@ async def google_auth(payload: GoogleAuthRequest, db: AsyncSession = Depends(get
         tok = await _mint_challenge(db, user)
         return LoginResponse(mfa_required=True, mfa_token=tok)
 
-    return LoginResponse(access_token=_make_jwt(user), token_type="bearer")
+    return LoginResponse(access_token=await _make_jwt(db, user), token_type="bearer")
 
 
 # ── MFA endpoints ─────────────────────────────────────────────────────────────
@@ -301,7 +305,7 @@ async def mfa_enable(payload: MfaVerifyRequest, db: AsyncSession = Depends(get_d
     await db.commit()
 
     return MfaEnableResponse(
-        access_token=_make_jwt(user),
+        access_token=await _make_jwt(db, user),
         backup_codes=plain_codes,
     )
 
@@ -315,7 +319,7 @@ async def mfa_verify(payload: MfaVerifyRequest, db: AsyncSession = Depends(get_d
     user.mfa_challenge_expires_at = None
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
-    return LoginResponse(access_token=_make_jwt(user), token_type="bearer")
+    return LoginResponse(access_token=await _make_jwt(db, user), token_type="bearer")
 
 
 @router.post("/mfa/disable", status_code=status.HTTP_204_NO_CONTENT)
@@ -366,8 +370,11 @@ async def register(
 
 
 @router.post("/refresh", response_model=LoginResponse)
-async def refresh_token(current_user: User = Depends(get_current_user)):
-    return LoginResponse(access_token=_make_jwt(current_user), token_type="bearer")
+async def refresh_token(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return LoginResponse(access_token=await _make_jwt(db, current_user), token_type="bearer")
 
 
 @router.get("/me", response_model=UserResponse)

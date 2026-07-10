@@ -1,4 +1,4 @@
-"""Super-admin: cross-org user management."""
+"""Admin-console identity, RBAC, and cross-org user management."""
 import math
 import uuid
 from datetime import datetime
@@ -8,16 +8,16 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.dependencies import require_super_admin
+from app.auth.dependencies import get_current_user, require_console_role, require_super_admin
 from app.database import get_db
+from app.models.admin_role import AdminRoleAssignment, CONSOLE_ROLES
 from app.models.organization import Organization
 from app.models.user import User
 from app.services.activity_service import log_activity
+from app.services.console_roles import resolve_console_role
 
 router = APIRouter()
 
-
-# ── Schemas ──────────────────────────────────────────────────────────────────
 
 class AdminUserItem(BaseModel):
     id: uuid.UUID
@@ -26,6 +26,7 @@ class AdminUserItem(BaseModel):
     role: str
     is_active: bool
     is_super_admin: bool
+    console_role: str | None
     organization_id: uuid.UUID | None
     organization_name: str | None
     last_login_at: datetime | None
@@ -34,11 +35,22 @@ class AdminUserItem(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ConsoleMe(BaseModel):
+    id: uuid.UUID
+    email: str
+    display_name: str
+    role: str
+    is_super_admin: bool
+    console_role: str
+    permissions: dict[str, bool]
+
+
 class AdminUserPatch(BaseModel):
     is_active: bool | None = None
     role: str | None = None
     is_super_admin: bool | None = None
     organization_id: uuid.UUID | None = None
+    console_role: str | None = None
 
 
 class PaginatedUsers(BaseModel):
@@ -49,11 +61,7 @@ class PaginatedUsers(BaseModel):
     total_pages: int
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-async def _resolve_org_names(
-    db: AsyncSession, org_ids: set[uuid.UUID]
-) -> dict[uuid.UUID, str]:
+async def _resolve_org_names(db: AsyncSession, org_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     if not org_ids:
         return {}
     rows = await db.execute(
@@ -62,7 +70,66 @@ async def _resolve_org_names(
     return {r[0]: r[1] for r in rows.all()}
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+async def _console_role_map(db: AsyncSession, user_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+    if not user_ids:
+        return {}
+    rows = await db.execute(
+        select(AdminRoleAssignment.user_id, AdminRoleAssignment.console_role).where(
+            AdminRoleAssignment.user_id.in_(user_ids)
+        )
+    )
+    return {row[0]: row[1] for row in rows.all()}
+
+
+async def _build_user_item(
+    db: AsyncSession,
+    user: User,
+    org_name: str | None = None,
+    console_role: str | None = None,
+) -> AdminUserItem:
+    return AdminUserItem(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        role=user.role,
+        is_active=user.is_active,
+        is_super_admin=user.is_super_admin,
+        console_role=console_role if console_role is not None else await resolve_console_role(db, user),
+        organization_id=user.organization_id,
+        organization_name=org_name,
+        last_login_at=user.last_login_at,
+        created_at=user.created_at,
+    )
+
+
+@router.get("/me", response_model=ConsoleMe)
+async def me(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    console_role = await resolve_console_role(db, current_user)
+    if console_role is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin console access required")
+    permissions = {
+        "can_view_billing": console_role in {"super_admin", "finance"},
+        "can_manage_billing": console_role in {"super_admin", "finance"},
+        "can_impersonate": console_role in {"super_admin", "support"},
+        "can_suspend_orgs": console_role in {"super_admin", "support"},
+        "can_change_plans": console_role in {"super_admin", "finance"},
+        "can_manage_users": console_role == "super_admin",
+        "can_view_usage": console_role in {"super_admin", "support"},
+        "can_view_audit": console_role in {"super_admin", "support"},
+    }
+    return ConsoleMe(
+        id=current_user.id,
+        email=current_user.email,
+        display_name=current_user.display_name,
+        role=current_user.role,
+        is_super_admin=current_user.is_super_admin,
+        console_role=console_role,
+        permissions=permissions,
+    )
+
 
 @router.get("", response_model=PaginatedUsers)
 async def list_users(
@@ -74,7 +141,7 @@ async def list_users(
     is_active: bool | None = Query(default=None),
     is_super_admin: bool | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_super_admin()),
+    _: User = Depends(require_console_role("super_admin", "support")),
 ):
     stmt = select(User)
     if search:
@@ -97,19 +164,14 @@ async def list_users(
 
     org_ids = {u.organization_id for u in users if u.organization_id}
     org_names = await _resolve_org_names(db, org_ids)
+    console_roles = await _console_role_map(db, [u.id for u in users])
 
     items = [
-        AdminUserItem(
-            id=u.id,
-            email=u.email,
-            display_name=u.display_name,
-            role=u.role,
-            is_active=u.is_active,
-            is_super_admin=u.is_super_admin,
-            organization_id=u.organization_id,
-            organization_name=org_names.get(u.organization_id) if u.organization_id else None,
-            last_login_at=u.last_login_at,
-            created_at=u.created_at,
+        await _build_user_item(
+            db,
+            u,
+            org_name=org_names.get(u.organization_id) if u.organization_id else None,
+            console_role=console_roles.get(u.id, "super_admin" if u.is_super_admin else None),
         )
         for u in users
     ]
@@ -133,8 +195,11 @@ async def patch_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    # Validate org_id if being reassigned
     update_data = payload.model_dump(exclude_unset=True)
+    desired_console_role = update_data.pop("console_role", None) if "console_role" in update_data else ...
+    if desired_console_role is not ... and desired_console_role is not None and desired_console_role not in CONSOLE_ROLES:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid console role")
+
     if "organization_id" in update_data and update_data["organization_id"] is not None:
         org = (
             await db.execute(
@@ -150,6 +215,20 @@ async def patch_user(
     for field, value in update_data.items():
         setattr(user, field, value)
 
+    assignment = (
+        await db.execute(
+            select(AdminRoleAssignment).where(AdminRoleAssignment.user_id == user.id)
+        )
+    ).scalar_one_or_none()
+    if desired_console_role is not ...:
+        if desired_console_role is None:
+            if assignment is not None:
+                await db.delete(assignment)
+        elif assignment is None:
+            db.add(AdminRoleAssignment(user_id=user.id, console_role=desired_console_role))
+        else:
+            assignment.console_role = desired_console_role
+
     await db.commit()
     await log_activity(
         db,
@@ -158,7 +237,7 @@ async def patch_user(
         entity_type="user",
         entity_id=user_id,
         entity_label=user.display_name,
-        changes=update_data,
+        changes={**update_data, **({"console_role": desired_console_role} if desired_console_role is not ... else {})},
     )
 
     org_name: str | None = None
@@ -168,15 +247,4 @@ async def patch_user(
         ).scalar_one_or_none()
         org_name = org.name if org else None
 
-    return AdminUserItem(
-        id=user.id,
-        email=user.email,
-        display_name=user.display_name,
-        role=user.role,
-        is_active=user.is_active,
-        is_super_admin=user.is_super_admin,
-        organization_id=user.organization_id,
-        organization_name=org_name,
-        last_login_at=user.last_login_at,
-        created_at=user.created_at,
-    )
+    return await _build_user_item(db, user, org_name=org_name)
