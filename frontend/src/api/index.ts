@@ -1680,6 +1680,15 @@ export const financials = {
 
   auditReport: () =>
     client.get<AuditReportResponse>('/financials/audit-report'),
+
+  incomeStatementPdf: (params?: { year?: number; month?: number }) =>
+    client.get('/financials/income-statement/pdf', { params, responseType: 'blob' }),
+
+  balanceSheetPdf: (params?: { year?: number; month?: number }) =>
+    client.get('/financials/balance-sheet/pdf', { params, responseType: 'blob' }),
+
+  cashFlowStatementPdf: (params?: { year?: number; month?: number }) =>
+    client.get('/financials/cash-flow-statement/pdf', { params, responseType: 'blob' }),
 };
 
 // ─── AI assist (Google Gemini) ───────────────────────────────────────────────
