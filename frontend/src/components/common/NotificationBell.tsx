@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Box from '@cloudscape-design/components/box';
 import Button from '@cloudscape-design/components/button';
+import SpaceBetween from '@cloudscape-design/components/space-between';
 import { useNavigate } from 'react-router-dom';
 import { notifications as notificationsApi } from '@/api';
 import { useWS } from '@/context/WSContext';
@@ -114,6 +115,14 @@ const NotificationBell: React.FC = () => {
     } catch { /* silent */ }
   };
 
+  const handleClearAll = async () => {
+    try {
+      await notificationsApi.clearAll();
+      setUnreadCount(0);
+      setItems([]);
+    } catch { /* silent */ }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -184,11 +193,18 @@ const NotificationBell: React.FC = () => {
             <span style={{ fontWeight: 700, fontSize: 13 }}>
               Notifications{unreadCount > 0 ? ` · ${unreadCount} unread` : ''}
             </span>
-            {unreadCount > 0 && (
-              <Button variant="link" onClick={handleMarkAllRead}>
-                Mark all read
-              </Button>
-            )}
+            <SpaceBetween direction="horizontal" size="xs">
+              {unreadCount > 0 && (
+                <Button variant="link" onClick={handleMarkAllRead}>
+                  Mark all read
+                </Button>
+              )}
+              {items.length > 0 && (
+                <Button variant="link" onClick={handleClearAll}>
+                  Clear
+                </Button>
+              )}
+            </SpaceBetween>
           </div>
 
           {/* Body */}

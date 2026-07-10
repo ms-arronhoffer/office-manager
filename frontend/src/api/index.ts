@@ -902,17 +902,33 @@ export interface SupportConfig {
   support_email: string | null;
 }
 
+export interface SupportMessage {
+  id: string;
+  support_request_id: string;
+  body: string;
+  is_from_admin: boolean;
+  author_user_id: string | null;
+  author_name: string | null;
+  author_email: string | null;
+  created_at: string;
+}
+
 export const supportRequests = {
   create: (data: { subject: string; message: string }) =>
     client.post<SupportRequest>('/support-requests', data),
   list: (params?: { status?: string }) =>
     client.get<SupportRequest[]>('/support-requests', { params }),
+  listMine: () => client.get<SupportRequest[]>('/support-requests/mine'),
   getConfig: () => client.get<SupportConfig>('/support-requests/config'),
   updateStatus: (id: string, status: 'open' | 'resolved') =>
     client.patch<SupportRequest>(`/support-requests/${id}`, { status }),
   email: (id: string) =>
     client.post<SupportEmailResult>(`/support-requests/${id}/email`),
   remove: (id: string) => client.delete(`/support-requests/${id}`),
+  messages: (id: string) =>
+    client.get<SupportMessage[]>(`/support-requests/${id}/messages`),
+  addMessage: (id: string, body: string) =>
+    client.post<SupportMessage>(`/support-requests/${id}/messages`, { body }),
 };
 
 // ─── Ticket Templates ─────────────────────────────────────────────────────────
@@ -945,6 +961,8 @@ export const notifications = {
   markAllRead: () => client.patch('/notifications/read-all'),
 
   delete: (id: string) => client.delete(`/notifications/${id}`),
+
+  clearAll: () => client.delete('/notifications'),
 };
 
 // ─── Recurring Ticket Rules ───────────────────────────────────────────────────

@@ -314,6 +314,26 @@ export async function updateSupportRequestStatus(
   return res.data
 }
 
+export async function getSupportMessages(
+  requestId: string,
+): Promise<import("../types").SupportMessageRow[]> {
+  const res = await api.get<import("../types").SupportMessageRow[]>(
+    `/admin/v1/support-requests/${requestId}/messages`,
+  )
+  return res.data
+}
+
+export async function replySupportRequest(
+  requestId: string,
+  body: string,
+): Promise<import("../types").SupportMessageRow> {
+  const res = await api.post<import("../types").SupportMessageRow>(
+    `/admin/v1/support-requests/${requestId}/messages`,
+    { body },
+  )
+  return res.data
+}
+
 // ─── Stripe integration credentials ─────────────────────────────────────────
 
 export async function getStripeConfig(): Promise<import("../types").StripeConfig> {

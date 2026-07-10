@@ -1,14 +1,21 @@
 import { useEffect, useState, Fragment } from "react"
 import { Badge } from "../components/ui/badge"
+import { Button } from "../components/ui/button"
 import { Card } from "../components/ui/card"
 import { Alert, AlertDescription } from "../components/ui/alert"
 import { Pagination } from "../components/ui/pagination"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select"
+import { Textarea } from "../components/ui/textarea"
 import { AlertCircle } from "lucide-react"
 
-import { getSupportRequests, updateSupportRequestStatus } from "../api"
-import type { SupportRequestRow } from "../types"
+import {
+  getSupportMessages,
+  getSupportRequests,
+  replySupportRequest,
+  updateSupportRequestStatus,
+} from "../api"
+import type { SupportMessageRow, SupportRequestRow } from "../types"
 
 const PER_PAGE = 25
 
@@ -28,6 +35,9 @@ export default function SupportRequestsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [threads, setThreads] = useState<Record<string, SupportMessageRow[]>>({})
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({})
+  const [replyingId, setReplyingId] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -60,6 +70,39 @@ export default function SupportRequestsPage() {
     } catch {
       setError("Failed to update support request status")
       setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, status: prev } : r)))
+    }
+  }
+
+  const toggleExpanded = async (id: string) => {
+    const next = expanded === id ? null : id
+    setExpanded(next)
+    if (next && threads[id] === undefined) {
+      await loadThread(id)
+    }
+  }
+
+  const loadThread = async (id: string) => {
+    try {
+      const msgs = await getSupportMessages(id)
+      setThreads((t) => ({ ...t, [id]: msgs }))
+    } catch {
+      setError("Failed to load the conversation thread.")
+    }
+  }
+
+  const handleReply = async (id: string) => {
+    const body = (replyDrafts[id] || "").trim()
+    if (!body) return
+    setReplyingId(id)
+    try {
+      await replySupportRequest(id, body)
+      setReplyDrafts((d) => ({ ...d, [id]: "" }))
+      await loadThread(id)
+      setError("")
+    } catch {
+      setError("Failed to send the reply.")
+    } finally {
+      setReplyingId(null)
     }
   }
 
@@ -131,7 +174,7 @@ export default function SupportRequestsPage() {
                         <TableCell>
                           <button
                             className="text-left text-sm font-medium text-slate-900 hover:underline"
-                            onClick={() => setExpanded(expanded === row.id ? null : row.id)}
+                            onClick={() => toggleExpanded(row.id)}
                           >
                             {row.subject}
                           </button>
@@ -157,7 +200,49 @@ export default function SupportRequestsPage() {
                       {expanded === row.id && (
                         <TableRow>
                           <TableCell colSpan={6} className="bg-slate-50">
-                            <p className="whitespace-pre-wrap text-sm text-slate-700">{row.message}</p>
+                            <div className="space-y-3 py-2">
+                              <p className="whitespace-pre-wrap text-sm text-slate-700">{row.message}</p>
+
+                              <div className="space-y-2">
+                                {(threads[row.id] || []).map((m) => (
+                                  <div
+                                    key={m.id}
+                                    className="border-l-2 pl-3"
+                                    style={{ borderColor: m.is_from_admin ? "#2563eb" : "#94a3b8" }}
+                                  >
+                                    <div className="text-xs text-slate-500">
+                                      {m.is_from_admin ? (m.author_name || "Support") : (m.author_name || "Requester")}
+                                      {" · "}
+                                      {new Date(m.created_at).toLocaleString()}
+                                    </div>
+                                    <p className="whitespace-pre-wrap text-sm text-slate-700">{m.body}</p>
+                                  </div>
+                                ))}
+                                {threads[row.id] && threads[row.id].length === 0 && (
+                                  <p className="text-xs text-slate-500">No replies yet.</p>
+                                )}
+                              </div>
+
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-900 block">
+                                  Reply to requester
+                                </label>
+                                <Textarea
+                                  value={replyDrafts[row.id] || ""}
+                                  onChange={(e) =>
+                                    setReplyDrafts((d) => ({ ...d, [row.id]: e.target.value }))
+                                  }
+                                  placeholder="Type a reply — the requester is notified in-app"
+                                  rows={3}
+                                />
+                                <Button
+                                  onClick={() => handleReply(row.id)}
+                                  disabled={replyingId === row.id || !(replyDrafts[row.id] || "").trim()}
+                                >
+                                  {replyingId === row.id ? "Sending…" : "Send reply"}
+                                </Button>
+                              </div>
+                            </div>
                           </TableCell>
                         </TableRow>
                       )}
