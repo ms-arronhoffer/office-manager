@@ -99,6 +99,19 @@ class Settings(BaseSettings):
     GEMINI_MAX_RETRIES: int = 2
     GEMINI_RETRY_BASE_SECONDS: float = 0.5
 
+    # Symmetric encryption key (urlsafe-base64, 32 bytes — see
+    # ``Fernet.generate_key()``) used to encrypt third-party secrets we must
+    # store and later send back out verbatim (e.g. the Buildium API client
+    # secret). See app.utils.crypto. Optional in dev; required in production.
+    ENCRYPTION_KEY: str = ""
+
+    # Buildium Open API connector (see app.services.buildium).
+    BUILDIUM_API_BASE_URL: str = "https://api.buildium.com/v1"
+    BUILDIUM_TIMEOUT_SECONDS: int = 60
+    BUILDIUM_MAX_RETRIES: int = 4
+    BUILDIUM_RETRY_BASE_SECONDS: float = 1.0
+    BUILDIUM_PAGE_SIZE: int = 100
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     def model_post_init(self, __context) -> None:

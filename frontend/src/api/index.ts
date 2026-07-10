@@ -85,6 +85,13 @@ import type {
   WebhookCreate,
   WebhookUpdate,
   WebhookDelivery,
+  BuildiumConnection,
+  BuildiumConnectionInput,
+  BuildiumTestConnectionResult,
+  BuildiumEntityType,
+  BuildiumGLAccountMapping,
+  BuildiumMigrationRun,
+  BuildiumMigrateRequest,
   TicketVolumeMonth,
   TopOfficeByTickets,
   LeaseRiskBucket,
@@ -1002,6 +1009,33 @@ export const operatingExpenses = {
 
   variance: (params?: { lease_id?: string; year?: number }) =>
     client.get<OperatingExpenseVariance[]>('/operating-expenses/variance', { params }),
+};
+
+export const buildium = {
+  getConnection: () => client.get<BuildiumConnection>('/buildium/connection'),
+
+  saveConnection: (data: BuildiumConnectionInput) =>
+    client.put<BuildiumConnection>('/buildium/connection', data),
+
+  testConnection: () => client.post<BuildiumTestConnectionResult>('/buildium/connection/test'),
+
+  listEntityTypes: () => client.get<BuildiumEntityType[]>('/buildium/entities'),
+
+  listGlMapping: () => client.get<BuildiumGLAccountMapping[]>('/buildium/gl-mapping'),
+
+  updateGlMapping: (id: string, gl_account_id: string) =>
+    client.put<BuildiumGLAccountMapping>(`/buildium/gl-mapping/${id}`, { gl_account_id }),
+
+  startMigration: (data: BuildiumMigrateRequest) =>
+    client.post<BuildiumMigrationRun>('/buildium/migrate', data),
+
+  listRuns: () => client.get<BuildiumMigrationRun[]>('/buildium/runs'),
+
+  getRun: (id: string) => client.get<BuildiumMigrationRun>(`/buildium/runs/${id}`),
+
+  cancelRun: (id: string) => client.post<BuildiumMigrationRun>(`/buildium/runs/${id}/cancel`),
+
+  getSummary: () => client.get<Record<string, number>>('/buildium/summary'),
 };
 
 export const organizations = {
