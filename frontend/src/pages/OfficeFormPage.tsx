@@ -187,21 +187,22 @@ const OfficeFormPage: React.FC = () => {
 
   // Load all of the organization's landlords so a landlord can be picked (and
   // associated with the office) even when the office has no landlord yet —
-  // e.g. when creating a brand-new office.
+  // e.g. when creating a brand-new office. 1000 is the API's max page size;
+  // organizations with more landlords than that would need a searchable
+  // paginated picker, which isn't warranted by current usage patterns.
   useEffect(() => {
     if (isEdit && officeLandlord) return; // office already has a landlord to mirror
     landlordsApi
-      .list({ page_size: 500, sort_by: 'landlord_company' })
+      .list({ page_size: 1000, sort_by: 'landlord_company' })
       .then((res) => setAllLandlords(res.data.items ?? []))
       .catch(() => setAllLandlords([]));
   }, [isEdit, officeLandlord]);
 
+  const getLandlordDisplayName = (l: Landlord) =>
+    l.landlord_company || l.office_name || l.contact_name || l.ern || 'Unnamed landlord';
+
   const landlordOptions = useMemo(
-    () =>
-      allLandlords.map((l) => ({
-        label: l.landlord_company || l.office_name || l.contact_name || l.ern || 'Unnamed landlord',
-        value: l.id,
-      })),
+    () => allLandlords.map((l) => ({ label: getLandlordDisplayName(l), value: l.id })),
     [allLandlords],
   );
 

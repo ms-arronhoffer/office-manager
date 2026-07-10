@@ -238,7 +238,7 @@ const FinancialStatementsPage: React.FC = () => {
       setPdfLoading(statement);
       try {
         const res = await fetcher();
-        const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+        const url = window.URL.createObjectURL(res.data);
         const a = document.createElement('a');
         a.href = url;
         a.download = filename;

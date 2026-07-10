@@ -1,5 +1,5 @@
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, landscape
@@ -146,7 +146,7 @@ def generate_statement_pdf(
         Paragraph(company_name, company_style),
         Paragraph(statement_title, title_style),
         Paragraph(period_label, period_style),
-        Paragraph(f"Generated {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", generated_style),
+        Paragraph(f"Generated {datetime.now(timezone.utc).strftime('%B %d, %Y at %I:%M %p UTC')}", generated_style),
     ]
 
     available_width = letter[0] - 1.5 * inch
