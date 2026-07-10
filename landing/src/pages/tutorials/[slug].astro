@@ -14,7 +14,7 @@ const body = tutorialContent[tutorial.slug];
 const nextMeta = body.next ? tutorials.find(t => t.slug === body.next) : undefined;
 ---
 <Layout
-  title={`${tutorial.title} — Portfolio Desk Tutorials`}
+  title={`${tutorial.title}: Portfolio Desk Tutorials`}
   description={tutorial.summary}
 >
   <Navbar />

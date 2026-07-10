@@ -52,7 +52,7 @@
     <label for="cf-message" class="block text-sm font-medium text-slate-700 mb-1.5">How can we help?</label>
     <textarea id="cf-message" name="message" rows="5" required
       class="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition resize-y"
-      placeholder="Tell us about your portfolio — number of offices, what you're using today, and what you'd like to improve."></textarea>
+      placeholder="Tell us about your portfolio: number of offices, what you're using today, and what you'd like to improve."></textarea>
   </div>
 
   <!-- Honeypot: hidden from humans, irresistible to bots. Must stay empty. -->
@@ -153,7 +153,7 @@
         submit.disabled = false;
         return;
       }
-      var subject = encodeURIComponent('[Website] ' + payload.topic + ' — ' + (payload.company || payload.name));
+      var subject = encodeURIComponent('[Website] ' + payload.topic + ': ' + (payload.company || payload.name));
       var body = encodeURIComponent(
         'Name: ' + payload.name + '\n' +
         'Company: ' + (payload.company || '') + '\n' +
