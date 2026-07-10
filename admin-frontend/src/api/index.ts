@@ -271,7 +271,8 @@ export async function getAudit(params: {
   return res.data
 }
 
-export async function downloadAudit(params: {  org_id?: string
+export async function downloadAudit(params: {
+  org_id?: string
   user_id?: string
   action?: string
   entity_type?: string
