@@ -12,10 +12,10 @@ import logging
 
 from sqlalchemy import select
 
-from app.config import settings
 from app.database import async_session
 from app.models.organization import Organization
 from app.services import billing_ledger_service as ledger
+from app.services.stripe_settings import resolve_stripe_secret_key
 
 logger = logging.getLogger(__name__)
 
@@ -25,17 +25,18 @@ _PER_CUSTOMER_LIMIT = 20
 
 async def reconcile_billing_ledger() -> dict:
     """Sync Stripe objects into the ledger and return a drift summary."""
-    if not settings.STRIPE_SECRET_KEY:
-        logger.info("billing reconcile skipped: Stripe not configured")
-        return {"skipped": True, "synced": 0, "drift": []}
-
     import stripe
 
-    stripe.api_key = settings.STRIPE_SECRET_KEY
     synced = 0
     drift: list[dict] = []
 
     async with async_session() as db:
+        stripe_key = await resolve_stripe_secret_key(db)
+        if not stripe_key:
+            logger.info("billing reconcile skipped: Stripe not configured")
+            return {"skipped": True, "synced": 0, "drift": []}
+        stripe.api_key = stripe_key
+
         orgs = (
             await db.execute(
                 select(Organization).where(Organization.stripe_customer_id.is_not(None))

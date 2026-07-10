@@ -117,6 +117,7 @@ from app.models.owner import (
     TRUST_ACCOUNT_STATUSES, COMPLIANCE_STATUSES,
 )
 from app.models.admin_role import AdminRoleAssignment, CONSOLE_ROLES
+from app.models.platform_stripe_config import PlatformStripeConfig
 from app.models.buildium import (
     BuildiumConnection, BuildiumEntityMap, BuildiumGLAccountMap, BuildiumMigrationRun,
     BUILDIUM_ENTITY_TYPES, MIGRATION_RUN_STATUSES,
@@ -187,6 +188,7 @@ __all__ = [
     "DISTRIBUTION_METHODS", "DISTRIBUTION_STATUSES",
     "TRUST_ACCOUNT_STATUSES", "COMPLIANCE_STATUSES",
     "AdminRoleAssignment", "CONSOLE_ROLES",
+    "PlatformStripeConfig",
     "BuildiumConnection", "BuildiumEntityMap", "BuildiumGLAccountMap", "BuildiumMigrationRun",
     "BUILDIUM_ENTITY_TYPES", "MIGRATION_RUN_STATUSES",
 ]

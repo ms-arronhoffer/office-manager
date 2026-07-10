@@ -17,6 +17,7 @@ from app.models.notification import Notification
 from app.models.organization import Organization
 from app.models.user import User
 from app.services import billing_ledger_service as ledger
+from app.services.stripe_settings import StripeSettings, resolve_stripe_settings
 from app.utils.email_client import send_email
 
 router = APIRouter()
@@ -120,19 +121,23 @@ _PAST_DUE_STATUSES = {"past_due", "incomplete"}
 _TERMINAL_STATUSES = {"canceled", "unpaid", "incomplete_expired"}
 
 
-def _require_stripe() -> None:
-    if not settings.STRIPE_SECRET_KEY:
+async def _require_stripe(db: AsyncSession) -> "StripeSettings":
+    """Resolve effective Stripe settings (DB over env), set the api key, and
+    raise 503 when billing is not configured."""
+    resolved = await resolve_stripe_settings(db)
+    if not resolved.secret_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Billing is not configured on this server.",
         )
-    stripe.api_key = settings.STRIPE_SECRET_KEY
+    stripe.api_key = resolved.secret_key
+    return resolved
 
 
-def _plan_from_price(price_id: str) -> str:
-    if settings.STRIPE_PRICE_ID_PRO and price_id == settings.STRIPE_PRICE_ID_PRO:
+def _plan_from_price(price_id: str, stripe_cfg: "StripeSettings") -> str:
+    if stripe_cfg.price_id_pro and price_id == stripe_cfg.price_id_pro:
         return "pro"
-    if settings.STRIPE_PRICE_ID_ENTERPRISE and price_id == settings.STRIPE_PRICE_ID_ENTERPRISE:
+    if stripe_cfg.price_id_enterprise and price_id == stripe_cfg.price_id_enterprise:
         return "enterprise"
     return "pro"
 
@@ -172,7 +177,7 @@ async def get_subscription(
         "trial_ends_at": org.trial_ends_at.isoformat() if org.trial_ends_at else None,
         "max_seats": org.max_seats,
         "seat_count": seat_count,
-        "billing_configured": bool(settings.STRIPE_SECRET_KEY),
+        "billing_configured": (await resolve_stripe_settings(db)).configured,
     }
 
 
@@ -189,11 +194,11 @@ async def create_checkout_session(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a Stripe Checkout session for a plan upgrade. Redirects to Stripe."""
-    _require_stripe()
+    stripe_cfg = await _require_stripe(db)
 
     price_map = {
-        "pro": settings.STRIPE_PRICE_ID_PRO,
-        "enterprise": settings.STRIPE_PRICE_ID_ENTERPRISE,
+        "pro": stripe_cfg.price_id_pro,
+        "enterprise": stripe_cfg.price_id_enterprise,
     }
     price_id = price_map.get(payload.plan)
     if not price_id:
@@ -228,7 +233,7 @@ async def create_portal_session(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a Stripe Customer Portal session for billing management."""
-    _require_stripe()
+    await _require_stripe(db)
     org = await _get_org(current_user.organization_id, db)
 
     if not org.stripe_customer_id:
@@ -249,14 +254,16 @@ async def create_portal_session(
 @router.post("/webhooks", include_in_schema=False)
 async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """Stripe webhook handler — verifies HMAC signature and processes events."""
-    if not settings.STRIPE_SECRET_KEY:
+    stripe_cfg = await resolve_stripe_settings(db)
+    if not stripe_cfg.secret_key:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Billing not configured")
+    stripe.api_key = stripe_cfg.secret_key
 
     raw_body = await request.body()
     sig_header = request.headers.get("stripe-signature", "")
 
     try:
-        event = stripe.Webhook.construct_event(raw_body, sig_header, settings.STRIPE_WEBHOOK_SECRET)
+        event = stripe.Webhook.construct_event(raw_body, sig_header, stripe_cfg.webhook_secret)
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Stripe signature")
     except Exception:
@@ -277,7 +284,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 if org.stripe_subscription_id:
                     sub = stripe.Subscription.retrieve(org.stripe_subscription_id)
                     price_id = sub["items"]["data"][0]["price"]["id"]
-                    org.plan = _plan_from_price(price_id)
+                    org.plan = _plan_from_price(price_id, stripe_cfg)
                 org.payment_status = "active"
                 org.is_active = True
                 org.past_due_since = None
@@ -293,7 +300,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             org = result.scalar_one_or_none()
             if org:
                 price_id = obj["items"]["data"][0]["price"]["id"]
-                org.plan = _plan_from_price(price_id)
+                org.plan = _plan_from_price(price_id, stripe_cfg)
                 sub_status = obj.get("status", "active")
                 if sub_status in _ACTIVE_STATUSES:
                     _mark_active(org)

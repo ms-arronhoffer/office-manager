@@ -71,7 +71,7 @@ from app.routers import (  # noqa: E402
     leasing_funnel, listings, owners, owner_portal, lease_templates,
     application_templates, buildium,
 )
-from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit, usage as admin_usage  # noqa: E402
+from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit, usage as admin_usage, support_requests as admin_support_requests  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature  # noqa: E402
 from fastapi import Depends  # noqa: E402
 
@@ -166,6 +166,7 @@ app.include_router(admin_metrics.router, prefix="/admin/v1/metrics", tags=["Admi
 app.include_router(admin_billing.router, prefix="/admin/v1/billing", tags=["Admin - Billing"])
 app.include_router(admin_audit.router, prefix="/admin/v1/audit", tags=["Admin - Audit"])
 app.include_router(admin_usage.router, prefix="/admin/v1/usage", tags=["Admin - Usage"])
+app.include_router(admin_support_requests.router, prefix="/admin/v1/support-requests", tags=["Admin - Support Requests"])
 
 
 @app.get("/api/v1/health")

@@ -271,8 +271,7 @@ export async function getAudit(params: {
   return res.data
 }
 
-export async function downloadAudit(params: {
-  org_id?: string
+export async function downloadAudit(params: {  org_id?: string
   user_id?: string
   action?: string
   entity_type?: string
@@ -286,4 +285,49 @@ export async function downloadAudit(params: {
   a.download = "audit_log.csv"
   a.click()
   URL.revokeObjectURL(url)
+}
+
+// ─── Support requests (cross-org queue) ─────────────────────────────────────
+
+export async function getSupportRequests(params: {
+  page?: number
+  page_size?: number
+  status?: string
+  org_id?: string
+}): Promise<import("../types").Paginated<import("../types").SupportRequestRow>> {
+  const res = await api.get<import("../types").Paginated<import("../types").SupportRequestRow>>(
+    "/admin/v1/support-requests",
+    { params },
+  )
+  return res.data
+}
+
+export async function updateSupportRequestStatus(
+  requestId: string,
+  status: string,
+): Promise<import("../types").SupportRequestRow> {
+  const res = await api.patch<import("../types").SupportRequestRow>(
+    `/admin/v1/support-requests/${requestId}`,
+    { status },
+  )
+  return res.data
+}
+
+// ─── Stripe integration credentials ─────────────────────────────────────────
+
+export async function getStripeConfig(): Promise<import("../types").StripeConfig> {
+  const res = await api.get<import("../types").StripeConfig>("/admin/v1/billing/stripe-config")
+  return res.data
+}
+
+export async function saveStripeConfig(
+  payload: import("../types").StripeConfigInput,
+): Promise<import("../types").StripeConfig> {
+  const res = await api.put<import("../types").StripeConfig>("/admin/v1/billing/stripe-config", payload)
+  return res.data
+}
+
+export async function testStripeConfig(): Promise<{ ok: boolean; error: string | null }> {
+  const res = await api.post<{ ok: boolean; error: string | null }>("/admin/v1/billing/stripe-config/test")
+  return res.data
 }

@@ -32,6 +32,7 @@ from app.models.usage_event import UsageEvent
 from app.models.user import User
 from app.services import entitlements as ent
 from app.services import org_health, usage_service
+from app.services.stripe_settings import resolve_stripe_secret_key
 from app.services.activity_service import log_activity
 from app.services.console_roles import resolve_console_role
 
@@ -757,10 +758,11 @@ async def delete_org(
     if not org:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
 
-    if org.stripe_subscription_id and settings.STRIPE_SECRET_KEY:
+    stripe_key = await resolve_stripe_secret_key(db)
+    if org.stripe_subscription_id and stripe_key:
         try:
             import stripe
-            stripe.api_key = settings.STRIPE_SECRET_KEY
+            stripe.api_key = stripe_key
             stripe.Subscription.delete(org.stripe_subscription_id)
         except Exception as exc:  # pragma: no cover - network best effort
             logger.warning("Failed to cancel Stripe subscription on org delete: %s", exc)

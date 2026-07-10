@@ -292,6 +292,43 @@ export interface AuditEntry {
   created_at: string
 }
 
+export interface SupportRequestRow {
+  id: string
+  organization_id: string | null
+  organization_name: string | null
+  subject: string
+  message: string
+  status: string
+  requester_user_id: string | null
+  requester_name: string | null
+  requester_email: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface StripeConfig {
+  configured: boolean
+  is_enabled: boolean
+  secret_key_hint: string | null
+  webhook_secret_hint: string | null
+  publishable_key: string | null
+  price_id_pro: string | null
+  price_id_enterprise: string | null
+  secret_key_from_env: boolean
+  last_verified_at: string | null
+  last_verify_ok: boolean | null
+  last_verify_error: string | null
+}
+
+export interface StripeConfigInput {
+  secret_key?: string
+  webhook_secret?: string
+  publishable_key?: string
+  price_id_pro?: string
+  price_id_enterprise?: string
+  is_enabled?: boolean
+}
+
 export interface AuthPayload {
   sub: string
   role: string
