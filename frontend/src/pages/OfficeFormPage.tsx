@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
@@ -92,6 +92,8 @@ const OfficeFormPage: React.FC = () => {
   const [form, setForm] = useState<OfficeFormState>(emptyForm);
   const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
   const [officeLandlord, setOfficeLandlord] = useState<Landlord | null>(null);
+  const [allLandlords, setAllLandlords] = useState<Landlord[]>([]);
+  const [selectedLandlordOption, setSelectedLandlordOption] = useState<{ label: string; value: string } | null>(null);
   const [planLimitModal, setPlanLimitModal] = useState(false);
   const [orgPlan, setOrgPlan] = useState<string>('starter');
   const [officeCount, setOfficeCount] = useState(0);
@@ -183,6 +185,26 @@ const OfficeFormPage: React.FC = () => {
       .catch(() => setOfficeLandlord(null));
   }, [id, isEdit]);
 
+  // Load all of the organization's landlords so a landlord can be picked (and
+  // associated with the office) even when the office has no landlord yet —
+  // e.g. when creating a brand-new office.
+  useEffect(() => {
+    if (isEdit && officeLandlord) return; // office already has a landlord to mirror
+    landlordsApi
+      .list({ page_size: 500, sort_by: 'landlord_company' })
+      .then((res) => setAllLandlords(res.data.items ?? []))
+      .catch(() => setAllLandlords([]));
+  }, [isEdit, officeLandlord]);
+
+  const landlordOptions = useMemo(
+    () =>
+      allLandlords.map((l) => ({
+        label: l.landlord_company || l.office_name || l.contact_name || l.ern || 'Unnamed landlord',
+        value: l.id,
+      })),
+    [allLandlords],
+  );
+
   // Map a landlord's contact/address details onto the owner form fields.
   const ownerFieldsFromLandlord = (l: Landlord) => ({
     owner_name: l.contact_name ?? '',
@@ -197,12 +219,24 @@ const OfficeFormPage: React.FC = () => {
   });
 
   const handleSameAsLandlordToggle = (checked: boolean) => {
+    if (!checked) {
+      setSelectedLandlordOption(null);
+    }
     setForm((prev) => {
       if (checked && officeLandlord) {
         return { ...prev, owner_same_as_landlord: true, ...ownerFieldsFromLandlord(officeLandlord) };
       }
       return { ...prev, owner_same_as_landlord: checked };
     });
+  };
+
+  const handleLandlordSelect = (option: { label: string; value: string } | null) => {
+    setSelectedLandlordOption(option);
+    if (!option) return;
+    const landlord = allLandlords.find((l) => l.id === option.value);
+    if (landlord) {
+      setForm((prev) => ({ ...prev, owner_same_as_landlord: true, ...ownerFieldsFromLandlord(landlord) }));
+    }
   };
 
   const setField = <K extends keyof OfficeFormState>(key: K, value: OfficeFormState[K]) => {
@@ -281,6 +315,22 @@ const OfficeFormPage: React.FC = () => {
             await attachmentsApi.upload('office', newId, qf.file);
           } catch {
             failed.push(qf.file.name);
+          }
+        }
+        // Associate the selected landlord with the newly created office (the
+        // office didn't exist yet, so this couldn't be done beforehand).
+        if (form.owner_same_as_landlord && selectedLandlordOption) {
+          const landlord = allLandlords.find((l) => l.id === selectedLandlordOption.value);
+          if (landlord) {
+            const existingIds = (landlord.owned_offices ?? []).map((o) => o.id);
+            const officeIds = Array.from(new Set([...existingIds, newId]));
+            try {
+              await landlordsApi.update(landlord.id, { office_ids: officeIds });
+            } catch {
+              setError((prev) =>
+                prev ?? 'Office created, but failed to associate the selected landlord. Link them from the office page.',
+              );
+            }
           }
         }
         if (failed.length > 0) {
@@ -597,16 +647,25 @@ const OfficeFormPage: React.FC = () => {
                   checked={form.owner_same_as_landlord ?? false}
                   onChange={({ detail }) => handleSameAsLandlordToggle(detail.checked)}
                   description={
-                    isEdit
-                      ? officeLandlord
-                        ? 'Populates the owner fields from this office\u2019s landlord.'
-                        : 'No landlord is associated with this office yet.'
-                      : 'Associate a landlord with the office first to copy their details.'
+                    officeLandlord
+                      ? 'Populates the owner fields from this office\u2019s landlord.'
+                      : 'Select a landlord below to copy their details and associate them with this office.'
                   }
-                  disabled={isEdit && !officeLandlord}
                 >
                   Landlord is same as owner
                 </Checkbox>
+                {form.owner_same_as_landlord && !officeLandlord && (
+                  <FormField label="Landlord" description="Pick the landlord this office's owner details should mirror.">
+                    <Select
+                      selectedOption={selectedLandlordOption}
+                      onChange={({ detail }) => handleLandlordSelect(detail.selectedOption as { label: string; value: string })}
+                      options={landlordOptions}
+                      placeholder="Select a landlord"
+                      filteringType="auto"
+                      empty="No landlords found. Create one from the Landlords page first."
+                    />
+                  </FormField>
+                )}
                 <SpaceBetween direction="horizontal" size="l">
                   <FormField label="Owner Name">
                     <Input

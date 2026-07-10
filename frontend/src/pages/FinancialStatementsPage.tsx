@@ -192,6 +192,7 @@ const FinancialStatementsPage: React.FC = () => {
   const [cashFlow, setCashFlow] = useState<CashFlowStatementResponse | null>(null);
   const [audit, setAudit] = useState<AuditReportResponse | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState<string | null>(null);
 
   const yearOptions = useMemo<Opt[]>(() => {
     const y = now.getFullYear();
@@ -227,6 +228,45 @@ const FinancialStatementsPage: React.FC = () => {
   }, [addFlash, year.value, month.value]);
 
   useEffect(() => { load(); }, [load]);
+
+  const downloadPdf = useCallback(
+    async (
+      statement: 'income' | 'balance' | 'cash-flow',
+      fetcher: () => Promise<{ data: Blob }>,
+      filename: string,
+    ) => {
+      setPdfLoading(statement);
+      try {
+        const res = await fetcher();
+        const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      } catch (err: unknown) {
+        const responseStatus = (err as { response?: { status?: number } })?.response?.status;
+        addFlash({
+          type: 'error',
+          content:
+            responseStatus === 402
+              ? 'PDF export is not included in your plan. Upgrade to enable it.'
+              : 'Failed to generate PDF.',
+        });
+      } finally {
+        setPdfLoading(null);
+      }
+    },
+    [addFlash],
+  );
+
+  const pdfParams = useMemo(
+    () => ({
+      year: year.value ? Number(year.value) : undefined,
+      month: month.value ? Number(month.value) : undefined,
+    }),
+    [year.value, month.value],
+  );
 
   const runAudit = useCallback(async () => {
     setAuditLoading(true);
@@ -277,6 +317,18 @@ const FinancialStatementsPage: React.FC = () => {
             label: 'Income Statement',
             content: (
               <SpaceBetween size="l">
+                <Box textAlign="right">
+                  <Button
+                    iconName="download"
+                    loading={pdfLoading === 'income'}
+                    disabled={loading}
+                    onClick={() =>
+                      downloadPdf('income', () => finApi.incomeStatementPdf(pdfParams), 'income_statement.pdf')
+                    }
+                  >
+                    Download PDF
+                  </Button>
+                </Box>
                 <Section
                   title="Revenue"
                   lines={income?.revenue ?? []}
@@ -306,6 +358,18 @@ const FinancialStatementsPage: React.FC = () => {
             label: 'Balance Sheet',
             content: (
               <SpaceBetween size="l">
+                <Box textAlign="right">
+                  <Button
+                    iconName="download"
+                    loading={pdfLoading === 'balance'}
+                    disabled={loading}
+                    onClick={() =>
+                      downloadPdf('balance', () => finApi.balanceSheetPdf(pdfParams), 'balance_sheet.pdf')
+                    }
+                  >
+                    Download PDF
+                  </Button>
+                </Box>
                 <Section
                   title="Assets"
                   lines={balance?.assets ?? []}
@@ -347,6 +411,22 @@ const FinancialStatementsPage: React.FC = () => {
             label: 'Cash Flow',
             content: (
               <SpaceBetween size="l">
+                <Box textAlign="right">
+                  <Button
+                    iconName="download"
+                    loading={pdfLoading === 'cash-flow'}
+                    disabled={loading}
+                    onClick={() =>
+                      downloadPdf(
+                        'cash-flow',
+                        () => finApi.cashFlowStatementPdf(pdfParams),
+                        'cash_flow_statement.pdf',
+                      )
+                    }
+                  >
+                    Download PDF
+                  </Button>
+                </Box>
                 <Section
                   title="Operating activities"
                   lines={cashFlow?.operating.lines ?? []}

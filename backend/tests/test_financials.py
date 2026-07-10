@@ -241,3 +241,43 @@ async def test_viewer_cannot_access_cash_flow_statement(client, viewer_user):
         "/api/v1/financials/cash-flow-statement", headers=auth_headers(viewer_user)
     )
     assert resp.status_code == 403
+
+
+# ─── PDF export tests ─────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_income_statement_pdf(client, accountant_user, seeded_ledger):
+    resp = await client.get(
+        "/api/v1/financials/income-statement/pdf", headers=auth_headers(accountant_user)
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content.startswith(b"%PDF")
+
+
+@pytest.mark.asyncio
+async def test_balance_sheet_pdf(client, accountant_user, seeded_ledger):
+    resp = await client.get(
+        "/api/v1/financials/balance-sheet/pdf", headers=auth_headers(accountant_user)
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content.startswith(b"%PDF")
+
+
+@pytest.mark.asyncio
+async def test_cash_flow_statement_pdf(client, accountant_user, seeded_ledger):
+    resp = await client.get(
+        "/api/v1/financials/cash-flow-statement/pdf", headers=auth_headers(accountant_user)
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content.startswith(b"%PDF")
+
+
+@pytest.mark.asyncio
+async def test_viewer_cannot_access_income_statement_pdf(client, viewer_user):
+    resp = await client.get(
+        "/api/v1/financials/income-statement/pdf", headers=auth_headers(viewer_user)
+    )
+    assert resp.status_code == 403
