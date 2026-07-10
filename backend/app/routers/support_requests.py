@@ -340,7 +340,7 @@ async def create_support_message(
     await db.refresh(msg)
 
     # Notify the requester when support replies so they see the response.
-    if from_admin and req.requester_user_id and req.requester_user_id != current_user.id:
+    if from_admin and req.requester_user_id:
         await create_notification(
             db,
             user_id=req.requester_user_id,
