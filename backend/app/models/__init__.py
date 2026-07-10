@@ -34,6 +34,7 @@ from app.models.activity_log import ActivityLog
 from app.models.vendor import Vendor
 from app.models.site_settings import SiteSettings
 from app.models.support_request import SupportRequest, SUPPORT_REQUEST_STATUSES
+from app.models.support_message import SupportMessage
 from app.models.ticket_template import TicketTemplate
 from app.models.recurring_ticket_rule import RecurringTicketRule
 from app.models.notification import Notification
@@ -143,6 +144,7 @@ __all__ = [
     "Vendor",
     "SiteSettings",
     "SupportRequest", "SUPPORT_REQUEST_STATUSES",
+    "SupportMessage",
     "TicketTemplate",
     "RecurringTicketRule",
     "Notification",

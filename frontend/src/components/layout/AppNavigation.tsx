@@ -56,7 +56,6 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
 
   const isEditorOrAdmin = user?.role === 'admin' || user?.role === 'editor';
   const isFinance = user?.role === 'admin' || user?.role === 'accountant';
-  const isSuperAdmin = user?.is_super_admin === true;
   const pinnedOffices = getPinnedOffices();
 
   const navItems = useMemo(() => [
@@ -162,17 +161,12 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       text: 'Administration',
       href: '/administration',
     }] : []),
-    ...(isSuperAdmin ? [{
-      type: 'link' as const,
-      text: 'Platform',
-      href: '/platform',
-    }] : []),
     {
       type: 'link' as const,
       text: 'Help',
       href: '/help',
     },
-  ], [isEditorOrAdmin, isFinance, isSuperAdmin, pinnedOffices]);
+  ], [isEditorOrAdmin, isFinance, pinnedOffices]);
 
   return (
     <>

@@ -83,6 +83,20 @@ async def mark_all_read(
     await db.commit()
 
 
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_notifications(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Clear (delete) all notifications for the current user."""
+    result = await db.execute(
+        select(Notification).where(Notification.user_id == current_user.id)
+    )
+    for notif in result.scalars().all():
+        await db.delete(notif)
+    await db.commit()
+
+
 @router.delete("/{notification_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_notification(
     notification_id: uuid.UUID,

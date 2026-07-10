@@ -193,14 +193,92 @@ async def test_email_forwards_to_configured_address(
 
 
 @pytest.mark.asyncio
-async def test_config_endpoint_reports_configured_address(
-    client, admin_user: User, monkeypatch
+async def test_two_way_thread_reply_notifies_requester(
+    client, viewer_user: User, admin_user: User, db_session
 ):
-    import app.routers.support_requests as sr
-
-    monkeypatch.setattr(sr.settings, "SUPPORT_EMAIL", "help@acme.com")
-    resp = await client.get(
-        "/api/v1/support-requests/config", headers=auth_headers(admin_user)
+    """A user submits a request, an admin replies, and the requester can read it."""
+    created = await client.post(
+        "/api/v1/support-requests",
+        json={"subject": "Printer", "message": "It is broken"},
+        headers=auth_headers(viewer_user),
     )
-    assert resp.status_code == 200
-    assert resp.json()["support_email"] == "help@acme.com"
+    req_id = created.json()["id"]
+
+    # Requester sees the (empty) thread.
+    thread = await client.get(
+        f"/api/v1/support-requests/{req_id}/messages",
+        headers=auth_headers(viewer_user),
+    )
+    assert thread.status_code == 200
+    assert thread.json() == []
+
+    # The requester lists their own requests.
+    mine = await client.get(
+        "/api/v1/support-requests/mine", headers=auth_headers(viewer_user)
+    )
+    assert mine.status_code == 200
+    assert any(r["id"] == req_id for r in mine.json())
+
+    # Admin replies -> message flagged as from admin.
+    reply = await client.post(
+        f"/api/v1/support-requests/{req_id}/messages",
+        json={"body": "Have you tried turning it off and on?"},
+        headers=auth_headers(admin_user),
+    )
+    assert reply.status_code == 201, reply.text
+    assert reply.json()["is_from_admin"] is True
+
+    # The requester now sees the reply and the notification.
+    thread = await client.get(
+        f"/api/v1/support-requests/{req_id}/messages",
+        headers=auth_headers(viewer_user),
+    )
+    assert len(thread.json()) == 1
+    assert thread.json()[0]["body"] == "Have you tried turning it off and on?"
+
+    from sqlalchemy import select
+    from app.models.notification import Notification
+
+    notes = (
+        await db_session.execute(
+            select(Notification).where(Notification.user_id == viewer_user.id)
+        )
+    ).scalars().all()
+    assert any(n.entity_type == "support_request" for n in notes)
+
+
+@pytest.mark.asyncio
+async def test_requester_reply_not_flagged_as_admin(
+    client, viewer_user: User
+):
+    created = await client.post(
+        "/api/v1/support-requests",
+        json={"subject": "S", "message": "M"},
+        headers=auth_headers(viewer_user),
+    )
+    req_id = created.json()["id"]
+    reply = await client.post(
+        f"/api/v1/support-requests/{req_id}/messages",
+        json={"body": "Any update?"},
+        headers=auth_headers(viewer_user),
+    )
+    assert reply.status_code == 201
+    assert reply.json()["is_from_admin"] is False
+
+
+@pytest.mark.asyncio
+async def test_thread_forbidden_for_unrelated_non_admin(
+    client, viewer_user: User, editor_user: User
+):
+    """A non-admin who is not the requester cannot read another user's thread."""
+    created = await client.post(
+        "/api/v1/support-requests",
+        json={"subject": "S", "message": "M"},
+        headers=auth_headers(viewer_user),
+    )
+    req_id = created.json()["id"]
+    resp = await client.get(
+        f"/api/v1/support-requests/{req_id}/messages",
+        headers=auth_headers(editor_user),
+    )
+    assert resp.status_code == 403

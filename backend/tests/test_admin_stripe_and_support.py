@@ -173,3 +173,63 @@ async def test_admin_support_requests_requires_console_role(client, db_session):
     _, plain = await _plain_admin(db_session)
     r = await client.get("/admin/v1/support-requests", headers=auth_headers(plain))
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_console_reply_creates_thread_and_notifies(client, db_session):
+    """Replying from the admin console records the message and notifies the requester."""
+    from app.auth.password import hash_password
+
+    sa = await _super_admin(db_session)
+    org = Organization(name="ThreadCo", slug="threadco", plan="pro", is_active=True)
+    db_session.add(org)
+    await db_session.commit()
+    await db_session.refresh(org)
+    requester = User(
+        email="req@thread.co", display_name="Reqy", password_hash=hash_password("pw12345678"),
+        auth_provider="internal", role="viewer", is_active=True, organization_id=org.id,
+    )
+    db_session.add(requester)
+    await db_session.commit()
+    await db_session.refresh(requester)
+    req = SupportRequest(
+        organization_id=org.id, subject="Broken", message="Help", status="open",
+        requester_user_id=requester.id, requester_name="Reqy", requester_email=requester.email,
+    )
+    db_session.add(req)
+    await db_session.commit()
+    await db_session.refresh(req)
+
+    reply = await client.post(
+        f"/admin/v1/support-requests/{req.id}/messages",
+        headers=auth_headers(sa),
+        json={"body": "We are looking into it."},
+    )
+    assert reply.status_code == 201, reply.text
+    assert reply.json()["is_from_admin"] is True
+
+    thread = await client.get(
+        f"/admin/v1/support-requests/{req.id}/messages", headers=auth_headers(sa)
+    )
+    assert thread.status_code == 200
+    assert len(thread.json()) == 1
+
+    from sqlalchemy import select
+    from app.models.notification import Notification
+
+    notes = (
+        await db_session.execute(
+            select(Notification).where(Notification.user_id == requester.id)
+        )
+    ).scalars().all()
+    assert any(n.entity_type == "support_request" for n in notes)
+
+
+@pytest.mark.asyncio
+async def test_admin_console_reply_requires_console_role(client, db_session):
+    _, plain = await _plain_admin(db_session)
+    r = await client.post(
+        "/admin/v1/support-requests/00000000-0000-0000-0000-000000000000/messages",
+        headers=auth_headers(plain), json={"body": "hi"},
+    )
+    assert r.status_code == 403
