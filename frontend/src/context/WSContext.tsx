@@ -100,7 +100,8 @@ export const WSProvider: React.FC<{ children: React.ReactNode; token: string | n
       // when the backend is unavailable (e.g. 502) or the token is stale.
       const attempt = reconnectAttempts.current;
       reconnectAttempts.current = attempt + 1;
-      const backoff = Math.min(RECONNECT_BASE_MS * 2 ** attempt, RECONNECT_MAX_MS);
+      // Cap the exponent so the multiplication stays bounded before Math.min.
+      const backoff = Math.min(RECONNECT_BASE_MS * 2 ** Math.min(attempt, 5), RECONNECT_MAX_MS);
       const delay = backoff / 2 + Math.random() * (backoff / 2);
       reconnectTimer.current = setTimeout(connect, delay);
     };
