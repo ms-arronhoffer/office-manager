@@ -35,16 +35,19 @@ def upgrade() -> None:
             "site_settings",
             sa.Column("company_name", sa.String(length=200), nullable=False, server_default="Portfolio Desk"),
         )
+        columns.add("company_name")
     if "company_address" not in columns:
         op.add_column("site_settings", sa.Column("company_address", sa.Text(), nullable=True))
     if "company_phone" not in columns:
         op.add_column("site_settings", sa.Column("company_phone", sa.String(length=50), nullable=True))
     if "company_email" not in columns:
         op.add_column("site_settings", sa.Column("company_email", sa.String(length=320), nullable=True))
-    if "app_name" in columns:
+    if "app_name" in columns and "company_name" in columns:
         op.execute("UPDATE site_settings SET company_name = app_name")
+    if "app_name" in columns:
         op.drop_column("site_settings", "app_name")
-    op.alter_column("site_settings", "company_name", server_default=None)
+    if "company_name" in columns:
+        op.alter_column("site_settings", "company_name", server_default=None)
 
 
 def downgrade() -> None:
