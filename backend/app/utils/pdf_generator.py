@@ -98,6 +98,7 @@ def generate_statement_pdf(
     period_label: str,
     sections: list[dict[str, Any]],
     summary_lines: list[tuple[str, Any]] | None = None,
+    company_contact: str | None = None,
 ) -> io.BytesIO:
     """Render a single GAAP financial statement as an executive-ready PDF.
 
@@ -144,10 +145,18 @@ def generate_statement_pdf(
 
     elements: list[Any] = [
         Paragraph(company_name, company_style),
+    ]
+    if company_contact:
+        contact_style = ParagraphStyle(
+            "CompanyContact", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#545b64"),
+            alignment=TA_CENTER, spaceAfter=4,
+        )
+        elements.append(Paragraph(company_contact, contact_style))
+    elements.extend([
         Paragraph(statement_title, title_style),
         Paragraph(period_label, period_style),
         Paragraph(f"Generated {datetime.now(timezone.utc).strftime('%B %d, %Y at %I:%M %p UTC')}", generated_style),
-    ]
+    ])
 
     available_width = letter[0] - 1.5 * inch
 

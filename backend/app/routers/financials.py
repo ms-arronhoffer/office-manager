@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import require_feature, require_role
 from app.database import get_db
 from app.models.organization import Organization
+from app.models.site_settings import SiteSettings
 from app.models.user import User
 from app.services import accounting_audit_service as audit_svc
 from app.services import financials_service as svc
@@ -206,6 +207,26 @@ async def _org_name(db: AsyncSession, current_user: User) -> str:
     return org.name if org else "Financial Statements"
 
 
+async def _report_header(db: AsyncSession, current_user: User) -> tuple[str, str]:
+    """Return the (company name, contact line) used to head generated reports."""
+    org_name = await _org_name(db, current_user)
+    if current_user.organization_id is None:
+        return org_name, ""
+    result = await db.execute(
+        select(SiteSettings).where(SiteSettings.organization_id == current_user.organization_id)
+    )
+    settings = result.scalar_one_or_none()
+    if not settings:
+        return org_name, ""
+    company_name = settings.company_name or org_name
+    contact_parts = [
+        part.strip()
+        for part in (settings.company_address, settings.company_phone, settings.company_email)
+        if part and part.strip()
+    ]
+    return company_name, " · ".join(contact_parts)
+
+
 def _lines_to_rows(lines: list[StatementLine]) -> list[tuple[str, str, Decimal]]:
     return [(l.code, l.name, l.amount) for l in lines]
 
@@ -228,9 +249,10 @@ async def get_income_statement_pdf(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         )
     resp = IncomeStatementResponse(**data)
-    company_name = await _org_name(db, current_user)
+    company_name, company_contact = await _report_header(db, current_user)
     buffer = generate_statement_pdf(
         company_name=company_name,
+        company_contact=company_contact,
         statement_title="Income Statement",
         period_label=_period_label(resp.start_date, resp.end_date),
         sections=[
@@ -274,9 +296,10 @@ async def get_balance_sheet_pdf(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         )
     resp = BalanceSheetResponse(**data)
-    company_name = await _org_name(db, current_user)
+    company_name, company_contact = await _report_header(db, current_user)
     buffer = generate_statement_pdf(
         company_name=company_name,
+        company_contact=company_contact,
         statement_title="Balance Sheet",
         period_label=_period_label(None, resp.as_of_date),
         sections=[
@@ -329,9 +352,10 @@ async def get_cash_flow_statement_pdf(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         )
     resp = CashFlowStatementResponse(**data)
-    company_name = await _org_name(db, current_user)
+    company_name, company_contact = await _report_header(db, current_user)
     buffer = generate_statement_pdf(
         company_name=company_name,
+        company_contact=company_contact,
         statement_title="Statement of Cash Flows",
         period_label=_period_label(resp.start_date, resp.end_date),
         sections=[
