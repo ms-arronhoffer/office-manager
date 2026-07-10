@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
@@ -80,6 +80,18 @@ async def mark_all_read(
     )
     for notif in result.scalars().all():
         notif.is_read = True
+    await db.commit()
+
+
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_notifications(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Clear (delete) all notifications for the current user."""
+    await db.execute(
+        delete(Notification).where(Notification.user_id == current_user.id)
+    )
     await db.commit()
 
 

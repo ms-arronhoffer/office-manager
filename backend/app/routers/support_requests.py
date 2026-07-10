@@ -24,9 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user, require_role
 from app.config import settings
 from app.database import get_db
+from app.models.support_message import SupportMessage
 from app.models.support_request import SUPPORT_REQUEST_STATUSES, SupportRequest
 from app.models.user import User
 from app.utils.email_client import send_email
+from app.utils.notifications import create_notification
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,23 @@ class SupportEmailResult(BaseModel):
 
 class SupportConfigResponse(BaseModel):
     support_email: str | None
+
+
+class SupportMessageCreate(BaseModel):
+    body: str = Field(min_length=1)
+
+
+class SupportMessageResponse(BaseModel):
+    id: uuid.UUID
+    support_request_id: uuid.UUID
+    body: str
+    is_from_admin: bool
+    author_user_id: uuid.UUID | None
+    author_name: str | None
+    author_email: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -151,6 +170,24 @@ async def get_support_config(
     return SupportConfigResponse(support_email=_support_email())
 
 
+@router.get("/mine", response_model=list[SupportRequestResponse])
+async def list_my_support_requests(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List the support requests submitted by the current user (newest first).
+
+    Lets any authenticated user follow up on their own requests and read the
+    replies posted by support, without needing admin access.
+    """
+    res = await db.execute(
+        select(SupportRequest)
+        .where(SupportRequest.requester_user_id == current_user.id)
+        .order_by(SupportRequest.created_at.desc())
+    )
+    return [SupportRequestResponse.model_validate(r) for r in res.scalars().all()]
+
+
 @router.get("", response_model=list[SupportRequestResponse])
 async def list_support_requests(
     status_filter: str | None = Query(default=None, alias="status"),
@@ -233,3 +270,85 @@ async def delete_support_request(
     req = await _get_owned(request_id, db, current_user)
     await db.delete(req)
     await db.commit()
+
+
+# ── Conversation thread ─────────────────────────────────────────────────────
+
+def _is_admin(user: User) -> bool:
+    return bool(user.is_super_admin) or user.role == "admin"
+
+
+async def _get_thread_request(
+    request_id: uuid.UUID, db: AsyncSession, current_user: User
+) -> SupportRequest:
+    """Fetch an org-scoped request that the current user may view/reply to.
+
+    Access is granted to the original requester or to an org admin.
+    """
+    req = await _get_owned(request_id, db, current_user)
+    if req.requester_user_id != current_user.id and not _is_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this support request",
+        )
+    return req
+
+
+@router.get("/{request_id}/messages", response_model=list[SupportMessageResponse])
+async def list_support_messages(
+    request_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    req = await _get_thread_request(request_id, db, current_user)
+    res = await db.execute(
+        select(SupportMessage)
+        .where(SupportMessage.support_request_id == req.id)
+        .order_by(SupportMessage.created_at.asc())
+    )
+    return [SupportMessageResponse.model_validate(m) for m in res.scalars().all()]
+
+
+@router.post(
+    "/{request_id}/messages",
+    response_model=SupportMessageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_support_message(
+    request_id: uuid.UUID,
+    payload: SupportMessageCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    req = await _get_thread_request(request_id, db, current_user)
+
+    # A message is "from admin" (support side) when the author is not the
+    # original requester — i.e. an admin replying to a customer's request.
+    from_admin = req.requester_user_id != current_user.id
+
+    msg = SupportMessage(
+        support_request_id=req.id,
+        organization_id=req.organization_id,
+        body=payload.body.strip(),
+        is_from_admin=from_admin,
+        author_user_id=current_user.id,
+        author_name=current_user.display_name,
+        author_email=current_user.email,
+    )
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+
+    # Notify the requester when support replies so they see the response.
+    if from_admin and req.requester_user_id:
+        await create_notification(
+            db,
+            user_id=req.requester_user_id,
+            kind="support",
+            title="New reply to your support request",
+            body=req.subject,
+            entity_type="support_request",
+            entity_id=req.id,
+        )
+
+    return SupportMessageResponse.model_validate(msg)

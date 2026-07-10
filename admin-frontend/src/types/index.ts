@@ -306,6 +306,17 @@ export interface SupportRequestRow {
   updated_at: string
 }
 
+export interface SupportMessageRow {
+  id: string
+  support_request_id: string
+  body: string
+  is_from_admin: boolean
+  author_user_id: string | null
+  author_name: string | null
+  author_email: string | null
+  created_at: string
+}
+
 export interface StripeConfig {
   configured: boolean
   is_enabled: boolean
