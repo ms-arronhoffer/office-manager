@@ -169,11 +169,6 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
     }] : []),
     {
       type: 'link' as const,
-      text: 'Settings',
-      href: '/settings',
-    },
-    {
-      type: 'link' as const,
       text: 'Help',
       href: '/help',
     },
