@@ -5,13 +5,13 @@ The application's top-navigation brand name is now a fixed constant
 add company-specific fields (name, address, phone, email) used as the
 company header on generated reports and shown in the side navigation.
 
-Revision ID: 081
+Revision ID: 081b
 Revises: 080
 """
 import sqlalchemy as sa
 from alembic import op
 
-revision = "081"
+revision = "081b"
 down_revision = "080"
 branch_labels = None
 depends_on = None
