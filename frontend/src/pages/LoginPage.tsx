@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
 import Form from '@cloudscape-design/components/form';
@@ -46,6 +46,7 @@ const getRequestErrorMessage = (err: unknown, fallback: string): string => {
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { token: routeResetToken } = useParams<{ token?: string }>();
   const { loginWithToken, googleLogin, isAuthenticated } = useAuth();
   const { settings, reload: reloadSiteSettings } = useSiteSettings();
 
@@ -79,6 +80,15 @@ const LoginPage: React.FC = () => {
       navigate(from, { replace: true });
     }
   }, [isAuthenticated, from, navigate]);
+
+  useEffect(() => {
+    if (routeResetToken) {
+      setMode('reset');
+      setResetToken(routeResetToken);
+      setError(null);
+      setSuccessMessage(null);
+    }
+  }, [routeResetToken]);
 
   if (isAuthenticated) {
     return null;
@@ -156,8 +166,8 @@ const LoginPage: React.FC = () => {
       setError('Passwords do not match.');
       return;
     }
-    if (newPassword.length < 8) {
-      setError('Password must be at least 8 characters.');
+    if (newPassword.length < 12) {
+      setError('Password must be at least 12 characters.');
       return;
     }
     setIsLoading(true);
@@ -283,12 +293,15 @@ const LoginPage: React.FC = () => {
               disabled={isLoading}
             />
           </FormField>
-          <FormField label="New password">
+          <FormField
+            label="New password"
+            constraintText="Use at least 12 characters and include 3 of: uppercase, lowercase, number, special character."
+          >
             <Input
               type="password"
               value={newPassword}
               onChange={({ detail }) => setNewPassword(detail.value)}
-              placeholder="At least 8 characters"
+              placeholder="Choose a strong password"
               disabled={isLoading}
             />
           </FormField>

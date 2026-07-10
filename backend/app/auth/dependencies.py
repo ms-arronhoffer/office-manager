@@ -58,6 +58,10 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+    if user.organization_id is not None:
+        from app.utils.rls import set_session_org  # local import to avoid cycles
+
+        await set_session_org(db, user.organization_id)
     return user
 
 
@@ -74,6 +78,9 @@ async def get_current_org(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
     if not org.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organization is inactive")
+    from app.utils.rls import set_session_org  # local import to avoid cycles
+
+    await set_session_org(db, org.id)
     return org
 
 
@@ -124,6 +131,9 @@ async def enforce_org_access(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=ent.access_denied_message(state),
         )
+    from app.utils.rls import set_session_org  # local import to avoid cycles
+
+    await set_session_org(db, org.id)
     return user
 
 

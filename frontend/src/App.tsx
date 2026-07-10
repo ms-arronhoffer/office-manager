@@ -80,6 +80,7 @@ const HvacPage = lazy(() => import('@/pages/HvacPage'));
 const MaintenancePage = lazy(() => import('@/pages/MaintenancePage'));
 const AdministrationPage = lazy(() => import('@/pages/AdministrationPage'));
 const PlatformAdminPage = lazy(() => import('@/pages/PlatformAdminPage'));
+const VerifyEmailPage = lazy(() => import('@/pages/VerifyEmailPage'));
 
 const PageLoader = () => (
   <Box textAlign="center" padding={{ top: 'xxxl' }}>
@@ -99,7 +100,9 @@ const App: React.FC = () => {
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/reset-password/:token" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
+            <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
             <Route path="/vendor-portal" element={<VendorPortalPage />} />
             <Route path="/client-portal" element={<ClientPortalPage />} />
             <Route path="/client-portal/signup" element={<ClientPortalPage />} />

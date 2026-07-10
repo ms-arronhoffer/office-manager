@@ -38,8 +38,8 @@ const SignupPage: React.FC = () => {
       setError('Passwords do not match.');
       return;
     }
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
+    if (password.length < 12) {
+      setError('Password must be at least 12 characters.');
       return;
     }
     setIsLoading(true);
@@ -143,7 +143,10 @@ const SignupPage: React.FC = () => {
                     disabled={isLoading}
                   />
                 </FormField>
-                <FormField label="Password" constraintText="Minimum 8 characters.">
+                <FormField
+                  label="Password"
+                  constraintText="Use at least 12 characters and include 3 of: uppercase, lowercase, number, special character."
+                >
                   <Input
                     type="password"
                     value={password}

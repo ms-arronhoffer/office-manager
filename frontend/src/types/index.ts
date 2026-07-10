@@ -8,6 +8,7 @@ export interface User {
   role: 'admin' | 'editor' | 'viewer' | 'accountant';
   is_super_admin: boolean;
   is_active: boolean;
+  email_verified: boolean;
   last_login_at?: string;
   created_at: string;
 }

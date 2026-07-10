@@ -324,6 +324,7 @@ async def patch_org(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Unknown plan '{data['plan']}'. Valid plans: {', '.join(ent.PLAN_CATALOG)}",
         )
+    prior_entitlement_overrides = org.entitlement_overrides
     if "entitlement_overrides" in data:
         # Drop unknown/invalid keys so only catalog-recognised overrides persist.
         data["entitlement_overrides"] = ent.normalize_overrides(data["entitlement_overrides"])
@@ -332,6 +333,12 @@ async def patch_org(
         setattr(org, field, value)
 
     await db.commit()
+    audit_changes = dict(data)
+    if "entitlement_overrides" in data:
+        audit_changes["entitlement_overrides"] = {
+            "before": ent.normalize_overrides(prior_entitlement_overrides),
+            "after": data["entitlement_overrides"],
+        }
     await log_activity(
         db,
         user=current_user,
@@ -339,7 +346,7 @@ async def patch_org(
         entity_type="organization",
         entity_id=org_id,
         entity_label=org.name,
-        changes=data,
+        changes=audit_changes,
     )
 
     stats = await _org_stats(db, [org_id])

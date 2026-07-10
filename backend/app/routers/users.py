@@ -1,8 +1,9 @@
 import logging
 import math
+import secrets
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,8 +14,9 @@ from app.database import get_db
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
-from app.schemas.user import RegisterRequest, UserResponse, UserUpdateRequest
+from app.schemas.user import UserInviteRequest, UserResponse, UserUpdateRequest
 from app.services import entitlements as ent
+from app.services.password_reset_service import issue_password_reset_token, send_password_reset_email
 
 router = APIRouter()
 
@@ -76,7 +78,8 @@ async def list_users(
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
-    data: RegisterRequest,
+    data: UserInviteRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin")),
 ):
@@ -109,7 +112,7 @@ async def create_user(
     new_user = User(
         email=data.email,
         display_name=data.display_name,
-        password_hash=hash_password(data.password),
+        password_hash=hash_password(secrets.token_urlsafe(32)),
         auth_provider="internal",
         role=data.role,
         is_active=True,
@@ -118,6 +121,18 @@ async def create_user(
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
+    token = await issue_password_reset_token(new_user, db)
+    send_password_reset_email(
+        new_user,
+        token,
+        background_tasks,
+        subject="You're invited to Portfolio Desk",
+        intro_html=(
+            f"<p>Hello {new_user.display_name},</p>"
+            f"<p>{current_user.display_name} invited you to join Portfolio Desk.</p>"
+        ),
+        footer_html="<p>Use the link above to set your password and finish activating your account.</p>",
+    )
     # Update Stripe subscription quantity (best-effort)
     await _sync_stripe_seats(org, db)
     return new_user

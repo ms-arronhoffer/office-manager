@@ -12,7 +12,7 @@ import Alert from '@cloudscape-design/components/alert';
 import Checkbox from '@cloudscape-design/components/checkbox';
 import Badge from '@cloudscape-design/components/badge';
 import { useAuth } from '@/auth/AuthContext';
-import { offices, ticketCategories, organizations, auth as authApi } from '@/api';
+import { offices, ticketCategories, organizations, users } from '@/api';
 
 const LOCATION_TYPES = [
   { label: 'Office', value: 'Office' },
@@ -151,8 +151,8 @@ const OnboardingPage: React.FC = () => {
         try {
           await Promise.all(
             validInvites.map(inv =>
-              authApi
-                .register({ email: inv.email.trim(), display_name: inv.email.trim(), password: crypto.randomUUID(), role: inv.role })
+              users
+                .create({ email: inv.email.trim(), display_name: inv.email.trim(), role: inv.role })
                 .catch(() => null),
             ),
           );

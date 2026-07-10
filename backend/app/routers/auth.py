@@ -1,15 +1,15 @@
 from datetime import datetime, timedelta, timezone
-import secrets
 
 import pyotp
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
+from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user
 from app.auth.google_oauth import verify_google_token
-from app.auth.jwt_handler import create_access_token, decode_access_token
+from app.auth.jwt_handler import create_access_token
+from app.auth.password_policy import validate_password_strength
 from app.auth.password import hash_password, verify_password
 from app.database import get_db
 from app.models.user import User
@@ -20,7 +20,8 @@ from app.schemas.user import (
     RegisterRequest,
     UserResponse,
 )
-from app.utils.email_client import send_email
+from app.services.email_verification_service import issue_verification_token, send_verification_email
+from app.services.password_reset_service import issue_password_reset_token, send_password_reset_email
 
 router = APIRouter()
 
@@ -194,6 +195,9 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
+    # Deliberately do not hard-block unverified email addresses here. The
+    # frontend uses ``email_verified`` from /auth/me for a softer rollout that
+    # does not break existing auth flows or test fixtures.
 
     await _clear_lockout(db, email)
     user.last_login_at = datetime.now(timezone.utc)
@@ -333,6 +337,7 @@ async def mfa_disable(
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     payload: RegisterRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -355,6 +360,8 @@ async def register(
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
+    verification_token = await issue_verification_token(new_user, db)
+    send_verification_email(new_user, verification_token, background_tasks)
     return new_user
 
 
@@ -383,38 +390,36 @@ async def change_password(
 
 
 class ForgotPasswordRequest(BaseModel):
-    email: str
+    email: EmailStr
 
 
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
 
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        return validate_password_strength(value)
 
-_RESET_TOKEN_EXPIRY_HOURS = 2
 
+class VerifyEmailRequest(BaseModel):
+    token: str
 
 @router.post("/forgot-password", status_code=status.HTTP_204_NO_CONTENT)
-async def forgot_password(payload: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+async def forgot_password(
+    payload: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(User).where(User.email == payload.email, User.auth_provider == "internal")
     )
     user = result.scalar_one_or_none()
 
     if user and user.is_active:
-        token = secrets.token_urlsafe(48)
-        user.password_reset_token = token
-        user.password_reset_expires_at = datetime.now(timezone.utc) + timedelta(hours=_RESET_TOKEN_EXPIRY_HOURS)
-        await db.commit()
-
-        html = (
-            f"<p>You requested a password reset for your account.</p>"
-            f"<p>Your reset token is: <strong>{token}</strong></p>"
-            f"<p>Enter this token on the login page to set a new password. "
-            f"It expires in {_RESET_TOKEN_EXPIRY_HOURS} hours.</p>"
-            f"<p>If you did not request this, you can safely ignore this email.</p>"
-        )
-        await send_email(to=payload.email, subject="Password Reset Request", html_body=html)
+        token = await issue_password_reset_token(user, db)
+        send_password_reset_email(user, token, background_tasks)
 
 
 @router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
@@ -435,10 +440,44 @@ async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depen
         expires = expires.replace(tzinfo=timezone.utc)
     if datetime.now(timezone.utc) > expires:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
-    if len(payload.new_password) < 8:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters")
 
     user.password_hash = hash_password(payload.new_password)
     user.password_reset_token = None
     user.password_reset_expires_at = None
     await db.commit()
+
+
+@router.post("/verify-email", status_code=status.HTTP_204_NO_CONTENT)
+async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(get_db)) -> Response:
+    result = await db.execute(select(User).where(User.email_verification_token == payload.token))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification token")
+
+    expires = user.email_verification_expires_at
+    if expires is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification token")
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired verification token")
+
+    user.email_verified = True
+    user.email_verification_token = None
+    user.email_verification_expires_at = None
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/resend-verification", status_code=status.HTTP_204_NO_CONTENT)
+async def resend_verification(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    if current_user.email_verified:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    verification_token = await issue_verification_token(current_user, db)
+    send_verification_email(current_user, verification_token, background_tasks)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
