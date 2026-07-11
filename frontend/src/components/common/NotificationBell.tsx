@@ -14,11 +14,17 @@ const ENTITY_PATHS: Record<string, string> = {
 };
 
 /**
- * aria-label prefix shared by the notification trigger button. The panel uses
- * it to detect clicks on the trigger so an outside-click doesn't fight the
- * button's own toggle handler.
+ * aria-label used by the notification trigger button. The panel uses it to
+ * detect clicks on the trigger so an outside-click doesn't fight the button's
+ * own toggle handler. When there are unread items the button appends a count,
+ * so both exact and " (" prefixed forms are matched.
  */
 export const NOTIFICATION_TRIGGER_LABEL = 'Notifications';
+
+/** CSS selector matching only the notification trigger button's aria-label. */
+const NOTIFICATION_TRIGGER_SELECTOR =
+  `[aria-label="${NOTIFICATION_TRIGGER_LABEL}"],` +
+  `[aria-label^="${NOTIFICATION_TRIGGER_LABEL} ("]`;
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -176,7 +182,7 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (panelRef.current && panelRef.current.contains(target)) return;
-      if (target.closest(`[aria-label^="${NOTIFICATION_TRIGGER_LABEL}"]`)) return;
+      if (target.closest(NOTIFICATION_TRIGGER_SELECTOR)) return;
       onClose();
     };
     document.addEventListener('mousedown', handler);
