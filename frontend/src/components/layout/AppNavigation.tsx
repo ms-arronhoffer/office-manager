@@ -9,7 +9,7 @@ import { usePreferences } from '@/context/PreferencesContext';
 import { useSiteSettings } from '@/context/SiteSettingsContext';
 import GlobalSearchBar from '@/components/common/GlobalSearchBar';
 import KeyboardShortcutsModal from '@/components/common/KeyboardShortcutsModal';
-import NotificationBell from '@/components/common/NotificationBell';
+import { useNotifications, NotificationPanel, NOTIFICATION_TRIGGER_LABEL } from '@/components/common/NotificationBell';
 import SupportRequestModal from '@/components/common/SupportRequestModal';
 import AIPortfolioAssistant from '@/components/common/AIPortfolioAssistant';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
@@ -53,6 +53,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
   );
   useKeyboardShortcuts(onShowShortcuts, toggleAssistant);
   const { canInstall, promptInstall } = useInstallPrompt();
+  const notifications = useNotifications();
 
   const isEditorOrAdmin = user?.role === 'admin' || user?.role === 'editor';
   const isFinance = user?.role === 'admin' || user?.role === 'accountant';
@@ -182,6 +183,16 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
           }}
           search={<GlobalSearchBar />}
           utilities={[
+            {
+              type: 'button',
+              iconName: 'notification',
+              badge: notifications.unreadCount > 0,
+              title: 'Notifications',
+              ariaLabel: `${NOTIFICATION_TRIGGER_LABEL}${
+                notifications.unreadCount > 0 ? ` (${notifications.unreadCount} unread)` : ''
+              }`,
+              onClick: () => notifications.setPanelOpen((o) => !o),
+            },
             ...(canInstall
               ? [
                   {
@@ -252,10 +263,15 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
             },
           ]}
         />
-        {/* Notification bell — positioned inside the sticky nav bar */}
-        <div style={{ position: 'absolute', top: 0, right: 170, height: '100%', display: 'flex', alignItems: 'center', zIndex: 1003 }}>
-          <NotificationBell />
-        </div>
+        <NotificationPanel
+          open={notifications.panelOpen}
+          onClose={() => notifications.setPanelOpen(false)}
+          unreadCount={notifications.unreadCount}
+          items={notifications.items}
+          onItemClick={notifications.handleItemClick}
+          onMarkAllRead={notifications.handleMarkAllRead}
+          onClearAll={notifications.handleClearAll}
+        />
       </div>
       <AppLayout
         navigation={
