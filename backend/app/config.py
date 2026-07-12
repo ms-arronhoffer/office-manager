@@ -67,8 +67,12 @@ class Settings(BaseSettings):
     # Stripe billing
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_PRICE_ID_STARTER: str = ""
     STRIPE_PRICE_ID_PRO: str = ""
-    STRIPE_PRICE_ID_ENTERPRISE: str = ""
+    # Enterprise is custom-priced per subscriber, so there is no shared price id.
+    # Instead we identify Enterprise subscriptions by their Stripe Product, under
+    # which each subscriber's bespoke price is created.
+    STRIPE_PRODUCT_ID_ENTERPRISE: str = ""
 
     # Trial period
     TRIAL_DAYS: int = 30

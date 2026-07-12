@@ -44,8 +44,9 @@ function StripeIntegrationCard() {
   const [secretKey, setSecretKey] = useState("")
   const [webhookSecret, setWebhookSecret] = useState("")
   const [publishableKey, setPublishableKey] = useState("")
+  const [priceStarter, setPriceStarter] = useState("")
   const [pricePro, setPricePro] = useState("")
-  const [priceEnterprise, setPriceEnterprise] = useState("")
+  const [productEnterprise, setProductEnterprise] = useState("")
   const [isEnabled, setIsEnabled] = useState(true)
 
   const load = useCallback(async () => {
@@ -53,8 +54,9 @@ function StripeIntegrationCard() {
       const data = await getStripeConfig()
       setCfg(data)
       setPublishableKey(data.publishable_key || "")
+      setPriceStarter(data.price_id_starter || "")
       setPricePro(data.price_id_pro || "")
-      setPriceEnterprise(data.price_id_enterprise || "")
+      setProductEnterprise(data.product_id_enterprise || "")
       setIsEnabled(data.is_enabled)
       setErr("")
     } catch {
@@ -74,8 +76,9 @@ function StripeIntegrationCard() {
       // Only include secret fields when the operator typed a value.
       const payload: Record<string, unknown> = {
         publishable_key: publishableKey,
+        price_id_starter: priceStarter,
         price_id_pro: pricePro,
-        price_id_enterprise: priceEnterprise,
+        product_id_enterprise: productEnterprise,
         is_enabled: isEnabled,
       }
       if (secretKey) payload.secret_key = secretKey
@@ -206,6 +209,17 @@ function StripeIntegrationCard() {
             <Label htmlFor="stripe-enabled" className="text-sm">Integration enabled</Label>
           </div>
           <div>
+            <Label htmlFor="stripe-price-starter" className="text-sm">Starter plan price ID</Label>
+            <Input
+              id="stripe-price-starter"
+              autoComplete="off"
+              placeholder="price_…"
+              value={priceStarter}
+              onChange={(e) => setPriceStarter(e.target.value)}
+              className="mt-2 font-mono"
+            />
+          </div>
+          <div>
             <Label htmlFor="stripe-price-pro" className="text-sm">Pro plan price ID</Label>
             <Input
               id="stripe-price-pro"
@@ -217,13 +231,13 @@ function StripeIntegrationCard() {
             />
           </div>
           <div>
-            <Label htmlFor="stripe-price-ent" className="text-sm">Enterprise plan price ID</Label>
+            <Label htmlFor="stripe-product-ent" className="text-sm">Enterprise product ID (custom-priced)</Label>
             <Input
-              id="stripe-price-ent"
+              id="stripe-product-ent"
               autoComplete="off"
-              placeholder="price_…"
-              value={priceEnterprise}
-              onChange={(e) => setPriceEnterprise(e.target.value)}
+              placeholder="prod_…"
+              value={productEnterprise}
+              onChange={(e) => setProductEnterprise(e.target.value)}
               className="mt-2 font-mono"
             />
           </div>

@@ -134,11 +134,37 @@ async def _require_stripe(db: AsyncSession) -> "StripeSettings":
     return resolved
 
 
-def _plan_from_price(price_id: str, stripe_cfg: "StripeSettings") -> str:
+def _plan_from_price(price: dict | str, stripe_cfg: "StripeSettings") -> str:
+    """Map a Stripe subscription price to an internal plan name.
+
+    Starter/Pro are matched by their configured price id. Enterprise is
+    custom-priced per subscriber, so it is matched by the price's Stripe
+    Product (which owns every subscriber's bespoke price) rather than a shared
+    price id. ``price`` may be a full price object (preferred, exposes
+    ``product``) or a bare price id string.
+    """
+    if isinstance(price, dict):
+        price_id = price.get("id")
+        product_id = price.get("product")
+        if isinstance(product_id, dict):
+            product_id = product_id.get("id")
+    else:
+        price_id = price
+        product_id = None
+
+    if stripe_cfg.price_id_starter and price_id == stripe_cfg.price_id_starter:
+        return "starter"
     if stripe_cfg.price_id_pro and price_id == stripe_cfg.price_id_pro:
         return "pro"
-    if stripe_cfg.price_id_enterprise and price_id == stripe_cfg.price_id_enterprise:
+    if stripe_cfg.product_id_enterprise and product_id == stripe_cfg.product_id_enterprise:
         return "enterprise"
+    # No configured price/product matched. Fall back to the mid-tier 'pro' plan
+    # rather than 'enterprise', so an unmapped price can never over-grant access
+    # to the highest tier. Log it so a misconfigured/unmapped price is visible.
+    logger.warning(
+        "Unmapped Stripe price (id=%s, product=%s); defaulting plan to 'pro'",
+        price_id, product_id,
+    )
     return "pro"
 
 
@@ -184,7 +210,7 @@ async def get_subscription(
 # ─── POST /billing/checkout ───────────────────────────────────────────────────
 
 class CheckoutRequest(BaseModel):
-    plan: str  # "pro" or "enterprise"
+    plan: str  # "starter" or "pro" (Enterprise is custom-priced — contact sales)
 
 
 @router.post("/checkout")
@@ -196,9 +222,17 @@ async def create_checkout_session(
     """Create a Stripe Checkout session for a plan upgrade. Redirects to Stripe."""
     stripe_cfg = await _require_stripe(db)
 
+    if payload.plan == "enterprise":
+        # Enterprise pricing is negotiated per subscriber and provisioned
+        # directly in Stripe, so it is not available via self-serve checkout.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enterprise plans are custom-priced. Please contact sales to get started.",
+        )
+
     price_map = {
+        "starter": stripe_cfg.price_id_starter,
         "pro": stripe_cfg.price_id_pro,
-        "enterprise": stripe_cfg.price_id_enterprise,
     }
     price_id = price_map.get(payload.plan)
     if not price_id:
@@ -283,8 +317,8 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 org.stripe_subscription_id = obj.get("subscription")
                 if org.stripe_subscription_id:
                     sub = stripe.Subscription.retrieve(org.stripe_subscription_id)
-                    price_id = sub["items"]["data"][0]["price"]["id"]
-                    org.plan = _plan_from_price(price_id, stripe_cfg)
+                    price = sub["items"]["data"][0]["price"]
+                    org.plan = _plan_from_price(price, stripe_cfg)
                 org.payment_status = "active"
                 org.is_active = True
                 org.past_due_since = None
@@ -299,8 +333,8 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             )
             org = result.scalar_one_or_none()
             if org:
-                price_id = obj["items"]["data"][0]["price"]["id"]
-                org.plan = _plan_from_price(price_id, stripe_cfg)
+                price = obj["items"]["data"][0]["price"]
+                org.plan = _plan_from_price(price, stripe_cfg)
                 sub_status = obj.get("status", "active")
                 if sub_status in _ACTIVE_STATUSES:
                     _mark_active(org)

@@ -509,8 +509,9 @@ class StripeConfigOut(BaseModel):
     secret_key_hint: str | None = None
     webhook_secret_hint: str | None = None
     publishable_key: str | None = None
+    price_id_starter: str | None = None
     price_id_pro: str | None = None
-    price_id_enterprise: str | None = None
+    product_id_enterprise: str | None = None
     # True when the effective value comes from an environment variable rather
     # than the stored config (helps the console explain where creds originate).
     secret_key_from_env: bool = False
@@ -525,8 +526,9 @@ class StripeConfigIn(BaseModel):
     secret_key: str | None = None
     webhook_secret: str | None = None
     publishable_key: str | None = None
+    price_id_starter: str | None = None
     price_id_pro: str | None = None
-    price_id_enterprise: str | None = None
+    product_id_enterprise: str | None = None
     is_enabled: bool | None = None
 
 
@@ -546,8 +548,9 @@ async def _stripe_config_out(db: AsyncSession) -> StripeConfigOut:
         secret_key_hint=mask_secret(decrypt_secret(stored_secret)) if stored_secret else None,
         webhook_secret_hint=mask_secret(decrypt_secret(stored_webhook)) if stored_webhook else None,
         publishable_key=cfg.publishable_key if cfg else None,
+        price_id_starter=resolved.price_id_starter or None,
         price_id_pro=resolved.price_id_pro or None,
-        price_id_enterprise=resolved.price_id_enterprise or None,
+        product_id_enterprise=resolved.product_id_enterprise or None,
         secret_key_from_env=bool(resolved.secret_key) and not (cfg and cfg.is_enabled and stored_secret),
         last_verified_at=cfg.last_verified_at if cfg else None,
         last_verify_ok=cfg.last_verify_ok if cfg else None,
@@ -591,10 +594,12 @@ async def save_stripe_config(
         )
     if payload.publishable_key is not None:
         cfg.publishable_key = payload.publishable_key.strip() or None
+    if payload.price_id_starter is not None:
+        cfg.price_id_starter = payload.price_id_starter.strip() or None
     if payload.price_id_pro is not None:
         cfg.price_id_pro = payload.price_id_pro.strip() or None
-    if payload.price_id_enterprise is not None:
-        cfg.price_id_enterprise = payload.price_id_enterprise.strip() or None
+    if payload.product_id_enterprise is not None:
+        cfg.product_id_enterprise = payload.product_id_enterprise.strip() or None
     if payload.is_enabled is not None:
         cfg.is_enabled = payload.is_enabled
     cfg.updated_by_id = current_user.id

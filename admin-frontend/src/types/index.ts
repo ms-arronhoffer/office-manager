@@ -333,8 +333,9 @@ export interface StripeConfig {
   secret_key_hint: string | null
   webhook_secret_hint: string | null
   publishable_key: string | null
+  price_id_starter: string | null
   price_id_pro: string | null
-  price_id_enterprise: string | null
+  product_id_enterprise: string | null
   secret_key_from_env: boolean
   last_verified_at: string | null
   last_verify_ok: boolean | null
@@ -345,8 +346,9 @@ export interface StripeConfigInput {
   secret_key?: string
   webhook_secret?: string
   publishable_key?: string
+  price_id_starter?: string
   price_id_pro?: string
-  price_id_enterprise?: string
+  product_id_enterprise?: string
   is_enabled?: boolean
 }
 
