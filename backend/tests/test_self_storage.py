@@ -118,6 +118,157 @@ async def test_viewer_cannot_create_facility(client, admin_user, viewer_user):
     assert resp.status_code == 403
 
 
+async def test_facility_stores_full_address_and_details(client, admin_user):
+    """A property captures a robust set of fields, not just a few basics."""
+    facility = await _make_facility(
+        client, admin_user,
+        name="Uptown Storage",
+        code="UPT",
+        facility_number=7,
+        address_line_1="123 Main St",
+        address_line_2="Suite 4",
+        city="Denver",
+        state="CO",
+        zip_code="80202",
+        phone="555-1000",
+        email="ops@uptown.example",
+        gate_hours="6am-10pm",
+        access_hours="24/7",
+        total_units=250,
+        notes="Flagship",
+    )
+    assert facility["address_line_1"] == "123 Main St"
+    assert facility["address_line_2"] == "Suite 4"
+    assert facility["zip_code"] == "80202"
+    assert facility["phone"] == "555-1000"
+    assert facility["email"] == "ops@uptown.example"
+    assert facility["gate_hours"] == "6am-10pm"
+    assert facility["access_hours"] == "24/7"
+    assert facility["total_units"] == 250
+    assert facility["code"] == "UPT"
+    assert facility["facility_number"] == 7
+
+
+async def test_facility_requires_name(client, admin_user):
+    resp = await client.post(
+        f"{BASE}/facilities",
+        json={"name": "   "},
+        headers=auth_headers(admin_user),
+    )
+    assert resp.status_code == 422
+
+
+# ── Managers (self-storage — its own data set) ───────────────────────────────
+
+async def _make_storage_manager(client, admin_user, *, name="Pat Manager", **extra):
+    resp = await client.post(
+        f"{BASE}/managers",
+        json={"name": name, **extra},
+        headers=auth_headers(admin_user),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def test_storage_manager_crud(client, admin_user):
+    manager = await _make_storage_manager(
+        client, admin_user, name="Jordan Ops", email="jordan@x.com", phone="555-2000"
+    )
+    assert manager["name"] == "Jordan Ops"
+    assert manager["email"] == "jordan@x.com"
+
+    listed = await client.get(f"{BASE}/managers", headers=auth_headers(admin_user))
+    assert listed.status_code == 200
+    assert manager["id"] in {m["id"] for m in listed.json()}
+
+    upd = await client.patch(
+        f"{BASE}/managers/{manager['id']}",
+        json={"phone": "555-9999"},
+        headers=auth_headers(admin_user),
+    )
+    assert upd.status_code == 200
+    assert upd.json()["phone"] == "555-9999"
+
+    delete = await client.delete(
+        f"{BASE}/managers/{manager['id']}", headers=auth_headers(admin_user)
+    )
+    assert delete.status_code == 204
+
+
+async def test_storage_manager_name_is_unique(client, db_session, admin_user):
+    # Uniqueness is scoped per organization, so use an org-scoped admin (the
+    # default admin_user has organization_id NULL, where NULLs never collide).
+    org = Organization(
+        name="MgrOrg", slug="mgrorg", plan="pro", is_active=True,
+        enabled_categories=["self_storage"],
+    )
+    db_session.add(org)
+    await db_session.commit()
+    await db_session.refresh(org)
+    user = User(
+        email="mgrorg@x.com", display_name="MgrOrg", password_hash=hash_password("Pass1234!"),
+        auth_provider="internal", role="admin", is_active=True, organization_id=org.id,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    await _make_storage_manager(client, user, name="Dup Manager")
+    resp = await client.post(
+        f"{BASE}/managers",
+        json={"name": "Dup Manager"},
+        headers=auth_headers(user),
+    )
+    assert resp.status_code == 409
+
+
+async def test_viewer_cannot_create_manager(client, admin_user, viewer_user):
+    resp = await client.post(
+        f"{BASE}/managers",
+        json={"name": "Nope"},
+        headers=auth_headers(viewer_user),
+    )
+    assert resp.status_code == 403
+
+
+async def test_facility_assigned_to_manager(client, admin_user):
+    manager = await _make_storage_manager(client, admin_user, name="Assigned Mgr")
+    facility = await _make_facility(
+        client, admin_user, name="Managed Facility", manager_id=manager["id"]
+    )
+    assert facility["manager_id"] == manager["id"]
+    # The manager is returned nested and the free-text name is kept in sync.
+    assert facility["manager"]["name"] == "Assigned Mgr"
+    assert facility["manager_name"] == "Assigned Mgr"
+
+
+async def test_facility_rejects_unknown_manager(client, admin_user):
+    import uuid as _uuid
+
+    resp = await client.post(
+        f"{BASE}/facilities",
+        json={"name": "Bad Mgr", "manager_id": str(_uuid.uuid4())},
+        headers=auth_headers(admin_user),
+    )
+    assert resp.status_code == 404
+
+
+async def test_deleting_manager_detaches_facility(client, admin_user):
+    manager = await _make_storage_manager(client, admin_user, name="Temp Mgr")
+    facility = await _make_facility(
+        client, admin_user, name="Detach Facility", manager_id=manager["id"]
+    )
+    delete = await client.delete(
+        f"{BASE}/managers/{manager['id']}", headers=auth_headers(admin_user)
+    )
+    assert delete.status_code == 204
+    fetched = await client.get(
+        f"{BASE}/facilities/{facility['id']}", headers=auth_headers(admin_user)
+    )
+    assert fetched.status_code == 200
+    assert fetched.json()["manager_id"] is None
+
+
 # ── Units ────────────────────────────────────────────────────────────────────
 
 async def test_create_unit_with_conditioned_space(client, admin_user):

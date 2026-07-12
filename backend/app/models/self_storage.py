@@ -112,6 +112,36 @@ STORAGE_LIEN_STEPS = (
 )
 
 
+class StorageManager(TimestampMixin, Base):
+    """A self-storage facility manager.
+
+    This is the self-storage equivalent of the commercial :class:`Manager`, but
+    kept as its own data set so self storage stands on its own even when the
+    commercial category is turned off. A manager can be assigned to many
+    facilities and is offered as a drop-down when creating/editing a facility.
+    """
+
+    __tablename__ = "storage_managers"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "name", name="uq_storage_manager_org_name"
+        ),
+        Index("idx_storage_managers_org", "organization_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organizations.id"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    facilities: Mapped[list["StorageFacility"]] = relationship(
+        back_populates="manager"
+    )
+
+
 class StorageFacility(SoftDeleteMixin, TimestampMixin, Base):
     """A self-storage *property/facility* — the parent of units and rate plans.
 
@@ -125,6 +155,7 @@ class StorageFacility(SoftDeleteMixin, TimestampMixin, Base):
     __table_args__ = (
         Index("idx_storage_facilities_org", "organization_id"),
         Index("idx_storage_facilities_active", "is_active"),
+        Index("idx_storage_facilities_manager", "manager_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -148,6 +179,12 @@ class StorageFacility(SoftDeleteMixin, TimestampMixin, Base):
     # Contact.
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Structured manager (its own data set, like the commercial Manager). The
+    # legacy free-text ``manager_name`` is retained for backward compatibility
+    # and is kept in sync from the assigned manager where present.
+    manager_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("storage_managers.id"), nullable=True, index=True
+    )
     manager_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Operations.
@@ -157,6 +194,9 @@ class StorageFacility(SoftDeleteMixin, TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     units: Mapped[list["StorageUnit"]] = relationship(back_populates="facility")
+    manager: Mapped["StorageManager | None"] = relationship(
+        back_populates="facilities"
+    )
     agreements: Mapped[list["StorageAgreement"]] = relationship(
         back_populates="facility"
     )

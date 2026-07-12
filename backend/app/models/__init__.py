@@ -89,6 +89,7 @@ from app.models.lease_template import LeaseTemplate
 from app.models.application_template import ApplicationTemplate
 from app.models.self_storage import (
     StorageFacility,
+    StorageManager,
     StorageUnit, StorageAgreement, StorageAgreementOccupant,
     StorageReservation, StorageRatePlan, StorageLienEvent, StorageCharge,
     STORAGE_UNIT_STATUSES, STORAGE_UNIT_TYPES, STORAGE_LOCK_STATES,
@@ -182,6 +183,7 @@ __all__ = [
     "LeaseTemplate",
     "ApplicationTemplate",
     "StorageFacility",
+    "StorageManager",
     "StorageUnit", "StorageAgreement", "StorageAgreementOccupant",
     "StorageReservation", "StorageRatePlan", "StorageLienEvent", "StorageCharge",
     "STORAGE_UNIT_STATUSES", "STORAGE_UNIT_TYPES", "STORAGE_LOCK_STATES",
