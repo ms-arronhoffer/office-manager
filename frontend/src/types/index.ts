@@ -29,6 +29,22 @@ export interface Organization {
   updated_at: string;
 }
 
+// ─── Primary categories (lines of business) ─────────────────────────────────
+export type PrimaryCategory = 'commercial' | 'residential' | 'self_storage';
+
+export interface CategoriesState {
+  /** Canonical, ordered set of all primary categories. */
+  catalog: PrimaryCategory[];
+  /** Human-facing labels keyed by category. */
+  labels: Record<string, string>;
+  /** Org-managed enabled categories (self-serve). */
+  enabled_categories: PrimaryCategory[];
+  /** Platform (super-admin) overrides that always win over the org's list. */
+  overrides: Record<string, boolean>;
+  /** Effective enabled set (enabled_categories with overrides applied). */
+  effective: PrimaryCategory[];
+}
+
 export interface OrganizationCreate {
   name: string;
   slug: string;
@@ -3897,4 +3913,257 @@ export interface BuildiumMigrationRun {
 export interface BuildiumMigrateRequest {
   entities?: string[] | null;
   dry_run?: boolean;
+}
+
+// ─── Self Storage ───────────────────────────────────────────────────────────
+export type StorageUnitStatus =
+  | 'available'
+  | 'reserved'
+  | 'occupied'
+  | 'maintenance'
+  | 'overlocked'
+  | 'lien'
+  | 'auction';
+
+export type StorageUnitType =
+  | 'drive_up'
+  | 'interior'
+  | 'outdoor'
+  | 'locker'
+  | 'vehicle'
+  | 'parking';
+
+export type StorageLockState = 'unlocked' | 'tenant_locked' | 'overlocked';
+
+export type StorageAgreementStatus =
+  | 'draft'
+  | 'active'
+  | 'pending_move_out'
+  | 'ended'
+  | 'delinquent'
+  | 'in_lien'
+  | 'auctioned';
+
+export type StorageOccupantRole = 'primary' | 'co_signer' | 'authorized' | 'alternate';
+
+export type StorageReservationStatus = 'held' | 'converted' | 'cancelled' | 'expired';
+
+export type StorageLienStep =
+  | 'late'
+  | 'overlock'
+  | 'lien_notice'
+  | 'auction_scheduled'
+  | 'auctioned'
+  | 'redeemed'
+  | 'released';
+
+export type StorageChargeType = 'rent' | 'insurance' | 'admin' | 'late_fee' | 'other';
+
+export interface StorageUnit {
+  id: string;
+  organization_id: string | null;
+  office_id: string | null;
+  unit_number: string;
+  building?: string | null;
+  row?: string | null;
+  floor?: string | null;
+  width_ft?: string | null;
+  length_ft?: string | null;
+  height_ft?: string | null;
+  square_feet?: string | null;
+  cubic_feet?: string | null;
+  size_label?: string | null;
+  size_tier?: string | null;
+  unit_type: StorageUnitType;
+  climate_controlled: boolean;
+  has_power: boolean;
+  is_alarmed: boolean;
+  drive_up_access: boolean;
+  ground_floor: boolean;
+  elevator_access: boolean;
+  access_24hr: boolean;
+  street_rate?: string | null;
+  standard_rate?: string | null;
+  in_place_rate?: string | null;
+  promo_rate?: string | null;
+  status: StorageUnitStatus;
+  lock_state: StorageLockState;
+  gate_zone?: string | null;
+  notes?: string | null;
+  currency: string;
+}
+
+export interface StorageUnitCreate {
+  office_id?: string | null;
+  unit_number: string;
+  size_label?: string | null;
+  size_tier?: string | null;
+  unit_type?: StorageUnitType;
+  climate_controlled?: boolean;
+  street_rate?: string | number | null;
+  standard_rate?: string | number | null;
+  status?: StorageUnitStatus;
+  notes?: string | null;
+}
+
+export type StorageUnitUpdate = Partial<StorageUnitCreate> & {
+  in_place_rate?: string | number | null;
+  promo_rate?: string | number | null;
+  lock_state?: StorageLockState;
+};
+
+export interface StorageUnitBulkCreate {
+  office_id?: string | null;
+  count: number;
+  start_number?: number;
+  prefix?: string;
+  size_tier?: string | null;
+  size_label?: string | null;
+  unit_type?: StorageUnitType;
+  climate_controlled?: boolean;
+  street_rate?: string | number | null;
+  standard_rate?: string | number | null;
+}
+
+export interface StorageOccupant {
+  id: string;
+  resident_id: string;
+  role: StorageOccupantRole;
+  is_primary: boolean;
+}
+
+export interface StorageOccupantInput {
+  resident_id: string;
+  role?: StorageOccupantRole;
+  is_primary?: boolean;
+}
+
+export interface StorageAgreement {
+  id: string;
+  organization_id: string | null;
+  unit_id: string;
+  name?: string | null;
+  status: StorageAgreementStatus;
+  rent_amount?: string | null;
+  security_deposit?: string | null;
+  admin_fee?: string | null;
+  billing_day?: number | null;
+  billing_cycle: string;
+  autopay_enabled: boolean;
+  autopay_method?: string | null;
+  insurance_plan?: string | null;
+  insurance_coverage?: string | null;
+  insurance_premium?: string | null;
+  gate_code?: string | null;
+  late_fee_amount?: string | null;
+  late_fee_grace_days?: number | null;
+  move_in_date?: string | null;
+  move_out_date?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  notes?: string | null;
+  currency: string;
+  occupants: StorageOccupant[];
+}
+
+export interface StorageAgreementCreate {
+  unit_id: string;
+  name?: string | null;
+  status?: StorageAgreementStatus;
+  rent_amount?: string | number | null;
+  security_deposit?: string | number | null;
+  billing_day?: number | null;
+  move_in_date?: string | null;
+  notes?: string | null;
+  occupants?: StorageOccupantInput[];
+}
+
+export type StorageAgreementUpdate = Partial<Omit<StorageAgreementCreate, 'unit_id'>>;
+
+export interface StorageReservation {
+  id: string;
+  organization_id: string | null;
+  office_id?: string | null;
+  unit_id?: string | null;
+  resident_id?: string | null;
+  prospect_name?: string | null;
+  prospect_email?: string | null;
+  prospect_phone?: string | null;
+  size_tier?: string | null;
+  quoted_rate?: string | null;
+  status: StorageReservationStatus;
+  hold_until?: string | null;
+  notes?: string | null;
+}
+
+export type StorageReservationCreate = Omit<StorageReservation, 'id' | 'organization_id'>;
+
+export interface StorageRatePlan {
+  id: string;
+  organization_id: string | null;
+  office_id?: string | null;
+  size_tier: string;
+  name?: string | null;
+  street_rate?: string | null;
+  standard_rate?: string | null;
+  increase_effective_date?: string | null;
+  increase_amount?: string | null;
+  increase_percent?: string | null;
+  active: boolean;
+  notes?: string | null;
+  currency: string;
+}
+
+export type StorageRatePlanCreate = Omit<
+  StorageRatePlan,
+  'id' | 'organization_id' | 'currency'
+>;
+
+export interface StorageCharge {
+  id: string;
+  organization_id: string | null;
+  storage_agreement_id: string;
+  charge_type: StorageChargeType;
+  description?: string | null;
+  amount: string;
+  frequency: string;
+  day_of_month: number;
+  start_date?: string | null;
+  end_date?: string | null;
+  grace_days: number;
+  late_fee_type: string;
+  late_fee_amount?: string | null;
+  revenue_account_code: string;
+  active: boolean;
+  currency: string;
+  last_billed_period?: string | null;
+}
+
+export interface StorageLienEvent {
+  id: string;
+  agreement_id: string;
+  step: StorageLienStep;
+  event_date: string;
+  amount_due?: string | null;
+  notes?: string | null;
+}
+
+export interface StorageTenant {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email?: string | null;
+  phone?: string | null;
+  status?: string | null;
+}
+
+export interface StorageOccupancySummary {
+  total_units: number;
+  occupied_units: number;
+  available_units: number;
+  physical_occupancy_pct: number;
+  economic_occupancy_pct: number;
+  potential_monthly_revenue: string;
+  in_place_monthly_revenue: string;
+  currency: string;
 }

@@ -4,6 +4,23 @@ import type {
   TokenResponse,
   SignupRequest,
   SignupResponse,
+  CategoriesState,
+  StorageUnit,
+  StorageUnitCreate,
+  StorageUnitUpdate,
+  StorageUnitBulkCreate,
+  StorageAgreement,
+  StorageAgreementCreate,
+  StorageAgreementUpdate,
+  StorageReservation,
+  StorageReservationCreate,
+  StorageRatePlan,
+  StorageRatePlanCreate,
+  StorageCharge,
+  StorageLienEvent,
+  StorageLienStep,
+  StorageTenant,
+  StorageOccupancySummary,
   Office,
   OfficeCreate,
   OfficeUpdate,
@@ -1079,6 +1096,137 @@ export const organizations = {
 
   update: (id: string, data: OrganizationUpdate) =>
     client.patch<Organization>(`/organizations/${id}`, data),
+
+  getCategories: () => client.get<CategoriesState>('/organizations/me/categories'),
+
+  updateCategories: (enabledCategories: string[]) =>
+    client.put<CategoriesState>('/organizations/me/categories', {
+      enabled_categories: enabledCategories,
+    }),
+};
+
+// ─── Self Storage ────────────────────────────────────────────────────────────
+export const selfStorage = {
+  // Units
+  listUnits: (params?: { office_id?: string; status?: string; size_tier?: string }) =>
+    client.get<StorageUnit[]>('/self-storage/units', { params }),
+
+  getUnit: (id: string) => client.get<StorageUnit>(`/self-storage/units/${id}`),
+
+  createUnit: (data: StorageUnitCreate) =>
+    client.post<StorageUnit>('/self-storage/units', data),
+
+  bulkCreateUnits: (data: StorageUnitBulkCreate) =>
+    client.post<StorageUnit[]>('/self-storage/units/bulk', data),
+
+  updateUnit: (id: string, data: StorageUnitUpdate) =>
+    client.patch<StorageUnit>(`/self-storage/units/${id}`, data),
+
+  deleteUnit: (id: string) => client.delete(`/self-storage/units/${id}`),
+
+  // Agreements
+  listAgreements: (params?: { status?: string; unit_id?: string }) =>
+    client.get<StorageAgreement[]>('/self-storage/agreements', { params }),
+
+  getAgreement: (id: string) =>
+    client.get<StorageAgreement>(`/self-storage/agreements/${id}`),
+
+  createAgreement: (data: StorageAgreementCreate) =>
+    client.post<StorageAgreement>('/self-storage/agreements', data),
+
+  updateAgreement: (id: string, data: StorageAgreementUpdate) =>
+    client.patch<StorageAgreement>(`/self-storage/agreements/${id}`, data),
+
+  deleteAgreement: (id: string) => client.delete(`/self-storage/agreements/${id}`),
+
+  moveIn: (id: string, moveInDate?: string) =>
+    client.post<StorageAgreement>(`/self-storage/agreements/${id}/move-in`, {
+      move_in_date: moveInDate ?? null,
+    }),
+
+  moveOut: (id: string, moveOutDate?: string) =>
+    client.post<StorageAgreement>(`/self-storage/agreements/${id}/move-out`, {
+      move_out_date: moveOutDate ?? null,
+    }),
+
+  changeRate: (id: string, newRate: string | number) =>
+    client.post<StorageAgreement>(`/self-storage/agreements/${id}/change-rate`, {
+      new_rate: newRate,
+    }),
+
+  listLienEvents: (id: string) =>
+    client.get<StorageLienEvent[]>(`/self-storage/agreements/${id}/lien-events`),
+
+  addLienEvent: (
+    id: string,
+    data: {
+      step: StorageLienStep;
+      event_date?: string | null;
+      amount_due?: string | number | null;
+      notes?: string | null;
+    },
+  ) => client.post<StorageLienEvent>(`/self-storage/agreements/${id}/lien-events`, data),
+
+  // Tenants
+  listTenants: () => client.get<StorageTenant[]>('/self-storage/tenants'),
+
+  // Reservations
+  listReservations: (params?: { status?: string }) =>
+    client.get<StorageReservation[]>('/self-storage/reservations', { params }),
+
+  createReservation: (data: Partial<StorageReservationCreate>) =>
+    client.post<StorageReservation>('/self-storage/reservations', data),
+
+  updateReservation: (id: string, data: Partial<StorageReservationCreate>) =>
+    client.patch<StorageReservation>(`/self-storage/reservations/${id}`, data),
+
+  deleteReservation: (id: string) =>
+    client.delete(`/self-storage/reservations/${id}`),
+
+  // Rate plans
+  listRatePlans: (params?: { office_id?: string; active?: boolean }) =>
+    client.get<StorageRatePlan[]>('/self-storage/rate-plans', { params }),
+
+  createRatePlan: (data: Partial<StorageRatePlanCreate>) =>
+    client.post<StorageRatePlan>('/self-storage/rate-plans', data),
+
+  updateRatePlan: (id: string, data: Partial<StorageRatePlanCreate>) =>
+    client.patch<StorageRatePlan>(`/self-storage/rate-plans/${id}`, data),
+
+  deleteRatePlan: (id: string) => client.delete(`/self-storage/rate-plans/${id}`),
+
+  applyRateIncrease: (id: string) =>
+    client.post(`/self-storage/rate-plans/${id}/apply-increase`),
+
+  // Charges
+  listCharges: (params?: { storage_agreement_id?: string }) =>
+    client.get<StorageCharge[]>('/self-storage/charges', { params }),
+
+  createCharge: (data: Partial<StorageCharge>) =>
+    client.post<StorageCharge>('/self-storage/charges', data),
+
+  updateCharge: (id: string, data: Partial<StorageCharge>) =>
+    client.patch<StorageCharge>(`/self-storage/charges/${id}`, data),
+
+  deleteCharge: (id: string) => client.delete(`/self-storage/charges/${id}`),
+
+  // Billing / payments
+  runBilling: (asOf?: string) =>
+    client.post('/self-storage/run-billing', undefined, {
+      params: asOf ? { as_of: asOf } : undefined,
+    }),
+
+  recordPayment: (data: {
+    invoice_id: string;
+    amount: string | number;
+    method?: string;
+    receipt_date?: string | null;
+    reference?: string | null;
+  }) => client.post('/self-storage/payments', data),
+
+  // Occupancy summary
+  occupancySummary: (params?: { office_id?: string }) =>
+    client.get<StorageOccupancySummary>('/self-storage/occupancy-summary', { params }),
 };
 
 // ─── Vendor Portal (internal: admin generates token) ─────────────────────────
