@@ -3959,6 +3959,22 @@ export type StorageLienStep =
 
 export type StorageChargeType = 'rent' | 'insurance' | 'admin' | 'late_fee' | 'other';
 
+export interface StorageManager {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+}
+
+export interface StorageManagerCreate {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+}
+
+export type StorageManagerUpdate = Partial<StorageManagerCreate>;
+
 export interface StorageFacility {
   id: string;
   organization_id: string | null;
@@ -3973,7 +3989,9 @@ export interface StorageFacility {
   zip_code?: string | null;
   phone?: string | null;
   email?: string | null;
+  manager_id?: string | null;
   manager_name?: string | null;
+  manager?: StorageManager | null;
   gate_hours?: string | null;
   access_hours?: string | null;
   total_units?: number | null;
@@ -3992,6 +4010,7 @@ export interface StorageFacilityCreate {
   zip_code?: string | null;
   phone?: string | null;
   email?: string | null;
+  manager_id?: string | null;
   manager_name?: string | null;
   gate_hours?: string | null;
   access_hours?: string | null;

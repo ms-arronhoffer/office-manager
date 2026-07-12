@@ -104,4 +104,22 @@ describe('SelfStoragePage', () => {
       ).toBeInTheDocument();
     });
   });
+
+  it('captures a robust set of property fields incl. a manager drop-down', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SelfStoragePage />);
+    await user.click(await screen.findByRole('tab', { name: 'Properties' }));
+    await user.click(await screen.findByRole('button', { name: /add property/i }));
+    // Robust address + operations fields are present (not just a few basics).
+    await waitFor(() => {
+      expect(screen.getByText('Address line 1')).toBeInTheDocument();
+    });
+    expect(screen.getByText('ZIP code')).toBeInTheDocument();
+    expect(screen.getByText('Gate hours')).toBeInTheDocument();
+    expect(screen.getByText('Total units')).toBeInTheDocument();
+    // Manager is its own category, offered as a drop-down with an add option.
+    expect(
+      screen.getByText(/Managers are their own self-storage data set/i),
+    ).toBeInTheDocument();
+  });
 });

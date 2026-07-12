@@ -8,6 +8,9 @@ import type {
   StorageFacility,
   StorageFacilityCreate,
   StorageFacilityUpdate,
+  StorageManager,
+  StorageManagerCreate,
+  StorageManagerUpdate,
   StorageUnit,
   StorageUnitCreate,
   StorageUnitUpdate,
@@ -1124,6 +1127,18 @@ export const selfStorage = {
     client.patch<StorageFacility>(`/self-storage/facilities/${id}`, data),
 
   deleteFacility: (id: string) => client.delete(`/self-storage/facilities/${id}`),
+
+  // Managers (self-storage — its own data set, populates the facility drop-down)
+  listManagers: () =>
+    client.get<StorageManager[]>('/self-storage/managers'),
+
+  createManager: (data: StorageManagerCreate) =>
+    client.post<StorageManager>('/self-storage/managers', data),
+
+  updateManager: (id: string, data: StorageManagerUpdate) =>
+    client.patch<StorageManager>(`/self-storage/managers/${id}`, data),
+
+  deleteManager: (id: string) => client.delete(`/self-storage/managers/${id}`),
 
   // Units
   listUnits: (params?: { facility_id?: string; status?: string; size_tier?: string }) =>
