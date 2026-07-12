@@ -266,6 +266,7 @@ export const handlers = [
     });
   }),
 
+  http.get(`${API}/self-storage/facilities`, () => HttpResponse.json([])),
   http.get(`${API}/self-storage/units`, () => HttpResponse.json([])),
   http.get(`${API}/self-storage/agreements`, () => HttpResponse.json([])),
   http.get(`${API}/self-storage/reservations`, () => HttpResponse.json([])),

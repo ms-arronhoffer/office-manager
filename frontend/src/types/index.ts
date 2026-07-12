@@ -3959,10 +3959,52 @@ export type StorageLienStep =
 
 export type StorageChargeType = 'rent' | 'insurance' | 'admin' | 'late_fee' | 'other';
 
+export interface StorageFacility {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  facility_number?: number | null;
+  code?: string | null;
+  is_active: boolean;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  manager_name?: string | null;
+  gate_hours?: string | null;
+  access_hours?: string | null;
+  total_units?: number | null;
+  notes?: string | null;
+}
+
+export interface StorageFacilityCreate {
+  name: string;
+  facility_number?: number | null;
+  code?: string | null;
+  is_active?: boolean;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip_code?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  manager_name?: string | null;
+  gate_hours?: string | null;
+  access_hours?: string | null;
+  total_units?: number | null;
+  notes?: string | null;
+}
+
+export type StorageFacilityUpdate = Partial<StorageFacilityCreate>;
+
 export interface StorageUnit {
   id: string;
   organization_id: string | null;
-  office_id: string | null;
+  facility_id: string | null;
   unit_number: string;
   building?: string | null;
   row?: string | null;
@@ -3994,7 +4036,7 @@ export interface StorageUnit {
 }
 
 export interface StorageUnitCreate {
-  office_id?: string | null;
+  facility_id?: string | null;
   unit_number: string;
   size_label?: string | null;
   size_tier?: string | null;
@@ -4013,7 +4055,7 @@ export type StorageUnitUpdate = Partial<StorageUnitCreate> & {
 };
 
 export interface StorageUnitBulkCreate {
-  office_id?: string | null;
+  facility_id?: string | null;
   count: number;
   start_number?: number;
   prefix?: string;
@@ -4042,6 +4084,7 @@ export interface StorageAgreement {
   id: string;
   organization_id: string | null;
   unit_id: string;
+  facility_id?: string | null;
   name?: string | null;
   status: StorageAgreementStatus;
   rent_amount?: string | null;
@@ -4068,6 +4111,7 @@ export interface StorageAgreement {
 
 export interface StorageAgreementCreate {
   unit_id: string;
+  facility_id?: string | null;
   name?: string | null;
   status?: StorageAgreementStatus;
   rent_amount?: string | number | null;
@@ -4083,7 +4127,7 @@ export type StorageAgreementUpdate = Partial<Omit<StorageAgreementCreate, 'unit_
 export interface StorageReservation {
   id: string;
   organization_id: string | null;
-  office_id?: string | null;
+  facility_id?: string | null;
   unit_id?: string | null;
   resident_id?: string | null;
   prospect_name?: string | null;
@@ -4101,7 +4145,7 @@ export type StorageReservationCreate = Omit<StorageReservation, 'id' | 'organiza
 export interface StorageRatePlan {
   id: string;
   organization_id: string | null;
-  office_id?: string | null;
+  facility_id?: string | null;
   size_tier: string;
   name?: string | null;
   street_rate?: string | null;

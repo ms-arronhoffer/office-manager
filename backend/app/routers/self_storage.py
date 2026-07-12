@@ -36,6 +36,7 @@ from app.models.self_storage import (
     StorageAgreement,
     StorageAgreementOccupant,
     StorageCharge,
+    StorageFacility,
     StorageLienEvent,
     StorageRatePlan,
     StorageReservation,
@@ -58,11 +59,63 @@ def _fail(exc: SelfStorageError) -> HTTPException:
 
 
 # ---------------------------------------------------------------------------
+# Schemas — Facilities (the self-storage "Property")
+# ---------------------------------------------------------------------------
+
+class StorageFacilityBase(BaseModel):
+    name: str
+    facility_number: int | None = None
+    code: str | None = None
+    is_active: bool = True
+    address_line_1: str | None = None
+    address_line_2: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip_code: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    manager_name: str | None = None
+    gate_hours: str | None = None
+    access_hours: str | None = None
+    total_units: int | None = None
+    notes: str | None = None
+
+
+class StorageFacilityCreate(StorageFacilityBase):
+    pass
+
+
+class StorageFacilityUpdate(BaseModel):
+    name: str | None = None
+    facility_number: int | None = None
+    code: str | None = None
+    is_active: bool | None = None
+    address_line_1: str | None = None
+    address_line_2: str | None = None
+    city: str | None = None
+    state: str | None = None
+    zip_code: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    manager_name: str | None = None
+    gate_hours: str | None = None
+    access_hours: str | None = None
+    total_units: int | None = None
+    notes: str | None = None
+
+
+class StorageFacilityResponse(StorageFacilityBase):
+    id: uuid.UUID
+    organization_id: uuid.UUID | None
+    model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
 # Schemas — Units
 # ---------------------------------------------------------------------------
 
 class StorageUnitBase(BaseModel):
-    office_id: uuid.UUID | None = None
+    facility_id: uuid.UUID | None = None
     unit_number: str
     building: str | None = None
     row: str | None = None
@@ -97,7 +150,7 @@ class StorageUnitCreate(StorageUnitBase):
 
 
 class StorageUnitUpdate(BaseModel):
-    office_id: uuid.UUID | None = None
+    facility_id: uuid.UUID | None = None
     unit_number: str | None = None
     building: str | None = None
     row: str | None = None
@@ -135,7 +188,7 @@ class StorageUnitResponse(StorageUnitBase):
 
 
 class StorageUnitBulkCreate(BaseModel):
-    office_id: uuid.UUID | None = None
+    facility_id: uuid.UUID | None = None
     count: int
     start_number: int = 1
     prefix: str = ""
@@ -167,6 +220,7 @@ class OccupantResponse(BaseModel):
 
 class StorageAgreementBase(BaseModel):
     unit_id: uuid.UUID
+    facility_id: uuid.UUID | None = None
     name: str | None = None
     status: str = "draft"
     rent_amount: Decimal | None = None
@@ -194,6 +248,7 @@ class StorageAgreementCreate(StorageAgreementBase):
 
 
 class StorageAgreementUpdate(BaseModel):
+    facility_id: uuid.UUID | None = None
     name: str | None = None
     status: str | None = None
     rent_amount: Decimal | None = None
@@ -260,7 +315,7 @@ class LienEventResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ReservationBase(BaseModel):
-    office_id: uuid.UUID | None = None
+    facility_id: uuid.UUID | None = None
     unit_id: uuid.UUID | None = None
     resident_id: uuid.UUID | None = None
     prospect_name: str | None = None
@@ -280,7 +335,7 @@ class ReservationResponse(ReservationBase):
 
 
 class RatePlanBase(BaseModel):
-    office_id: uuid.UUID | None = None
+    facility_id: uuid.UUID | None = None
     size_tier: str
     name: str | None = None
     street_rate: Decimal | None = None
@@ -332,12 +387,98 @@ class PaymentRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Facilities (the self-storage "Property")
+# ---------------------------------------------------------------------------
+
+@router.get("/facilities", response_model=list[StorageFacilityResponse])
+async def list_facilities(
+    is_active: bool | None = Query(default=None),
+    q: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    stmt = select(StorageFacility).where(
+        StorageFacility.organization_id == current_user.organization_id,
+        StorageFacility.is_deleted.is_(False),
+    )
+    if is_active is not None:
+        stmt = stmt.where(StorageFacility.is_active.is_(is_active))
+    if q:
+        stmt = stmt.where(StorageFacility.name.ilike(f"%{q}%"))
+    stmt = stmt.order_by(StorageFacility.name)
+    return (await db.execute(stmt)).scalars().all()
+
+
+@router.get("/facilities/{facility_id}", response_model=StorageFacilityResponse)
+async def get_facility(
+    facility_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await load_or_404(
+        db, StorageFacility, facility_id, current_user.organization_id,
+        extra_filters=[StorageFacility.is_deleted.is_(False)],
+        detail="Facility not found",
+    )
+
+
+@router.post("/facilities", response_model=StorageFacilityResponse, status_code=status.HTTP_201_CREATED)
+async def create_facility(
+    payload: StorageFacilityCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Editor),
+):
+    facility = StorageFacility(
+        organization_id=current_user.organization_id,
+        **payload.model_dump(),
+    )
+    db.add(facility)
+    await db.commit()
+    await db.refresh(facility)
+    return facility
+
+
+@router.patch("/facilities/{facility_id}", response_model=StorageFacilityResponse)
+async def update_facility(
+    facility_id: uuid.UUID,
+    payload: StorageFacilityUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Editor),
+):
+    facility = await load_or_404(
+        db, StorageFacility, facility_id, current_user.organization_id,
+        extra_filters=[StorageFacility.is_deleted.is_(False)],
+        detail="Facility not found",
+    )
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(facility, field, value)
+    await db.commit()
+    await db.refresh(facility)
+    return facility
+
+
+@router.delete("/facilities/{facility_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_facility(
+    facility_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Admin),
+):
+    facility = await load_or_404(
+        db, StorageFacility, facility_id, current_user.organization_id,
+        extra_filters=[StorageFacility.is_deleted.is_(False)],
+        detail="Facility not found",
+    )
+    facility.is_deleted = True
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
 # Units
 # ---------------------------------------------------------------------------
 
 @router.get("/units", response_model=list[StorageUnitResponse])
 async def list_units(
-    office_id: uuid.UUID | None = Query(default=None),
+    facility_id: uuid.UUID | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
     size_tier: str | None = Query(default=None),
     unit_type: str | None = Query(default=None),
@@ -350,8 +491,8 @@ async def list_units(
         StorageUnit.organization_id == current_user.organization_id,
         StorageUnit.is_deleted.is_(False),
     )
-    if office_id is not None:
-        stmt = stmt.where(StorageUnit.office_id == office_id)
+    if facility_id is not None:
+        stmt = stmt.where(StorageUnit.facility_id == facility_id)
     if status_filter:
         stmt = stmt.where(StorageUnit.status == status_filter)
     if size_tier:
@@ -418,7 +559,7 @@ async def bulk_create_units(
         units.append(
             StorageUnit(
                 organization_id=current_user.organization_id,
-                office_id=payload.office_id,
+                facility_id=payload.facility_id,
                 unit_number=f"{payload.prefix}{number}",
                 size_tier=payload.size_tier,
                 size_label=payload.size_label,
@@ -511,6 +652,7 @@ async def _load_agreement(db: AsyncSession, agreement_id: uuid.UUID, org_id) -> 
 @router.get("/agreements", response_model=list[StorageAgreementResponse])
 async def list_agreements(
     unit_id: uuid.UUID | None = Query(default=None),
+    facility_id: uuid.UUID | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -525,6 +667,8 @@ async def list_agreements(
     )
     if unit_id is not None:
         stmt = stmt.where(StorageAgreement.unit_id == unit_id)
+    if facility_id is not None:
+        stmt = stmt.where(StorageAgreement.facility_id == facility_id)
     if status_filter:
         stmt = stmt.where(StorageAgreement.status == status_filter)
     stmt = stmt.order_by(StorageAgreement.created_at.desc())
@@ -550,12 +694,16 @@ async def create_agreement(
     if payload.status not in STORAGE_AGREEMENT_STATUSES:
         raise HTTPException(status_code=422, detail=f"Invalid status: {payload.status}")
     # Validate unit belongs to org.
-    await load_or_404(
+    unit = await load_or_404(
         db, StorageUnit, payload.unit_id, org_id,
         extra_filters=[StorageUnit.is_deleted.is_(False)],
         detail="Storage unit not found",
     )
     data = payload.model_dump(exclude={"occupants"})
+    # An agreement belongs to a facility (like a commercial lease belongs to an
+    # office). Default it from the unit's facility when the caller omits it.
+    if data.get("facility_id") is None:
+        data["facility_id"] = unit.facility_id
     occupants = await _build_occupants(db, org_id, payload.occupants)
     try:
         if payload.status in ("active",):
@@ -819,7 +967,7 @@ async def delete_reservation(
 
 @router.get("/rate-plans", response_model=list[RatePlanResponse])
 async def list_rate_plans(
-    office_id: uuid.UUID | None = Query(default=None),
+    facility_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -827,8 +975,8 @@ async def list_rate_plans(
         StorageRatePlan.organization_id == current_user.organization_id,
         StorageRatePlan.is_deleted.is_(False),
     )
-    if office_id is not None:
-        stmt = stmt.where(StorageRatePlan.office_id == office_id)
+    if facility_id is not None:
+        stmt = stmt.where(StorageRatePlan.facility_id == facility_id)
     stmt = stmt.order_by(StorageRatePlan.size_tier)
     return (await db.execute(stmt)).scalars().all()
 
@@ -1011,10 +1159,10 @@ async def record_payment(
 
 @router.get("/occupancy-summary")
 async def occupancy_summary(
-    office_id: uuid.UUID | None = Query(default=None),
+    facility_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     return await svc.occupancy_summary(
-        db, current_user.organization_id, office_id=office_id
+        db, current_user.organization_id, facility_id=facility_id
     )

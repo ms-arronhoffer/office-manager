@@ -262,8 +262,8 @@ async def apply_scheduled_increase(
         )
         .options(selectinload(StorageAgreement.unit))
     )
-    if rate_plan.office_id is not None:
-        stmt = stmt.where(StorageUnit.office_id == rate_plan.office_id)
+    if rate_plan.facility_id is not None:
+        stmt = stmt.where(StorageUnit.facility_id == rate_plan.facility_id)
     agreements = (await db.execute(stmt)).scalars().all()
 
     applied = 0
@@ -623,15 +623,15 @@ async def occupancy_summary(
     db: AsyncSession,
     organization_id: uuid.UUID | None,
     *,
-    office_id: uuid.UUID | None = None,
+    facility_id: uuid.UUID | None = None,
 ) -> dict:
     """Build a physical/economic occupancy and revenue summary over units."""
     stmt = select(StorageUnit).where(
         StorageUnit.organization_id == organization_id,
         StorageUnit.is_deleted.is_(False),
     )
-    if office_id is not None:
-        stmt = stmt.where(StorageUnit.office_id == office_id)
+    if facility_id is not None:
+        stmt = stmt.where(StorageUnit.facility_id == facility_id)
     units = (await db.execute(stmt)).scalars().all()
 
     total = len(units)

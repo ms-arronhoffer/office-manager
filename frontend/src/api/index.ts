@@ -5,6 +5,9 @@ import type {
   SignupRequest,
   SignupResponse,
   CategoriesState,
+  StorageFacility,
+  StorageFacilityCreate,
+  StorageFacilityUpdate,
   StorageUnit,
   StorageUnitCreate,
   StorageUnitUpdate,
@@ -1107,8 +1110,23 @@ export const organizations = {
 
 // ─── Self Storage ────────────────────────────────────────────────────────────
 export const selfStorage = {
+  // Facilities (the self-storage "Property")
+  listFacilities: (params?: { is_active?: boolean; q?: string }) =>
+    client.get<StorageFacility[]>('/self-storage/facilities', { params }),
+
+  getFacility: (id: string) =>
+    client.get<StorageFacility>(`/self-storage/facilities/${id}`),
+
+  createFacility: (data: StorageFacilityCreate) =>
+    client.post<StorageFacility>('/self-storage/facilities', data),
+
+  updateFacility: (id: string, data: StorageFacilityUpdate) =>
+    client.patch<StorageFacility>(`/self-storage/facilities/${id}`, data),
+
+  deleteFacility: (id: string) => client.delete(`/self-storage/facilities/${id}`),
+
   // Units
-  listUnits: (params?: { office_id?: string; status?: string; size_tier?: string }) =>
+  listUnits: (params?: { facility_id?: string; status?: string; size_tier?: string }) =>
     client.get<StorageUnit[]>('/self-storage/units', { params }),
 
   getUnit: (id: string) => client.get<StorageUnit>(`/self-storage/units/${id}`),
@@ -1125,7 +1143,7 @@ export const selfStorage = {
   deleteUnit: (id: string) => client.delete(`/self-storage/units/${id}`),
 
   // Agreements
-  listAgreements: (params?: { status?: string; unit_id?: string }) =>
+  listAgreements: (params?: { status?: string; unit_id?: string; facility_id?: string }) =>
     client.get<StorageAgreement[]>('/self-storage/agreements', { params }),
 
   getAgreement: (id: string) =>
@@ -1184,7 +1202,7 @@ export const selfStorage = {
     client.delete(`/self-storage/reservations/${id}`),
 
   // Rate plans
-  listRatePlans: (params?: { office_id?: string; active?: boolean }) =>
+  listRatePlans: (params?: { facility_id?: string; active?: boolean }) =>
     client.get<StorageRatePlan[]>('/self-storage/rate-plans', { params }),
 
   createRatePlan: (data: Partial<StorageRatePlanCreate>) =>
@@ -1225,7 +1243,7 @@ export const selfStorage = {
   }) => client.post('/self-storage/payments', data),
 
   // Occupancy summary
-  occupancySummary: (params?: { office_id?: string }) =>
+  occupancySummary: (params?: { facility_id?: string }) =>
     client.get<StorageOccupancySummary>('/self-storage/occupancy-summary', { params }),
 };
 

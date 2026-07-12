@@ -17,9 +17,10 @@ import { useFlashbar } from '@/context/FlashbarContext';
 import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import TabbedPage, { TabbedPageTab } from '@/components/layout/TabbedPage';
 import EntityFormModal from '@/components/common/EntityFormModal';
-import { selfStorage as api, offices as officesApi } from '@/api';
+import { selfStorage as api, leasing as leasingApi } from '@/api';
 import type {
-  Office,
+  StorageFacility,
+  StorageFacilityCreate,
   StorageUnit,
   StorageUnitStatus,
   StorageUnitType,
@@ -28,6 +29,7 @@ import type {
   StorageReservation,
   StorageRatePlan,
   StorageOccupancySummary,
+  Resident,
 } from '@/types';
 
 const UNIT_TYPES: StorageUnitType[] = [
@@ -44,10 +46,10 @@ const fmtMoney = (v?: string | null) =>
     ? `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     : '—';
 
-// Human label for a Property (Location / Office) that acts as the parent of
-// its storage units.
-const propertyLabel = (o: Office) =>
-  o.location_name || (o.office_number != null ? `Property ${o.office_number}` : 'Property');
+// Human label for a Facility (the self-storage "Property") that acts as the
+// parent of its storage units and agreements.
+const facilityLabel = (f: StorageFacility) =>
+  f.name || (f.facility_number != null ? `Facility ${f.facility_number}` : 'Facility');
 
 // Pull the server-provided error detail (e.g. a disabled-category or
 // validation message) out of an Axios error so the flashbar can explain *why*
@@ -140,14 +142,165 @@ const OverviewTab: React.FC = () => {
   );
 };
 
+// ─── Facilities (the self-storage "Property") ────────────────────────────────
+const FacilitiesTab: React.FC<{
+  canEdit: boolean;
+  facilities: StorageFacility[];
+  loading: boolean;
+  reload: () => void;
+}> = ({ canEdit, facilities, loading, reload }) => {
+  const { addFlash } = useFlashbar();
+  const { confirmDelete, modal: deleteModal } = useConfirmDelete();
+
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [city, setCity] = useState('');
+  const [stateVal, setStateVal] = useState('');
+  const [manager, setManager] = useState('');
+  const [notes, setNotes] = useState('');
+
+  const resetForm = () => {
+    setName('');
+    setCity('');
+    setStateVal('');
+    setManager('');
+    setNotes('');
+    setError(null);
+  };
+
+  const submit = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const payload: StorageFacilityCreate = {
+        name: name.trim(),
+        city: city.trim() || null,
+        state: stateVal.trim() || null,
+        manager_name: manager.trim() || null,
+        notes: notes.trim() || null,
+      };
+      await api.createFacility(payload);
+      addFlash({ type: 'success', content: `Property "${name}" created.` });
+      setOpen(false);
+      resetForm();
+      reload();
+    } catch (e) {
+      setError(errDetail(e, 'Failed to create the property.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = (facility: StorageFacility) =>
+    confirmDelete({
+      itemName: facilityLabel(facility),
+      onConfirm: async () => {
+        try {
+          await api.deleteFacility(facility.id);
+          addFlash({ type: 'success', content: `Property "${facilityLabel(facility)}" deleted.` });
+          reload();
+        } catch (e) {
+          addFlash({ type: 'error', content: errDetail(e, 'Failed to delete the property.') });
+        }
+      },
+    });
+
+  return (
+    <>
+      <Table
+        loading={loading}
+        items={facilities}
+        variant="container"
+        header={
+          <Header
+            counter={`(${facilities.length})`}
+            description="Self-storage properties are their own data set — independent of the Commercial category."
+            actions={
+              canEdit ? (
+                <Button variant="primary" onClick={() => setOpen(true)}>
+                  Add property
+                </Button>
+              ) : undefined
+            }
+          >
+            Properties
+          </Header>
+        }
+        columnDefinitions={[
+          { id: 'name', header: 'Name', cell: (f) => facilityLabel(f) },
+          {
+            id: 'location',
+            header: 'Location',
+            cell: (f) => [f.city, f.state].filter(Boolean).join(', ') || '—',
+          },
+          { id: 'manager', header: 'Manager', cell: (f) => f.manager_name || '—' },
+          {
+            id: 'active',
+            header: 'Active',
+            cell: (f) => (f.is_active ? <Badge color="green">Active</Badge> : <Badge color="grey">Inactive</Badge>),
+          },
+          ...(canEdit
+            ? [
+                {
+                  id: 'actions',
+                  header: '',
+                  cell: (f: StorageFacility) => (
+                    <Button variant="inline-link" onClick={() => remove(f)}>
+                      Delete
+                    </Button>
+                  ),
+                },
+              ]
+            : []),
+        ]}
+        empty={<Box textAlign="center">No properties yet.</Box>}
+      />
+      <EntityFormModal
+        visible={open}
+        title="Add property"
+        submitLabel="Create"
+        submitting={saving}
+        submitDisabled={!name.trim()}
+        error={error}
+        onSubmit={submit}
+        onCancel={() => {
+          setOpen(false);
+          resetForm();
+        }}
+      >
+        <SpaceBetween size="m">
+          <FormField label="Name">
+            <Input value={name} onChange={(e) => setName(e.detail.value)} placeholder="Downtown Storage" />
+          </FormField>
+          <FormField label="City">
+            <Input value={city} onChange={(e) => setCity(e.detail.value)} />
+          </FormField>
+          <FormField label="State">
+            <Input value={stateVal} onChange={(e) => setStateVal(e.detail.value)} placeholder="CO" />
+          </FormField>
+          <FormField label="Manager">
+            <Input value={manager} onChange={(e) => setManager(e.detail.value)} />
+          </FormField>
+          <FormField label="Notes">
+            <Textarea value={notes} onChange={(e) => setNotes(e.detail.value)} />
+          </FormField>
+        </SpaceBetween>
+      </EntityFormModal>
+      {deleteModal}
+    </>
+  );
+};
+
 // ─── Units ───────────────────────────────────────────────────────────────────
-const UnitsTab: React.FC<{ canEdit: boolean; properties: Office[] }> = ({ canEdit, properties }) => {
+const UnitsTab: React.FC<{ canEdit: boolean; facilities: StorageFacility[] }> = ({ canEdit, facilities }) => {
   const { addFlash } = useFlashbar();
   const { confirmDelete, modal: deleteModal } = useConfirmDelete();
   const [units, setUnits] = useState<StorageUnit[]>([]);
   const [loading, setLoading] = useState(true);
-  // Property (Location) the units are scoped to; '' means all properties.
-  const [officeFilter, setOfficeFilter] = useState('');
+  // Facility (Property) the units are scoped to; '' means all facilities.
+  const [facilityFilter, setFacilityFilter] = useState('');
 
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -157,33 +310,33 @@ const UnitsTab: React.FC<{ canEdit: boolean; properties: Office[] }> = ({ canEdi
   const [unitType, setUnitType] = useState<StorageUnitType>('interior');
   const [streetRate, setStreetRate] = useState('');
   const [climate, setClimate] = useState(false);
-  const [officeId, setOfficeId] = useState('');
+  const [facilityId, setFacilityId] = useState('');
 
-  // Map a unit's office_id to its Property label for the table column.
-  const propertyById = useMemo(
-    () => new Map(properties.map((p) => [p.id, propertyLabel(p)])),
-    [properties],
+  // Map a unit's facility_id to its Facility label for the table column.
+  const facilityById = useMemo(
+    () => new Map(facilities.map((f) => [f.id, facilityLabel(f)])),
+    [facilities],
   );
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.listUnits(officeFilter ? { office_id: officeFilter } : undefined);
+      const res = await api.listUnits(facilityFilter ? { facility_id: facilityFilter } : undefined);
       setUnits(res.data);
     } catch (e) {
       addFlash({ type: 'error', content: errDetail(e, 'Failed to load storage units.') });
     } finally {
       setLoading(false);
     }
-  }, [addFlash, officeFilter]);
+  }, [addFlash, facilityFilter]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   const openCreate = () => {
-    // Default the new unit's Property to the one currently being viewed.
-    setOfficeId(officeFilter);
+    // Default the new unit's Facility to the one currently being viewed.
+    setFacilityId(facilityFilter);
     setOpen(true);
   };
 
@@ -193,7 +346,7 @@ const UnitsTab: React.FC<{ canEdit: boolean; properties: Office[] }> = ({ canEdi
     setUnitType('interior');
     setStreetRate('');
     setClimate(false);
-    setOfficeId('');
+    setFacilityId('');
     setError(null);
   };
 
@@ -202,7 +355,7 @@ const UnitsTab: React.FC<{ canEdit: boolean; properties: Office[] }> = ({ canEdi
     setError(null);
     try {
       await api.createUnit({
-        office_id: officeId || null,
+        facility_id: facilityId || null,
         unit_number: unitNumber.trim(),
         size_label: sizeLabel.trim() || null,
         unit_type: unitType,
@@ -214,7 +367,7 @@ const UnitsTab: React.FC<{ canEdit: boolean; properties: Office[] }> = ({ canEdi
       resetForm();
       load();
     } catch (e) {
-      setError(errDetail(e, 'Failed to create the unit. Check the unit number is unique for this property.'));
+      setError(errDetail(e, 'Failed to create the unit. Check the unit number is unique for this facility.'));
     } finally {
       setSaving(false);
     }
@@ -247,16 +400,16 @@ const UnitsTab: React.FC<{ canEdit: boolean; properties: Office[] }> = ({ canEdi
               <SpaceBetween direction="horizontal" size="xs">
                 <Select
                   selectedOption={
-                    officeFilter
-                      ? { value: officeFilter, label: propertyById.get(officeFilter) || 'Property' }
-                      : { value: '', label: 'All properties' }
+                    facilityFilter
+                      ? { value: facilityFilter, label: facilityById.get(facilityFilter) || 'Facility' }
+                      : { value: '', label: 'All facilities' }
                   }
-                  onChange={(e) => setOfficeFilter(e.detail.selectedOption.value || '')}
+                  onChange={(e) => setFacilityFilter(e.detail.selectedOption.value || '')}
                   options={[
-                    { value: '', label: 'All properties' },
-                    ...properties.map((p) => ({ value: p.id, label: propertyLabel(p) })),
+                    { value: '', label: 'All facilities' },
+                    ...facilities.map((f) => ({ value: f.id, label: facilityLabel(f) })),
                   ]}
-                  ariaLabel="Filter units by property"
+                  ariaLabel="Filter units by facility"
                 />
                 {canEdit ? (
                   <Button variant="primary" onClick={openCreate}>
@@ -272,9 +425,9 @@ const UnitsTab: React.FC<{ canEdit: boolean; properties: Office[] }> = ({ canEdi
         columnDefinitions={[
           { id: 'unit_number', header: 'Unit', cell: (u) => u.unit_number },
           {
-            id: 'property',
+            id: 'facility',
             header: 'Property',
-            cell: (u) => (u.office_id ? propertyById.get(u.office_id) || '—' : 'Unassigned'),
+            cell: (u) => (u.facility_id ? facilityById.get(u.facility_id) || '—' : 'Unassigned'),
           },
           { id: 'size', header: 'Size', cell: (u) => u.size_label || u.size_tier || '—' },
           { id: 'type', header: 'Type', cell: (u) => u.unit_type },
@@ -317,20 +470,20 @@ const UnitsTab: React.FC<{ canEdit: boolean; properties: Office[] }> = ({ canEdi
         <SpaceBetween size="m">
           <FormField
             label="Property"
-            description="The location this unit belongs to. Unit numbers are unique within a property, so the same number can be reused across different properties."
+            description="The facility this unit belongs to. Unit numbers are unique within a facility, so the same number can be reused across different facilities."
           >
             <Select
               selectedOption={
-                officeId
-                  ? { value: officeId, label: propertyById.get(officeId) || 'Property' }
+                facilityId
+                  ? { value: facilityId, label: facilityById.get(facilityId) || 'Facility' }
                   : { value: '', label: 'Unassigned' }
               }
-              onChange={(e) => setOfficeId(e.detail.selectedOption.value || '')}
+              onChange={(e) => setFacilityId(e.detail.selectedOption.value || '')}
               options={[
                 { value: '', label: 'Unassigned' },
-                ...properties.map((p) => ({ value: p.id, label: propertyLabel(p) })),
+                ...facilities.map((f) => ({ value: f.id, label: facilityLabel(f) })),
               ]}
-              placeholder="Select a property"
+              placeholder="Select a facility"
             />
           </FormField>
           <FormField label="Unit number">
@@ -376,44 +529,211 @@ const UnitsTab: React.FC<{ canEdit: boolean; properties: Office[] }> = ({ canEdi
 };
 
 // ─── Agreements ──────────────────────────────────────────────────────────────
-const AgreementsTab: React.FC = () => {
+const AGREEMENT_CREATE_STATUSES: StorageAgreementStatus[] = ['draft', 'active'];
+
+const AgreementsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
   const { addFlash } = useFlashbar();
   const [agreements, setAgreements] = useState<StorageAgreement[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let active = true;
+  // Reference data for the create form.
+  const [units, setUnits] = useState<StorageUnit[]>([]);
+  const [residents, setResidents] = useState<Resident[]>([]);
+
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [unitId, setUnitId] = useState('');
+  const [name, setName] = useState('');
+  const [rent, setRent] = useState('');
+  const [statusVal, setStatusVal] = useState<StorageAgreementStatus>('draft');
+  const [moveInDate, setMoveInDate] = useState('');
+  const [residentId, setResidentId] = useState('');
+
+  const load = useCallback(async () => {
     setLoading(true);
-    api
-      .listAgreements()
-      .then((res) => active && setAgreements(res.data))
-      .catch((e) => active && addFlash({ type: 'error', content: errDetail(e, 'Failed to load agreements.') }))
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
+    try {
+      const res = await api.listAgreements();
+      setAgreements(res.data);
+    } catch (e) {
+      addFlash({ type: 'error', content: errDetail(e, 'Failed to load agreements.') });
+    } finally {
+      setLoading(false);
+    }
   }, [addFlash]);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Load units + residents lazily the first time the create form is opened so
+  // the pickers are populated without slowing the initial table render.
+  const openCreate = async () => {
+    setOpen(true);
+    try {
+      const [unitsRes, residentsRes] = await Promise.all([
+        api.listUnits(),
+        leasingApi.listResidents(),
+      ]);
+      setUnits(unitsRes.data);
+      setResidents(residentsRes.data);
+    } catch (e) {
+      setError(errDetail(e, 'Failed to load units or residents.'));
+    }
+  };
+
+  const resetForm = () => {
+    setUnitId('');
+    setName('');
+    setRent('');
+    setStatusVal('draft');
+    setMoveInDate('');
+    setResidentId('');
+    setError(null);
+  };
+
+  const submit = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.createAgreement({
+        unit_id: unitId,
+        name: name.trim() || null,
+        status: statusVal,
+        rent_amount: rent.trim() || null,
+        move_in_date: moveInDate.trim() || null,
+        occupants: residentId
+          ? [{ resident_id: residentId, role: 'primary', is_primary: true }]
+          : [],
+      });
+      addFlash({ type: 'success', content: 'Agreement created.' });
+      setOpen(false);
+      resetForm();
+      load();
+    } catch (e) {
+      setError(errDetail(e, 'Failed to create the agreement.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const residentLabel = (r: Resident) =>
+    [r.first_name, r.last_name].filter(Boolean).join(' ') || r.email || 'Resident';
+
   return (
-    <Table
-      loading={loading}
-      items={agreements}
-      variant="container"
-      header={<Header counter={`(${agreements.length})`}>Rental agreements</Header>}
-      columnDefinitions={[
-        { id: 'name', header: 'Name', cell: (a) => a.name || '—' },
-        { id: 'status', header: 'Status', cell: (a) => agreementStatusBadge(a.status) },
-        { id: 'rent', header: 'Rent', cell: (a) => fmtMoney(a.rent_amount) },
-        { id: 'move_in', header: 'Move-in', cell: (a) => a.move_in_date || '—' },
-        {
-          id: 'occupants',
-          header: 'Occupants',
-          cell: (a) => (a.occupants?.length ?? 0).toString(),
-        },
-        { id: 'autopay', header: 'Autopay', cell: (a) => (a.autopay_enabled ? 'Yes' : 'No') },
-      ]}
-      empty={<Box textAlign="center">No agreements yet.</Box>}
-    />
+    <>
+      <Table
+        loading={loading}
+        items={agreements}
+        variant="container"
+        header={
+          <Header
+            counter={`(${agreements.length})`}
+            actions={
+              canEdit ? (
+                <Button variant="primary" onClick={openCreate}>
+                  Add agreement
+                </Button>
+              ) : undefined
+            }
+          >
+            Rental agreements
+          </Header>
+        }
+        columnDefinitions={[
+          { id: 'name', header: 'Name', cell: (a) => a.name || '—' },
+          { id: 'status', header: 'Status', cell: (a) => agreementStatusBadge(a.status) },
+          { id: 'rent', header: 'Rent', cell: (a) => fmtMoney(a.rent_amount) },
+          { id: 'move_in', header: 'Move-in', cell: (a) => a.move_in_date || '—' },
+          {
+            id: 'occupants',
+            header: 'Occupants',
+            cell: (a) => (a.occupants?.length ?? 0).toString(),
+          },
+          { id: 'autopay', header: 'Autopay', cell: (a) => (a.autopay_enabled ? 'Yes' : 'No') },
+        ]}
+        empty={<Box textAlign="center">No agreements yet.</Box>}
+      />
+      <EntityFormModal
+        visible={open}
+        title="Add rental agreement"
+        submitLabel="Create"
+        submitting={saving}
+        submitDisabled={!unitId}
+        error={error}
+        onSubmit={submit}
+        onCancel={() => {
+          setOpen(false);
+          resetForm();
+        }}
+      >
+        <SpaceBetween size="m">
+          <FormField label="Unit" description="The storage unit this agreement rents.">
+            <Select
+              selectedOption={
+                unitId
+                  ? {
+                      value: unitId,
+                      label: units.find((u) => u.id === unitId)?.unit_number || 'Unit',
+                    }
+                  : null
+              }
+              onChange={(e) => setUnitId(e.detail.selectedOption.value || '')}
+              options={units.map((u) => ({ value: u.id, label: u.unit_number }))}
+              placeholder="Select a unit"
+              empty="No units available"
+            />
+          </FormField>
+          <FormField label="Name">
+            <Input value={name} onChange={(e) => setName(e.detail.value)} placeholder="Smith — Unit A-101" />
+          </FormField>
+          <FormField label="Primary tenant" description="Optional; add or change occupants later.">
+            <Select
+              selectedOption={
+                residentId
+                  ? {
+                      value: residentId,
+                      label:
+                        residents.find((r) => r.id === residentId)
+                          ? residentLabel(residents.find((r) => r.id === residentId)!)
+                          : 'Resident',
+                    }
+                  : { value: '', label: 'None' }
+              }
+              onChange={(e) => setResidentId(e.detail.selectedOption.value || '')}
+              options={[
+                { value: '', label: 'None' },
+                ...residents.map((r) => ({ value: r.id, label: residentLabel(r) })),
+              ]}
+            />
+          </FormField>
+          <FormField label="Rent">
+            <Input
+              value={rent}
+              onChange={(e) => setRent(e.detail.value)}
+              type="number"
+              inputMode="decimal"
+              placeholder="0.00"
+            />
+          </FormField>
+          <FormField label="Status">
+            <Select
+              selectedOption={{ value: statusVal, label: statusVal }}
+              onChange={(e) => setStatusVal(e.detail.selectedOption.value as StorageAgreementStatus)}
+              options={AGREEMENT_CREATE_STATUSES.map((s) => ({ value: s, label: s }))}
+            />
+          </FormField>
+          <FormField label="Move-in date">
+            <Input
+              value={moveInDate}
+              onChange={(e) => setMoveInDate(e.detail.value)}
+              type="date"
+              placeholder="YYYY-MM-DD"
+            />
+          </FormField>
+        </SpaceBetween>
+      </EntityFormModal>
+    </>
   );
 };
 
@@ -731,46 +1051,59 @@ const SelfStoragePage: React.FC = () => {
   const { addFlash } = useFlashbar();
   const canEdit = user?.role === 'admin' || user?.role === 'editor';
 
-  // Properties (Locations / Offices) are the parent of storage units — a unit
-  // number like "100" can exist under several properties. Loaded once and
-  // shared with the Units tab so it can display, filter, and assign them.
-  const [properties, setProperties] = useState<Office[]>([]);
-  useEffect(() => {
-    let active = true;
-    officesApi
-      .list({ page_size: 1000 })
-      .then((res) => {
-        if (active) setProperties(res.data.items);
-      })
+  // Facilities (self-storage "Properties") are the parent of storage units and
+  // agreements. They are their own data set (not commercial Offices), so self
+  // storage works even when the Commercial category is turned off. Loaded here
+  // and shared with the Properties, Units, and other tabs.
+  const [facilities, setFacilities] = useState<StorageFacility[]>([]);
+  const [facilitiesLoading, setFacilitiesLoading] = useState(true);
+
+  const loadFacilities = useCallback(() => {
+    setFacilitiesLoading(true);
+    api
+      .listFacilities()
+      .then((res) => setFacilities(res.data))
       .catch((e) => {
-        // Non-fatal: units still render, just without property labels. Warn so
-        // the user understands why property names may be missing.
-        if (!active) return;
-        setProperties([]);
+        setFacilities([]);
         addFlash({
           type: 'warning',
           content: errDetail(e, 'Failed to load properties; unit locations may be unavailable.'),
         });
-      });
-    return () => {
-      active = false;
-    };
+      })
+      .finally(() => setFacilitiesLoading(false));
   }, [addFlash]);
+
+  useEffect(() => {
+    loadFacilities();
+  }, [loadFacilities]);
 
   const tabs: TabbedPageTab[] = useMemo(
     () => [
       { id: 'overview', label: 'Overview', href: '/self-storage', content: <OverviewTab /> },
       {
+        id: 'properties',
+        label: 'Properties',
+        href: '/self-storage/properties',
+        content: (
+          <FacilitiesTab
+            canEdit={canEdit}
+            facilities={facilities}
+            loading={facilitiesLoading}
+            reload={loadFacilities}
+          />
+        ),
+      },
+      {
         id: 'units',
         label: 'Units',
         href: '/self-storage/units',
-        content: <UnitsTab canEdit={canEdit} properties={properties} />,
+        content: <UnitsTab canEdit={canEdit} facilities={facilities} />,
       },
       {
         id: 'agreements',
         label: 'Agreements',
         href: '/self-storage/agreements',
-        content: <AgreementsTab />,
+        content: <AgreementsTab canEdit={canEdit} />,
       },
       {
         id: 'reservations',
@@ -785,7 +1118,7 @@ const SelfStoragePage: React.FC = () => {
         content: <RatePlansTab canEdit={canEdit} />,
       },
     ],
-    [canEdit, properties],
+    [canEdit, facilities, facilitiesLoading, loadFacilities],
   );
 
   return <TabbedPage ariaLabel="Self Storage" tabs={tabs} />;

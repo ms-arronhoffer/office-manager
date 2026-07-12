@@ -1,16 +1,18 @@
 """Self-storage domain model (org-as-operator).
 
 Self storage is modelled as a third *primary category* alongside commercial and
-residential. It deliberately **reuses** two existing entities so the domain
-shares maintenance, inspections, space, portal, screening, and AR/GL wiring:
-
-* the facility (*location*) is an existing :class:`~app.models.office.Office`
-  (referenced by ``office_id``), and
-* the tenant/occupant is an existing :class:`~app.models.resident.Resident`
-  (linked through :class:`StorageAgreementOccupant`).
+residential. Its *property* — the facility — is its **own** data set
+(:class:`StorageFacility`), mirroring the commercial ``Office`` pattern but kept
+entirely separate so self storage stands on its own even when the commercial
+category is turned off. It reuses one existing entity: the tenant/occupant is an
+existing :class:`~app.models.resident.Resident` (linked through
+:class:`StorageAgreementOccupant`).
 
 New, storage-specific entities:
 
+* :class:`StorageFacility`        — a self-storage *property/facility*: the
+  physical location that owns units, reservations, and rate plans. This is the
+  self-storage equivalent of a commercial ``Office``, but its own table/data set.
 * :class:`StorageUnit`            — a rentable unit/space at a facility, with its
   physical size, unit type, climate-control flag, feature flags, and rate tiers.
 * :class:`StorageAgreement`       — the (typically month-to-month) rental
@@ -110,13 +112,67 @@ STORAGE_LIEN_STEPS = (
 )
 
 
+class StorageFacility(SoftDeleteMixin, TimestampMixin, Base):
+    """A self-storage *property/facility* — the parent of units and rate plans.
+
+    This is the self-storage equivalent of a commercial :class:`Office`, but it
+    is its own data set so self storage is independent of the commercial
+    category (which can be turned off). A facility owns storage units,
+    reservations, and rate plans.
+    """
+
+    __tablename__ = "storage_facilities"
+    __table_args__ = (
+        Index("idx_storage_facilities_org", "organization_id"),
+        Index("idx_storage_facilities_active", "is_active"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organizations.id"), nullable=True, index=True
+    )
+    facility_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, server_default="true"
+    )
+
+    # Location.
+    address_line_1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    address_line_2: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    zip_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+
+    # Contact.
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    manager_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Operations.
+    gate_hours: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    access_hours: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    total_units: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    units: Mapped[list["StorageUnit"]] = relationship(back_populates="facility")
+    agreements: Mapped[list["StorageAgreement"]] = relationship(
+        back_populates="facility"
+    )
+    rate_plans: Mapped[list["StorageRatePlan"]] = relationship(back_populates="facility")
+    reservations: Mapped[list["StorageReservation"]] = relationship(
+        back_populates="facility"
+    )
+
+
 class StorageUnit(SoftDeleteMixin, TimestampMixin, Base):
-    """A rentable self-storage unit/space at a facility (Office)."""
+    """A rentable self-storage unit/space at a facility (StorageFacility)."""
 
     __tablename__ = "storage_units"
     __table_args__ = (
-        UniqueConstraint("office_id", "unit_number", name="uq_storage_unit_office_number"),
-        Index("idx_storage_units_office", "office_id"),
+        UniqueConstraint("facility_id", "unit_number", name="uq_storage_unit_facility_number"),
+        Index("idx_storage_units_facility", "facility_id"),
         Index("idx_storage_units_status", "status"),
         Index("idx_storage_units_size_tier", "size_tier"),
     )
@@ -125,9 +181,9 @@ class StorageUnit(SoftDeleteMixin, TimestampMixin, Base):
     organization_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("organizations.id"), nullable=True, index=True
     )
-    # The facility (Office) this unit belongs to.
-    office_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("offices.id"), nullable=True, index=True
+    # The facility (StorageFacility) this unit belongs to.
+    facility_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("storage_facilities.id"), nullable=True, index=True
     )
     unit_number: Mapped[str] = mapped_column(String(50), nullable=False)
     building: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -190,7 +246,7 @@ class StorageUnit(SoftDeleteMixin, TimestampMixin, Base):
     gate_zone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    office: Mapped["Office | None"] = relationship("Office")
+    facility: Mapped["StorageFacility | None"] = relationship(back_populates="units")
     agreements: Mapped[list["StorageAgreement"]] = relationship(
         back_populates="unit", cascade="all, delete-orphan"
     )
@@ -202,6 +258,7 @@ class StorageAgreement(SoftDeleteMixin, TimestampMixin, Base):
     __tablename__ = "storage_agreements"
     __table_args__ = (
         Index("idx_storage_agreements_unit", "unit_id"),
+        Index("idx_storage_agreements_facility", "facility_id"),
         Index("idx_storage_agreements_status", "status"),
         Index("idx_storage_agreements_move_out", "move_out_date"),
     )
@@ -209,6 +266,12 @@ class StorageAgreement(SoftDeleteMixin, TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("organizations.id"), nullable=True, index=True
+    )
+    # Direct link to the facility (property), mirroring how a commercial Lease
+    # belongs to an Office. Defaults from the unit's facility but is stored so
+    # agreements are a first-class, facility-scoped data set.
+    facility_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("storage_facilities.id"), nullable=True, index=True
     )
     unit_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("storage_units.id", ondelete="CASCADE"), nullable=False, index=True
@@ -250,6 +313,9 @@ class StorageAgreement(SoftDeleteMixin, TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     unit: Mapped["StorageUnit"] = relationship(back_populates="agreements")
+    facility: Mapped["StorageFacility | None"] = relationship(
+        back_populates="agreements"
+    )
     occupants: Mapped[list["StorageAgreementOccupant"]] = relationship(
         back_populates="agreement",
         cascade="all, delete-orphan",
@@ -305,8 +371,8 @@ class StorageReservation(SoftDeleteMixin, TimestampMixin, Base):
     organization_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("organizations.id"), nullable=True, index=True
     )
-    office_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("offices.id"), nullable=True, index=True
+    facility_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("storage_facilities.id"), nullable=True, index=True
     )
     unit_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("storage_units.id", ondelete="SET NULL"), nullable=True
@@ -326,13 +392,17 @@ class StorageReservation(SoftDeleteMixin, TimestampMixin, Base):
     hold_until: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    facility: Mapped["StorageFacility | None"] = relationship(
+        back_populates="reservations"
+    )
+
 
 class StorageRatePlan(SoftDeleteMixin, TimestampMixin, Base):
     """Street/standard rates for a size tier plus an optional scheduled increase."""
 
     __tablename__ = "storage_rate_plans"
     __table_args__ = (
-        Index("idx_storage_rate_plans_office", "office_id"),
+        Index("idx_storage_rate_plans_facility", "facility_id"),
         Index("idx_storage_rate_plans_size_tier", "size_tier"),
     )
 
@@ -341,8 +411,8 @@ class StorageRatePlan(SoftDeleteMixin, TimestampMixin, Base):
         ForeignKey("organizations.id"), nullable=True, index=True
     )
     # Optional facility scope; null means an org-wide rate for the tier.
-    office_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("offices.id"), nullable=True
+    facility_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("storage_facilities.id"), nullable=True
     )
     size_tier: Mapped[str] = mapped_column(String(50), nullable=False)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -359,6 +429,8 @@ class StorageRatePlan(SoftDeleteMixin, TimestampMixin, Base):
         Boolean, default=True, nullable=False, server_default="true"
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    facility: Mapped["StorageFacility | None"] = relationship(back_populates="rate_plans")
 
 
 class StorageLienEvent(TimestampMixin, Base):
@@ -446,5 +518,4 @@ STORAGE_CHARGE_TYPES = ("rent", "insurance", "admin", "late_fee", "other")
 
 
 # Avoid circular imports - resolved at runtime by SQLAlchemy.
-from app.models.office import Office  # noqa: E402,F401
 from app.models.resident import Resident  # noqa: E402,F401
