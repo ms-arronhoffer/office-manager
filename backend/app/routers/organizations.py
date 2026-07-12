@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,11 +24,18 @@ from app.schemas.organization import (
     SignupRequest, SignupResponse,
 )
 from app.services import entitlements as ent
+from app.services import categories as cat
 from app.services.email_verification_service import issue_verification_token, send_verification_email
 
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
+
+class CategoriesUpdate(BaseModel):
+    """Org-admin request to replace the org's enabled primary categories."""
+
+    enabled_categories: list[str]
 
 
 def _slug_from_name(name: str) -> str:
@@ -181,6 +189,7 @@ async def get_my_entitlements(
         "overrides": ent.normalize_overrides(org.entitlement_overrides),
         "features": {k: ent.has_feature(org, k) for k in ent.FEATURE_KEYS},
         "limits": {k: ent.get_limit(org, k) for k in ent.LIMIT_KEYS},
+        "categories": cat.categories_state(org),
         "usage": {"offices": office_count, "seats": seat_count},
         "access": {
             "state": state,
@@ -191,6 +200,53 @@ async def get_my_entitlements(
             "grace_days": ent.PAST_DUE_GRACE_DAYS,
         },
     }
+
+
+@router.get("/me/categories")
+async def get_my_categories(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the current org's primary-category configuration.
+
+    Powers the primary app's category-aware nav and route guards.
+    """
+    if not current_user.organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No organization assigned")
+    org = (
+        await db.execute(select(Organization).where(Organization.id == current_user.organization_id))
+    ).scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    return cat.categories_state(org)
+
+
+@router.put("/me/categories")
+async def update_my_categories(
+    payload: CategoriesUpdate,
+    current_user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set the org-managed enabled primary categories (org-admin self-serve).
+
+    Platform (super-admin) overrides always win over this org-managed list, so
+    the returned ``effective`` set may differ from the requested list. Enforces
+    that at least one category remains effectively enabled.
+    """
+    if not current_user.organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No organization assigned")
+    org = (
+        await db.execute(select(Organization).where(Organization.id == current_user.organization_id))
+    ).scalar_one_or_none()
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    try:
+        cat.set_enabled_categories(org, payload.enabled_categories)
+    except cat.CategoryError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    await db.commit()
+    await db.refresh(org)
+    return cat.categories_state(org)
 
 
 @router.get("/{org_id}", response_model=OrganizationResponse)

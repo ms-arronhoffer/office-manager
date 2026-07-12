@@ -30,3 +30,17 @@ class Organization(TimestampMixin, Base):
     entitlement_overrides: Mapped[dict[str, Any]] = mapped_column(
         JSONB, default=dict, nullable=False, server_default="{}"
     )
+    # Primary categories (lines of business) the org runs, e.g. "commercial",
+    # "residential", "self_storage". Managed by the org's own admins. Distinct
+    # from plan entitlements: this expresses *what business the customer runs*,
+    # while entitlements express *what the plan allows*. See
+    # app.services.categories for the canonical set and resolution rules.
+    enabled_categories: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, nullable=False, server_default='["commercial", "residential"]'
+    )
+    # Platform (super-admin) category overrides. A mapping of category -> bool
+    # that always wins over the org-managed ``enabled_categories`` above,
+    # letting platform staff force a category on or off for an org.
+    category_overrides: Mapped[dict[str, bool]] = mapped_column(
+        JSONB, default=dict, nullable=False, server_default="{}"
+    )

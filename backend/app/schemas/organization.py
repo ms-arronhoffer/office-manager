@@ -52,6 +52,8 @@ class OrganizationResponse(BaseModel):
     stripe_customer_id: str | None = None
     stripe_subscription_id: str | None = None
     trial_ends_at: datetime | None = None
+    enabled_categories: list[str] = []
+    category_overrides: dict[str, bool] = {}
     created_at: datetime
     updated_at: datetime
 
