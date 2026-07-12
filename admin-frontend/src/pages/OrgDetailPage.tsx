@@ -10,6 +10,7 @@ import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { Label } from "../components/ui/label"
+import { Pagination } from "../components/ui/pagination"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table"
 import { Textarea } from "../components/ui/textarea"
@@ -19,6 +20,8 @@ const PLAN_OPTIONS = ["starter", "pro", "enterprise"]
 const PAYMENT_OPTIONS = ["active", "past_due", "trial", "canceled"]
 const LIMIT_KEYS = ["max_offices", "max_seats", "audit_retention_days", "monthly_ai_input_tokens", "monthly_ai_output_tokens"] as const
 const FEATURE_KEYS = ["hvac", "maintenance", "transitions", "advanced_analytics", "pdf_export", "api_access", "webhooks", "sso", "custom_fields", "ai_assist", "digital_waivers", "client_portal"] as const
+
+const PAGE_SIZE = 10
 
 const LABELS: Record<string, string> = {
   max_offices: "Max offices",
@@ -89,6 +92,8 @@ export default function OrgDetailPage() {
   const [maxSeats, setMaxSeats] = useState<number | null>(null)
   const [notes, setNotes] = useState("")
   const [overrides, setOverrides] = useState<Overrides>({})
+  const [timelinePage, setTimelinePage] = useState(0)
+  const [usersPage, setUsersPage] = useState(0)
 
   const canImpersonate = payload?.console_role === "super_admin" || payload?.console_role === "support"
   const canChangeBilling = payload?.console_role === "super_admin" || payload?.console_role === "finance"
@@ -160,6 +165,13 @@ export default function OrgDetailPage() {
     if (!org) return []
     return Object.entries(org.health_factors || {})
   }, [org])
+
+  const timeline = org?.timeline ?? []
+  const timelinePagesCount = Math.max(1, Math.ceil(timeline.length / PAGE_SIZE))
+  const pagedTimeline = timeline.slice(timelinePage * PAGE_SIZE, timelinePage * PAGE_SIZE + PAGE_SIZE)
+
+  const usersPagesCount = Math.max(1, Math.ceil(users.length / PAGE_SIZE))
+  const pagedUsers = users.slice(usersPage * PAGE_SIZE, usersPage * PAGE_SIZE + PAGE_SIZE)
 
   if (loading) return <div className="p-8 text-slate-600">Loading organization…</div>
   if (!org) return <div className="p-8"><Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>Organization not found.</AlertDescription></Alert></div>
@@ -255,7 +267,7 @@ export default function OrgDetailPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {org.timeline.map((entry) => (
+              {pagedTimeline.map((entry) => (
                 <div key={`${entry.source}-${entry.occurred_at}-${entry.title}`} className="rounded-md border border-slate-200 p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div>
@@ -267,7 +279,20 @@ export default function OrgDetailPage() {
                   <p className="mt-3 text-xs text-slate-500">{new Date(entry.occurred_at).toLocaleString()}</p>
                 </div>
               ))}
+              {timeline.length === 0 && <p className="text-sm text-slate-500">No timeline activity recorded.</p>}
             </div>
+            {timeline.length > PAGE_SIZE && (
+              <div className="mt-4 flex items-center justify-between">
+                <span className="text-sm text-slate-600">
+                  Showing {timelinePage * PAGE_SIZE + 1}–{Math.min((timelinePage + 1) * PAGE_SIZE, timeline.length)} of {timeline.length}
+                </span>
+                <Pagination
+                  currentPageIndex={timelinePage}
+                  pagesCount={timelinePagesCount}
+                  onChangePageIndex={setTimelinePage}
+                />
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -314,7 +339,7 @@ export default function OrgDetailPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {users.map((user) => (
+                  {pagedUsers.map((user) => (
                     <TableRow key={user.id}>
                       <TableCell className="font-medium">{user.display_name}</TableCell>
                       <TableCell>{user.email}</TableCell>
@@ -324,6 +349,18 @@ export default function OrgDetailPage() {
                   ))}
                 </TableBody>
               </Table>
+              {users.length > PAGE_SIZE && (
+                <div className="mt-4 flex items-center justify-between">
+                  <span className="text-sm text-slate-600">
+                    Showing {usersPage * PAGE_SIZE + 1}–{Math.min((usersPage + 1) * PAGE_SIZE, users.length)} of {users.length}
+                  </span>
+                  <Pagination
+                    currentPageIndex={usersPage}
+                    pagesCount={usersPagesCount}
+                    onChangePageIndex={setUsersPage}
+                  />
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
