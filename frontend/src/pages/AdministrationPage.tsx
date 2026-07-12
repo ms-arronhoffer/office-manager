@@ -62,6 +62,7 @@ const GROUPS: AdminGroup[] = [
     links: [
       { text: 'Personal Settings', href: '/settings', description: 'Your personal preferences: appearance, dashboard layout, notifications, and password.', roles: ['admin', 'editor'] },
       { text: 'Company Settings', href: '/admin/site-settings', description: 'Company branding, contact information, and global application settings.', roles: ['admin'] },
+      { text: 'Business Categories', href: '/admin/categories', description: 'Enable or disable Commercial, Residential, and Self Storage lines of business.', roles: ['admin'] },
       { text: 'Support Requests', href: '/support-requests', description: 'Review and forward in-app support requests.', roles: ['admin'] },
       { text: 'Data Dictionary', href: '/data-dictionary', description: 'Reference for data fields and meanings.', roles: ['admin'] },
       { text: 'Audit Log', href: '/activity-log', description: 'Review system and user activity.', roles: ['admin'] },

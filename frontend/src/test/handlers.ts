@@ -220,4 +220,54 @@ export const handlers = [
   http.get(`${API}/users`, () => {
     return HttpResponse.json({ items: [], total: 0, page: 1, page_size: 50, total_pages: 0 });
   }),
+
+  // Primary categories
+  http.get(`${API}/organizations/me/categories`, () => {
+    return HttpResponse.json({
+      catalog: ['commercial', 'residential', 'self_storage'],
+      labels: {
+        commercial: 'Commercial',
+        residential: 'Residential',
+        self_storage: 'Self Storage',
+      },
+      enabled_categories: ['commercial', 'residential'],
+      overrides: {},
+      effective: ['commercial', 'residential'],
+    });
+  }),
+
+  http.put(`${API}/organizations/me/categories`, async ({ request }) => {
+    const body = (await request.json()) as { enabled_categories: string[] };
+    const enabled = body.enabled_categories;
+    return HttpResponse.json({
+      catalog: ['commercial', 'residential', 'self_storage'],
+      labels: {
+        commercial: 'Commercial',
+        residential: 'Residential',
+        self_storage: 'Self Storage',
+      },
+      enabled_categories: enabled,
+      overrides: {},
+      effective: enabled,
+    });
+  }),
+
+  // Self storage
+  http.get(`${API}/self-storage/occupancy-summary`, () => {
+    return HttpResponse.json({
+      total_units: 10,
+      occupied_units: 6,
+      available_units: 4,
+      physical_occupancy_pct: 60,
+      economic_occupancy_pct: 55,
+      potential_monthly_revenue: '1000.00',
+      in_place_monthly_revenue: '900.00',
+      currency: 'USD',
+    });
+  }),
+
+  http.get(`${API}/self-storage/units`, () => HttpResponse.json([])),
+  http.get(`${API}/self-storage/agreements`, () => HttpResponse.json([])),
+  http.get(`${API}/self-storage/reservations`, () => HttpResponse.json([])),
+  http.get(`${API}/self-storage/rate-plans`, () => HttpResponse.json([])),
 ];

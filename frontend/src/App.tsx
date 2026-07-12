@@ -76,6 +76,8 @@ const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const DashboardHubPage = lazy(() => import('@/pages/DashboardHubPage'));
 const FinancePage = lazy(() => import('@/pages/FinancePage'));
 const ResidentialPage = lazy(() => import('@/pages/ResidentialPage'));
+const SelfStoragePage = lazy(() => import('@/pages/SelfStoragePage'));
+const CategorySettingsPage = lazy(() => import('@/pages/CategorySettingsPage'));
 const HvacPage = lazy(() => import('@/pages/HvacPage'));
 const MaintenancePage = lazy(() => import('@/pages/MaintenancePage'));
 const AdministrationPage = lazy(() => import('@/pages/AdministrationPage'));
@@ -162,6 +164,11 @@ const App: React.FC = () => {
                         <Route path="residential/announcements" element={<ResidentialPage />} />
                         <Route path="residential/rent" element={<RoleGuard allowedRoles={['admin', 'accountant']}><ResidentialPage /></RoleGuard>} />
                         <Route path="residential/owners" element={<RoleGuard allowedRoles={['admin', 'accountant']}><ResidentialPage /></RoleGuard>} />
+                        <Route path="self-storage" element={<SelfStoragePage />} />
+                        <Route path="self-storage/units" element={<SelfStoragePage />} />
+                        <Route path="self-storage/agreements" element={<SelfStoragePage />} />
+                        <Route path="self-storage/reservations" element={<SelfStoragePage />} />
+                        <Route path="self-storage/rate-plans" element={<SelfStoragePage />} />
                         <Route path="leases/new" element={<LeaseFormPage />} />
                         <Route path="leases/:id" element={<LeaseDetailPage />} />
                         <Route path="leases/:id/edit" element={<LeaseFormPage />} />
@@ -219,6 +226,7 @@ const App: React.FC = () => {
                         <Route path="activity-log" element={<RoleGuard allowedRoles={['admin']}><ActivityLogPage /></RoleGuard>} />
                         <Route path="trash" element={<RoleGuard allowedRoles={['admin']}><TrashPage /></RoleGuard>} />
                         <Route path="admin/site-settings" element={<RoleGuard allowedRoles={['admin']}><SiteSettingsPage /></RoleGuard>} />
+                        <Route path="admin/categories" element={<RoleGuard allowedRoles={['admin']}><CategorySettingsPage /></RoleGuard>} />
                         <Route path="support-requests" element={<RoleGuard allowedRoles={['admin']}><SupportRequestsPage /></RoleGuard>} />
                         <Route path="billing" element={<RoleGuard allowedRoles={['admin']}><BillingPage /></RoleGuard>} />
                         <Route path="api-keys" element={<RoleGuard allowedRoles={['admin']}><ApiKeysPage /></RoleGuard>} />

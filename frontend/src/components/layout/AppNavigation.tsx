@@ -14,6 +14,8 @@ import SupportRequestModal from '@/components/common/SupportRequestModal';
 import AIPortfolioAssistant from '@/components/common/AIPortfolioAssistant';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useInstallPrompt } from '@/hooks/useInstallPrompt';
+import { useCategories } from '@/hooks/useCategories';
+import type { PrimaryCategory } from '@/types';
 import './AppNavigation.css';
 
 interface AppNavigationProps {
@@ -59,6 +61,18 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
   const isFinance = user?.role === 'admin' || user?.role === 'accountant';
   const pinnedOffices = getPinnedOffices();
 
+  const { isEnabled: isCategoryEnabled, loading: categoriesLoading } = useCategories();
+  // Until the category config loads, fall back to the historical always-on
+  // categories (commercial + residential) so the primary nav never flickers
+  // empty; self_storage stays hidden until we know it is enabled.
+  const showCategory = useCallback(
+    (category: PrimaryCategory) =>
+      categoriesLoading
+        ? category === 'commercial' || category === 'residential'
+        : isCategoryEnabled(category),
+    [categoriesLoading, isCategoryEnabled],
+  );
+
   const navItems = useMemo(() => [
     {
       type: 'link' as const,
@@ -77,7 +91,8 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
           })),
         }]
       : []),
-    {
+    ...(showCategory('commercial')
+      ? [{
       type: 'section' as const,
       text: 'Commercial',
       defaultExpanded: false,
@@ -88,8 +103,10 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
         { type: 'link' as const, text: 'Property Management', href: '/management-companies' },
         { type: 'link' as const, text: 'Space Management', href: '/space' },
       ],
-    },
-    {
+    }]
+      : []),
+    ...(showCategory('residential')
+      ? [{
       type: 'section' as const,
       text: 'Residential',
       defaultExpanded: false,
@@ -109,7 +126,22 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
             ]
           : []),
       ],
-    },
+    }]
+      : []),
+    ...(showCategory('self_storage')
+      ? [{
+      type: 'section' as const,
+      text: 'Self Storage',
+      defaultExpanded: false,
+      items: [
+        { type: 'link' as const, text: 'Overview', href: '/self-storage' },
+        { type: 'link' as const, text: 'Units', href: '/self-storage/units' },
+        { type: 'link' as const, text: 'Agreements', href: '/self-storage/agreements' },
+        { type: 'link' as const, text: 'Reservations', href: '/self-storage/reservations' },
+        { type: 'link' as const, text: 'Rate Plans', href: '/self-storage/rate-plans' },
+      ],
+    }]
+      : []),
     {
       type: 'section' as const,
       text: 'Operations',
@@ -167,7 +199,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       text: 'Help',
       href: '/help',
     },
-  ], [isEditorOrAdmin, isFinance, pinnedOffices]);
+  ], [isEditorOrAdmin, isFinance, pinnedOffices, showCategory]);
 
   return (
     <>
