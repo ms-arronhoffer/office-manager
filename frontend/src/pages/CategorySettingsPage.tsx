@@ -86,7 +86,7 @@ const CategorySettingsPage: React.FC = () => {
       header={
         <Header
           variant="h1"
-          description="Turn each line of business on or off. Disabling a category hides its surfaces and blocks new records; existing data is retained. At least one category must stay enabled."
+          description="Turn each line of business on or off. Disabling a category hides its surfaces and blocks new records; existing data is retained and is restored if the category is re-enabled. At least one category must stay enabled."
           actions={
             <Button variant="primary" loading={saving} disabled={loading || effectiveCount < 1} onClick={save}>
               Save changes
