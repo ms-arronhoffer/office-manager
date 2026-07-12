@@ -151,20 +151,41 @@ _RECONCILE_COLUMNS: dict[str, list[str]] = {
     # then 500 on a SELECT for the missing ``facility_id``/``manager_id``. The
     # ``storage_facilities``/``storage_managers`` tables themselves are created
     # (idempotently) by ``_ensure_self_storage_schema`` before this runs.
+    #
+    # The self-storage tables mix in ``SoftDeleteMixin`` (``is_deleted`` /
+    # ``deleted_at``), but migration 100 created ``storage_facilities`` without a
+    # ``deleted_at`` column, so a DB that ran that migration 500s on every
+    # ``/self-storage/facilities`` SELECT with ``column
+    # storage_facilities.deleted_at does not exist``. Heal the soft-delete
+    # columns for every self-storage table that mixes them in.
     "storage_units": [
         "facility_id uuid",
+        "is_deleted boolean NOT NULL DEFAULT false",
+        "deleted_at timestamptz",
     ],
     "storage_agreements": [
         "facility_id uuid",
+        "is_deleted boolean NOT NULL DEFAULT false",
+        "deleted_at timestamptz",
     ],
     "storage_reservations": [
         "facility_id uuid",
+        "is_deleted boolean NOT NULL DEFAULT false",
+        "deleted_at timestamptz",
     ],
     "storage_rate_plans": [
         "facility_id uuid",
+        "is_deleted boolean NOT NULL DEFAULT false",
+        "deleted_at timestamptz",
     ],
     "storage_facilities": [
         "manager_id uuid",
+        "is_deleted boolean NOT NULL DEFAULT false",
+        "deleted_at timestamptz",
+    ],
+    "storage_charges": [
+        "is_deleted boolean NOT NULL DEFAULT false",
+        "deleted_at timestamptz",
     ],
 }
 

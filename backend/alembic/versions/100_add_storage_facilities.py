@@ -73,6 +73,7 @@ def _create_facilities(inspector) -> None:
         sa.Column("total_units", sa.Integer(), nullable=True),
         sa.Column("notes", sa.Text(), nullable=True),
         sa.Column("is_deleted", sa.Boolean(), nullable=False, server_default="false"),
+        sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"]),
