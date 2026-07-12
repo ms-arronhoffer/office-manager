@@ -456,10 +456,10 @@ export default function OrgDetailPage() {
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
-          {org.categories.catalog.map((key) => {
-            const label = org.categories.labels[key] ?? key
-            const orgEnabled = org.categories.enabled_categories.includes(key)
-            const effective = org.categories.effective.includes(key)
+          {(org.categories?.catalog ?? []).map((key) => {
+            const label = org.categories?.labels[key] ?? key
+            const orgEnabled = org.categories?.enabled_categories.includes(key) ?? false
+            const effective = org.categories?.effective.includes(key) ?? false
             const overridden = key in categoryOverrides
             return (
               <div key={key} className="flex items-center justify-between rounded-md border border-slate-200 px-4 py-3">
