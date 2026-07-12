@@ -38,6 +38,7 @@ from app.models.self_storage import (
     StorageCharge,
     StorageFacility,
     StorageLienEvent,
+    StorageManager,
     StorageRatePlan,
     StorageReservation,
     StorageUnit,
@@ -46,6 +47,7 @@ from app.models.user import User
 from app.services import self_storage_service as svc
 from app.services.self_storage_service import SelfStorageError
 from app.utils.tenant_scope import load_or_404
+from sqlalchemy.exc import IntegrityError
 
 router = APIRouter()
 
@@ -62,6 +64,28 @@ def _fail(exc: SelfStorageError) -> HTTPException:
 # Schemas — Facilities (the self-storage "Property")
 # ---------------------------------------------------------------------------
 
+class StorageManagerBase(BaseModel):
+    name: str
+    email: str | None = None
+    phone: str | None = None
+
+
+class StorageManagerCreate(StorageManagerBase):
+    pass
+
+
+class StorageManagerUpdate(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+
+
+class StorageManagerResponse(StorageManagerBase):
+    id: uuid.UUID
+    organization_id: uuid.UUID | None
+    model_config = {"from_attributes": True}
+
+
 class StorageFacilityBase(BaseModel):
     name: str
     facility_number: int | None = None
@@ -74,6 +98,7 @@ class StorageFacilityBase(BaseModel):
     zip_code: str | None = None
     phone: str | None = None
     email: str | None = None
+    manager_id: uuid.UUID | None = None
     manager_name: str | None = None
     gate_hours: str | None = None
     access_hours: str | None = None
@@ -97,6 +122,7 @@ class StorageFacilityUpdate(BaseModel):
     zip_code: str | None = None
     phone: str | None = None
     email: str | None = None
+    manager_id: uuid.UUID | None = None
     manager_name: str | None = None
     gate_hours: str | None = None
     access_hours: str | None = None
@@ -107,6 +133,7 @@ class StorageFacilityUpdate(BaseModel):
 class StorageFacilityResponse(StorageFacilityBase):
     id: uuid.UUID
     organization_id: uuid.UUID | None
+    manager: StorageManagerResponse | None = None
     model_config = {"from_attributes": True}
 
 
@@ -387,6 +414,122 @@ class PaymentRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Managers (self-storage — its own data set, mirroring the commercial Manager)
+# ---------------------------------------------------------------------------
+
+async def _resolve_manager(
+    db: AsyncSession, manager_id: uuid.UUID | None, org_id
+) -> StorageManager | None:
+    """Validate a manager id belongs to the org, returning the manager or None."""
+    if manager_id is None:
+        return None
+    return await load_or_404(
+        db, StorageManager, manager_id, org_id, detail="Manager not found"
+    )
+
+
+@router.get("/managers", response_model=list[StorageManagerResponse])
+async def list_storage_managers(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    stmt = (
+        select(StorageManager)
+        .where(StorageManager.organization_id == current_user.organization_id)
+        .order_by(StorageManager.name)
+    )
+    return (await db.execute(stmt)).scalars().all()
+
+
+@router.post(
+    "/managers",
+    response_model=StorageManagerResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_storage_manager(
+    payload: StorageManagerCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Editor),
+):
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Manager name is required")
+    manager = StorageManager(
+        organization_id=current_user.organization_id,
+        name=name,
+        email=(payload.email or None),
+        phone=(payload.phone or None),
+    )
+    db.add(manager)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A manager named '{name}' already exists.",
+        )
+    await db.refresh(manager)
+    return manager
+
+
+@router.patch("/managers/{manager_id}", response_model=StorageManagerResponse)
+async def update_storage_manager(
+    manager_id: uuid.UUID,
+    payload: StorageManagerUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Editor),
+):
+    manager = await load_or_404(
+        db, StorageManager, manager_id, current_user.organization_id,
+        detail="Manager not found",
+    )
+    data = payload.model_dump(exclude_unset=True)
+    if "name" in data:
+        name = (data["name"] or "").strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="Manager name is required")
+        data["name"] = name
+    for field, value in data.items():
+        setattr(manager, field, value)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A manager with that name already exists.",
+        )
+    await db.refresh(manager)
+    return manager
+
+
+@router.delete("/managers/{manager_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_storage_manager(
+    manager_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Admin),
+):
+    org_id = current_user.organization_id
+    manager = await load_or_404(
+        db, StorageManager, manager_id, org_id, detail="Manager not found"
+    )
+    # Detach the manager from any facilities so the FK does not block deletion.
+    facilities = (
+        await db.execute(
+            select(StorageFacility).where(
+                StorageFacility.manager_id == manager_id,
+                StorageFacility.organization_id == org_id,
+            )
+        )
+    ).scalars().all()
+    for facility in facilities:
+        facility.manager_id = None
+    await db.delete(manager)
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
 # Facilities (the self-storage "Property")
 # ---------------------------------------------------------------------------
 
@@ -397,9 +540,13 @@ async def list_facilities(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    stmt = select(StorageFacility).where(
-        StorageFacility.organization_id == current_user.organization_id,
-        StorageFacility.is_deleted.is_(False),
+    stmt = (
+        select(StorageFacility)
+        .where(
+            StorageFacility.organization_id == current_user.organization_id,
+            StorageFacility.is_deleted.is_(False),
+        )
+        .options(selectinload(StorageFacility.manager))
     )
     if is_active is not None:
         stmt = stmt.where(StorageFacility.is_active.is_(is_active))
@@ -409,17 +556,25 @@ async def list_facilities(
     return (await db.execute(stmt)).scalars().all()
 
 
+async def _load_facility(
+    db: AsyncSession, facility_id: uuid.UUID, org_id
+) -> StorageFacility:
+    facility = await load_or_404(
+        db, StorageFacility, facility_id, org_id,
+        extra_filters=[StorageFacility.is_deleted.is_(False)],
+        detail="Facility not found",
+    )
+    await db.refresh(facility, attribute_names=["manager"])
+    return facility
+
+
 @router.get("/facilities/{facility_id}", response_model=StorageFacilityResponse)
 async def get_facility(
     facility_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await load_or_404(
-        db, StorageFacility, facility_id, current_user.organization_id,
-        extra_filters=[StorageFacility.is_deleted.is_(False)],
-        detail="Facility not found",
-    )
+    return await _load_facility(db, facility_id, current_user.organization_id)
 
 
 @router.post("/facilities", response_model=StorageFacilityResponse, status_code=status.HTTP_201_CREATED)
@@ -428,14 +583,20 @@ async def create_facility(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(Editor),
 ):
-    facility = StorageFacility(
-        organization_id=current_user.organization_id,
-        **payload.model_dump(),
-    )
+    org_id = current_user.organization_id
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Property name is required")
+    data = payload.model_dump()
+    data["name"] = name
+    manager = await _resolve_manager(db, payload.manager_id, org_id)
+    # Keep the legacy free-text manager_name in sync with the assigned manager.
+    if manager is not None:
+        data["manager_name"] = manager.name
+    facility = StorageFacility(organization_id=org_id, **data)
     db.add(facility)
     await db.commit()
-    await db.refresh(facility)
-    return facility
+    return await _load_facility(db, facility.id, org_id)
 
 
 @router.patch("/facilities/{facility_id}", response_model=StorageFacilityResponse)
@@ -445,16 +606,30 @@ async def update_facility(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(Editor),
 ):
+    org_id = current_user.organization_id
     facility = await load_or_404(
-        db, StorageFacility, facility_id, current_user.organization_id,
+        db, StorageFacility, facility_id, org_id,
         extra_filters=[StorageFacility.is_deleted.is_(False)],
         detail="Facility not found",
     )
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    if "name" in data:
+        name = (data["name"] or "").strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="Property name is required")
+        data["name"] = name
+    if "manager_id" in data:
+        manager = await _resolve_manager(db, data["manager_id"], org_id)
+        # Sync the free-text name; clearing the manager clears the cached name
+        # unless the caller explicitly provided one.
+        if manager is not None:
+            data.setdefault("manager_name", manager.name)
+        elif "manager_name" not in data:
+            data["manager_name"] = None
+    for field, value in data.items():
         setattr(facility, field, value)
     await db.commit()
-    await db.refresh(facility)
-    return facility
+    return await _load_facility(db, facility_id, org_id)
 
 
 @router.delete("/facilities/{facility_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -701,9 +876,22 @@ async def create_agreement(
     )
     data = payload.model_dump(exclude={"occupants"})
     # An agreement belongs to a facility (like a commercial lease belongs to an
-    # office). Default it from the unit's facility when the caller omits it.
+    # office). Default it from the unit's facility when the caller omits it, and
+    # validate any explicitly-provided facility belongs to the org and matches
+    # the unit's facility so agreements are not mis-filed.
     if data.get("facility_id") is None:
         data["facility_id"] = unit.facility_id
+    else:
+        await load_or_404(
+            db, StorageFacility, data["facility_id"], org_id,
+            extra_filters=[StorageFacility.is_deleted.is_(False)],
+            detail="Facility not found",
+        )
+        if unit.facility_id is not None and data["facility_id"] != unit.facility_id:
+            raise HTTPException(
+                status_code=422,
+                detail="The selected facility does not match the unit's facility.",
+            )
     occupants = await _build_occupants(db, org_id, payload.occupants)
     try:
         if payload.status in ("active",):

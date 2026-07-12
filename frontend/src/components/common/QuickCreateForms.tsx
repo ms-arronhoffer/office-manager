@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
-import { managementCompanies, offices, managers, ticketCategories } from '@/api';
+import { managementCompanies, offices, managers, ticketCategories, selfStorage } from '@/api';
 import QuickCreateModal from './QuickCreateModal';
 
 export interface QuickCreateOption {
@@ -341,6 +341,90 @@ export const TicketCategoryQuickCreate: React.FC<EntityModalProps> = ({
           value={name}
           onChange={({ detail }) => setName(detail.value)}
           placeholder="e.g., Plumbing"
+        />
+      </FormField>
+    </QuickCreateModal>
+  );
+};
+
+/**
+ * Quick-create modal for a self-storage Manager. Mirrors ManagerQuickCreate but
+ * targets the self-storage manager data set so the category stands on its own.
+ */
+export const StorageManagerQuickCreate: React.FC<EntityModalProps> = ({
+  visible,
+  onClose,
+  onCreated,
+}) => {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = () => {
+    setName('');
+    setEmail('');
+    setPhone('');
+    setError(null);
+  };
+
+  const handleCancel = () => {
+    reset();
+    onClose();
+  };
+
+  const handleSubmit = async () => {
+    if (!name.trim()) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await selfStorage.createManager({
+        name: name.trim(),
+        email: email.trim() || undefined,
+        phone: phone.trim() || undefined,
+      });
+      onCreated({ label: res.data.name, value: String(res.data.id) });
+      reset();
+      onClose();
+    } catch (err) {
+      setError(errorMessage(err, 'Failed to create manager.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <QuickCreateModal
+      visible={visible}
+      title="New Manager"
+      onSubmit={handleSubmit}
+      onCancel={handleCancel}
+      submitting={submitting}
+      submitDisabled={!name.trim()}
+      error={error}
+      submitLabel="Create Manager"
+    >
+      <FormField label="Name" constraintText="Required">
+        <Input
+          value={name}
+          onChange={({ detail }) => setName(detail.value)}
+          placeholder="Manager name"
+        />
+      </FormField>
+      <FormField label="Email">
+        <Input
+          value={email}
+          onChange={({ detail }) => setEmail(detail.value)}
+          type="email"
+          placeholder="Email address"
+        />
+      </FormField>
+      <FormField label="Phone">
+        <Input
+          value={phone}
+          onChange={({ detail }) => setPhone(detail.value)}
+          placeholder="Phone number"
         />
       </FormField>
     </QuickCreateModal>

@@ -17,10 +17,12 @@ import { useFlashbar } from '@/context/FlashbarContext';
 import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import TabbedPage, { TabbedPageTab } from '@/components/layout/TabbedPage';
 import EntityFormModal from '@/components/common/EntityFormModal';
+import { StorageManagerQuickCreate } from '@/components/common/QuickCreateForms';
 import { selfStorage as api, leasing as leasingApi } from '@/api';
 import type {
   StorageFacility,
   StorageFacilityCreate,
+  StorageManager,
   StorageUnit,
   StorageUnitStatus,
   StorageUnitType,
@@ -155,34 +157,101 @@ const FacilitiesTab: React.FC<{
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Identity.
   const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [facilityNumber, setFacilityNumber] = useState('');
+  const [isActive, setIsActive] = useState(true);
+  // Address.
+  const [addressLine1, setAddressLine1] = useState('');
+  const [addressLine2, setAddressLine2] = useState('');
   const [city, setCity] = useState('');
   const [stateVal, setStateVal] = useState('');
-  const [manager, setManager] = useState('');
+  const [zipCode, setZipCode] = useState('');
+  // Contact.
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  // Manager (its own data set — populates the drop-down).
+  const [managerId, setManagerId] = useState('');
+  const [managers, setManagers] = useState<StorageManager[]>([]);
+  const [managerModalOpen, setManagerModalOpen] = useState(false);
+  // Operations.
+  const [gateHours, setGateHours] = useState('');
+  const [accessHours, setAccessHours] = useState('');
+  const [totalUnits, setTotalUnits] = useState('');
   const [notes, setNotes] = useState('');
+
+  const loadManagers = useCallback(async () => {
+    try {
+      const res = await api.listManagers();
+      setManagers(res.data);
+    } catch {
+      // Non-critical — the form is still usable without the manager list.
+    }
+  }, []);
+
+  useEffect(() => {
+    loadManagers();
+  }, [loadManagers]);
 
   const resetForm = () => {
     setName('');
+    setCode('');
+    setFacilityNumber('');
+    setIsActive(true);
+    setAddressLine1('');
+    setAddressLine2('');
     setCity('');
     setStateVal('');
-    setManager('');
+    setZipCode('');
+    setPhone('');
+    setEmail('');
+    setManagerId('');
+    setGateHours('');
+    setAccessHours('');
+    setTotalUnits('');
     setNotes('');
     setError(null);
   };
 
   const submit = async () => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setError('Property name is required.');
+      return;
+    }
+    // Guard against non-numeric input for the numeric fields before hitting the API.
+    if (facilityNumber.trim() && Number.isNaN(Number(facilityNumber))) {
+      setError('Facility number must be a number.');
+      return;
+    }
+    if (totalUnits.trim() && Number.isNaN(Number(totalUnits))) {
+      setError('Total units must be a number.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
       const payload: StorageFacilityCreate = {
-        name: name.trim(),
+        name: trimmedName,
+        code: code.trim() || null,
+        facility_number: facilityNumber.trim() ? Number(facilityNumber) : null,
+        is_active: isActive,
+        address_line_1: addressLine1.trim() || null,
+        address_line_2: addressLine2.trim() || null,
         city: city.trim() || null,
         state: stateVal.trim() || null,
-        manager_name: manager.trim() || null,
+        zip_code: zipCode.trim() || null,
+        phone: phone.trim() || null,
+        email: email.trim() || null,
+        manager_id: managerId || null,
+        gate_hours: gateHours.trim() || null,
+        access_hours: accessHours.trim() || null,
+        total_units: totalUnits.trim() ? Number(totalUnits) : null,
         notes: notes.trim() || null,
       };
       await api.createFacility(payload);
-      addFlash({ type: 'success', content: `Property "${name}" created.` });
+      addFlash({ type: 'success', content: `Property "${trimmedName}" created.` });
       setOpen(false);
       resetForm();
       reload();
@@ -235,7 +304,7 @@ const FacilitiesTab: React.FC<{
             header: 'Location',
             cell: (f) => [f.city, f.state].filter(Boolean).join(', ') || '—',
           },
-          { id: 'manager', header: 'Manager', cell: (f) => f.manager_name || '—' },
+          { id: 'manager', header: 'Manager', cell: (f) => f.manager?.name || f.manager_name || '—' },
           {
             id: 'active',
             header: 'Active',
@@ -270,24 +339,132 @@ const FacilitiesTab: React.FC<{
           resetForm();
         }}
       >
-        <SpaceBetween size="m">
-          <FormField label="Name">
-            <Input value={name} onChange={(e) => setName(e.detail.value)} placeholder="Downtown Storage" />
+        <SpaceBetween size="l">
+          <Box variant="h4">Identity</Box>
+          <ColumnLayout columns={2}>
+            <FormField label="Name" constraintText="Required">
+              <Input value={name} onChange={(e) => setName(e.detail.value)} placeholder="Downtown Storage" />
+            </FormField>
+            <FormField label="Code">
+              <Input value={code} onChange={(e) => setCode(e.detail.value)} placeholder="DTS" />
+            </FormField>
+            <FormField label="Facility number">
+              <Input
+                value={facilityNumber}
+                onChange={(e) => setFacilityNumber(e.detail.value)}
+                type="number"
+                inputMode="numeric"
+              />
+            </FormField>
+            <FormField label="Active">
+              <Toggle checked={isActive} onChange={(e) => setIsActive(e.detail.checked)}>
+                {isActive ? 'Active' : 'Inactive'}
+              </Toggle>
+            </FormField>
+          </ColumnLayout>
+
+          <Box variant="h4">Address</Box>
+          <FormField label="Address line 1">
+            <Input
+              value={addressLine1}
+              onChange={(e) => setAddressLine1(e.detail.value)}
+              placeholder="123 Main St"
+            />
           </FormField>
-          <FormField label="City">
-            <Input value={city} onChange={(e) => setCity(e.detail.value)} />
+          <FormField label="Address line 2">
+            <Input
+              value={addressLine2}
+              onChange={(e) => setAddressLine2(e.detail.value)}
+              placeholder="Suite 100"
+            />
           </FormField>
-          <FormField label="State">
-            <Input value={stateVal} onChange={(e) => setStateVal(e.detail.value)} placeholder="CO" />
+          <ColumnLayout columns={3}>
+            <FormField label="City">
+              <Input value={city} onChange={(e) => setCity(e.detail.value)} />
+            </FormField>
+            <FormField label="State">
+              <Input value={stateVal} onChange={(e) => setStateVal(e.detail.value)} placeholder="CO" />
+            </FormField>
+            <FormField label="ZIP code">
+              <Input value={zipCode} onChange={(e) => setZipCode(e.detail.value)} placeholder="80202" />
+            </FormField>
+          </ColumnLayout>
+
+          <Box variant="h4">Contact &amp; management</Box>
+          <ColumnLayout columns={2}>
+            <FormField label="Phone">
+              <Input value={phone} onChange={(e) => setPhone(e.detail.value)} placeholder="555-1000" />
+            </FormField>
+            <FormField label="Email">
+              <Input
+                value={email}
+                onChange={(e) => setEmail(e.detail.value)}
+                type="email"
+                placeholder="ops@example.com"
+              />
+            </FormField>
+          </ColumnLayout>
+          <FormField
+            label="Manager"
+            description="Managers are their own self-storage data set. Pick one or add a new manager."
+          >
+            <Select
+              selectedOption={
+                managerId
+                  ? {
+                      value: managerId,
+                      label: managers.find((m) => m.id === managerId)?.name || 'Manager',
+                    }
+                  : { value: '', label: '— None —' }
+              }
+              onChange={(e) => {
+                const value = e.detail.selectedOption.value || '';
+                if (value === '__add__') {
+                  setManagerModalOpen(true);
+                  return;
+                }
+                setManagerId(value);
+              }}
+              options={[
+                { value: '', label: '— None —' },
+                ...managers.map((m) => ({ value: m.id, label: m.name })),
+                { value: '__add__', label: '+ Add new manager…' },
+              ]}
+              placeholder="Select a manager"
+            />
           </FormField>
-          <FormField label="Manager">
-            <Input value={manager} onChange={(e) => setManager(e.detail.value)} />
-          </FormField>
+
+          <Box variant="h4">Operations</Box>
+          <ColumnLayout columns={2}>
+            <FormField label="Gate hours">
+              <Input value={gateHours} onChange={(e) => setGateHours(e.detail.value)} placeholder="6am–10pm" />
+            </FormField>
+            <FormField label="Access hours">
+              <Input value={accessHours} onChange={(e) => setAccessHours(e.detail.value)} placeholder="24/7" />
+            </FormField>
+            <FormField label="Total units">
+              <Input
+                value={totalUnits}
+                onChange={(e) => setTotalUnits(e.detail.value)}
+                type="number"
+                inputMode="numeric"
+              />
+            </FormField>
+          </ColumnLayout>
           <FormField label="Notes">
             <Textarea value={notes} onChange={(e) => setNotes(e.detail.value)} />
           </FormField>
         </SpaceBetween>
       </EntityFormModal>
+      <StorageManagerQuickCreate
+        visible={managerModalOpen}
+        onClose={() => setManagerModalOpen(false)}
+        onCreated={(opt) => {
+          // Refresh the manager list and select the newly-created manager.
+          loadManagers();
+          setManagerId(opt.value);
+        }}
+      />
       {deleteModal}
     </>
   );
