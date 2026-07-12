@@ -34,6 +34,14 @@ export interface AdminOrg {
   health_band: "healthy" | "at_risk" | "critical"
 }
 
+export interface OrgCategoriesState {
+  catalog: string[]
+  labels: Record<string, string>
+  enabled_categories: string[]
+  overrides: Record<string, boolean>
+  effective: string[]
+}
+
 export interface AdminOrgDetail extends AdminOrg {
   stripe_customer_id: string | null
   stripe_subscription_id: string | null
@@ -44,6 +52,7 @@ export interface AdminOrgDetail extends AdminOrg {
   entitlement_overrides: Record<string, number | boolean | null>
   plan_defaults: Record<string, number | boolean | null>
   effective_entitlements: Record<string, number | boolean | null>
+  categories: OrgCategoriesState
   health_factors: Record<string, unknown>
   timeline: OrgTimelineEntry[]
 }
@@ -58,6 +67,7 @@ export interface OrgPatch {
   onboarding_complete?: boolean
   admin_notes?: string | null
   entitlement_overrides?: Record<string, number | boolean | null>
+  category_overrides?: Record<string, boolean>
 }
 
 export interface EntitlementsCatalog {
