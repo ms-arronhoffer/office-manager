@@ -158,6 +158,13 @@ def _plan_from_price(price: dict | str, stripe_cfg: "StripeSettings") -> str:
         return "pro"
     if stripe_cfg.product_id_enterprise and product_id == stripe_cfg.product_id_enterprise:
         return "enterprise"
+    # No configured price/product matched. Fall back to 'pro' so access is never
+    # silently over-granted, but log it so an unmapped or misconfigured price is
+    # visible instead of masked.
+    logger.warning(
+        "Unmapped Stripe price (id=%s, product=%s); defaulting plan to 'pro'",
+        price_id, product_id,
+    )
     return "pro"
 
 
