@@ -92,12 +92,14 @@ export default function OrgDetailPage() {
   const [maxSeats, setMaxSeats] = useState<number | null>(null)
   const [notes, setNotes] = useState("")
   const [overrides, setOverrides] = useState<Overrides>({})
+  const [categoryOverrides, setCategoryOverrides] = useState<Record<string, boolean>>({})
   const [timelinePage, setTimelinePage] = useState(0)
   const [usersPage, setUsersPage] = useState(0)
 
   const canImpersonate = payload?.console_role === "super_admin" || payload?.console_role === "support"
   const canChangeBilling = payload?.console_role === "super_admin" || payload?.console_role === "finance"
   const canEditOperational = payload?.console_role === "super_admin" || payload?.console_role === "support"
+  const canEditCategories = payload?.console_role === "super_admin"
 
   useEffect(() => {
     async function load() {
@@ -118,6 +120,7 @@ export default function OrgDetailPage() {
         setMaxSeats(orgData.max_seats)
         setNotes(orgData.admin_notes || "")
         setOverrides({ ...(orgData.entitlement_overrides || {}) })
+        setCategoryOverrides({ ...(orgData.categories?.overrides || {}) })
         setError("")
       } catch {
         setError("Failed to load organization")
@@ -139,8 +142,11 @@ export default function OrgDetailPage() {
         max_seats: canEditOperational || canChangeBilling ? maxSeats : undefined,
         admin_notes: notes,
         entitlement_overrides: canEditOperational || canChangeBilling ? overrides : undefined,
+        category_overrides: canEditCategories ? categoryOverrides : undefined,
       })
       setOrg(updated)
+      setOverrides({ ...(updated.entitlement_overrides || {}) })
+      setCategoryOverrides({ ...(updated.categories?.overrides || {}) })
       setError("")
     } catch {
       setError("Failed to save organization")
@@ -441,6 +447,57 @@ export default function OrgDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-serif text-2xl">Category overrides</CardTitle>
+          <p className="text-sm text-slate-500">
+            Platform overrides for the org's primary lines of business (commercial, residential, self storage). An override always wins over the org's own selection. At least one category must stay enabled.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {(org.categories?.catalog ?? []).map((key) => {
+            const label = org.categories?.labels[key] ?? key
+            const orgEnabled = org.categories?.enabled_categories.includes(key) ?? false
+            const effective = org.categories?.effective.includes(key) ?? false
+            const overridden = key in categoryOverrides
+            return (
+              <div key={key} className="flex items-center justify-between rounded-md border border-slate-200 px-4 py-3">
+                <div>
+                  <p className="font-medium text-slate-900">{label}</p>
+                  <p className="text-xs text-slate-500">
+                    Org setting: {orgEnabled ? "Enabled" : "Disabled"} · Effective:{" "}
+                    <span className={effective ? "text-emerald-700" : "text-slate-500"}>{effective ? "Enabled" : "Disabled"}</span>
+                  </p>
+                </div>
+                <Select
+                  value={overridden ? String(Boolean(categoryOverrides[key])) : "default"}
+                  onValueChange={(next) => {
+                    if (next === "default") {
+                      const clone = { ...categoryOverrides }
+                      delete clone[key]
+                      setCategoryOverrides(clone)
+                    } else {
+                      setCategoryOverrides((prev) => ({ ...prev, [key]: next === "true" }))
+                    }
+                  }}
+                  disabled={!canEditCategories}
+                >
+                  <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Org default</SelectItem>
+                    <SelectItem value="true">Force enabled</SelectItem>
+                    <SelectItem value="false">Force disabled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )
+          })}
+          {!canEditCategories && (
+            <p className="text-xs text-slate-500">Category overrides require super-admin access.</p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }
