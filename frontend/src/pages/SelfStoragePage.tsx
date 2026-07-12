@@ -728,6 +728,7 @@ const RatePlansTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
  */
 const SelfStoragePage: React.FC = () => {
   const { user } = useAuth();
+  const { addFlash } = useFlashbar();
   const canEdit = user?.role === 'admin' || user?.role === 'editor';
 
   // Properties (Locations / Offices) are the parent of storage units — a unit
@@ -737,18 +738,24 @@ const SelfStoragePage: React.FC = () => {
   useEffect(() => {
     let active = true;
     officesApi
-      .list({ page_size: 200 })
+      .list({ page_size: 1000 })
       .then((res) => {
         if (active) setProperties(res.data.items);
       })
-      .catch(() => {
-        // Non-fatal: units still render, just without property labels.
-        if (active) setProperties([]);
+      .catch((e) => {
+        // Non-fatal: units still render, just without property labels. Warn so
+        // the user understands why property names may be missing.
+        if (!active) return;
+        setProperties([]);
+        addFlash({
+          type: 'warning',
+          content: errDetail(e, 'Failed to load properties; unit locations may be unavailable.'),
+        });
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [addFlash]);
 
   const tabs: TabbedPageTab[] = useMemo(
     () => [
