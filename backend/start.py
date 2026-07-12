@@ -144,6 +144,28 @@ _RECONCILE_COLUMNS: dict[str, list[str]] = {
         "pet_deposit numeric(15, 2)",
         "renewal_option boolean NOT NULL DEFAULT false",
     ],
+    # Self storage gained its own Property (facility) and Manager data sets in
+    # migrations 100/101. A DB that was create_all-stamped at an older head has
+    # ``alembic upgrade`` as a no-op, so these facility/manager link columns can
+    # be absent — the self-storage Units/Agreements/Reservations/Rate-plans tabs
+    # then 500 on a SELECT for the missing ``facility_id``/``manager_id``. The
+    # ``storage_facilities``/``storage_managers`` tables themselves are created
+    # (idempotently) by ``_ensure_self_storage_schema`` before this runs.
+    "storage_units": [
+        "facility_id uuid",
+    ],
+    "storage_agreements": [
+        "facility_id uuid",
+    ],
+    "storage_reservations": [
+        "facility_id uuid",
+    ],
+    "storage_rate_plans": [
+        "facility_id uuid",
+    ],
+    "storage_facilities": [
+        "manager_id uuid",
+    ],
 }
 
 
@@ -161,6 +183,32 @@ def _ensure_reconciled_columns() -> None:
             for col in columns:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col}"))
     print("[start] Ensured email-rule/audit-log columns exist.")
+
+
+def _ensure_self_storage_schema() -> None:
+    """Create the self-storage facility/manager tables idempotently.
+
+    Self storage was given its own Property (``storage_facilities``, migration
+    100) and Manager (``storage_managers``, migration 101) data sets. A database
+    that was create_all-stamped at an older head is marked current, so those
+    later migrations never run (``alembic upgrade head`` is a no-op) and the
+    tables are absent — the self-storage Properties tab and the shared facility
+    lookup used by every other tab then 500 with ``relation
+    "storage_facilities" does not exist``.
+
+    ``Table.create(checkfirst=True)`` only issues ``CREATE TABLE`` for a table
+    that is not already present, so this is a safe no-op on healthy databases
+    (fresh create_all deployments and DBs that ran migrations 100/101). Managers
+    are created first because ``storage_facilities.manager_id`` references them.
+    The per-column ``facility_id``/``manager_id`` link columns are then healed by
+    ``_ensure_reconciled_columns`` for databases whose tables already existed but
+    predate those columns.
+    """
+    from app.models.self_storage import StorageFacility, StorageManager
+
+    StorageManager.__table__.create(bind=sync_engine, checkfirst=True)
+    StorageFacility.__table__.create(bind=sync_engine, checkfirst=True)
+    print("[start] Ensured self-storage facility/manager tables exist.")
 
 
 def _run_alembic(*args: str) -> None:
@@ -232,6 +280,7 @@ def _initialize_schema() -> None:
         # them before stamping so endpoints that maintain them don't fail after a
         # commit (a spurious 500 despite the row persisting).
         _ensure_search_vector_columns()
+        _ensure_self_storage_schema()
         _ensure_reconciled_columns()
         _run_alembic("stamp", "head")
         return
@@ -249,8 +298,11 @@ def _initialize_schema() -> None:
     print("[start] Running alembic upgrade head...")
     _run_alembic("upgrade", "head")
 
-    # Reconcile newer columns that a previously create_all-stamped database can
-    # be missing (alembic upgrade is a no-op there). Idempotent on healthy DBs.
+    # Create newer tables and reconcile newer columns that a previously
+    # create_all-stamped database can be missing (alembic upgrade is a no-op
+    # there). Tables first so column reconcile can add their link columns.
+    # Idempotent on healthy DBs.
+    _ensure_self_storage_schema()
     _ensure_reconciled_columns()
 
     # Sanity-check after upgrade: a couple of must-have tables.
