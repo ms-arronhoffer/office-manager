@@ -17,8 +17,9 @@ import { useFlashbar } from '@/context/FlashbarContext';
 import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import TabbedPage, { TabbedPageTab } from '@/components/layout/TabbedPage';
 import EntityFormModal from '@/components/common/EntityFormModal';
-import { selfStorage as api } from '@/api';
+import { selfStorage as api, offices as officesApi } from '@/api';
 import type {
+  Office,
   StorageUnit,
   StorageUnitStatus,
   StorageUnitType,
@@ -42,6 +43,17 @@ const fmtMoney = (v?: string | null) =>
   v != null && v !== ''
     ? `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     : '—';
+
+// Human label for a Property (Location / Office) that acts as the parent of
+// its storage units.
+const propertyLabel = (o: Office) =>
+  o.location_name || (o.office_number != null ? `Property ${o.office_number}` : 'Property');
+
+// Pull the server-provided error detail (e.g. a disabled-category or
+// validation message) out of an Axios error so the flashbar can explain *why*
+// a load failed instead of showing a generic message.
+const errDetail = (e: unknown, fallback: string): string =>
+  (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fallback;
 
 const unitStatusBadge = (s: StorageUnitStatus) => {
   const color =
@@ -79,7 +91,7 @@ const OverviewTab: React.FC = () => {
     api
       .occupancySummary()
       .then((res) => active && setSummary(res.data))
-      .catch(() => active && addFlash({ type: 'error', content: 'Failed to load occupancy summary.' }))
+      .catch((e) => active && addFlash({ type: 'error', content: errDetail(e, 'Failed to load occupancy summary.') }))
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
@@ -129,11 +141,13 @@ const OverviewTab: React.FC = () => {
 };
 
 // ─── Units ───────────────────────────────────────────────────────────────────
-const UnitsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
+const UnitsTab: React.FC<{ canEdit: boolean; properties: Office[] }> = ({ canEdit, properties }) => {
   const { addFlash } = useFlashbar();
   const { confirmDelete, modal: deleteModal } = useConfirmDelete();
   const [units, setUnits] = useState<StorageUnit[]>([]);
   const [loading, setLoading] = useState(true);
+  // Property (Location) the units are scoped to; '' means all properties.
+  const [officeFilter, setOfficeFilter] = useState('');
 
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -143,22 +157,35 @@ const UnitsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
   const [unitType, setUnitType] = useState<StorageUnitType>('interior');
   const [streetRate, setStreetRate] = useState('');
   const [climate, setClimate] = useState(false);
+  const [officeId, setOfficeId] = useState('');
+
+  // Map a unit's office_id to its Property label for the table column.
+  const propertyById = useMemo(
+    () => new Map(properties.map((p) => [p.id, propertyLabel(p)])),
+    [properties],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.listUnits();
+      const res = await api.listUnits(officeFilter ? { office_id: officeFilter } : undefined);
       setUnits(res.data);
-    } catch {
-      addFlash({ type: 'error', content: 'Failed to load storage units.' });
+    } catch (e) {
+      addFlash({ type: 'error', content: errDetail(e, 'Failed to load storage units.') });
     } finally {
       setLoading(false);
     }
-  }, [addFlash]);
+  }, [addFlash, officeFilter]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const openCreate = () => {
+    // Default the new unit's Property to the one currently being viewed.
+    setOfficeId(officeFilter);
+    setOpen(true);
+  };
 
   const resetForm = () => {
     setUnitNumber('');
@@ -166,6 +193,7 @@ const UnitsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
     setUnitType('interior');
     setStreetRate('');
     setClimate(false);
+    setOfficeId('');
     setError(null);
   };
 
@@ -174,6 +202,7 @@ const UnitsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
     setError(null);
     try {
       await api.createUnit({
+        office_id: officeId || null,
         unit_number: unitNumber.trim(),
         size_label: sizeLabel.trim() || null,
         unit_type: unitType,
@@ -184,8 +213,8 @@ const UnitsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
       setOpen(false);
       resetForm();
       load();
-    } catch {
-      setError('Failed to create the unit. Check the unit number is unique.');
+    } catch (e) {
+      setError(errDetail(e, 'Failed to create the unit. Check the unit number is unique for this property.'));
     } finally {
       setSaving(false);
     }
@@ -199,8 +228,8 @@ const UnitsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
           await api.deleteUnit(unit.id);
           addFlash({ type: 'success', content: `Unit ${unit.unit_number} deleted.` });
           load();
-        } catch {
-          addFlash({ type: 'error', content: 'Failed to delete the unit.' });
+        } catch (e) {
+          addFlash({ type: 'error', content: errDetail(e, 'Failed to delete the unit.') });
         }
       },
     });
@@ -215,11 +244,26 @@ const UnitsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
           <Header
             counter={`(${units.length})`}
             actions={
-              canEdit ? (
-                <Button variant="primary" onClick={() => setOpen(true)}>
-                  Add unit
-                </Button>
-              ) : undefined
+              <SpaceBetween direction="horizontal" size="xs">
+                <Select
+                  selectedOption={
+                    officeFilter
+                      ? { value: officeFilter, label: propertyById.get(officeFilter) || 'Property' }
+                      : { value: '', label: 'All properties' }
+                  }
+                  onChange={(e) => setOfficeFilter(e.detail.selectedOption.value || '')}
+                  options={[
+                    { value: '', label: 'All properties' },
+                    ...properties.map((p) => ({ value: p.id, label: propertyLabel(p) })),
+                  ]}
+                  ariaLabel="Filter units by property"
+                />
+                {canEdit ? (
+                  <Button variant="primary" onClick={openCreate}>
+                    Add unit
+                  </Button>
+                ) : null}
+              </SpaceBetween>
             }
           >
             Units
@@ -227,6 +271,11 @@ const UnitsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
         }
         columnDefinitions={[
           { id: 'unit_number', header: 'Unit', cell: (u) => u.unit_number },
+          {
+            id: 'property',
+            header: 'Property',
+            cell: (u) => (u.office_id ? propertyById.get(u.office_id) || '—' : 'Unassigned'),
+          },
           { id: 'size', header: 'Size', cell: (u) => u.size_label || u.size_tier || '—' },
           { id: 'type', header: 'Type', cell: (u) => u.unit_type },
           {
@@ -266,6 +315,24 @@ const UnitsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
         }}
       >
         <SpaceBetween size="m">
+          <FormField
+            label="Property"
+            description="The location this unit belongs to. Unit numbers are unique within a property, so the same number can exist at multiple properties."
+          >
+            <Select
+              selectedOption={
+                officeId
+                  ? { value: officeId, label: propertyById.get(officeId) || 'Property' }
+                  : { value: '', label: 'Unassigned' }
+              }
+              onChange={(e) => setOfficeId(e.detail.selectedOption.value || '')}
+              options={[
+                { value: '', label: 'Unassigned' },
+                ...properties.map((p) => ({ value: p.id, label: propertyLabel(p) })),
+              ]}
+              placeholder="Select a property"
+            />
+          </FormField>
           <FormField label="Unit number">
             <Input
               value={unitNumber}
@@ -320,7 +387,7 @@ const AgreementsTab: React.FC = () => {
     api
       .listAgreements()
       .then((res) => active && setAgreements(res.data))
-      .catch(() => active && addFlash({ type: 'error', content: 'Failed to load agreements.' }))
+      .catch((e) => active && addFlash({ type: 'error', content: errDetail(e, 'Failed to load agreements.') }))
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
@@ -370,8 +437,8 @@ const ReservationsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
     try {
       const res = await api.listReservations();
       setReservations(res.data);
-    } catch {
-      addFlash({ type: 'error', content: 'Failed to load reservations.' });
+    } catch (e) {
+      addFlash({ type: 'error', content: errDetail(e, 'Failed to load reservations.') });
     } finally {
       setLoading(false);
     }
@@ -399,8 +466,8 @@ const ReservationsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
       setSizeTier('');
       setQuotedRate('');
       load();
-    } catch {
-      setError('Failed to create the reservation.');
+    } catch (e) {
+      setError(errDetail(e, 'Failed to create the reservation.'));
     } finally {
       setSaving(false);
     }
@@ -414,8 +481,8 @@ const ReservationsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
           await api.deleteReservation(r.id);
           addFlash({ type: 'success', content: 'Reservation deleted.' });
           load();
-        } catch {
-          addFlash({ type: 'error', content: 'Failed to delete the reservation.' });
+        } catch (e) {
+          addFlash({ type: 'error', content: errDetail(e, 'Failed to delete the reservation.') });
         }
       },
     });
@@ -517,8 +584,8 @@ const RatePlansTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
     try {
       const res = await api.listRatePlans();
       setPlans(res.data);
-    } catch {
-      addFlash({ type: 'error', content: 'Failed to load rate plans.' });
+    } catch (e) {
+      addFlash({ type: 'error', content: errDetail(e, 'Failed to load rate plans.') });
     } finally {
       setLoading(false);
     }
@@ -546,8 +613,8 @@ const RatePlansTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
       setStreetRate('');
       setStandardRate('');
       load();
-    } catch {
-      setError('Failed to create the rate plan.');
+    } catch (e) {
+      setError(errDetail(e, 'Failed to create the rate plan.'));
     } finally {
       setSaving(false);
     }
@@ -561,8 +628,8 @@ const RatePlansTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
           await api.deleteRatePlan(p.id);
           addFlash({ type: 'success', content: 'Rate plan deleted.' });
           load();
-        } catch {
-          addFlash({ type: 'error', content: 'Failed to delete the rate plan.' });
+        } catch (e) {
+          addFlash({ type: 'error', content: errDetail(e, 'Failed to delete the rate plan.') });
         }
       },
     });
@@ -663,10 +730,35 @@ const SelfStoragePage: React.FC = () => {
   const { user } = useAuth();
   const canEdit = user?.role === 'admin' || user?.role === 'editor';
 
+  // Properties (Locations / Offices) are the parent of storage units — a unit
+  // number like "100" can exist under several properties. Loaded once and
+  // shared with the Units tab so it can display, filter, and assign them.
+  const [properties, setProperties] = useState<Office[]>([]);
+  useEffect(() => {
+    let active = true;
+    officesApi
+      .list({ page_size: 200 })
+      .then((res) => {
+        if (active) setProperties(res.data.items);
+      })
+      .catch(() => {
+        // Non-fatal: units still render, just without property labels.
+        if (active) setProperties([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const tabs: TabbedPageTab[] = useMemo(
     () => [
       { id: 'overview', label: 'Overview', href: '/self-storage', content: <OverviewTab /> },
-      { id: 'units', label: 'Units', href: '/self-storage/units', content: <UnitsTab canEdit={canEdit} /> },
+      {
+        id: 'units',
+        label: 'Units',
+        href: '/self-storage/units',
+        content: <UnitsTab canEdit={canEdit} properties={properties} />,
+      },
       {
         id: 'agreements',
         label: 'Agreements',
@@ -686,7 +778,7 @@ const SelfStoragePage: React.FC = () => {
         content: <RatePlansTab canEdit={canEdit} />,
       },
     ],
-    [canEdit],
+    [canEdit, properties],
   );
 
   return <TabbedPage ariaLabel="Self Storage" tabs={tabs} />;

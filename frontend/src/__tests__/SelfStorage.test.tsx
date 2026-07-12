@@ -85,4 +85,23 @@ describe('SelfStoragePage', () => {
       expect(screen.getByRole('button', { name: /add unit/i })).toBeInTheDocument();
     });
   });
+
+  it('scopes units by Property (Location) parent', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<SelfStoragePage />);
+    await user.click(await screen.findByRole('tab', { name: 'Units' }));
+    // A Property column groups units under their parent location.
+    await waitFor(() => {
+      expect(screen.getByRole('columnheader', { name: 'Property' })).toBeInTheDocument();
+    });
+    // The property filter defaults to showing every property.
+    expect(screen.getAllByText('All properties').length).toBeGreaterThan(0);
+    // The Add-unit form lets you pick which property the unit belongs to.
+    await user.click(screen.getByRole('button', { name: /add unit/i }));
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Unit numbers are unique within a property/i),
+      ).toBeInTheDocument();
+    });
+  });
 });
