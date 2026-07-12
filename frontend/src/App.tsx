@@ -165,6 +165,7 @@ const App: React.FC = () => {
                         <Route path="residential/rent" element={<RoleGuard allowedRoles={['admin', 'accountant']}><ResidentialPage /></RoleGuard>} />
                         <Route path="residential/owners" element={<RoleGuard allowedRoles={['admin', 'accountant']}><ResidentialPage /></RoleGuard>} />
                         <Route path="self-storage" element={<SelfStoragePage />} />
+                        <Route path="self-storage/properties" element={<SelfStoragePage />} />
                         <Route path="self-storage/units" element={<SelfStoragePage />} />
                         <Route path="self-storage/agreements" element={<SelfStoragePage />} />
                         <Route path="self-storage/reservations" element={<SelfStoragePage />} />

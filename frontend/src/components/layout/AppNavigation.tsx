@@ -135,6 +135,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       defaultExpanded: false,
       items: [
         { type: 'link' as const, text: 'Overview', href: '/self-storage' },
+        { type: 'link' as const, text: 'Properties', href: '/self-storage/properties' },
         { type: 'link' as const, text: 'Units', href: '/self-storage/units' },
         { type: 'link' as const, text: 'Agreements', href: '/self-storage/agreements' },
         { type: 'link' as const, text: 'Reservations', href: '/self-storage/reservations' },

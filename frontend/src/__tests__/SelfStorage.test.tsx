@@ -94,13 +94,13 @@ describe('SelfStoragePage', () => {
     await waitFor(() => {
       expect(screen.getByRole('columnheader', { name: 'Property' })).toBeInTheDocument();
     });
-    // The property filter defaults to showing every property.
-    expect(screen.getAllByText('All properties').length).toBeGreaterThan(0);
+    // The facility filter defaults to showing every facility.
+    expect(screen.getAllByText('All facilities').length).toBeGreaterThan(0);
     // The Add-unit form lets you pick which property the unit belongs to.
     await user.click(screen.getByRole('button', { name: /add unit/i }));
     await waitFor(() => {
       expect(
-        screen.getByText(/Unit numbers are unique within a property/i),
+        screen.getByText(/Unit numbers are unique within a facility/i),
       ).toBeInTheDocument();
     });
   });

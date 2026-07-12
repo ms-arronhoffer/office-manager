@@ -25,10 +25,10 @@ LEASING = "/api/v1/leasing"
 AR = "/api/v1/ar"
 
 
-async def _make_unit(client, admin_user, *, unit_number="A100", office_id=None, **extra):
+async def _make_unit(client, admin_user, *, unit_number="A100", facility_id=None, **extra):
     payload = {"unit_number": unit_number, **extra}
-    if office_id:
-        payload["office_id"] = str(office_id)
+    if facility_id:
+        payload["facility_id"] = str(facility_id)
     resp = await client.post(f"{BASE}/units", json=payload, headers=auth_headers(admin_user))
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -57,6 +57,65 @@ async def _make_agreement(client, admin_user, unit_id, resident_id, *, status="d
     )
     assert resp.status_code == 201, resp.text
     return resp.json()
+
+
+# ── Facilities (self-storage "Property") ─────────────────────────────────────
+
+async def _make_facility(client, admin_user, *, name="Downtown Storage", **extra):
+    resp = await client.post(
+        f"{BASE}/facilities",
+        json={"name": name, **extra},
+        headers=auth_headers(admin_user),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def test_facility_crud_and_unit_link(client, admin_user):
+    facility = await _make_facility(
+        client, admin_user, name="North Facility", city="Denver", state="CO"
+    )
+    assert facility["name"] == "North Facility"
+    assert facility["is_active"] is True
+
+    # A unit can be parented to the facility (its own data set, not an Office).
+    unit = await _make_unit(
+        client, admin_user, unit_number="F1", facility_id=facility["id"]
+    )
+    assert unit["facility_id"] == facility["id"]
+
+    # Listing units can be scoped by facility_id.
+    listed = await client.get(
+        f"{BASE}/units",
+        params={"facility_id": facility["id"]},
+        headers=auth_headers(admin_user),
+    )
+    assert listed.status_code == 200
+    assert [u["id"] for u in listed.json()] == [unit["id"]]
+
+    # Update + list facilities.
+    upd = await client.patch(
+        f"{BASE}/facilities/{facility['id']}",
+        json={"is_active": False, "manager_name": "Pat"},
+        headers=auth_headers(admin_user),
+    )
+    assert upd.status_code == 200
+    assert upd.json()["is_active"] is False
+    assert upd.json()["manager_name"] == "Pat"
+
+    all_facilities = await client.get(
+        f"{BASE}/facilities", headers=auth_headers(admin_user)
+    )
+    assert facility["id"] in {f["id"] for f in all_facilities.json()}
+
+
+async def test_viewer_cannot_create_facility(client, admin_user, viewer_user):
+    resp = await client.post(
+        f"{BASE}/facilities",
+        json={"name": "Nope"},
+        headers=auth_headers(viewer_user),
+    )
+    assert resp.status_code == 403
 
 
 # ── Units ────────────────────────────────────────────────────────────────────
