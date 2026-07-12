@@ -317,7 +317,7 @@ const UnitsTab: React.FC<{ canEdit: boolean; properties: Office[] }> = ({ canEdi
         <SpaceBetween size="m">
           <FormField
             label="Property"
-            description="The location this unit belongs to. Unit numbers are unique within a property, so the same number can exist at multiple properties."
+            description="The location this unit belongs to. Unit numbers are unique within a property, so the same number can be reused across different properties."
           >
             <Select
               selectedOption={
