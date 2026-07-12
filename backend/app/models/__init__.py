@@ -87,6 +87,13 @@ from app.models.resident import (
 )
 from app.models.lease_template import LeaseTemplate
 from app.models.application_template import ApplicationTemplate
+from app.models.self_storage import (
+    StorageUnit, StorageAgreement, StorageAgreementOccupant,
+    StorageReservation, StorageRatePlan, StorageLienEvent, StorageCharge,
+    STORAGE_UNIT_STATUSES, STORAGE_UNIT_TYPES, STORAGE_LOCK_STATES,
+    STORAGE_AGREEMENT_STATUSES, STORAGE_ACTIVE_STATUSES, STORAGE_OCCUPANT_ROLES,
+    STORAGE_RESERVATION_STATUSES, STORAGE_LIEN_STEPS, STORAGE_CHARGE_TYPES,
+)
 from app.models.announcement import (
     Announcement, AnnouncementRecipient,
     ANNOUNCEMENT_CHANNELS, ANNOUNCEMENT_STATUSES,
@@ -173,6 +180,11 @@ __all__ = [
     "OCCUPANT_ROLES", "ACTIVE_LEASE_STATUSES", "LEASE_TYPES",
     "LeaseTemplate",
     "ApplicationTemplate",
+    "StorageUnit", "StorageAgreement", "StorageAgreementOccupant",
+    "StorageReservation", "StorageRatePlan", "StorageLienEvent", "StorageCharge",
+    "STORAGE_UNIT_STATUSES", "STORAGE_UNIT_TYPES", "STORAGE_LOCK_STATES",
+    "STORAGE_AGREEMENT_STATUSES", "STORAGE_ACTIVE_STATUSES", "STORAGE_OCCUPANT_ROLES",
+    "STORAGE_RESERVATION_STATUSES", "STORAGE_LIEN_STEPS", "STORAGE_CHARGE_TYPES",
     "Announcement", "AnnouncementRecipient",
     "ANNOUNCEMENT_CHANNELS", "ANNOUNCEMENT_STATUSES",
     "RentCharge", "SecurityDeposit",

@@ -196,3 +196,43 @@ def require_feature(feature: str):
         return user
 
     return checker
+
+
+def require_category(category: str):
+    """Require the current user's organization to have ``category`` enabled.
+
+    A *primary category* is a line of business the org runs (see
+    ``app.services.categories``). Mirrors ``require_feature`` but gates on the
+    org's enabled categories rather than plan entitlements.
+
+    Super-admins and org-less users bypass the check (they are treated as
+    internal/platform accounts). Orgs that have the category disabled receive a
+    403 with an explanatory message; disabling is non-destructive, so the data
+    still exists — the surface is simply turned off.
+    """
+    async def checker(
+        user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        from app.services import categories as cat  # local import avoids cycle
+
+        if user.is_super_admin or user.organization_id is None:
+            return user
+
+        result = await db.execute(select(Organization).where(Organization.id == user.organization_id))
+        org = result.scalar_one_or_none()
+        if not org:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+        if not cat.is_category_enabled(org, category):
+            label = cat.CATEGORY_LABELS.get(category, category)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"The '{label}' category is turned off for your organization. "
+                    "An administrator can re-enable it in settings."
+                ),
+            )
+        return user
+
+    return checker

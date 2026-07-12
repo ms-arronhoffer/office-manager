@@ -31,6 +31,7 @@ from app.models.organization import Organization
 from app.models.usage_event import UsageEvent
 from app.models.user import User
 from app.services import entitlements as ent
+from app.services import categories as cat
 from app.services import org_health, usage_service
 from app.services.stripe_settings import resolve_stripe_secret_key
 from app.services.activity_service import log_activity
@@ -86,6 +87,7 @@ class OrgDetail(OrgListItem):
     entitlement_overrides: dict
     plan_defaults: dict
     effective_entitlements: dict
+    categories: dict = Field(default_factory=dict)
     health_factors: dict
     timeline: list[OrgTimelineEntry] = Field(default_factory=list)
 
@@ -100,6 +102,7 @@ class OrgPatch(BaseModel):
     onboarding_complete: bool | None = None
     admin_notes: str | None = None
     entitlement_overrides: dict | None = None
+    category_overrides: dict | None = None
 
 
 class ImpersonateResponse(BaseModel):
@@ -397,6 +400,7 @@ async def _build_detail(db: AsyncSession, org: Organization, stats: dict[uuid.UU
         entitlement_overrides=ent.normalize_overrides(org.entitlement_overrides),
         plan_defaults=ent.plan_entitlements(org.plan),
         effective_entitlements=ent.effective_entitlements(org),
+        categories=cat.categories_state(org),
         timeline=await _timeline_for_org(db, org.id),
     )
 
@@ -635,14 +639,30 @@ async def patch_org(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Unknown plan '{data['plan']}'.")
     if "entitlement_overrides" in data:
         data["entitlement_overrides"] = ent.normalize_overrides(data["entitlement_overrides"])
+    if "category_overrides" in data:
+        if role != "super_admin":
+            raise HTTPException(status_code=403, detail="Category overrides require super-admin access")
+        normalized_cat = cat.normalize_overrides(data["category_overrides"])
+        # Validate the resulting effective set keeps at least one category on.
+        probe = Organization(
+            enabled_categories=cat.normalize_enabled(org.enabled_categories),
+            category_overrides=normalized_cat,
+        )
+        if not cat.effective_enabled_categories(probe):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="At least one primary category must remain enabled.",
+            )
+        data["category_overrides"] = normalized_cat
 
     billing_fields = {"plan", "payment_status", "trial_ends_at"}
     support_fields = {"name", "admin_notes", "onboarding_complete", "max_seats", "entitlement_overrides"}
+    super_admin_fields = {"category_overrides"}
     if billing_fields & data.keys() and role not in {"super_admin", "finance"}:
         raise HTTPException(status_code=403, detail="Billing changes require finance or super-admin access")
     if {"is_active"} & data.keys() and role not in {"super_admin", "support"}:
         raise HTTPException(status_code=403, detail="Suspension changes require support or super-admin access")
-    if set(data.keys()) - billing_fields - support_fields - {"is_active"}:
+    if set(data.keys()) - billing_fields - support_fields - super_admin_fields - {"is_active"}:
         raise HTTPException(status_code=403, detail="Unsupported organization update")
 
     for field, value in data.items():
