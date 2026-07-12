@@ -24,8 +24,11 @@ from app.utils.crypto import decrypt_secret
 class StripeSettings:
     secret_key: str
     webhook_secret: str
+    price_id_starter: str
     price_id_pro: str
-    price_id_enterprise: str
+    # Enterprise is custom-priced per subscriber, so we track its Stripe Product
+    # (which owns every subscriber's bespoke price) rather than a single price id.
+    product_id_enterprise: str
 
     @property
     def configured(self) -> bool:
@@ -43,22 +46,25 @@ async def resolve_stripe_settings(db: AsyncSession) -> StripeSettings:
 
     secret_key = ""
     webhook_secret = ""
+    price_starter = ""
     price_pro = ""
-    price_enterprise = ""
+    product_enterprise = ""
 
     if cfg is not None and cfg.is_enabled:
         if cfg.secret_key_encrypted:
             secret_key = decrypt_secret(cfg.secret_key_encrypted)
         if cfg.webhook_secret_encrypted:
             webhook_secret = decrypt_secret(cfg.webhook_secret_encrypted)
+        price_starter = cfg.price_id_starter or ""
         price_pro = cfg.price_id_pro or ""
-        price_enterprise = cfg.price_id_enterprise or ""
+        product_enterprise = cfg.product_id_enterprise or ""
 
     return StripeSettings(
         secret_key=secret_key or env_settings.STRIPE_SECRET_KEY,
         webhook_secret=webhook_secret or env_settings.STRIPE_WEBHOOK_SECRET,
+        price_id_starter=price_starter or env_settings.STRIPE_PRICE_ID_STARTER,
         price_id_pro=price_pro or env_settings.STRIPE_PRICE_ID_PRO,
-        price_id_enterprise=price_enterprise or env_settings.STRIPE_PRICE_ID_ENTERPRISE,
+        product_id_enterprise=product_enterprise or env_settings.STRIPE_PRODUCT_ID_ENTERPRISE,
     )
 
 

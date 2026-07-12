@@ -38,8 +38,12 @@ class PlatformStripeConfig(TimestampMixin, Base):
 
     # Non-secret values, safe to return verbatim.
     publishable_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    price_id_starter: Mapped[str | None] = mapped_column(String(255), nullable=True)
     price_id_pro: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    price_id_enterprise: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Enterprise is custom-priced per subscriber; there is no shared price id.
+    # Enterprise subscriptions are identified by their Stripe Product, under which
+    # each subscriber's bespoke price is created.
+    product_id_enterprise: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 

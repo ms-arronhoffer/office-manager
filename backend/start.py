@@ -187,6 +187,15 @@ _RECONCILE_COLUMNS: dict[str, list[str]] = {
         "is_deleted boolean NOT NULL DEFAULT false",
         "deleted_at timestamptz",
     ],
+    # The platform Stripe config gained a Starter price id and swapped the
+    # fixed Enterprise price id for an Enterprise Product id (Enterprise is now
+    # custom-priced per subscriber) in migration 102. A DB create_all-stamped at
+    # an older head would 500 the super-admin Billing → Stripe Integration panel
+    # without these columns.
+    "platform_stripe_config": [
+        "price_id_starter varchar(255)",
+        "product_id_enterprise varchar(255)",
+    ],
 }
 
 

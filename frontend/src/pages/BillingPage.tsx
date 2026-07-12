@@ -49,7 +49,7 @@ const PLANS: PlanCard[] = [
     plan: 'enterprise',
     price: 'Contact us',
     features: ['Everything in Pro', 'SSO / SAML', 'Custom fields', 'API access', 'Dedicated support', 'Custom contracts'],
-    cta: 'Upgrade to Enterprise',
+    cta: null,
   },
 ];
 
@@ -67,7 +67,7 @@ const BillingPage: React.FC = () => {
       .finally(() => setIsLoading(false));
   }, []);
 
-  const handleUpgrade = async (plan: 'pro' | 'enterprise') => {
+  const handleUpgrade = async (plan: 'pro') => {
     setIsUpgrading(plan);
     try {
       const { data } = await billingApi.createCheckout(plan);
@@ -245,7 +245,7 @@ const BillingPage: React.FC = () => {
                       <Button
                         variant={item.plan === 'pro' ? 'primary' : 'normal'}
                         loading={isUpgrading === item.plan}
-                        onClick={() => handleUpgrade(item.plan as 'pro' | 'enterprise')}
+                        onClick={() => handleUpgrade(item.plan as 'pro')}
                         fullWidth
                         disabled={currentPlan === 'enterprise' && item.plan === 'pro'}
                       >
@@ -253,6 +253,8 @@ const BillingPage: React.FC = () => {
                       </Button>
                     ) : item.plan === currentPlan ? (
                       <Box color="text-status-success">Your current plan</Box>
+                    ) : item.plan === 'enterprise' ? (
+                      <Box color="text-body-secondary">Custom pricing — contact sales</Box>
                     ) : null,
                 },
               ],

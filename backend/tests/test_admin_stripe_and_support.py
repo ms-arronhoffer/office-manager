@@ -82,12 +82,12 @@ async def test_stripe_config_partial_update_keeps_secret(client, db_session):
     # Update only a non-secret field; secret must survive.
     r = await client.put(
         "/admin/v1/billing/stripe-config", headers=auth_headers(sa),
-        json={"price_id_enterprise": "price_ent"},
+        json={"product_id_enterprise": "prod_ent"},
     )
     assert r.status_code == 200, r.text
     from app.services.stripe_settings import resolve_stripe_secret_key
     assert await resolve_stripe_secret_key(db_session) == "sk_test_keepme"
-    assert r.json()["price_id_enterprise"] == "price_ent"
+    assert r.json()["product_id_enterprise"] == "prod_ent"
 
 
 @pytest.mark.asyncio
@@ -107,6 +107,54 @@ async def test_stripe_config_requires_console_role(client, db_session):
     _, plain = await _plain_admin(db_session)
     r = await client.get("/admin/v1/billing/stripe-config", headers=auth_headers(plain))
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_stripe_config_starter_price_and_enterprise_product(client, db_session):
+    """Starter is sold via a price id; Enterprise is custom-priced per subscriber
+    and is identified by its Stripe Product id."""
+    sa = await _super_admin(db_session)
+    r = await client.put(
+        "/admin/v1/billing/stripe-config", headers=auth_headers(sa),
+        json={
+            "secret_key": "sk_test_plans",
+            "price_id_starter": "price_starter",
+            "price_id_pro": "price_pro",
+            "product_id_enterprise": "prod_ent",
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["price_id_starter"] == "price_starter"
+    assert body["product_id_enterprise"] == "prod_ent"
+    # Legacy per-price enterprise field is gone.
+    assert "price_id_enterprise" not in body
+
+    from app.services.stripe_settings import resolve_stripe_settings
+    resolved = await resolve_stripe_settings(db_session)
+    assert resolved.price_id_starter == "price_starter"
+    assert resolved.product_id_enterprise == "prod_ent"
+
+
+def test_plan_from_price_maps_starter_pro_and_enterprise_product():
+    """_plan_from_price matches Starter/Pro by price id and Enterprise by the
+    price's Stripe Product (custom-priced per subscriber)."""
+    from app.routers.billing import _plan_from_price
+    from app.services.stripe_settings import StripeSettings
+
+    cfg = StripeSettings(
+        secret_key="sk", webhook_secret="wh",
+        price_id_starter="price_starter", price_id_pro="price_pro",
+        product_id_enterprise="prod_ent",
+    )
+    assert _plan_from_price({"id": "price_starter", "product": "prod_x"}, cfg) == "starter"
+    assert _plan_from_price({"id": "price_pro", "product": "prod_x"}, cfg) == "pro"
+    # Any bespoke enterprise price under the enterprise product resolves to enterprise.
+    assert _plan_from_price({"id": "price_custom_123", "product": "prod_ent"}, cfg) == "enterprise"
+    # Expanded product objects are supported too.
+    assert _plan_from_price({"id": "price_custom_456", "product": {"id": "prod_ent"}}, cfg) == "enterprise"
+    # Bare price id string still works for Starter/Pro.
+    assert _plan_from_price("price_starter", cfg) == "starter"
 
 
 # ─── Cross-org support requests ───────────────────────────────────────────────
