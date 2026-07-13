@@ -196,3 +196,60 @@ async def test_cancel_without_subscription_rejected(client, db_session):
 
     r = await client.post("/api/v1/billing/cancel", headers=auth_headers(admin))
     assert r.status_code == 400
+
+
+# ─── Trial expiry enforcement (end-to-end) ──────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_expired_trial_blocks_org_guarded_endpoint(client, db_session):
+    """An org whose trial has ended without a paid subscription is locked out of
+    org-guarded product surfaces with HTTP 403."""
+    expired = datetime.now(timezone.utc) - timedelta(days=1)
+    org, admin = await _org_admin(db_session, trial_ends_at=expired)
+
+    r = await client.get("/api/v1/offices", headers=auth_headers(admin))
+    assert r.status_code == 403, r.text
+    assert "trial" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_active_trial_allows_org_guarded_endpoint(client, db_session):
+    """A trial still within its window retains full access to product surfaces."""
+    future = datetime.now(timezone.utc) + timedelta(days=5)
+    org, admin = await _org_admin(db_session, trial_ends_at=future)
+
+    r = await client.get("/api/v1/offices", headers=auth_headers(admin))
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
+async def test_paid_subscription_restores_access_after_trial(client, db_session):
+    """A paid subscription overrides an elapsed trial window and restores access."""
+    expired = datetime.now(timezone.utc) - timedelta(days=10)
+    org, admin = await _org_admin(
+        db_session, trial_ends_at=expired, stripe_subscription_id="sub_paid",
+    )
+
+    r = await client.get("/api/v1/offices", headers=auth_headers(admin))
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
+async def test_expired_trial_can_still_reach_billing_to_upgrade(client, db_session):
+    """A locked-out (trial-expired) org must still be able to authenticate and
+    reach billing/organization endpoints so it can pay and restore access."""
+    expired = datetime.now(timezone.utc) - timedelta(days=1)
+    org, admin = await _org_admin(db_session, trial_ends_at=expired)
+
+    # Billing subscription view is intentionally not org-guarded.
+    r = await client.get("/api/v1/billing/subscription", headers=auth_headers(admin))
+    assert r.status_code == 200, r.text
+
+    # Entitlements/access view reports the blocked, trial-expired state.
+    r2 = await client.get(
+        "/api/v1/organizations/me/entitlements", headers=auth_headers(admin)
+    )
+    assert r2.status_code == 200, r2.text
+    access = r2.json()["access"]
+    assert access["state"] == ent.ACCESS_TRIAL_EXPIRED
+    assert access["blocked"] is True
