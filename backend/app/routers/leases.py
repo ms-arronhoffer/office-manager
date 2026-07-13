@@ -404,6 +404,19 @@ async def update_lease(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
 
     update_data = payload.model_dump(exclude_unset=True)
+
+    # Enforce the plan's active-lease cap when flipping an inactive lease to an
+    # active status (a create-equivalent that consumes an active-lease slot).
+    if "status" in update_data and not lease_limits.is_active_commercial_status(
+        lease.status
+    ) and lease_limits.is_active_commercial_status(update_data["status"]):
+        org = (
+            await db.execute(
+                select(Organization).where(Organization.id == org_id)
+            )
+        ).scalar_one_or_none()
+        await lease_limits.enforce_active_lease_limit(db, org)
+
     old_values = {k: getattr(lease, k, None) for k in update_data}
     for field, value in update_data.items():
         if hasattr(lease, field):

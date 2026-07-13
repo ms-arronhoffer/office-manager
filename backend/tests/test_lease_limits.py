@@ -170,3 +170,88 @@ async def test_residential_draft_lease_bypasses_limit(client, db_session):
     resp = await client.post("/api/v1/leasing/leases", headers=auth_headers(admin), json={
         "unit_id": str(unit.id), "status": "draft"})
     assert resp.status_code == 201, resp.text
+
+
+# ── Status-flip enforcement (inactive → active) ───────────────────────────────
+
+@pytest.mark.asyncio
+async def test_commercial_status_flip_blocked_at_limit(client, db_session):
+    org, admin = await _org_admin(
+        db_session, plan="starter", email="commflip@test.com",
+        overrides={"max_active_leases": 1},
+    )
+    # Fill the single active slot, then create a terminated (inactive) lease.
+    await client.post("/api/v1/leases", headers=auth_headers(admin), json={
+        "lease_name": "Active", "expiration_year": 2030, "status": "active"})
+    created = await client.post("/api/v1/leases", headers=auth_headers(admin), json={
+        "lease_name": "Terminated", "expiration_year": 2030, "status": "terminated"})
+    assert created.status_code == 201, created.text
+    lease_id = created.json()["id"]
+
+    # Flipping the terminated lease back to active would exceed the cap.
+    flipped = await client.put(
+        f"/api/v1/leases/{lease_id}", headers=auth_headers(admin),
+        json={"status": "active"})
+    assert flipped.status_code == 402, flipped.text
+    assert "active lease limit" in flipped.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_commercial_status_flip_allowed_under_limit(client, db_session):
+    org, admin = await _org_admin(
+        db_session, plan="starter", email="commflipok@test.com",
+        overrides={"max_active_leases": 2},
+    )
+    await client.post("/api/v1/leases", headers=auth_headers(admin), json={
+        "lease_name": "Active", "expiration_year": 2030, "status": "active"})
+    created = await client.post("/api/v1/leases", headers=auth_headers(admin), json={
+        "lease_name": "Terminated", "expiration_year": 2030, "status": "terminated"})
+    lease_id = created.json()["id"]
+
+    flipped = await client.put(
+        f"/api/v1/leases/{lease_id}", headers=auth_headers(admin),
+        json={"status": "active"})
+    assert flipped.status_code == 200, flipped.text
+
+
+@pytest.mark.asyncio
+async def test_commercial_active_lease_update_not_blocked(client, db_session):
+    org, admin = await _org_admin(
+        db_session, plan="starter", email="commupd@test.com",
+        overrides={"max_active_leases": 1},
+    )
+    created = await client.post("/api/v1/leases", headers=auth_headers(admin), json={
+        "lease_name": "Active", "expiration_year": 2030, "status": "active"})
+    lease_id = created.json()["id"]
+
+    # Updating an already-active lease (no inactive→active flip) is not blocked.
+    resp = await client.put(
+        f"/api/v1/leases/{lease_id}", headers=auth_headers(admin),
+        json={"status": "active", "lease_name": "Renamed"})
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.asyncio
+async def test_residential_status_flip_blocked_at_limit(client, db_session):
+    org, admin = await _org_admin(
+        db_session, plan="starter", email="resiflip@test.com",
+        overrides={"max_active_leases": 1},
+    )
+    unit_a = RentalUnit(unit_number="A1", name="Unit A", organization_id=org.id, status="available")
+    unit_b = RentalUnit(unit_number="B1", name="Unit B", organization_id=org.id, status="available")
+    db_session.add_all([unit_a, unit_b])
+    await db_session.commit()
+    await db_session.refresh(unit_a)
+    await db_session.refresh(unit_b)
+
+    await client.post("/api/v1/leasing/leases", headers=auth_headers(admin), json={
+        "unit_id": str(unit_a.id), "status": "active"})
+    draft = await client.post("/api/v1/leasing/leases", headers=auth_headers(admin), json={
+        "unit_id": str(unit_b.id), "status": "draft"})
+    assert draft.status_code == 201, draft.text
+    lease_id = draft.json()["id"]
+
+    flipped = await client.patch(
+        f"/api/v1/leasing/leases/{lease_id}", headers=auth_headers(admin),
+        json={"status": "active"})
+    assert flipped.status_code == 402, flipped.text

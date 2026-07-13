@@ -747,6 +747,17 @@ async def update_lease(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Lease end date cannot precede the start date.",
         )
+    # Enforce the plan's active-lease cap when flipping an inactive lease to an
+    # active status (a create-equivalent that consumes an active-lease slot).
+    if (
+        "status" in data
+        and not lease_limits.is_active_resident_status(lease.status)
+        and lease_limits.is_active_resident_status(new_status)
+    ):
+        org = (
+            await db.execute(select(Organization).where(Organization.id == org_id))
+        ).scalar_one_or_none()
+        await lease_limits.enforce_active_lease_limit(db, org)
     if new_status in ("pending", "active"):
         try:
             await svc.assert_no_active_overlap(
