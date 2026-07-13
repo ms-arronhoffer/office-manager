@@ -1,0 +1,102 @@
+---
+// Interactive ROI / cost-of-inaction calculator. Personalises the value prop
+// with the visitor's own numbers before they reach pricing. All math runs
+// client-side; every assumption is shown so the estimate is transparent.
+---
+<section id="roi" class="py-24 bg-slate-50 border-y border-slate-100 scroll-mt-20">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center max-w-2xl mx-auto mb-12">
+      <p class="text-sm font-semibold text-blue-600 uppercase tracking-widest mb-3">What is the status quo costing you?</p>
+      <h2 class="text-4xl lg:text-5xl font-extrabold text-slate-900">Estimate your ROI in 10 seconds</h2>
+      <p class="mt-4 text-lg text-slate-500">Drag the sliders to your portfolio. We'll estimate the time you'd reclaim and what's at risk today.</p>
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-8 items-stretch">
+      <!-- Inputs -->
+      <div class="rounded-2xl border border-slate-200 bg-white shadow-sm p-8 space-y-8">
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label for="roi-offices" class="text-sm font-semibold text-slate-700">Offices / locations you manage</label>
+            <span id="roi-offices-val" class="text-sm font-bold text-blue-600">25</span>
+          </div>
+          <input id="roi-offices" type="range" min="1" max="250" value="25" class="w-full accent-blue-600" />
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label for="roi-hours" class="text-sm font-semibold text-slate-700">Hours/week your team spends chasing dates &amp; tickets</label>
+            <span id="roi-hours-val" class="text-sm font-bold text-blue-600">12</span>
+          </div>
+          <input id="roi-hours" type="range" min="1" max="60" value="12" class="w-full accent-blue-600" />
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label for="roi-rate" class="text-sm font-semibold text-slate-700">Blended hourly cost of that team ($)</label>
+            <span id="roi-rate-val" class="text-sm font-bold text-blue-600">$55</span>
+          </div>
+          <input id="roi-rate" type="range" min="20" max="150" step="5" value="55" class="w-full accent-blue-600" />
+        </div>
+        <p class="text-xs text-slate-400 leading-relaxed">
+          Estimates assume Portfolio Desk automation removes ~60% of manual tracking time and that at
+          least one critical lease date per 40 offices/year would otherwise be missed at an average
+          $75,000 exposure. Directional only — your numbers will vary.
+        </p>
+      </div>
+
+      <!-- Outputs -->
+      <div class="rounded-2xl border border-slate-200 bg-slate-900 shadow-sm p-8 flex flex-col justify-center text-white">
+        <div class="mb-8">
+          <div class="text-sm font-medium text-slate-400">Team hours reclaimed per year</div>
+          <div id="roi-hours-out" class="text-4xl font-black text-white mt-1">374 hrs</div>
+        </div>
+        <div class="mb-8">
+          <div class="text-sm font-medium text-slate-400">Estimated labor savings per year</div>
+          <div id="roi-savings-out" class="text-4xl font-black text-blue-400 mt-1">$20,592</div>
+        </div>
+        <div class="pt-6 border-t border-slate-700">
+          <div class="text-sm font-medium text-slate-400">Deadline exposure at risk today</div>
+          <div id="roi-risk-out" class="text-3xl font-black text-amber-400 mt-1">$46,875</div>
+        </div>
+        <a href="#" data-href="SIGNUP_URL" class="mt-8 block text-center bg-white text-slate-900 font-semibold px-6 py-3 rounded-xl hover:bg-slate-100 transition-colors">
+          Start reclaiming it free
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script is:inline>
+  (function () {
+    var offices = document.getElementById('roi-offices');
+    if (!offices) return;
+    var hours = document.getElementById('roi-hours');
+    var rate = document.getElementById('roi-rate');
+    var oVal = document.getElementById('roi-offices-val');
+    var hVal = document.getElementById('roi-hours-val');
+    var rVal = document.getElementById('roi-rate-val');
+    var hoursOut = document.getElementById('roi-hours-out');
+    var savingsOut = document.getElementById('roi-savings-out');
+    var riskOut = document.getElementById('roi-risk-out');
+
+    function fmt(n) { return n.toLocaleString('en-US', { maximumFractionDigits: 0 }); }
+
+    function recalc() {
+      var o = Number(offices.value);
+      var h = Number(hours.value);
+      var r = Number(rate.value);
+      oVal.textContent = String(o);
+      hVal.textContent = String(h);
+      rVal.textContent = '$' + r;
+
+      var reclaimedPerYear = h * 0.6 * 52;          // ~60% of tracking time, annualized
+      var savings = reclaimedPerYear * r;
+      var risk = (o / 40) * 75000;                  // exposure from ~1 missed date / 40 offices / yr
+
+      hoursOut.textContent = fmt(reclaimedPerYear) + ' hrs';
+      savingsOut.textContent = '$' + fmt(savings);
+      riskOut.textContent = '$' + fmt(risk);
+    }
+
+    [offices, hours, rate].forEach(function (el) { el.addEventListener('input', recalc); });
+    recalc();
+  })();
+</script>

@@ -1,0 +1,53 @@
+---
+// Embeds a short product walkthrough video assembled from ACTUAL captured
+// application screens (see /public/media, generated from /public/screenshots).
+// Autoplays muted + looping so the hero shows the product in motion. A poster
+// frame renders before load, and an animated-GIF fallback is provided inside
+// <noscript> / for browsers that decline autoplay.
+interface Props {
+  url?: string;
+  src?: string;
+  gif?: string;
+  poster?: string;
+  alt?: string;
+}
+const {
+  url = 'app.portfoliodesk.ai/dashboard',
+  src = '/media/product-tour.mp4',
+  gif = '/media/product-tour.gif',
+  poster = '/media/product-tour-poster.jpg',
+  alt = 'Portfolio Desk product walkthrough: dashboard, AI lease abstracts, maintenance tickets, analytics and digital waivers',
+} = Astro.props;
+---
+<div class="bg-white rounded-2xl border border-slate-200 shadow-2xl shadow-slate-900/10 overflow-hidden">
+  <!-- Browser chrome -->
+  <div class="bg-slate-100 px-4 py-3 flex items-center gap-2 border-b border-slate-200">
+    <div class="flex gap-1.5">
+      <div class="w-3 h-3 rounded-full bg-red-400"></div>
+      <div class="w-3 h-3 rounded-full bg-yellow-400"></div>
+      <div class="w-3 h-3 rounded-full bg-green-400"></div>
+    </div>
+    <div class="flex-1 mx-4 bg-white rounded-md px-3 py-1 text-xs text-slate-400 text-center border border-slate-200 truncate">
+      {url}
+    </div>
+    <span class="hidden sm:inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500">
+      <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span> Live product tour
+    </span>
+  </div>
+  <!-- Motion clip built from real captured screens -->
+  <video
+    class="block w-full h-auto bg-slate-900"
+    width="1280" height="800"
+    autoplay muted loop playsinline
+    preload="metadata"
+    poster={poster}
+    aria-label={alt}
+  >
+    <source src={src} type="video/mp4" />
+    <!-- Fallback for browsers that cannot play the MP4 -->
+    <img src={gif} alt={alt} width="1280" height="800" class="block w-full h-auto" />
+  </video>
+  <noscript>
+    <img src={gif} alt={alt} width="1280" height="800" class="block w-full h-auto" />
+  </noscript>
+</div>

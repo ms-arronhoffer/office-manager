@@ -1,7 +1,8 @@
 ---
-import DashboardScreen from './screens/DashboardScreen.astro';
+import ProductVideo from './screens/ProductVideo.astro';
+import TrustBadges from './TrustBadges.astro';
 ---
-<section class="relative pt-20 pb-24 lg:pt-32 lg:pb-36 overflow-hidden">
+<section class="relative pt-20 pb-24 lg:pt-28 lg:pb-32 overflow-hidden">
 
   <!-- Soft grid background -->
   <div class="absolute inset-0 -z-10" aria-hidden="true">
@@ -12,25 +13,23 @@ import DashboardScreen from './screens/DashboardScreen.astro';
 
   <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
 
-    <!-- Badge -->
-    <div class="inline-flex items-center gap-2 bg-blue-50 border border-blue-100 text-blue-700 text-sm font-medium px-4 py-1.5 rounded-full mb-8">
-      <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd"/>
-      </svg>
-      Corporate Real Estate &amp; Facilities Management
+    <!-- Pain-point banner: quantified cost of the status quo -->
+    <div class="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 text-sm font-medium px-4 py-1.5 rounded-full mb-6">
+      <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86l-8.48 14.7A2 2 0 003.53 21h16.94a2 2 0 001.72-2.44L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+      One missed renewal or auto-renew notice can cost six figures
     </div>
 
     <!-- Heading -->
     <h1 class="text-5xl lg:text-7xl font-extrabold text-slate-900 leading-[1.05] tracking-tight max-w-4xl mx-auto">
-      Every office.<br/>
-      Every lease.<br/>
-      <span class="text-blue-600">Every deadline.</span>
+      Never miss another<br/>
+      lease deadline<br/>
+      <span class="text-blue-600">or maintenance SLA.</span>
     </h1>
 
     <p class="mt-8 text-lg lg:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed">
-      Stop juggling spreadsheets and email chains. Portfolio Desk gives your team a single platform
-      to track leases, manage maintenance, handle vendors, and never miss a critical date,
-      all with built-in AI that reads your leases and writes your reports.
+      Spreadsheets and email chains lose the dates that cost the most. Portfolio Desk gives your team
+      one platform to track every lease, deadline, ticket and vendor, with built-in AI that reads your
+      leases and writes your reports, so nothing critical slips through.
     </p>
 
     <!-- CTAs -->
@@ -38,18 +37,24 @@ import DashboardScreen from './screens/DashboardScreen.astro';
       <a href="#" data-href="SIGNUP_URL" class="bg-slate-900 text-white font-semibold text-base px-8 py-3.5 rounded-xl hover:bg-slate-700 transition-colors shadow-lg shadow-slate-900/10">
         Start Free Trial: Free 14 days
       </a>
-      <a href="/contact" class="bg-white text-slate-800 font-semibold text-base px-8 py-3.5 rounded-xl border-2 border-slate-200 hover:border-slate-400 transition-colors">
-        Request a Demo →
+      <a href="#product-tour" class="bg-white text-slate-800 font-semibold text-base px-8 py-3.5 rounded-xl border-2 border-slate-200 hover:border-slate-400 transition-colors inline-flex items-center justify-center gap-2">
+        <svg class="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        Watch the 15-second tour
       </a>
     </div>
 
     <p class="mt-5 text-sm text-slate-400">No credit card required &nbsp;·&nbsp; Setup in under an hour &nbsp;·&nbsp; Cancel anytime</p>
 
-    <!-- Dashboard screenshot -->
-    <div class="mt-16 relative max-w-5xl mx-auto">
-      <DashboardScreen />
+    <!-- Live product walkthrough video (built from real captured screens) -->
+    <div id="product-tour" class="mt-16 relative max-w-5xl mx-auto scroll-mt-24">
+      <ProductVideo />
       <!-- Glow -->
       <div class="absolute -inset-4 -z-10 bg-blue-100/40 rounded-3xl blur-3xl"></div>
+    </div>
+
+    <!-- Trust signals immediately under the fold -->
+    <div class="mt-12">
+      <TrustBadges />
     </div>
 
   </div>

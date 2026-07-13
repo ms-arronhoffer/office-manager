@@ -84,7 +84,20 @@ const plans = [
       <p class="mt-4 text-lg text-slate-500">No per-seat nonsense. No hidden fees. One price covers your whole team.</p>
     </div>
 
-    <p class="text-center text-sm text-slate-400 mb-12">All plans include a 14-day free trial. No credit card required.</p>
+    <p class="text-center text-sm text-slate-400 mb-8">All plans include a 14-day free trial. No credit card required.</p>
+
+    <!-- Billing period toggle -->
+    <div class="flex items-center justify-center gap-3 mb-12">
+      <span id="bill-monthly-label" class="text-sm font-semibold text-slate-900">Monthly</span>
+      <button id="billing-toggle" type="button" role="switch" aria-checked="false" aria-label="Toggle annual billing"
+        class="relative inline-flex h-7 w-12 items-center rounded-full bg-slate-200 transition-colors">
+        <span id="billing-knob" class="inline-block h-5 w-5 transform rounded-full bg-white shadow translate-x-1 transition-transform"></span>
+      </button>
+      <span id="bill-annual-label" class="text-sm font-semibold text-slate-400">
+        Annual
+        <span class="ml-1 inline-flex items-center rounded-full bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5">Save ~20%</span>
+      </span>
+    </div>
 
     <div class="grid lg:grid-cols-3 gap-8 items-start">
       {plans.map(plan => (
@@ -97,8 +110,17 @@ const plans = [
           <div class={`text-sm font-semibold mb-1 ${plan.featured ? 'text-blue-400' : 'text-slate-500'}`}>{plan.name}</div>
           <div class={`text-sm mb-4 ${plan.featured ? 'text-slate-400' : 'text-slate-400'}`}>{plan.tagline}</div>
           <div class="mb-6">
-            <span class={`text-4xl font-black ${plan.featured ? 'text-white' : 'text-slate-900'}`}>{plan.price}</span>
+            <span
+              class={`plan-price text-4xl font-black ${plan.featured ? 'text-white' : 'text-slate-900'}`}
+              data-monthly={plan.price}
+              data-annual={plan.annualPrice}
+            >{plan.price}</span>
             {plan.per && <span class={`text-sm ${plan.featured ? 'text-slate-400' : 'text-slate-500'}`}>{plan.per}</span>}
+            {plan.per && (
+              <div class={`plan-annual-note text-xs mt-1 hidden ${plan.featured ? 'text-slate-400' : 'text-slate-400'}`}>
+                per month, billed annually
+              </div>
+            )}
           </div>
 
           {plan.demoEmail ? (
@@ -129,5 +151,50 @@ const plans = [
         </div>
       ))}
     </div>
+
+    <!-- Risk reversal / guarantee -->
+    <div class="mt-12 max-w-3xl mx-auto rounded-2xl border border-slate-200 bg-slate-50 px-6 py-5 flex items-start gap-4">
+      <svg class="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M12 3l7 4v5c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V7l7-4z"/></svg>
+      <div>
+        <div class="font-semibold text-slate-900">Cancel anytime — your data is always yours.</div>
+        <p class="text-sm text-slate-500 mt-1">
+          Not the right fit? Cancel with one click and we'll email you a full export of your data,
+          no questions asked and no lock-in. The 14-day trial needs no credit card up front.
+        </p>
+      </div>
+    </div>
   </div>
 </section>
+
+<script is:inline>
+  (function () {
+    var toggle = document.getElementById('billing-toggle');
+    if (!toggle) return;
+    var knob = document.getElementById('billing-knob');
+    var mLabel = document.getElementById('bill-monthly-label');
+    var aLabel = document.getElementById('bill-annual-label');
+    var prices = Array.prototype.slice.call(document.querySelectorAll('.plan-price'));
+    var notes = Array.prototype.slice.call(document.querySelectorAll('.plan-annual-note'));
+    var annual = false;
+
+    function apply() {
+      toggle.setAttribute('aria-checked', String(annual));
+      toggle.classList.toggle('bg-blue-600', annual);
+      toggle.classList.toggle('bg-slate-200', !annual);
+      knob.classList.toggle('translate-x-6', annual);
+      knob.classList.toggle('translate-x-1', !annual);
+      mLabel.classList.toggle('text-slate-900', !annual);
+      mLabel.classList.toggle('text-slate-400', annual);
+      aLabel.classList.toggle('text-slate-900', annual);
+      aLabel.classList.toggle('text-slate-400', !annual);
+      prices.forEach(function (p) {
+        var v = annual ? p.getAttribute('data-annual') : p.getAttribute('data-monthly');
+        if (v) p.textContent = v;
+      });
+      notes.forEach(function (n) { n.classList.toggle('hidden', !annual); });
+    }
+
+    toggle.addEventListener('click', function () { annual = !annual; apply(); });
+    apply();
+  })();
+</script>

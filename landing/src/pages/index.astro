@@ -2,8 +2,12 @@
 import Layout from '../layouts/Layout.astro';
 import Navbar from '../components/Navbar.astro';
 import Hero from '../components/Hero.astro';
-import Stats from '../components/Stats.astro';
+import TrustLogos from '../components/TrustLogos.astro';
+import MigrationHook from '../components/MigrationHook.astro';
+import LeaseAbstractDemo from '../components/LeaseAbstractDemo.astro';
 import Showcase from '../components/Showcase.astro';
+import Stats from '../components/Stats.astro';
+import RoiCalculator from '../components/RoiCalculator.astro';
 import Features from '../components/Features.astro';
 import HowItWorks from '../components/HowItWorks.astro';
 import Pricing from '../components/Pricing.astro';
@@ -11,13 +15,22 @@ import Testimonials from '../components/Testimonials.astro';
 import TutorialsTeaser from '../components/TutorialsTeaser.astro';
 import Cta from '../components/Cta.astro';
 import Footer from '../components/Footer.astro';
+import LeadMagnet from '../components/LeadMagnet.astro';
+import AssistantWidget from '../components/AssistantWidget.astro';
 ---
 <Layout title="Portfolio Desk: Every Office. Every Lease. Every Deadline.">
   <Navbar />
   <main>
+    <!-- Persuasion arc: pain + proof -> trust -> switcher hook -> experience the
+         value (interactive AI demo + showcase) -> quantify it (stats + ROI) ->
+         features -> how it works -> pricing (with guarantee) -> proof -> CTA. -->
     <Hero />
-    <Stats />
+    <TrustLogos />
+    <MigrationHook />
+    <LeaseAbstractDemo />
     <Showcase />
+    <Stats />
+    <RoiCalculator />
     <Features />
     <HowItWorks />
     <TutorialsTeaser />
@@ -26,4 +39,6 @@ import Footer from '../components/Footer.astro';
   </main>
   <Cta />
   <Footer />
+  <LeadMagnet />
+  <AssistantWidget />
 </Layout>

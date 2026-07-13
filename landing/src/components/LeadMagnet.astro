@@ -1,0 +1,122 @@
+---
+// Low-friction lead magnet. Captures visitors who won't convert on the first
+// visit by offering a "Lease Deadline Risk Checklist" in exchange for an email.
+// Triggers on exit-intent (desktop) or deep scroll (mobile), once per session.
+// Posts to SITE_CONFIG.CONTACT_ENDPOINT when set; degrades gracefully otherwise.
+// No email address is ever placed in the static HTML (anti-harvesting).
+---
+<div id="lead-magnet" class="fixed inset-0 z-50 hidden items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="lm-title">
+  <div id="lm-backdrop" class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+  <div class="relative w-full max-w-md rounded-2xl bg-white shadow-2xl p-8">
+    <button id="lm-close" type="button" aria-label="Close" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+
+    <div class="w-12 h-12 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center mb-5">
+      <svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/></svg>
+    </div>
+
+    <h3 id="lm-title" class="text-xl font-bold text-slate-900">Before you go — grab the free checklist</h3>
+    <p class="mt-2 text-sm text-slate-500 leading-relaxed">
+      The <strong>Lease Deadline Risk Checklist</strong>: the 12 critical dates and clauses most teams
+      miss (and the penalties they trigger). We'll email it right over.
+    </p>
+
+    <form id="lm-form" class="mt-5 space-y-3" novalidate>
+      <label for="lm-email" class="sr-only">Work email</label>
+      <input id="lm-email" name="email" type="email" required autocomplete="email"
+        class="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition"
+        placeholder="you@company.com" />
+      <!-- Honeypot -->
+      <div aria-hidden="true" class="absolute left-[-9999px] top-[-9999px] h-0 w-0 overflow-hidden" tabindex="-1">
+        <label>Company website<input type="text" name="company_website" tabindex="-1" autocomplete="off" /></label>
+      </div>
+      <button type="submit" id="lm-submit"
+        class="w-full inline-flex items-center justify-center gap-2 bg-slate-900 text-white font-semibold px-6 py-3 rounded-xl hover:bg-slate-700 transition-colors disabled:opacity-60">
+        Email me the checklist
+      </button>
+      <p id="lm-status" class="hidden text-sm font-medium" role="status" aria-live="polite"></p>
+      <p class="text-[11px] text-slate-400 text-center">No spam. Unsubscribe anytime. We never sell your details.</p>
+    </form>
+  </div>
+</div>
+
+<script is:inline>
+  (function () {
+    var modal = document.getElementById('lead-magnet');
+    if (!modal) return;
+    var KEY = 'pd_lead_magnet_seen';
+    var form = document.getElementById('lm-form');
+    var status = document.getElementById('lm-status');
+    var submit = document.getElementById('lm-submit');
+    var openedAt = 0;
+
+    function seen() {
+      try { return sessionStorage.getItem(KEY) === '1'; } catch (e) { return false; }
+    }
+    function markSeen() {
+      try { sessionStorage.setItem(KEY, '1'); } catch (e) {}
+    }
+    function open() {
+      if (seen()) return;
+      markSeen();
+      openedAt = Date.now();
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+    function close() {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    document.getElementById('lm-close').addEventListener('click', close);
+    document.getElementById('lm-backdrop').addEventListener('click', close);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+
+    // Desktop: exit-intent (cursor leaves toward the top).
+    document.addEventListener('mouseout', function (e) {
+      if (!e.relatedTarget && e.clientY <= 0) open();
+    });
+    // Mobile / no exit-intent: trigger on deep scroll.
+    var triggered = false;
+    window.addEventListener('scroll', function () {
+      if (triggered) return;
+      var pct = (window.scrollY + window.innerHeight) / document.body.scrollHeight;
+      if (pct > 0.6) { triggered = true; open(); }
+    }, { passive: true });
+
+    function show(msg, ok) {
+      status.textContent = msg;
+      status.className = 'text-sm font-medium ' + (ok ? 'text-green-600' : 'text-red-600');
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var data = new FormData(form);
+      if ((data.get('company_website') || '').trim() !== '') { close(); return; }
+      if (Date.now() - openedAt < 1200) { show('Please try again in a moment.', false); return; }
+      if (!form.checkValidity()) { form.reportValidity(); return; }
+
+      var cfg = window.SITE_CONFIG || {};
+      var payload = { email: data.get('email'), topic: 'Lease Deadline Risk Checklist', source: 'lead-magnet' };
+      submit.disabled = true;
+
+      if (cfg.CONTACT_ENDPOINT) {
+        fetch(cfg.CONTACT_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(payload),
+        })
+          .then(function (r) { if (!r.ok) throw new Error('bad'); show("Done! Check your inbox shortly.", true); form.reset(); setTimeout(close, 1500); })
+          .catch(function () { show('Something went wrong. Please try again.', false); })
+          .finally(function () { submit.disabled = false; });
+      } else {
+        // No endpoint configured on this deployment: acknowledge gracefully.
+        show("Thanks! We'll be in touch with the checklist.", true);
+        form.reset();
+        submit.disabled = false;
+        setTimeout(close, 1500);
+      }
+    });
+  })();
+</script>

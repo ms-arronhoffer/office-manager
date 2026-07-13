@@ -1,0 +1,168 @@
+---
+import LeaseAbstractScreen from './screens/LeaseAbstractScreen.astro';
+// Interactive "try before you buy" preview of the AI lease-abstract feature.
+// Runs entirely client-side on a bundled sample lease (no signup, no data
+// leaves the browser) and animates the same structured extraction the product
+// produces, shown next to the real captured app screen for proof.
+const sampleLease = `OFFICE LEASE AGREEMENT
+
+This Lease is made between Tyson Foods, Inc. ("Landlord") and
+Northgate Logistics LLC ("Tenant") for the premises at
+Suite 400, 120 Commerce Park Drive, Nashville, TN 37201
+(approx. 12,450 rentable square feet).
+
+1. TERM. The initial term is sixty (60) months, commencing
+   March 1, 2024 and expiring February 28, 2029.
+
+2. BASE RENT. Tenant shall pay base rent of $28,375.00 per
+   month, subject to annual escalation of three percent (3%).
+
+3. RENEWAL. Tenant may renew for one (1) additional five-year
+   term by delivering written notice no later than 270 days
+   prior to expiration (i.e., by June 4, 2028).
+
+4. SECURITY DEPOSIT. $56,750.00 held for the term.`;
+
+const fields = [
+  { label: 'Tenant', value: 'Northgate Logistics LLC' },
+  { label: 'Premises', value: 'Suite 400, 120 Commerce Park Dr, Nashville, TN' },
+  { label: 'Rentable area', value: '12,450 sq ft' },
+  { label: 'Term', value: 'Mar 1, 2024 – Feb 28, 2029 (60 mo)' },
+  { label: 'Base rent', value: '$28,375.00 / mo' },
+  { label: 'Escalation', value: '3% annually' },
+  { label: 'Renewal option', value: '1 × 5-year term' },
+  { label: 'Renewal notice due', value: 'Jun 4, 2028', flag: true },
+  { label: 'Security deposit', value: '$56,750.00' },
+];
+---
+<section id="ai-demo" class="py-24 scroll-mt-20">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="text-center max-w-2xl mx-auto mb-12">
+      <p class="text-sm font-semibold text-blue-600 uppercase tracking-widest mb-3">Try it now — no signup</p>
+      <h2 class="text-4xl lg:text-5xl font-extrabold text-slate-900">Watch the AI read a lease</h2>
+      <p class="mt-4 text-lg text-slate-500">
+        Run the same AI abstraction the product uses on a sample lease. It extracts the terms and,
+        most importantly, the deadline you can't afford to miss, in seconds.
+      </p>
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-8 items-stretch">
+      <!-- Left: sample lease + run button -->
+      <div class="rounded-2xl border border-slate-200 bg-white shadow-sm p-6 flex flex-col">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-widest">Sample lease</span>
+          <span class="text-xs text-slate-400">Runs in your browser</span>
+        </div>
+        <pre id="ai-demo-source" class="relative flex-1 overflow-hidden rounded-xl bg-slate-50 border border-slate-200 p-4 text-[11px] leading-relaxed text-slate-600 whitespace-pre-wrap font-mono">{sampleLease}<span id="ai-demo-scan" class="pointer-events-none absolute inset-x-0 top-0 h-16 -translate-y-full bg-gradient-to-b from-transparent via-blue-400/20 to-transparent"></span></pre>
+        <button id="ai-demo-run" type="button"
+          class="mt-4 inline-flex items-center justify-center gap-2 bg-slate-900 text-white font-semibold px-6 py-3 rounded-xl hover:bg-slate-700 transition-colors">
+          <svg class="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4L12 2z"/></svg>
+          <span id="ai-demo-run-label">Run AI abstraction</span>
+        </button>
+      </div>
+
+      <!-- Right: extracted fields -->
+      <div class="rounded-2xl border border-slate-200 bg-white shadow-sm p-6 flex flex-col">
+        <div class="flex items-center gap-2 mb-4">
+          <span class="w-2 h-2 rounded-full bg-slate-300" id="ai-demo-dot"></span>
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-widest" id="ai-demo-status">Waiting to run</span>
+        </div>
+        <ul id="ai-demo-fields" class="space-y-2.5 flex-1">
+          {fields.map((f, i) => (
+            <li class="ai-demo-field flex items-start justify-between gap-4 rounded-lg border border-slate-100 px-3 py-2 opacity-0 translate-y-1 transition-all duration-300"
+                data-idx={i} data-flag={f.flag ? '1' : '0'}>
+              <span class="text-xs font-medium text-slate-400">{f.label}</span>
+              <span class={`text-sm font-semibold text-right ${f.flag ? 'text-amber-600' : 'text-slate-800'}`}>
+                {f.flag && (
+                  <svg class="inline w-3.5 h-3.5 mr-1 -mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86l-8.48 14.7A2 2 0 003.53 21h16.94a2 2 0 001.72-2.44L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                )}
+                {f.value}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p class="mt-4 text-xs text-slate-400">
+          In the app, the extracted renewal-notice date becomes an automatic alert to the right person.
+          <a href="#" data-href="SIGNUP_URL" class="font-semibold text-blue-600 hover:text-blue-700">Try it on your own leases →</a>
+        </p>
+      </div>
+    </div>
+
+    <!-- The real captured app screen, as proof of the actual output -->
+    <div class="mt-12 max-w-4xl mx-auto">
+      <p class="text-center text-sm text-slate-400 mb-4">…and here's exactly how that looks inside Portfolio Desk:</p>
+      <LeaseAbstractScreen />
+    </div>
+  </div>
+</section>
+
+<script is:inline>
+  (function () {
+    var btn = document.getElementById('ai-demo-run');
+    if (!btn) return;
+    var scan = document.getElementById('ai-demo-scan');
+    var dot = document.getElementById('ai-demo-dot');
+    var status = document.getElementById('ai-demo-status');
+    var label = document.getElementById('ai-demo-run-label');
+    var fields = Array.prototype.slice.call(document.querySelectorAll('.ai-demo-field'));
+    var running = false;
+
+    function reset() {
+      fields.forEach(function (f) { f.style.opacity = '0'; f.style.transform = 'translateY(4px)'; });
+      dot.className = 'w-2 h-2 rounded-full bg-slate-300';
+      status.textContent = 'Waiting to run';
+    }
+
+    function run() {
+      if (running) return;
+      running = true;
+      reset();
+      label.textContent = 'Reading lease…';
+      dot.className = 'w-2 h-2 rounded-full bg-blue-500 animate-pulse';
+      status.textContent = 'Extracting terms…';
+
+      // Sweep the scan highlight down the sample lease.
+      if (scan) {
+        scan.style.transition = 'none';
+        scan.style.transform = 'translateY(-100%)';
+        // Force reflow so the transition restarts.
+        void scan.offsetHeight;
+        scan.style.transition = 'transform 1.6s ease-in-out';
+        scan.style.transform = 'translateY(1200%)';
+      }
+
+      var i = 0;
+      function reveal() {
+        if (i >= fields.length) {
+          dot.className = 'w-2 h-2 rounded-full bg-green-500';
+          status.textContent = 'Abstraction complete';
+          label.textContent = 'Run again';
+          running = false;
+          return;
+        }
+        var f = fields[i];
+        f.style.opacity = '1';
+        f.style.transform = 'translateY(0)';
+        if (f.getAttribute('data-flag') === '1') {
+          f.className = f.className.replace('border-slate-100', 'border-amber-200 bg-amber-50');
+        }
+        i++;
+        setTimeout(reveal, 260);
+      }
+      setTimeout(reveal, 650);
+    }
+
+    btn.addEventListener('click', run);
+
+    // Auto-run once when scrolled into view.
+    if ('IntersectionObserver' in window) {
+      var seen = false;
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting && !seen) { seen = true; run(); }
+        });
+      }, { threshold: 0.4 });
+      io.observe(document.getElementById('ai-demo'));
+    }
+  })();
+</script>
