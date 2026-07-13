@@ -407,9 +407,11 @@ async def update_lease(
 
     # Enforce the plan's active-lease cap when flipping an inactive lease to an
     # active status (a create-equivalent that consumes an active-lease slot).
-    if "status" in update_data and not lease_limits.is_active_commercial_status(
-        lease.status
-    ) and lease_limits.is_active_commercial_status(update_data["status"]):
+    old_is_inactive = not lease_limits.is_active_commercial_status(lease.status)
+    new_is_active = "status" in update_data and lease_limits.is_active_commercial_status(
+        update_data["status"]
+    )
+    if old_is_inactive and new_is_active:
         org = (
             await db.execute(
                 select(Organization).where(Organization.id == org_id)
