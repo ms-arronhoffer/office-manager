@@ -86,8 +86,8 @@ async def _send_trial_email(
         template = env.get_template(template_name)
         ctx = {
             "org_name": org.name,
-            "upgrade_url": f"{settings.FRONTEND_URL}/billing",
-            "billing_url": f"{settings.FRONTEND_URL}/billing",
+            "upgrade_url": f"{settings.FRONTEND_URL.rstrip('/')}/billing",
+            "billing_url": f"{settings.FRONTEND_URL.rstrip('/')}/billing",
         }
         if org.trial_ends_at:
             ctx["trial_ends_at"] = org.trial_ends_at.strftime("%B %d, %Y")
@@ -201,7 +201,7 @@ async def run_billing_hygiene() -> None:
                     html = template.render(
                         org_name=org.name,
                         grace_days=max(0, ent.PAST_DUE_GRACE_DAYS - days_past_due),
-                        billing_url=f"{settings.FRONTEND_URL}/billing",
+                        billing_url=f"{settings.FRONTEND_URL.rstrip('/')}/billing",
                     )
                     recipients = await _get_org_admin_emails(db, org.id)
                     for email in recipients:

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Alert from '@cloudscape-design/components/alert';
 import Badge from '@cloudscape-design/components/badge';
 import Box from '@cloudscape-design/components/box';
@@ -54,17 +55,44 @@ const PLANS: PlanCard[] = [
 ];
 
 const BillingPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [sub, setSub] = useState<BillingSubscription | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isUpgrading, setIsUpgrading] = useState<string | null>(null);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+  const [checkoutSuccess, setCheckoutSuccess] = useState(false);
 
   useEffect(() => {
-    billingApi.getSubscription()
-      .then(r => setSub(r.data))
-      .catch(() => setError('Could not load billing information.'))
-      .finally(() => setIsLoading(false));
+    const sessionId = searchParams.get('session_id');
+
+    const load = async () => {
+      if (sessionId) {
+        try {
+          await billingApi.confirmCheckout(sessionId);
+          setCheckoutSuccess(true);
+        } catch {
+          // Fall through — the webhook may still land shortly, and the
+          // subscription fetch below will reflect the latest known state.
+        } finally {
+          // Drop session_id from the URL so a refresh doesn't re-confirm.
+          searchParams.delete('session_id');
+          setSearchParams(searchParams, { replace: true });
+        }
+      }
+
+      try {
+        const { data } = await billingApi.getSubscription();
+        setSub(data);
+      } catch {
+        setError('Could not load billing information.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleUpgrade = async (plan: 'pro') => {
@@ -128,6 +156,12 @@ const BillingPage: React.FC = () => {
         {error && (
           <Alert type="error" dismissible onDismiss={() => setError(null)}>
             {error}
+          </Alert>
+        )}
+
+        {checkoutSuccess && (
+          <Alert type="success" dismissible onDismiss={() => setCheckoutSuccess(false)}>
+            Payment successful — your plan has been updated.
           </Alert>
         )}
 

@@ -49,7 +49,7 @@ async def _send_billing_email(
         from jinja2 import Environment, FileSystemLoader
         env = Environment(loader=FileSystemLoader("app/templates"))
         template = env.get_template(template_name)
-        ctx = {"org_name": org.name, "billing_url": f"{settings.FRONTEND_URL}/billing"}
+        ctx = {"org_name": org.name, "billing_url": f"{settings.FRONTEND_URL.rstrip('/')}/billing"}
         if extra_ctx:
             ctx.update(extra_ctx)
         html_body = template.render(**ctx)
@@ -176,6 +176,39 @@ async def _get_org(org_id, db: AsyncSession) -> Organization:
     return org
 
 
+async def _finalize_checkout_session(
+    db: AsyncSession, session_obj: dict, stripe_cfg: "StripeSettings"
+) -> Organization | None:
+    """Apply a completed Stripe Checkout session to its org (plan + status).
+
+    Shared by the ``checkout.session.completed`` webhook handler and the
+    ``/checkout/confirm`` endpoint so the org is moved to the correct tier
+    whichever path reaches us first (webhook delivery can lag behind the
+    browser redirect back from Stripe).
+    """
+    org_id = (session_obj.get("metadata") or {}).get("org_id")
+    if not org_id:
+        return None
+    result = await db.execute(select(Organization).where(Organization.id == org_id))
+    org = result.scalar_one_or_none()
+    if not org:
+        return None
+
+    org.stripe_customer_id = session_obj.get("customer") or org.stripe_customer_id
+    subscription_id = session_obj.get("subscription") or org.stripe_subscription_id
+    org.stripe_subscription_id = subscription_id
+    if subscription_id:
+        sub = stripe.Subscription.retrieve(subscription_id)
+        price = sub["items"]["data"][0]["price"]
+        org.plan = _plan_from_price(price, stripe_cfg)
+    org.payment_status = "active"
+    org.is_active = True
+    org.past_due_since = None
+    await db.commit()
+    await db.refresh(org)
+    return org
+
+
 # ─── GET /billing/subscription ────────────────────────────────────────────────
 
 @router.get("/subscription")
@@ -246,8 +279,8 @@ async def create_checkout_session(
     session_kwargs: dict = {
         "mode": "subscription",
         "line_items": [{"price": price_id, "quantity": 1}],
-        "success_url": f"{settings.FRONTEND_URL}/billing?session_id={{CHECKOUT_SESSION_ID}}",
-        "cancel_url": f"{settings.FRONTEND_URL}/billing",
+        "success_url": f"{settings.FRONTEND_URL.rstrip('/')}/billing?session_id={{CHECKOUT_SESSION_ID}}",
+        "cancel_url": f"{settings.FRONTEND_URL.rstrip('/')}/billing",
         "metadata": {"org_id": str(org.id)},
     }
     if org.stripe_customer_id:
@@ -257,6 +290,45 @@ async def create_checkout_session(
 
     session = stripe.checkout.Session.create(**session_kwargs)
     return {"checkout_url": session.url}
+
+
+# ─── GET /billing/checkout/confirm ────────────────────────────────────────────
+
+@router.get("/checkout/confirm")
+async def confirm_checkout_session(
+    session_id: str,
+    current_user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Confirm a completed Stripe Checkout session and sync the org's plan.
+
+    The browser is redirected here from Stripe immediately after payment,
+    which can happen before the ``checkout.session.completed`` webhook is
+    delivered (or at all, if webhooks aren't configured). Fetching the
+    session directly and applying the same update logic guarantees the org
+    is on the correct tier as soon as the user lands back on the app.
+    """
+    stripe_cfg = await _require_stripe(db)
+
+    try:
+        session_obj = stripe.checkout.Session.retrieve(session_id)
+    except stripe.error.StripeError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid checkout session")
+
+    org_id = (session_obj.get("metadata") or {}).get("org_id")
+    if not org_id or str(org_id) != str(current_user.organization_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Checkout session does not belong to this organization")
+
+    if session_obj.get("status") != "complete" or session_obj.get("payment_status") not in ("paid", "no_payment_required"):
+        org = await _get_org(current_user.organization_id, db)
+        return {"plan": org.plan, "payment_status": org.payment_status, "confirmed": False}
+
+    org = await _finalize_checkout_session(db, dict(session_obj), stripe_cfg)
+    if not org:
+        org = await _get_org(current_user.organization_id, db)
+        return {"plan": org.plan, "payment_status": org.payment_status, "confirmed": False}
+
+    return {"plan": org.plan, "payment_status": org.payment_status, "confirmed": True}
 
 
 # ─── POST /billing/portal ─────────────────────────────────────────────────────
@@ -278,7 +350,7 @@ async def create_portal_session(
 
     session = stripe.billing_portal.Session.create(
         customer=org.stripe_customer_id,
-        return_url=f"{settings.FRONTEND_URL}/billing",
+        return_url=f"{settings.FRONTEND_URL.rstrip('/')}/billing",
     )
     return {"portal_url": session.url}
 
@@ -308,21 +380,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
     if event_type == "checkout.session.completed":
         # New subscription created via checkout
-        org_id = obj.get("metadata", {}).get("org_id")
-        if org_id:
-            result = await db.execute(select(Organization).where(Organization.id == org_id))
-            org = result.scalar_one_or_none()
-            if org:
-                org.stripe_customer_id = obj.get("customer")
-                org.stripe_subscription_id = obj.get("subscription")
-                if org.stripe_subscription_id:
-                    sub = stripe.Subscription.retrieve(org.stripe_subscription_id)
-                    price = sub["items"]["data"][0]["price"]
-                    org.plan = _plan_from_price(price, stripe_cfg)
-                org.payment_status = "active"
-                org.is_active = True
-                org.past_due_since = None
-                await db.commit()
+        await _finalize_checkout_session(db, obj, stripe_cfg)
 
     elif event_type == "customer.subscription.updated":
         # Plan change, renewal, or status change (e.g. trialing→active, active→past_due)
