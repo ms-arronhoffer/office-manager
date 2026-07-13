@@ -244,5 +244,5 @@ async def get_ticket_qr(
     """Return the URL to encode in a QR code for this ticket."""
     await _get_ticket(ticket_id, current_user.organization_id, db)
     from app.config import settings
-    ticket_url = f"{settings.FRONTEND_URL}/maintenance/{ticket_id}"
+    ticket_url = f"{settings.FRONTEND_URL.rstrip('/')}/maintenance/{ticket_id}"
     return JSONResponse({"ticket_id": str(ticket_id), "url": ticket_url})

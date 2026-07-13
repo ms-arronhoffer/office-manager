@@ -1011,6 +1011,12 @@ export const billing = {
   createCheckout: (plan: 'pro' | 'enterprise') =>
     client.post<{ checkout_url: string }>('/billing/checkout', { plan }),
 
+  confirmCheckout: (sessionId: string) =>
+    client.get<{ plan: string; payment_status: string; confirmed: boolean }>(
+      '/billing/checkout/confirm',
+      { params: { session_id: sessionId } }
+    ),
+
   createPortal: () =>
     client.post<{ portal_url: string }>('/billing/portal'),
 };
