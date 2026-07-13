@@ -1,70 +1,44 @@
 ---
-const features = [
+// The top differentiators are promoted into large "hero feature" blocks so they
+// don't drown in a 13-tile grid. Everything else is kept as a compact scannable
+// list so the section stays complete without feeling like a spec dump.
+const heroFeatures = [
   {
-    icon: `<path d="M12 2a2 2 0 012 2v1.07A7.002 7.002 0 0119 12v3l1.5 2.5a1 1 0 01-.86 1.5H4.36a1 1 0 01-.86-1.5L5 15v-3a7.002 7.002 0 015-6.93V4a2 2 0 012-2z"/><path d="M9 18a3 3 0 006 0"/>`,
-    title: 'AI Automation',
-    desc: 'Powered by Google Gemini. AI reads uploaded leases to extract key terms, auto-drafts lease abstracts, and writes weekly & monthly briefings of upcoming notice periods, expirations, and maintenance. Pro plans and above.',
-  },
-  {
-    icon: `<path d="M9 12l2 2 4-4"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 5c0 1.66 4 3 9 3s9-1.34 9-3-4-3-9-3-9 1.34-9 3z"/>`,
-    title: 'Digital Waivers & e-Signatures',
-    desc: 'Send pre-built or custom waivers to any contact, or to visitors who enter their own details. Captures consent, attribution, and a tamper-evident audit trail conforming to ESIGN/UETA e-signature standards. Pro plans and above.',
-  },
-  {
-    icon: `<path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>`,
-    title: 'Lease Management',
-    desc: 'Track every term, option, escalation, and critical notice date. Proactive alerts ensure you never miss a deadline. Full document storage on every lease.',
-  },
-  {
-    icon: `<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>`,
-    title: 'Maintenance Tickets',
-    desc: 'Submit, assign, and track work orders from open to resolved. SLA timers, vendor assignment, photo attachments, and full notes history in one thread.',
-  },
-  {
-    icon: `<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/>`,
-    title: 'HVAC & Equipment',
-    desc: 'Schedule preventive maintenance, track service contracts, and stay ahead of inspection requirements. Compliance status visible across your entire portfolio.',
-  },
-  {
-    icon: `<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>`,
-    title: 'Vendor Management',
-    desc: 'Centralize all vendor contacts, contracts, and insurance certificates. Know which vendors are active at each location and track compliance documentation.',
-  },
-  {
-    icon: `<path d="M18 20V10M12 20V4M6 20v-6"/>`,
-    title: 'Analytics & Reporting',
-    desc: 'Portfolio-level dashboards, SLA compliance reports, cost-per-sq-ft trending, and maintenance backlog summaries. Export to PDF or CSV for leadership review.',
-  },
-  {
-    icon: `<path d="M3 3h18v18H3z"/><path d="M3 9h18"/><path d="M9 9v12"/><path d="M14 14h4"/><path d="M14 18h4"/>`,
-    title: 'Finance Hub',
-    desc: 'Run rent roll, operating expense tracking, and general ledger workflows from one shared finance workspace with role-based access and portfolio context.',
-  },
-  {
-    icon: `<path d="M4 6h16"/><path d="M8 12h12"/><path d="M12 18h8"/>`,
-    title: 'Roll-Up Categories',
-    desc: 'Use grouped navigation categories to keep workflows organized and make high-traffic areas easier to scan as your operational stack grows.',
-  },
-  {
-    icon: `<path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/>`,
-    title: 'Smart Notifications',
-    desc: 'Rule-based email alerts for every critical event: lease deadlines, SLA breaches, HVAC inspections, ticket escalations. The right person gets the right alert.',
-  },
-  {
-    icon: `<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>`,
-    title: 'Transition Management',
-    desc: 'Plan and track office moves, buildouts, and lease-end activities with milestone checklists, responsible owners, and status tracking end-to-end.',
-  },
-  {
-    icon: `<path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/>`,
-    title: 'Audit Log',
-    desc: 'Every action logged with user, timestamp, and change detail. Full audit trail for every lease amendment, ticket update, and vendor change. Built for compliance.',
+    icon: `<path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4L12 2z"/>`,
+    title: 'AI that reads your leases',
+    desc: 'Powered by Google Gemini. Upload a lease and the AI extracts key terms, drafts a clause-by-clause abstract, and writes weekly & monthly briefings of upcoming notice periods and expirations, so the deadlines find you.',
+    tag: 'Pro & up',
   },
   {
     icon: `<path d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16"/>`,
-    title: 'New: Buildium Migration Assistance',
-    desc: 'A new guided migration assistant moves your leases, tenants, vendors, and GL account mappings straight over from Buildium, so switching platforms takes hours instead of weeks.',
+    title: 'Free Buildium migration',
+    desc: 'A guided migration assistant maps and moves your leases, tenants, vendors and GL account mappings straight over from Buildium, so switching platforms takes hours instead of weeks.',
+    tag: 'Switchers',
   },
+  {
+    icon: `<path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 5c0 1.66 4 3 9 3s9-1.34 9-3-4-3-9-3-9 1.34-9 3z"/><path d="M9 12l2 2 4-4"/>`,
+    title: 'Digital waivers & e-signatures',
+    desc: 'Send pre-built or custom waivers to any contact or walk-in visitor. Captures consent, attribution and a tamper-evident audit trail conforming to ESIGN/UETA e-signature standards.',
+    tag: 'Pro & up',
+  },
+  {
+    icon: `<path d="M18 20V10M12 20V4M6 20v-6"/>`,
+    title: 'Portfolio analytics & reporting',
+    desc: 'Portfolio-level dashboards, SLA compliance reports, cost-per-sq-ft trending and maintenance backlog summaries. Export to PDF or CSV for leadership in a click.',
+    tag: 'Included',
+  },
+];
+
+const moreFeatures = [
+  { title: 'Lease Management', desc: 'Track every term, option, escalation and critical notice date with proactive alerts and full document storage.' },
+  { title: 'Maintenance Tickets', desc: 'Submit, assign and track work orders with SLA timers, vendor assignment, photos and full notes history.' },
+  { title: 'HVAC & Equipment', desc: 'Schedule preventive maintenance, track service contracts and stay ahead of inspection requirements.' },
+  { title: 'Vendor Management', desc: 'Centralize vendor contacts, contracts and insurance certificates, with compliance visible per location.' },
+  { title: 'Finance Hub', desc: 'Run rent roll, operating-expense tracking and general-ledger workflows from one shared finance workspace.' },
+  { title: 'Smart Notifications', desc: 'Rule-based email alerts for every critical event, routed to the right person before the deadline, not after.' },
+  { title: 'Transition Management', desc: 'Plan office moves, buildouts and lease-end activities with milestone checklists and status tracking.' },
+  { title: 'Roll-Up Categories', desc: 'Grouped navigation keeps high-traffic workflows organized and easy to scan as your stack grows.' },
+  { title: 'Audit Log', desc: 'Every action logged with user, timestamp and change detail — a full audit trail built for compliance.' },
 ];
 ---
 <section id="features" class="py-24">
@@ -75,16 +49,43 @@ const features = [
       <p class="mt-4 text-lg text-slate-500">Built specifically for corporate real estate and facilities management, not a generic tool bent to fit.</p>
     </div>
 
-    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-      {features.map(f => (
-        <div class="group p-6 rounded-2xl border border-slate-200 bg-white hover:border-blue-200 hover:shadow-lg hover:shadow-blue-50 transition-all duration-200">
-          <div class="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center mb-4 group-hover:bg-blue-100 transition-colors">
-            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" set:html={f.icon} />
+    <!-- Promoted differentiators -->
+    <div class="grid md:grid-cols-2 gap-6 mb-14">
+      {heroFeatures.map(f => (
+        <div class="group relative p-8 rounded-2xl border border-slate-200 bg-white hover:border-blue-200 hover:shadow-xl hover:shadow-blue-50 transition-all duration-200">
+          <div class="flex items-start justify-between">
+            <div class="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center mb-5 group-hover:bg-blue-100 transition-colors">
+              <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" set:html={f.icon} />
+            </div>
+            <span class="text-xs font-semibold text-blue-600 bg-blue-50 rounded-full px-3 py-1">{f.tag}</span>
           </div>
-          <h3 class="font-semibold text-slate-900 mb-2">{f.title}</h3>
-          <p class="text-sm text-slate-500 leading-relaxed">{f.desc}</p>
+          <h3 class="text-xl font-bold text-slate-900 mb-2">{f.title}</h3>
+          <p class="text-slate-500 leading-relaxed">{f.desc}</p>
         </div>
       ))}
+    </div>
+
+    <!-- Condensed list of the rest -->
+    <div class="text-center mb-8">
+      <p class="text-sm font-semibold text-slate-400 uppercase tracking-widest">Plus everything else you'd expect</p>
+    </div>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-6">
+      {moreFeatures.map(f => (
+        <div class="flex items-start gap-3">
+          <svg class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+          <div>
+            <h3 class="font-semibold text-slate-900 text-sm">{f.title}</h3>
+            <p class="text-sm text-slate-500 leading-relaxed mt-0.5">{f.desc}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <div class="text-center mt-12">
+      <a href="/features" class="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700">
+        See all features in detail
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
     </div>
   </div>
 </section>

@@ -5,18 +5,21 @@ const quotes = [
     name: "Sarah L.",
     role: "VP Corporate Real Estate, Financial Services",
     initials: "SL",
+    metric: "0 missed deadlines in 6 months",
   },
   {
     quote: "The maintenance ticket system alone paid for the subscription in the first month. Our SLA compliance went from 71% to 96% in 90 days.",
     name: "Marcus K.",
     role: "Facilities Director, Technology Company",
     initials: "MK",
+    metric: "71% → 96% SLA compliance",
   },
   {
     quote: "Setup took less than two hours. We imported our lease data from CSV and were operational the same afternoon. The alert system is exactly what we needed.",
     name: "Jennifer P.",
     role: "Real Estate Manager, Healthcare Organization",
     initials: "JP",
+    metric: "Live the same afternoon",
   },
 ];
 ---
@@ -31,6 +34,10 @@ const quotes = [
       {quotes.map(q => (
         <div class="bg-white rounded-2xl p-8 border border-slate-200 shadow-sm flex flex-col">
           <div class="text-amber-400 text-xl mb-4">★★★★★</div>
+          <div class="inline-flex self-start items-center gap-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 mb-4">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+            {q.metric}
+          </div>
           <blockquote class="text-slate-600 leading-relaxed flex-1">
             "{q.quote}"
           </blockquote>
@@ -46,5 +53,10 @@ const quotes = [
         </div>
       ))}
     </div>
+
+    <p class="text-center text-sm text-slate-400 mt-10">
+      Names abbreviated at customers' request.
+      <a href="/contact" class="font-semibold text-blue-600 hover:text-blue-700">Ask us for references &amp; full case studies →</a>
+    </p>
   </div>
 </section>
