@@ -20,6 +20,8 @@ def _org(**kwargs):
         is_active=True,
         payment_status="active",
         past_due_since=None,
+        trial_ends_at=None,
+        stripe_subscription_id=None,
     )
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -157,3 +159,60 @@ def test_access_state_ok():
 def test_access_denied_message_known_states():
     assert "suspended" in ent.access_denied_message(ent.ACCESS_BLOCKED_INACTIVE).lower()
     assert ent.access_denied_message("anything-else")
+
+
+# ── trial expiry ─────────────────────────────────────────────────────────────
+
+def test_access_state_trial_expired_blocked():
+    """An active org whose trial has ended without a paid subscription is blocked."""
+    ended = datetime.now(timezone.utc) - timedelta(days=1)
+    state = ent.org_access_state(_org(trial_ends_at=ended))
+    assert state == ent.ACCESS_TRIAL_EXPIRED
+    assert ent.is_access_blocked(state) is True
+    assert "trial" in ent.access_denied_message(state).lower()
+
+
+def test_access_state_trial_active_not_blocked():
+    """A trial still within its window grants normal access."""
+    future = datetime.now(timezone.utc) + timedelta(days=3)
+    state = ent.org_access_state(_org(trial_ends_at=future))
+    assert state == ent.ACCESS_OK
+    assert ent.is_access_blocked(state) is False
+
+
+def test_access_state_trial_expired_but_subscribed_ok():
+    """A paid subscription overrides an elapsed trial window (they upgraded)."""
+    ended = datetime.now(timezone.utc) - timedelta(days=30)
+    state = ent.org_access_state(
+        _org(trial_ends_at=ended, stripe_subscription_id="sub_123")
+    )
+    assert state == ent.ACCESS_OK
+    assert ent.is_access_blocked(state) is False
+
+
+def test_access_state_no_trial_set_ok():
+    """Orgs without a trial window are unaffected by the trial check."""
+    assert ent.org_access_state(_org(trial_ends_at=None)) == ent.ACCESS_OK
+
+
+def test_access_state_trial_expired_naive_datetime_blocked():
+    """A naive (tz-less) trial timestamp is coerced to UTC, not mis-evaluated."""
+    ended = datetime.utcnow() - timedelta(days=1)  # naive on purpose
+    assert ent.org_access_state(_org(trial_ends_at=ended)) == ent.ACCESS_TRIAL_EXPIRED
+
+
+def test_access_state_inactive_precedes_trial_expiry():
+    """A hard suspension takes precedence over a trial-expired classification."""
+    ended = datetime.now(timezone.utc) - timedelta(days=1)
+    state = ent.org_access_state(_org(is_active=False, trial_ends_at=ended))
+    assert state == ent.ACCESS_BLOCKED_INACTIVE
+
+
+def test_access_state_expired_trial_ignored_when_past_due():
+    """Once billing is past_due the past-due grace logic governs, not trial expiry."""
+    ended = datetime.now(timezone.utc) - timedelta(days=1)
+    since = datetime.now(timezone.utc) - timedelta(days=ent.PAST_DUE_GRACE_DAYS - 1)
+    state = ent.org_access_state(
+        _org(payment_status="past_due", past_due_since=since, trial_ends_at=ended)
+    )
+    assert state == ent.ACCESS_GRACE_PAST_DUE
