@@ -168,6 +168,24 @@ def _plan_from_price(price: dict | str, stripe_cfg: "StripeSettings") -> str:
     return "pro"
 
 
+def _unix_ts(value) -> datetime | None:
+    """Convert a Stripe unix timestamp to an aware UTC datetime."""
+    if value is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(value), tz=timezone.utc)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _sync_subscription_timing(org: Organization, sub: dict) -> None:
+    """Copy period-end/cancellation-schedule fields from a Stripe Subscription
+    object onto the org so the billing page can show them without another
+    Stripe round-trip."""
+    org.cancel_at_period_end = bool(sub.get("cancel_at_period_end"))
+    org.current_period_end = _unix_ts(sub.get("current_period_end"))
+
+
 async def _get_org(org_id, db: AsyncSession) -> Organization:
     result = await db.execute(select(Organization).where(Organization.id == org_id))
     org = result.scalar_one_or_none()
@@ -201,6 +219,7 @@ async def _finalize_checkout_session(
         sub = stripe.Subscription.retrieve(subscription_id)
         price = sub["items"]["data"][0]["price"]
         org.plan = _plan_from_price(price, stripe_cfg)
+        _sync_subscription_timing(org, sub)
     org.payment_status = "active"
     org.is_active = True
     org.past_due_since = None
@@ -227,6 +246,17 @@ async def get_subscription(
     )
     seat_count = seat_result.scalar_one()
 
+    now = datetime.now(timezone.utc)
+    trial_ends_at = org.trial_ends_at
+    if trial_ends_at is not None and trial_ends_at.tzinfo is None:
+        trial_ends_at = trial_ends_at.replace(tzinfo=timezone.utc)
+    is_trialing = (
+        trial_ends_at is not None
+        and org.stripe_subscription_id is None
+        and now <= trial_ends_at
+    )
+    trial_days_remaining = max(0, (trial_ends_at - now).days) if is_trialing else None
+
     return {
         "plan": org.plan,
         "is_active": org.is_active,
@@ -234,6 +264,10 @@ async def get_subscription(
         "stripe_customer_id": org.stripe_customer_id,
         "stripe_subscription_id": org.stripe_subscription_id,
         "trial_ends_at": org.trial_ends_at.isoformat() if org.trial_ends_at else None,
+        "is_trialing": is_trialing,
+        "trial_days_remaining": trial_days_remaining,
+        "cancel_at_period_end": org.cancel_at_period_end,
+        "current_period_end": org.current_period_end.isoformat() if org.current_period_end else None,
         "max_seats": org.max_seats,
         "seat_count": seat_count,
         "billing_configured": (await resolve_stripe_settings(db)).configured,
@@ -252,7 +286,16 @@ async def create_checkout_session(
     current_user: User = Depends(require_role("admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a Stripe Checkout session for a plan upgrade. Redirects to Stripe."""
+    """Start (or change) a subscription for the requesting org.
+
+    * If the org has no active Stripe subscription yet, creates a Stripe
+      Checkout session for the requested plan (covers the very first paid
+      subscription, including the Starter tier).
+    * If the org already has an active/trialing subscription, the plan is
+      switched in place (upgrade *or* downgrade) by swapping the
+      subscription's price, rather than starting a second subscription.
+      Stripe prorates the change automatically.
+    """
     stripe_cfg = await _require_stripe(db)
 
     if payload.plan == "enterprise":
@@ -275,6 +318,28 @@ async def create_checkout_session(
         )
 
     org = await _get_org(current_user.organization_id, db)
+
+    if org.stripe_subscription_id and org.payment_status != "canceled":
+        # Existing subscription: swap the price in place instead of starting
+        # a second, competing subscription.
+        try:
+            sub = stripe.Subscription.retrieve(org.stripe_subscription_id)
+        except stripe.error.StripeError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Could not load existing subscription")
+        item_id = sub["items"]["data"][0]["id"]
+        updated = stripe.Subscription.modify(
+            org.stripe_subscription_id,
+            items=[{"id": item_id, "price": price_id}],
+            cancel_at_period_end=False,
+            proration_behavior="create_prorations",
+        )
+        price = updated["items"]["data"][0]["price"]
+        org.plan = _plan_from_price(price, stripe_cfg)
+        _mark_active(org)
+        _sync_subscription_timing(org, updated)
+        await db.commit()
+        await db.refresh(org)
+        return {"plan": org.plan, "payment_status": org.payment_status, "checkout_url": None}
 
     session_kwargs: dict = {
         "mode": "subscription",
@@ -355,6 +420,79 @@ async def create_portal_session(
     return {"portal_url": session.url}
 
 
+# ─── POST /billing/cancel ──────────────────────────────────────────────────────
+
+@router.post("/cancel")
+async def cancel_subscription(
+    current_user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Schedule the org's subscription to cancel at the end of the current
+    paid period. Access (and the paid plan) is retained until then — the org
+    is only deactivated once Stripe emits ``customer.subscription.deleted``
+    at the period end."""
+    await _require_stripe(db)
+    org = await _get_org(current_user.organization_id, db)
+
+    if not org.stripe_subscription_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active subscription to cancel.",
+        )
+
+    try:
+        sub = stripe.Subscription.modify(org.stripe_subscription_id, cancel_at_period_end=True)
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    _sync_subscription_timing(org, sub)
+    await db.commit()
+    await db.refresh(org)
+
+    return {
+        "cancel_at_period_end": org.cancel_at_period_end,
+        "current_period_end": org.current_period_end.isoformat() if org.current_period_end else None,
+    }
+
+
+# ─── POST /billing/reactivate ──────────────────────────────────────────────────
+
+@router.post("/reactivate")
+async def reactivate_subscription(
+    current_user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Undo a pending cancellation, keeping the subscription active past the
+    current period end."""
+    await _require_stripe(db)
+    org = await _get_org(current_user.organization_id, db)
+
+    if not org.stripe_subscription_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No subscription to reactivate.",
+        )
+    if not org.cancel_at_period_end:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Subscription is not scheduled for cancellation.",
+        )
+
+    try:
+        sub = stripe.Subscription.modify(org.stripe_subscription_id, cancel_at_period_end=False)
+    except stripe.error.StripeError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    _sync_subscription_timing(org, sub)
+    await db.commit()
+    await db.refresh(org)
+
+    return {
+        "cancel_at_period_end": org.cancel_at_period_end,
+        "current_period_end": org.current_period_end.isoformat() if org.current_period_end else None,
+    }
+
+
 # ─── POST /billing/webhooks ───────────────────────────────────────────────────
 
 @router.post("/webhooks", include_in_schema=False)
@@ -393,6 +531,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             if org:
                 price = obj["items"]["data"][0]["price"]
                 org.plan = _plan_from_price(price, stripe_cfg)
+                _sync_subscription_timing(org, obj)
                 sub_status = obj.get("status", "active")
                 if sub_status in _ACTIVE_STATUSES:
                     _mark_active(org)
@@ -423,6 +562,8 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 org.payment_status = "canceled"
                 org.is_active = False
                 org.past_due_since = None
+                org.cancel_at_period_end = False
+                org.current_period_end = None
                 await db.commit()
                 await _send_billing_email(
                     db, org,
