@@ -35,13 +35,13 @@ interface PlanCard {
 const PLANS: PlanCard[] = [
   {
     plan: 'starter',
-    price: 'Free',
+    price: '$99 / month',
     features: ['Up to 3 users', '1 office', 'Maintenance tickets', 'Basic reporting'],
     cta: null,
   },
   {
     plan: 'pro',
-    price: '$49 / month',
+    price: '$399 / month',
     features: ['Unlimited users', 'Unlimited offices', 'Advanced analytics', 'SLA management', 'Email notifications', 'CSV exports'],
     cta: 'Upgrade to Pro',
   },
