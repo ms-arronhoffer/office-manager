@@ -142,12 +142,20 @@ const BillingPage: React.FC = () => {
     setError(null);
     try {
       await billingApi.cancelSubscription();
+    } catch (err) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail || 'Could not cancel subscription. Please try again.');
+      setIsCancelling(false);
+      return;
+    }
+    // Cancellation succeeded — a follow-up refresh failure must not be
+    // reported as a cancel failure.
+    try {
       await refreshSubscription();
     } catch {
-      setError('Could not cancel subscription. Please try again.');
-    } finally {
-      setIsCancelling(false);
+      /* best-effort — the next page load will reflect the latest state */
     }
+    setIsCancelling(false);
   };
 
   const handleReactivateSubscription = async () => {
@@ -155,12 +163,18 @@ const BillingPage: React.FC = () => {
     setError(null);
     try {
       await billingApi.reactivateSubscription();
+    } catch (err) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail || 'Could not reactivate subscription. Please try again.');
+      setIsReactivating(false);
+      return;
+    }
+    try {
       await refreshSubscription();
     } catch {
-      setError('Could not reactivate subscription. Please try again.');
-    } finally {
-      setIsReactivating(false);
+      /* best-effort — the next page load will reflect the latest state */
     }
+    setIsReactivating(false);
   };
 
   if (isLoading) {

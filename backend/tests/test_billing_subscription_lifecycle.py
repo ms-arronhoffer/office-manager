@@ -198,6 +198,26 @@ async def test_cancel_without_subscription_rejected(client, db_session):
     assert r.status_code == 400
 
 
+@pytest.mark.asyncio
+async def test_cancel_surfaces_stripe_error_detail(client, db_session, monkeypatch):
+    """When Stripe rejects the cancellation, the specific reason is returned to
+    the client (instead of a generic, undiagnosable failure)."""
+    import stripe
+
+    org, admin = await _org_admin(
+        db_session, plan="pro", stripe_subscription_id="sub_boom", payment_status="active",
+    )
+
+    def _raise(sub_id, **kwargs):
+        raise stripe.error.InvalidRequestError("No such subscription: sub_boom", param="id")
+
+    monkeypatch.setattr("stripe.Subscription.modify", _raise)
+
+    r = await client.post("/api/v1/billing/cancel", headers=auth_headers(admin))
+    assert r.status_code == 400
+    assert "No such subscription" in r.json()["detail"]
+
+
 # ─── Trial expiry enforcement (end-to-end) ──────────────────────────────────
 
 @pytest.mark.asyncio

@@ -443,7 +443,14 @@ async def cancel_subscription(
     try:
         sub = stripe.Subscription.modify(org.stripe_subscription_id, cancel_at_period_end=True)
     except stripe.error.StripeError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        logger.warning(
+            "Failed to cancel subscription %s for org %s: %s",
+            org.stripe_subscription_id, org.id, e,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=getattr(e, "user_message", None) or str(e) or "Could not cancel subscription.",
+        )
 
     _sync_subscription_timing(org, sub)
     await db.commit()
@@ -481,7 +488,14 @@ async def reactivate_subscription(
     try:
         sub = stripe.Subscription.modify(org.stripe_subscription_id, cancel_at_period_end=False)
     except stripe.error.StripeError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        logger.warning(
+            "Failed to reactivate subscription %s for org %s: %s",
+            org.stripe_subscription_id, org.id, e,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=getattr(e, "user_message", None) or str(e) or "Could not reactivate subscription.",
+        )
 
     _sync_subscription_timing(org, sub)
     await db.commit()
