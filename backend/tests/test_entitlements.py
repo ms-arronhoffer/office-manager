@@ -197,7 +197,8 @@ def test_access_state_no_trial_set_ok():
 
 def test_access_state_trial_expired_naive_datetime_blocked():
     """A naive (tz-less) trial timestamp is coerced to UTC, not mis-evaluated."""
-    ended = datetime.utcnow() - timedelta(days=1)  # naive on purpose
+    # Build an explicit naive (tz-less) timestamp without deprecated utcnow().
+    ended = (datetime.now(timezone.utc) - timedelta(days=1)).replace(tzinfo=None)
     assert ent.org_access_state(_org(trial_ends_at=ended)) == ent.ACCESS_TRIAL_EXPIRED
 
 
