@@ -25,13 +25,16 @@ from app.models.billing_ledger import (
     BillingSubscription,
 )
 from app.models.impersonation_session import ImpersonationSession
+from app.models.lease import Lease
 from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.office import Office
 from app.models.organization import Organization
+from app.models.resident import ResidentLease
 from app.models.usage_event import UsageEvent
 from app.models.user import User
 from app.services import entitlements as ent
 from app.services import categories as cat
+from app.services import lease_limits
 from app.services import org_health, usage_service
 from app.services.stripe_settings import resolve_stripe_secret_key
 from app.services.activity_service import log_activity
@@ -84,6 +87,7 @@ class OrgDetail(OrgListItem):
     open_ticket_count: int
     admin_notes: str | None
     office_count: int
+    active_lease_count: int = 0
     entitlement_overrides: dict
     plan_defaults: dict
     effective_entitlements: dict
@@ -171,6 +175,34 @@ async def _org_stats(db: AsyncSession, org_ids: list[uuid.UUID], orgs_by_id: dic
     )
     offices = {r[0]: r[1] for r in office_rows.all()}
 
+    # Active leases toward the plan cap: commercial (non-terminal) + residential.
+    commercial_lease_rows = await db.execute(
+        select(Lease.organization_id, func.count(Lease.id).label("cnt"))
+        .where(
+            Lease.organization_id.in_(org_ids),
+            Lease.is_deleted.is_(False),
+            or_(
+                Lease.status.is_(None),
+                func.lower(Lease.status).notin_(
+                    lease_limits.INACTIVE_COMMERCIAL_STATUSES
+                ),
+            ),
+        )
+        .group_by(Lease.organization_id)
+    )
+    active_leases = {r[0]: int(r[1]) for r in commercial_lease_rows.all()}
+    resident_lease_rows = await db.execute(
+        select(ResidentLease.organization_id, func.count(ResidentLease.id).label("cnt"))
+        .where(
+            ResidentLease.organization_id.in_(org_ids),
+            ResidentLease.is_deleted.is_(False),
+            func.lower(ResidentLease.status).in_(lease_limits.ACTIVE_RESIDENT_STATUSES),
+        )
+        .group_by(ResidentLease.organization_id)
+    )
+    for oid, cnt in ((r[0], int(r[1])) for r in resident_lease_rows.all()):
+        active_leases[oid] = active_leases.get(oid, 0) + cnt
+
     activity_rows = await db.execute(
         select(ActivityLog.entity_id, func.max(ActivityLog.created_at).label("last_activity_at"))
         .where(
@@ -215,6 +247,7 @@ async def _org_stats(db: AsyncSession, org_ids: list[uuid.UUID], orgs_by_id: dic
             "ticket_count": int(ticket_data.get("ticket_count", 0)),
             "open_ticket_count": int(ticket_data.get("open_ticket_count", 0)),
             "office_count": int(offices.get(oid, 0)),
+            "active_lease_count": int(active_leases.get(oid, 0)),
             "last_activity_at": activities.get(oid),
             "current_total_tokens": token_data.get(f"{current_period}_input", 0) + token_data.get(f"{current_period}_output", 0),
             "previous_total_tokens": token_data.get(f"{previous_period}_input", 0) + token_data.get(f"{previous_period}_output", 0),
@@ -393,6 +426,7 @@ async def _build_detail(db: AsyncSession, org: Organization, stats: dict[uuid.UU
         onboarding_complete=org.onboarding_complete,
         admin_notes=org.admin_notes,
         created_at=org.created_at,
+        active_lease_count=s.get("active_lease_count", 0),
         risk_label=_risk_label(org, s),
         health_score=health["score"],
         health_band=health["band"],

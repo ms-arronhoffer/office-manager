@@ -49,6 +49,7 @@ export interface AdminOrgDetail extends AdminOrg {
   open_ticket_count: number
   admin_notes: string | null
   office_count: number
+  active_lease_count: number
   entitlement_overrides: Record<string, number | boolean | null>
   plan_defaults: Record<string, number | boolean | null>
   effective_entitlements: Record<string, number | boolean | null>

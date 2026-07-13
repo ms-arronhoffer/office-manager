@@ -18,6 +18,7 @@ from app.models.base import _utcnow
 from app.models.lease import Lease, LeaseNote
 from app.models.lease_option import LeaseOption
 from app.models.lease_renewal import LeaseRenewal
+from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.lease import (
@@ -30,6 +31,7 @@ from app.schemas.lease import (
 )
 from app.services.activity_service import log_activity, compute_changes
 from app.services.lease_accounting import compute_lease_accounting
+from app.services import lease_limits
 from app.utils.tenant_scope import load_or_404
 from app.utils.search_vectors import update_search_vector
 from app.utils.sorting import apply_sorting
@@ -348,6 +350,17 @@ async def create_lease(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
+    # Enforce the plan's active-lease cap before creating an active lease.
+    if lease_limits.is_active_commercial_status(payload.status):
+        org = (
+            await db.execute(
+                select(Organization).where(
+                    Organization.id == current_user.organization_id
+                )
+            )
+        ).scalar_one_or_none()
+        await lease_limits.enforce_active_lease_limit(db, org)
+
     lease = Lease(**payload.model_dump(), organization_id=current_user.organization_id)
     db.add(lease)
     await db.commit()
@@ -391,6 +404,21 @@ async def update_lease(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
 
     update_data = payload.model_dump(exclude_unset=True)
+
+    # Enforce the plan's active-lease cap when flipping an inactive lease to an
+    # active status (a create-equivalent that consumes an active-lease slot).
+    old_is_inactive = not lease_limits.is_active_commercial_status(lease.status)
+    new_is_active = "status" in update_data and lease_limits.is_active_commercial_status(
+        update_data["status"]
+    )
+    if old_is_inactive and new_is_active:
+        org = (
+            await db.execute(
+                select(Organization).where(Organization.id == org_id)
+            )
+        ).scalar_one_or_none()
+        await lease_limits.enforce_active_lease_limit(db, org)
+
     old_values = {k: getattr(lease, k, None) for k in update_data}
     for field, value in update_data.items():
         if hasattr(lease, field):

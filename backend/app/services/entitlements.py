@@ -10,6 +10,8 @@ Two kinds of entitlements are modelled:
 * **Limits** — numeric caps. ``None`` means *unlimited*.
   - ``max_offices``: maximum number of (non-deleted) offices an org may create.
   - ``max_seats``: maximum number of active users. ``None`` = unlimited.
+  - ``max_active_leases``: maximum number of active leases (commercial +
+    residential combined) an org may have. ``None`` = unlimited.
   - ``audit_retention_days``: how far back activity-log history is visible.
     ``None`` = unlimited retention.
 * **Features** — boolean flags gating optional functionality.
@@ -32,6 +34,7 @@ UNLIMITED: None = None
 LIMIT_KEYS: tuple[str, ...] = (
     "max_offices",
     "max_seats",
+    "max_active_leases",
     "audit_retention_days",
     "monthly_ai_input_tokens",
     "monthly_ai_output_tokens",
@@ -81,6 +84,7 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
     "starter": {
         "max_offices": 10,
         "max_seats": UNLIMITED,
+        "max_active_leases": 100,
         "audit_retention_days": 90,
         "monthly_ai_input_tokens": 200_000,
         "monthly_ai_output_tokens": 50_000,
@@ -100,6 +104,7 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
     "pro": {
         "max_offices": 50,
         "max_seats": UNLIMITED,
+        "max_active_leases": 500,
         "audit_retention_days": UNLIMITED,
         "monthly_ai_input_tokens": 2_000_000,
         "monthly_ai_output_tokens": 500_000,
@@ -119,6 +124,7 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
     "enterprise": {
         "max_offices": UNLIMITED,
         "max_seats": UNLIMITED,
+        "max_active_leases": UNLIMITED,
         "audit_retention_days": UNLIMITED,
         "monthly_ai_input_tokens": UNLIMITED,
         "monthly_ai_output_tokens": UNLIMITED,
