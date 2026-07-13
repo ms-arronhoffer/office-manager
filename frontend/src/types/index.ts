@@ -80,6 +80,10 @@ export interface BillingSubscription {
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   trial_ends_at: string | null;
+  is_trialing: boolean;
+  trial_days_remaining: number | null;
+  cancel_at_period_end: boolean;
+  current_period_end: string | null;
   max_seats: number | null;
   seat_count: number;
   billing_configured: boolean;

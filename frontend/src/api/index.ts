@@ -1008,8 +1008,11 @@ export const recurringTicketRules = {
 export const billing = {
   getSubscription: () => client.get<BillingSubscription>('/billing/subscription'),
 
-  createCheckout: (plan: 'pro' | 'enterprise') =>
-    client.post<{ checkout_url: string }>('/billing/checkout', { plan }),
+  createCheckout: (plan: 'starter' | 'pro') =>
+    client.post<{ checkout_url: string | null; plan?: string; payment_status?: string }>(
+      '/billing/checkout',
+      { plan }
+    ),
 
   confirmCheckout: (sessionId: string) =>
     client.get<{ plan: string; payment_status: string; confirmed: boolean }>(
@@ -1019,6 +1022,16 @@ export const billing = {
 
   createPortal: () =>
     client.post<{ portal_url: string }>('/billing/portal'),
+
+  cancelSubscription: () =>
+    client.post<{ cancel_at_period_end: boolean; current_period_end: string | null }>(
+      '/billing/cancel'
+    ),
+
+  reactivateSubscription: () =>
+    client.post<{ cancel_at_period_end: boolean; current_period_end: string | null }>(
+      '/billing/reactivate'
+    ),
 };
 
 // ─── API Keys ─────────────────────────────────────────────────────────────────

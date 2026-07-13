@@ -38,7 +38,7 @@ const PLANS: PlanCard[] = [
     plan: 'starter',
     price: '$99 / month',
     features: ['Up to 3 users', '1 office', 'Maintenance tickets', 'Basic reporting'],
-    cta: null,
+    cta: 'Subscribe to Starter',
   },
   {
     plan: 'pro',
@@ -54,14 +54,25 @@ const PLANS: PlanCard[] = [
   },
 ];
 
+const PLAN_RANK: Record<string, number> = { starter: 0, pro: 1, enterprise: 2 };
+
 const BillingPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [sub, setSub] = useState<BillingSubscription | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isUpgrading, setIsUpgrading] = useState<string | null>(null);
+  const [isChangingPlan, setIsChangingPlan] = useState<string | null>(null);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [isReactivating, setIsReactivating] = useState(false);
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
+  const [planChangeSuccess, setPlanChangeSuccess] = useState(false);
+
+  const refreshSubscription = async () => {
+    const { data } = await billingApi.getSubscription();
+    setSub(data);
+    return data;
+  };
 
   useEffect(() => {
     const sessionId = searchParams.get('session_id');
@@ -82,8 +93,7 @@ const BillingPage: React.FC = () => {
       }
 
       try {
-        const { data } = await billingApi.getSubscription();
-        setSub(data);
+        await refreshSubscription();
       } catch {
         setError('Could not load billing information.');
       } finally {
@@ -95,15 +105,23 @@ const BillingPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleUpgrade = async (plan: 'pro') => {
-    setIsUpgrading(plan);
+  const handlePlanChange = async (plan: 'starter' | 'pro') => {
+    setIsChangingPlan(plan);
+    setError(null);
     try {
       const { data } = await billingApi.createCheckout(plan);
-      window.location.href = data.checkout_url;
+      if (data.checkout_url) {
+        // No existing subscription yet — redirect to Stripe Checkout.
+        window.location.href = data.checkout_url;
+        return;
+      }
+      // Existing subscription was switched in place; refresh and show success.
+      await refreshSubscription();
+      setPlanChangeSuccess(true);
     } catch {
-      setError('Could not start checkout. Please try again.');
+      setError('Could not change plan. Please try again.');
     } finally {
-      setIsUpgrading(null);
+      setIsChangingPlan(null);
     }
   };
 
@@ -116,6 +134,32 @@ const BillingPage: React.FC = () => {
       setError('Could not open billing portal. Please try again.');
     } finally {
       setIsOpeningPortal(false);
+    }
+  };
+
+  const handleCancelSubscription = async () => {
+    setIsCancelling(true);
+    setError(null);
+    try {
+      await billingApi.cancelSubscription();
+      await refreshSubscription();
+    } catch {
+      setError('Could not cancel subscription. Please try again.');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const handleReactivateSubscription = async () => {
+    setIsReactivating(true);
+    setError(null);
+    try {
+      await billingApi.reactivateSubscription();
+      await refreshSubscription();
+    } catch {
+      setError('Could not reactivate subscription. Please try again.');
+    } finally {
+      setIsReactivating(false);
     }
   };
 
@@ -165,10 +209,43 @@ const BillingPage: React.FC = () => {
           </Alert>
         )}
 
+        {planChangeSuccess && (
+          <Alert type="success" dismissible onDismiss={() => setPlanChangeSuccess(false)}>
+            Your plan has been updated.
+          </Alert>
+        )}
+
         {sub && !sub.billing_configured && (
           <Alert type="info">
             Billing is not configured on this server. Set{' '}
             <code>STRIPE_SECRET_KEY</code> and related environment variables to enable payments.
+          </Alert>
+        )}
+
+        {sub?.is_trialing && (
+          <Alert type="info" header="You're on a free trial">
+            {sub.trial_days_remaining != null && sub.trial_days_remaining > 0
+              ? `${sub.trial_days_remaining} day${sub.trial_days_remaining === 1 ? '' : 's'} remaining in your trial`
+              : 'Your trial ends today'}
+            {sub.trial_ends_at && ` (ends ${new Date(sub.trial_ends_at).toLocaleDateString()}).`}
+            {' '}Subscribe to a plan below to keep uninterrupted access after your trial ends.
+          </Alert>
+        )}
+
+        {sub?.cancel_at_period_end && (
+          <Alert
+            type="warning"
+            header="Subscription scheduled to cancel"
+            action={
+              <Button loading={isReactivating} onClick={handleReactivateSubscription}>
+                Keep my subscription
+              </Button>
+            }
+          >
+            Your subscription has been canceled and will not renew.
+            {sub.current_period_end
+              ? ` You'll keep full access until ${new Date(sub.current_period_end).toLocaleDateString()}.`
+              : ' You\'ll keep full access through the end of your current billing period.'}
           </Alert>
         )}
 
@@ -191,7 +268,22 @@ const BillingPage: React.FC = () => {
 
         {/* Current plan summary */}
         {sub && (
-          <Container header={<Header variant="h2">Current plan</Header>}>
+          <Container
+            header={
+              <Header
+                variant="h2"
+                actions={
+                  sub.stripe_subscription_id && !sub.cancel_at_period_end && sub.billing_configured ? (
+                    <Button loading={isCancelling} onClick={handleCancelSubscription}>
+                      Cancel subscription
+                    </Button>
+                  ) : undefined
+                }
+              >
+                Current plan
+              </Header>
+            }
+          >
             <ColumnLayout columns={3} variant="text-grid">
               <SpaceBetween size="xs">
                 <Box variant="awsui-key-label">Plan</Box>
@@ -215,6 +307,8 @@ const BillingPage: React.FC = () => {
                     color={
                       sub.payment_status === 'past_due'
                         ? 'red'
+                        : sub.is_trialing
+                        ? 'blue'
                         : sub.is_active
                         ? 'green'
                         : 'red'
@@ -222,16 +316,26 @@ const BillingPage: React.FC = () => {
                   >
                     {sub.payment_status === 'past_due'
                       ? 'Past due'
+                      : sub.is_trialing
+                      ? 'Trial'
                       : sub.is_active
                       ? 'Active'
                       : 'Inactive'}
                   </Badge>
                 </Box>
               </SpaceBetween>
-              {sub.trial_ends_at && (
+              {sub.is_trialing && sub.trial_ends_at && (
                 <SpaceBetween size="xs">
                   <Box variant="awsui-key-label">Trial ends</Box>
                   <Box>{new Date(sub.trial_ends_at).toLocaleDateString()}</Box>
+                </SpaceBetween>
+              )}
+              {sub.stripe_subscription_id && sub.current_period_end && (
+                <SpaceBetween size="xs">
+                  <Box variant="awsui-key-label">
+                    {sub.cancel_at_period_end ? 'Access ends' : 'Renews'}
+                  </Box>
+                  <Box>{new Date(sub.current_period_end).toLocaleDateString()}</Box>
                 </SpaceBetween>
               )}
             </ColumnLayout>
@@ -274,22 +378,30 @@ const BillingPage: React.FC = () => {
                 },
                 {
                   id: 'action',
-                  content: item =>
-                    item.cta && item.plan !== currentPlan && sub?.billing_configured ? (
+                  content: item => {
+                    if (item.plan === currentPlan) {
+                      return <Box color="text-status-success">Your current plan</Box>;
+                    }
+                    if (item.plan === 'enterprise') {
+                      return <Box color="text-body-secondary">Custom pricing — contact sales</Box>;
+                    }
+                    if (!item.cta || !sub?.billing_configured) return null;
+                    if (currentPlan === 'enterprise') {
+                      return <Box color="text-body-secondary">Contact sales to change plans</Box>;
+                    }
+                    const isDowngrade = PLAN_RANK[item.plan] < PLAN_RANK[currentPlan];
+                    const label = isDowngrade ? `Switch to ${PLAN_LABELS[item.plan]}` : item.cta;
+                    return (
                       <Button
-                        variant={item.plan === 'pro' ? 'primary' : 'normal'}
-                        loading={isUpgrading === item.plan}
-                        onClick={() => handleUpgrade(item.plan as 'pro')}
+                        variant={!isDowngrade && item.plan === 'pro' ? 'primary' : 'normal'}
+                        loading={isChangingPlan === item.plan}
+                        onClick={() => handlePlanChange(item.plan as 'starter' | 'pro')}
                         fullWidth
-                        disabled={currentPlan === 'enterprise' && item.plan === 'pro'}
                       >
-                        {item.cta}
+                        {label}
                       </Button>
-                    ) : item.plan === currentPlan ? (
-                      <Box color="text-status-success">Your current plan</Box>
-                    ) : item.plan === 'enterprise' ? (
-                      <Box color="text-body-secondary">Custom pricing — contact sales</Box>
-                    ) : null,
+                    );
+                  },
                 },
               ],
             }}

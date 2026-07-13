@@ -196,6 +196,12 @@ _RECONCILE_COLUMNS: dict[str, list[str]] = {
         "price_id_starter varchar(255)",
         "product_id_enterprise varchar(255)",
     ],
+    # In-app subscription cancellation/downgrade (migration 103) added these to
+    # support "cancel at period end" semantics on Organization.
+    "organizations": [
+        "cancel_at_period_end boolean NOT NULL DEFAULT false",
+        "current_period_end timestamptz",
+    ],
 }
 
 

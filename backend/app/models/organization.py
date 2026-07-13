@@ -24,6 +24,15 @@ class Organization(TimestampMixin, Base):
     # Timestamp when the org most recently entered the 'past_due' state. Used to
     # enforce a grace period (see app.services.entitlements.PAST_DUE_GRACE_DAYS).
     past_due_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # True once the org's admin has requested cancellation via the in-app
+    # "Cancel subscription" action (or the Stripe portal). The subscription
+    # stays active/paid-for until ``current_period_end``, at which point
+    # Stripe emits ``customer.subscription.deleted`` and access is revoked.
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # End of the current paid billing period for the active Stripe
+    # subscription. Used to tell the user how long they retain access after
+    # requesting a cancellation, and kept in sync from Stripe webhooks.
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     admin_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Per-org entitlement overrides; keys are validated against the entitlements
     # catalog (app.services.entitlements). Override values win over plan defaults.
