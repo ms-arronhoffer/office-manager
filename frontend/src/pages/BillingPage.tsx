@@ -37,13 +37,13 @@ const PLANS: PlanCard[] = [
   {
     plan: 'starter',
     price: '$99 / month',
-    features: ['Up to 3 users', '1 office', 'Maintenance tickets', 'Basic reporting'],
+    features: ['Up to 10 offices', 'Up to 100 active leases', 'Unlimited users', 'Maintenance ticket tracking', 'Basic reporting & CSV export', '90-day audit log'],
     cta: 'Subscribe to Starter',
   },
   {
     plan: 'pro',
     price: '$399 / month',
-    features: ['Unlimited users', 'Unlimited offices', 'Advanced analytics', 'SLA management', 'Email notifications', 'CSV exports'],
+    features: ['Up to 50 offices', 'Up to 500 active leases', 'Unlimited users', 'HVAC & advanced SLA rules', 'Advanced analytics & PDF export', 'AI abstracts & digital waivers', 'Full audit log (unlimited)'],
     cta: 'Upgrade to Pro',
   },
   {
