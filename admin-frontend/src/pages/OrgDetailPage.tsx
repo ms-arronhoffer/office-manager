@@ -18,7 +18,7 @@ import type { AdminOrgDetail, AdminUser, OrgUsageResponse } from "../types"
 
 const PLAN_OPTIONS = ["starter", "pro", "enterprise"]
 const PAYMENT_OPTIONS = ["active", "past_due", "trial", "canceled"]
-const LIMIT_KEYS = ["max_offices", "max_seats", "audit_retention_days", "monthly_ai_input_tokens", "monthly_ai_output_tokens"] as const
+const LIMIT_KEYS = ["max_offices", "max_seats", "max_active_leases", "audit_retention_days", "monthly_ai_input_tokens", "monthly_ai_output_tokens"] as const
 const FEATURE_KEYS = ["hvac", "maintenance", "transitions", "advanced_analytics", "pdf_export", "api_access", "webhooks", "sso", "custom_fields", "ai_assist", "digital_waivers", "client_portal"] as const
 
 const PAGE_SIZE = 10
@@ -26,6 +26,7 @@ const PAGE_SIZE = 10
 const LABELS: Record<string, string> = {
   max_offices: "Max offices",
   max_seats: "Max seats",
+  max_active_leases: "Max active leases",
   audit_retention_days: "Audit retention (days)",
   monthly_ai_input_tokens: "Monthly AI input tokens",
   monthly_ai_output_tokens: "Monthly AI output tokens",
@@ -212,6 +213,7 @@ export default function OrgDetailPage() {
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
               <div><p className="text-xs uppercase tracking-[0.16em] text-slate-500">Seats</p><p className="mt-2 text-2xl font-semibold">{org.seat_count}<span className="text-base text-slate-500"> / {org.effective_entitlements.max_seats ?? "∞"}</span></p></div>
               <div><p className="text-xs uppercase tracking-[0.16em] text-slate-500">Offices</p><p className="mt-2 text-2xl font-semibold">{org.office_count}<span className="text-base text-slate-500"> / {org.effective_entitlements.max_offices ?? "∞"}</span></p></div>
+              <div><p className="text-xs uppercase tracking-[0.16em] text-slate-500">Active leases</p><p className="mt-2 text-2xl font-semibold">{org.active_lease_count}<span className="text-base text-slate-500"> / {org.effective_entitlements.max_active_leases ?? "∞"}</span></p></div>
               <div><p className="text-xs uppercase tracking-[0.16em] text-slate-500">Tickets</p><p className="mt-2 text-2xl font-semibold">{org.open_ticket_count}<span className="text-base text-slate-500"> open</span></p></div>
               <div><p className="text-xs uppercase tracking-[0.16em] text-slate-500">Plan</p><p className="mt-2 text-2xl font-semibold capitalize">{org.plan}</p></div>
             </div>

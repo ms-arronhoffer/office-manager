@@ -32,6 +32,12 @@ def test_plan_entitlements_known_plan():
     assert ent.plan_entitlements("starter")["hvac"] is False
 
 
+def test_plan_active_lease_limits_per_tier():
+    assert ent.plan_entitlements("starter")["max_active_leases"] == 100
+    assert ent.plan_entitlements("pro")["max_active_leases"] == 500
+    assert ent.plan_entitlements("enterprise")["max_active_leases"] is None
+
+
 def test_plan_entitlements_unknown_plan_falls_back_to_default():
     assert ent.plan_entitlements("does-not-exist") == ent.PLAN_CATALOG[ent.DEFAULT_PLAN]
     assert ent.plan_entitlements(None) == ent.PLAN_CATALOG[ent.DEFAULT_PLAN]

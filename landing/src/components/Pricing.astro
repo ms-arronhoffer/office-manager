@@ -11,6 +11,7 @@ const plans = [
     featured: false,
     features: [
       'Up to 10 offices',
+      'Up to 100 active leases',
       'Unlimited users',
       'Lease management & alerts',
       'Maintenance ticket tracking',
@@ -33,6 +34,7 @@ const plans = [
     featured: true,
     features: [
       'Up to 50 offices',
+      'Up to 500 active leases',
       'Unlimited users',
       'Everything in Starter, plus:',
       'HVAC & equipment tracking',
@@ -59,6 +61,7 @@ const plans = [
     featured: false,
     features: [
       'Unlimited offices',
+      'Unlimited active leases',
       'Unlimited users',
       'Everything in Pro, plus:',
       'SSO / SAML integration',
@@ -109,16 +112,19 @@ const plans = [
           )}
 
           <ul class="space-y-3">
-            {plan.features.map((f, i) => (
-              <li class={`flex items-start gap-3 text-sm ${i === 2 && plan.name !== 'Starter' ? (plan.featured ? 'text-slate-400 font-medium pt-2 border-t border-slate-700' : 'text-slate-400 font-medium pt-2 border-t border-slate-100') : (plan.featured ? 'text-slate-300' : 'text-slate-600')}`}>
-                {!(i === 2 && plan.name !== 'Starter') && (
+            {plan.features.map((f) => {
+              const isDivider = f.startsWith('Everything in');
+              return (
+              <li class={`flex items-start gap-3 text-sm ${isDivider ? (plan.featured ? 'text-slate-400 font-medium pt-2 border-t border-slate-700' : 'text-slate-400 font-medium pt-2 border-t border-slate-100') : (plan.featured ? 'text-slate-300' : 'text-slate-600')}`}>
+                {!isDivider && (
                   <svg class={`w-4 h-4 mt-0.5 flex-shrink-0 ${plan.featured ? 'text-blue-400' : 'text-blue-600'}`} fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
                   </svg>
                 )}
                 {f}
               </li>
-            ))}
+              );
+            })}
           </ul>
         </div>
       ))}

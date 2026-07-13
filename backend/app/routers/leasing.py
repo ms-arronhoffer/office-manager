@@ -25,6 +25,7 @@ from sqlalchemy.orm import selectinload
 from app.auth.dependencies import get_current_user, require_role
 from app.database import get_db
 from app.models.office import Office
+from app.models.organization import Organization
 from app.models.resident import (
     OCCUPANT_ROLES,
     RESIDENT_LEASE_STATUSES,
@@ -37,6 +38,7 @@ from app.models.resident import (
     ResidentLeaseOccupant,
 )
 from app.models.user import User
+from app.services import lease_limits
 from app.services import leasing_service as svc
 from app.services.leasing_service import LeasingError
 from app.utils.tenant_scope import load_or_404
@@ -686,6 +688,12 @@ async def create_lease(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Lease end date cannot precede the start date.",
         )
+    # Enforce the plan's active-lease cap before creating an active lease.
+    if lease_limits.is_active_resident_status(payload.status):
+        org = (
+            await db.execute(select(Organization).where(Organization.id == org_id))
+        ).scalar_one_or_none()
+        await lease_limits.enforce_active_lease_limit(db, org)
     if payload.status in ("pending", "active"):
         try:
             await svc.assert_no_active_overlap(
