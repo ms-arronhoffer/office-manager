@@ -113,11 +113,14 @@ const faqs = [
     }
 
     function answerFor(text) {
-      var t = (text || '').toLowerCase();
+      var t = ' ' + (text || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ') + ' ';
       var best = null, bestScore = 0;
       faqs.forEach(function (f) {
         var score = 0;
-        f.keys.forEach(function (k) { if (t.indexOf(k) !== -1) score += 1; });
+        f.keys.forEach(function (k) {
+          // Match whole words/phrases so e.g. "price" doesn't match "surprise".
+          if (t.indexOf(' ' + k + ' ') !== -1) score += 1;
+        });
         if (score > bestScore) { bestScore = score; best = f; }
       });
       if (best && bestScore > 0) return best.a;
