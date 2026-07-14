@@ -27,6 +27,7 @@ from app.models.attachment import Attachment
 from app.models.lease import Lease
 from app.models.lease_document_chunk import LeaseDocumentChunk
 from app.services import ai_service, document_extraction
+from app.utils import file_storage
 
 logger = logging.getLogger(__name__)
 
@@ -455,14 +456,10 @@ async def get_document_text(
     if not document_extraction.is_text_extractable(attachment.original_filename):
         return {**base, "text": None, "extractable": False}
 
-    path = Path(settings.UPLOAD_DIR) / attachment.entity_type / attachment.stored_filename
-    if not path.exists():
-        return {**base, "text": None, "extractable": False}
-
     try:
-        content = path.read_bytes()
+        content = file_storage.read_file(attachment.entity_type, attachment.stored_filename)
         text = document_extraction.extract_text(content, attachment.original_filename)
-    except (OSError, document_extraction.DocumentExtractionError) as exc:
+    except (FileNotFoundError, OSError, document_extraction.DocumentExtractionError) as exc:
         logger.info("Could not extract preview text for %s: %s", attachment.original_filename, exc)
         return {**base, "text": None, "extractable": False}
 
@@ -517,10 +514,6 @@ async def reindex_lease_documents(db: AsyncSession, lease: Lease) -> int:
     Reads each lease attachment from disk, extracts and stores chunks. Returns
     the total number of chunks indexed. Used for backfilling existing files.
     """
-    from pathlib import Path
-
-    from app.config import settings
-
     attachments = (
         await db.execute(
             select(Attachment).where(
@@ -532,13 +525,10 @@ async def reindex_lease_documents(db: AsyncSession, lease: Lease) -> int:
 
     total = 0
     for attachment in attachments:
-        path = Path(settings.UPLOAD_DIR) / attachment.entity_type / attachment.stored_filename
-        if not path.exists():
-            continue
         try:
-            content = path.read_bytes()
-        except OSError as exc:
-            logger.warning("Could not read %s for indexing: %s", path, exc)
+            content = file_storage.read_file(attachment.entity_type, attachment.stored_filename)
+        except (FileNotFoundError, OSError) as exc:
+            logger.warning("Could not read %s/%s for indexing: %s", attachment.entity_type, attachment.stored_filename, exc)
             continue
         total += await index_attachment(db, lease=lease, attachment=attachment, content=content)
     return total
@@ -553,10 +543,6 @@ async def reindex_organization_documents(
     even if an upload-time index was missed. Strictly org-scoped; only the
     organization's own attachments are processed. Returns chunks indexed.
     """
-    from pathlib import Path
-
-    from app.config import settings
-
     if organization_id is None:
         return 0
 
@@ -568,13 +554,10 @@ async def reindex_organization_documents(
 
     total = 0
     for attachment in attachments:
-        path = Path(settings.UPLOAD_DIR) / attachment.entity_type / attachment.stored_filename
-        if not path.exists():
-            continue
         try:
-            content = path.read_bytes()
-        except OSError as exc:
-            logger.warning("Could not read %s for indexing: %s", path, exc)
+            content = file_storage.read_file(attachment.entity_type, attachment.stored_filename)
+        except (FileNotFoundError, OSError) as exc:
+            logger.warning("Could not read %s/%s for indexing: %s", attachment.entity_type, attachment.stored_filename, exc)
             continue
         total += await index_document(
             db,

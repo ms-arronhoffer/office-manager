@@ -54,6 +54,7 @@ from app.schemas.entity_contact import (
 from app.services import entitlements as ent
 from app.services.activity_service import log_activity
 from app.utils.notifications import create_notification
+from app.utils import file_storage
 
 logger = logging.getLogger(__name__)
 
@@ -648,10 +649,8 @@ async def portal_upload_document(
             detail=f"File too large. Maximum size is {settings.MAX_FILE_SIZE_MB} MB.",
         )
 
-    upload_dir = Path(settings.UPLOAD_DIR) / account.entity_type
-    upload_dir.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4()}{ext}"
-    (upload_dir / stored_name).write_bytes(content)
+    file_storage.save_file(account.entity_type, stored_name, content)
 
     attachment = Attachment(
         organization_id=account.organization_id,
@@ -711,11 +710,9 @@ async def portal_download_document(
     db: AsyncSession = Depends(get_db),
 ):
     attachment = await _load_portal_document(db, attachment_id, account)
-    file_path = Path(settings.UPLOAD_DIR) / attachment.entity_type / attachment.stored_filename
-    if not file_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found on disk")
-    return FileResponse(
-        path=str(file_path),
+    return file_storage.build_download_response(
+        attachment.entity_type,
+        attachment.stored_filename,
         filename=_sanitize_download_name(attachment.original_filename),
         media_type=attachment.content_type,
     )
@@ -734,11 +731,7 @@ async def portal_delete_document(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only remove documents you uploaded through the portal.",
         )
-    file_path = Path(settings.UPLOAD_DIR) / attachment.entity_type / attachment.stored_filename
-    try:
-        file_path.unlink(missing_ok=True)
-    except OSError:
-        pass
+    file_storage.delete_file(attachment.entity_type, attachment.stored_filename)
     await db.delete(attachment)
     await db.commit()
 

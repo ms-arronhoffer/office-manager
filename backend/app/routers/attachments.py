@@ -27,6 +27,7 @@ from app.models.vendor import Vendor
 from app.models.inspection import Inspection
 from app.schemas.attachment import AttachmentResponse
 from app.services import document_search_service
+from app.utils import file_storage
 
 router = APIRouter()
 
@@ -58,12 +59,6 @@ _UNSAFE_FILENAME_CHARS = re.compile(r"[\r\n\t\x00-\x1f\x7f]")
 
 def _allowed_extensions() -> set[str]:
     return {ext.strip().lower() for ext in settings.ALLOWED_EXTENSIONS.split(",")}
-
-
-def _upload_dir(entity_type: str) -> Path:
-    p = Path(settings.UPLOAD_DIR) / entity_type
-    p.mkdir(parents=True, exist_ok=True)
-    return p
 
 
 def _sanitize_filename(name: str) -> str:
@@ -181,8 +176,7 @@ async def upload_attachment(
         )
 
     stored_name = f"{uuid.uuid4()}{ext}"
-    dest = _upload_dir(entity_type) / stored_name
-    dest.write_bytes(content)
+    file_storage.save_file(entity_type, stored_name, content)
 
     attachment = Attachment(
         entity_type=entity_type,
@@ -256,12 +250,9 @@ async def download_attachment(
     else:
         _assert_attachment_in_org(attachment, current_user)
 
-    file_path = Path(settings.UPLOAD_DIR) / attachment.entity_type / attachment.stored_filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found on disk")
-
-    return FileResponse(
-        path=str(file_path),
+    return file_storage.build_download_response(
+        attachment.entity_type,
+        attachment.stored_filename,
         filename=_sanitize_filename(attachment.original_filename),
         media_type=attachment.content_type,
     )
@@ -292,13 +283,7 @@ async def delete_attachment(
     else:
         _assert_attachment_in_org(attachment, current_user)
 
-    file_path = Path(settings.UPLOAD_DIR) / attachment.entity_type / attachment.stored_filename
-    try:
-        file_path.unlink(missing_ok=True)
-    except OSError:
-        pass
-
-    await db.delete(attachment)
+    file_storage.delete_file(attachment.entity_type, attachment.stored_filename)
     await db.commit()
 
 

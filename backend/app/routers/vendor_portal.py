@@ -31,6 +31,7 @@ from app.schemas.entity_contact import (
     EntityContactUpdate,
 )
 from app.services.webhook_service import dispatch_webhook
+from app.utils import file_storage
 
 router = APIRouter()
 
@@ -433,10 +434,8 @@ async def portal_upload_invoice(
             detail=f"File too large. Maximum size is {settings.MAX_FILE_SIZE_MB} MB.",
         )
 
-    upload_dir = Path(settings.UPLOAD_DIR) / "maintenance_ticket"
-    upload_dir.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4()}{ext}"
-    (upload_dir / stored_name).write_bytes(content)
+    file_storage.save_file("maintenance_ticket", stored_name, content)
 
     attachment = Attachment(
         organization_id=ticket.organization_id,
@@ -582,10 +581,8 @@ async def portal_reupload_insurance(
 
     await db.flush()  # ensure cert.id is available for the attachment
 
-    upload_dir = Path(settings.UPLOAD_DIR) / "insurance_certificate"
-    upload_dir.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid.uuid4()}{ext}"
-    (upload_dir / stored_name).write_bytes(content)
+    file_storage.save_file("insurance_certificate", stored_name, content)
 
     attachment = Attachment(
         organization_id=vendor.organization_id,

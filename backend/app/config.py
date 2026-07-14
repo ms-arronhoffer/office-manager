@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "/app/uploads"
     MAX_FILE_SIZE_MB: int = 25
     ALLOWED_EXTENSIONS: str = ".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.tif,.tiff,.txt"
+    # Storage backend for uploaded files: "local" (default, UPLOAD_DIR on disk;
+    # single-VPS docker-compose deploy) or "s3" (required once more than one
+    # backend replica/AZ is in play — see app.utils.file_storage and
+    # docs/aws-deployment.md).
+    STORAGE_BACKEND: str = "local"
+    S3_UPLOAD_BUCKET: str = ""
+    S3_UPLOAD_PREFIX: str = "uploads"
+    AWS_REGION: str = "us-east-2"
 
     # Stripe billing
     STRIPE_SECRET_KEY: str = ""

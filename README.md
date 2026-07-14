@@ -37,6 +37,8 @@ A multi-tenant SaaS office and property management platform built with FastAPI, 
 - **backend** (python:3.12-slim) — FastAPI, runs Alembic migrations on startup; serves both `/api/v1/` and `/admin/v1/` routes
 - **db** (postgres:16-alpine) — no exposed ports, only reachable within the Docker network
 
+For the AWS deployment (Terraform + RDS + S3, deployed from the `prod` branch), see [`docs/aws-deployment.md`](docs/aws-deployment.md).
+
 ---
 
 ## Prerequisites

@@ -1,0 +1,118 @@
+name: CI/CD Deploy to AWS (prod)
+
+# Deploys the application containers to the Phase 1 AWS EC2 host provisioned
+# by infra-prod.yml. Runs on the self-hosted runner registered on that
+# instance (label "aws-prod"; see infra/terraform/aws/templates/user_data.sh.tpl).
+#
+# `main` remains the development branch and keeps deploying to the existing
+# VPS via .github/workflows/deploy.yml, unchanged. Merge/promote to `prod`
+# to ship to AWS.
+
+on:
+  push:
+    branches:
+      - prod
+
+jobs:
+  build-and-deploy:
+    runs-on: [self-hosted, aws-prod]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Backend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          tags: office-manager-backend:latest
+          push: false
+          load: true
+
+      - name: Build Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          tags: office-manager-frontend:latest
+          push: false
+          load: true
+          build-args: |
+            VITE_API_BASE_URL=/api/v1
+            VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+
+      - name: Build Admin Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin-frontend
+          tags: office-manager-admin-frontend:latest
+          push: false
+          load: true
+
+      - name: Build Landing Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./landing
+          tags: office-manager-landing:latest
+          push: false
+          load: true
+
+      # Fail fast if any required secret is missing — mirrors deploy.yml's
+      # guard against unset GitHub secrets silently becoming empty strings.
+      - name: Validate Required Secrets
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_HOST: ${{ secrets.RDS_HOST }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DEFAULT_ADMIN_PASSWORD: ${{ secrets.DEFAULT_ADMIN_PASSWORD }}
+          S3_UPLOAD_BUCKET: ${{ secrets.S3_UPLOAD_BUCKET }}
+        run: |
+          missing=()
+          for var in POSTGRES_PASSWORD POSTGRES_HOST JWT_SECRET DEFAULT_ADMIN_PASSWORD S3_UPLOAD_BUCKET; do
+            if [ -z "${!var}" ]; then
+              missing+=("$var")
+            fi
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Missing required repository secret(s): ${missing[*]}"
+            echo "Set them under Settings > Secrets and variables > Actions > Repository secrets."
+            exit 1
+          fi
+          echo "All required secrets are present."
+
+      - name: Deploy Updated Stack
+        env:
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_HOST: ${{ secrets.RDS_HOST }}
+          POSTGRES_PORT: ${{ secrets.RDS_PORT }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          ADMIN_FRONTEND_URL: ${{ secrets.ADMIN_FRONTEND_URL }}
+          DEFAULT_ADMIN_EMAIL: ${{ secrets.DEFAULT_ADMIN_EMAIL }}
+          DEFAULT_ADMIN_PASSWORD: ${{ secrets.DEFAULT_ADMIN_PASSWORD }}
+          APP_PORT: ${{ secrets.APP_PORT }}
+          ADMIN_PORT: ${{ secrets.ADMIN_PORT }}
+          LANDING_PORT: ${{ secrets.LANDING_PORT }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          S3_UPLOAD_BUCKET: ${{ secrets.S3_UPLOAD_BUCKET }}
+          S3_UPLOAD_PREFIX: ${{ secrets.S3_UPLOAD_PREFIX }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          echo "Recreating application stack on AWS to pick up new image layers..."
+
+          docker compose -p prod-office-manager -f docker-compose.prod.yml up -d --force-recreate --remove-orphans
+
+          docker image prune -f
