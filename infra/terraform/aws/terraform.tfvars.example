@@ -1,0 +1,18 @@
+# Copy this file to terraform.tfvars (gitignored) and fill in real values, or
+# supply the same values as TF_VAR_<name> environment variables / GitHub
+# Actions secrets in CI. Never commit real secrets to this repository.
+
+aws_region  = "us-east-2"
+environment = "prod"
+
+# Restrict SSH to your office/VPN CIDR(s); leave empty and use SSM Session
+# Manager instead (already granted via the instance's IAM role).
+ssh_allowed_cidrs = []
+
+# db_password             = "..."
+# jwt_secret              = "..."
+# default_admin_password  = "..."
+# stripe_secret_key       = "..."
+# gemini_api_key          = "..."
+# sentry_dsn              = "..."
+# github_runner_pat       = "..."

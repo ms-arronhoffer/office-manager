@@ -48,3 +48,14 @@ tools/tutorial-screenshots/node_modules/
 tools/tutorial-screenshots/demo-org.json
 tools/tutorial-screenshots/test-results/
 tools/tutorial-screenshots/playwright-report/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+**/terraform.tfvars
+!**/terraform.tfvars.example
+crash.log
+crash.*.log
+
