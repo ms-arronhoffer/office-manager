@@ -59,7 +59,15 @@ def _ensure_search_vector_columns() -> None:
             if table not in Base.metadata.tables:
                 raise RuntimeError(f"[start] Unknown table for search_vector setup: {table}")
             conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS search_vector tsvector"))
-            conn.execute(text(f"UPDATE {table} SET search_vector = to_tsvector('english', {source})"))
+            # Only backfill rows that don't yet have a vector. This keeps the
+            # call cheap and idempotent on existing databases (where it now runs
+            # on every boot), instead of rewriting every row each startup.
+            conn.execute(
+                text(
+                    f"UPDATE {table} SET search_vector = to_tsvector('english', {source}) "
+                    "WHERE search_vector IS NULL"
+                )
+            )
             index = _SEARCH_VECTOR_INDEXES[table]
             conn.execute(
                 text(
@@ -340,6 +348,15 @@ def _initialize_schema() -> None:
     # Idempotent on healthy DBs.
     _ensure_self_storage_schema()
     _ensure_reconciled_columns()
+    # The migration-only full-text ``search_vector`` columns/indexes are not
+    # declared on the ORM models, so a database first built via ``create_all`` +
+    # ``alembic stamp head`` at an older revision is marked as already having
+    # migration 018 applied and never actually gets these columns (the upgrade
+    # above is a no-op). Heal them here too — otherwise offices/leases/landlords/
+    # maintenance create & update raise a DB error *after* the row is committed,
+    # surfacing as a spurious 500 (e.g. "Could not create office") even though
+    # the record persists. Idempotent (ADD COLUMN IF NOT EXISTS + NULL-only backfill).
+    _ensure_search_vector_columns()
 
     # Sanity-check after upgrade: a couple of must-have tables.
     post_inspector = inspect(sync_engine)

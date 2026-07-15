@@ -40,10 +40,13 @@ function statusBadge(org: AdminOrg) {
   if (!org.is_active) return <Badge variant="destructive">Inactive</Badge>
   if (org.payment_status === "past_due") return <Badge variant="destructive">Past Due</Badge>
   if (org.payment_status === "canceled") return <Badge variant="outline">Canceled</Badge>
-  if (org.trial_ends_at) {
+  const onTrial = org.payment_status === "trial" || (!!org.trial_ends_at && new Date(org.trial_ends_at).getTime() > Date.now())
+  if (onTrial && org.trial_ends_at) {
     const daysLeft = Math.ceil((new Date(org.trial_ends_at).getTime() - Date.now()) / 86400000)
     if (daysLeft <= 7) return <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100">Trial {daysLeft}d</Badge>
+    return <Badge className="bg-sky-100 text-sky-900 hover:bg-sky-100">Trial {daysLeft}d</Badge>
   }
+  if (onTrial) return <Badge className="bg-sky-100 text-sky-900 hover:bg-sky-100">Trial</Badge>
   return <Badge variant="secondary">Active</Badge>
 }
 

@@ -78,6 +78,11 @@ async def signup(
         plan="starter",
         is_active=True,
         onboarding_complete=False,
+        # New self-service orgs start on a free trial with no paid subscription.
+        # Model this explicitly as ``payment_status="trial"`` (rather than the
+        # "active" default, which reads as a paying customer) so the admin
+        # console, metrics, and billing-hygiene treat them as trials.
+        payment_status="trial",
         trial_ends_at=datetime.now(timezone.utc) + timedelta(days=settings.TRIAL_DAYS),
     )
     db.add(org)
