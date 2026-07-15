@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import async_session
 from app.models.email import EmailLog
 from app.models.organization import Organization
@@ -118,7 +119,7 @@ async def run_billing_hygiene() -> None:
                 Organization.is_active.is_(True),
                 Organization.trial_ends_at.is_not(None),
                 Organization.stripe_subscription_id.is_(None),
-                Organization.payment_status == "active",
+                Organization.payment_status.in_(["trial", "active"]),
             )
         )
         trial_orgs = result.scalars().all()
@@ -154,26 +155,30 @@ async def run_billing_hygiene() -> None:
                     extra_ctx={"days_remaining": days_remaining},
                 )
 
-            # Conversion drip: day 7 of trial
-            if 7 <= days_since_signup < 8:
+            # Conversion drip nudges, scheduled relative to the configured trial
+            # length so they stay coherent regardless of TRIAL_DAYS (e.g. a
+            # 14-day trial no longer references a 30-day schedule).
+            trial_len = settings.TRIAL_DAYS
+            early_day = max(2, trial_len // 4)
+            halfway_day = max(early_day + 1, trial_len // 2)
+            near_end_day = trial_len - 5
+            if days_since_signup == early_day:
                 await _send_trial_email(
                     db, org,
                     "billing_trial_day7.html",
-                    "You're 7 days into your Portfolio Desk trial!",
+                    f"You're {days_since_signup} day{'s' if days_since_signup != 1 else ''} into your Portfolio Desk trial!",
                 )
-            # Conversion drip: day 14 of trial
-            elif 14 <= days_since_signup < 15:
+            elif days_since_signup == halfway_day:
                 await _send_trial_email(
                     db, org,
                     "billing_trial_day14.html",
                     "Halfway through your Portfolio Desk trial",
                 )
-            # Conversion drip: day 25 of trial (5 days before 30-day trial ends)
-            elif 25 <= days_since_signup < 26:
+            elif near_end_day > halfway_day and days_since_signup == near_end_day:
                 await _send_trial_email(
                     db, org,
                     "billing_trial_day25.html",
-                    "5 days left in your Portfolio Desk trial",
+                    f"{max(0, days_remaining)} days left in your Portfolio Desk trial",
                 )
 
         # Past-due dunning: orgs beyond the grace period

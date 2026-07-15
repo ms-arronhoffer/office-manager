@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     STRIPE_PRODUCT_ID_ENTERPRISE: str = ""
 
     # Trial period
-    TRIAL_DAYS: int = 30
+    TRIAL_DAYS: int = 14
 
     # ── Observability ────────────────────────────────────────────────────
     # Deployment environment label (e.g. "production", "staging", "dev").

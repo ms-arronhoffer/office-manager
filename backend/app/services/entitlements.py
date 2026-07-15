@@ -276,9 +276,10 @@ def org_access_state(org: "Organization", now: "datetime | None" = None) -> str:
     if payment_status == "canceled":
         return ACCESS_BLOCKED_CANCELED
 
-    # Trial expiry: org is on "active" payment status but has no paid subscription
-    # and the trial window has closed.
-    if payment_status == "active" and _is_expired_trial(org, now or _dt.now(_tz.utc)):
+    # Trial expiry: org is on a trial (explicit "trial" status, or the legacy
+    # "active" default used before trials were modelled explicitly) with no paid
+    # subscription and the trial window has closed.
+    if payment_status in ("trial", "active") and _is_expired_trial(org, now or _dt.now(_tz.utc)):
         return ACCESS_TRIAL_EXPIRED
 
     if payment_status == "past_due":

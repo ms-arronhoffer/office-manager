@@ -219,24 +219,29 @@ async def create_office(
     db.add(office)
     await db.commit()
     await db.refresh(office)
+    # Capture the identity/label into plain values now, while the instance is
+    # freshly loaded. The best-effort side effects below can fail and roll back
+    # the session on drifted schemas, which would expire ``office`` and make any
+    # later attribute access attempt (implicit async) lazy IO — the source of a
+    # spurious 500 *after* the row was already committed.
+    office_id = office.id
+    office_label = office.location_name
+
     try:
-        await log_activity(db, user=current_user, action="created", entity_type="office", entity_id=office.id, entity_label=office.location_name)
+        await log_activity(db, user=current_user, action="created", entity_type="office", entity_id=office_id, entity_label=office_label)
     except Exception:
         pass
     try:
-        await update_search_vector(db, "offices", office.id)
+        await update_search_vector(db, "offices", office_id)
     except Exception:
         pass
 
-    # Reload with manager relationship
-    try:
-        result = await db.execute(
-            select(Office).options(joinedload(Office.manager)).where(Office.id == office.id)
-        )
-        return OfficeResponse.model_validate(result.scalar_one(), from_attributes=True)
-    except Exception:
-        # If reload fails, return the office we already have
-        return OfficeResponse.model_validate(office, from_attributes=True)
+    # Reload with manager relationship. This awaited query eagerly loads every
+    # attribute the response needs, so serialization never triggers lazy IO.
+    result = await db.execute(
+        select(Office).options(joinedload(Office.manager)).where(Office.id == office_id)
+    )
+    return OfficeResponse.model_validate(result.scalar_one(), from_attributes=True)
 
 
 @router.put("/{office_id}", response_model=OfficeResponse)

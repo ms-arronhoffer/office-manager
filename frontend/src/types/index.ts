@@ -76,7 +76,7 @@ export interface SignupResponse {
 export interface BillingSubscription {
   plan: 'starter' | 'pro' | 'enterprise';
   is_active: boolean;
-  payment_status: 'active' | 'past_due' | 'canceled';
+  payment_status: 'active' | 'past_due' | 'canceled' | 'trial';
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   trial_ends_at: string | null;

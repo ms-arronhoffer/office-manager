@@ -186,6 +186,11 @@ const BillingPage: React.FC = () => {
   }
 
   const currentPlan = sub?.plan ?? 'starter';
+  // The org has a live paid subscription only once Stripe has one on file and it
+  // hasn't been canceled. Until then (including the whole free-trial window) the
+  // customer should be able to subscribe to *either* Starter or Pro — even to the
+  // Starter plan they are currently trialing on.
+  const hasPaidSubscription = !!sub?.stripe_subscription_id && sub?.payment_status !== 'canceled';
 
   return (
     <ContentLayout
@@ -364,7 +369,7 @@ const BillingPage: React.FC = () => {
               header: item => (
                 <SpaceBetween direction="horizontal" size="xs">
                   <span style={{ fontWeight: 600, fontSize: 16 }}>{PLAN_LABELS[item.plan]}</span>
-                  {item.plan === currentPlan && <Badge color="blue">Current</Badge>}
+                  {hasPaidSubscription && item.plan === currentPlan && <Badge color="blue">Current</Badge>}
                 </SpaceBetween>
               ),
               sections: [
@@ -393,13 +398,31 @@ const BillingPage: React.FC = () => {
                 {
                   id: 'action',
                   content: item => {
-                    if (item.plan === currentPlan) {
-                      return <Box color="text-status-success">Your current plan</Box>;
-                    }
                     if (item.plan === 'enterprise') {
                       return <Box color="text-body-secondary">Custom pricing — contact sales</Box>;
                     }
-                    if (!item.cta || !sub?.billing_configured) return null;
+                    if (!sub?.billing_configured) return null;
+
+                    // During the trial (or any time before a paid subscription
+                    // exists) offer a direct Subscribe button for both Starter
+                    // and Pro — including the plan currently being trialed — so
+                    // the customer can start paying whenever they choose.
+                    if (!hasPaidSubscription) {
+                      return (
+                        <Button
+                          variant={item.plan === 'pro' ? 'primary' : 'normal'}
+                          loading={isChangingPlan === item.plan}
+                          onClick={() => handlePlanChange(item.plan as 'starter' | 'pro')}
+                          fullWidth
+                        >
+                          {`Subscribe to ${PLAN_LABELS[item.plan]}`}
+                        </Button>
+                      );
+                    }
+
+                    if (item.plan === currentPlan) {
+                      return <Box color="text-status-success">Your current plan</Box>;
+                    }
                     if (currentPlan === 'enterprise') {
                       return <Box color="text-body-secondary">Contact sales to change plans</Box>;
                     }
