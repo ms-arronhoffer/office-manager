@@ -10,7 +10,9 @@ resource "aws_secretsmanager_secret" "app" {
 resource "aws_secretsmanager_secret_version" "app" {
   secret_id = aws_secretsmanager_secret.app.id
   secret_string = jsonencode({
-    POSTGRES_PASSWORD      = var.db_password
+    # Use the same trimmed password RDS is created with (see rds.tf) so the
+    # app's stored credential always matches the actual DB master password.
+    POSTGRES_PASSWORD      = trimspace(var.db_password)
     JWT_SECRET             = var.jwt_secret
     DEFAULT_ADMIN_PASSWORD = var.default_admin_password
     STRIPE_SECRET_KEY      = var.stripe_secret_key
