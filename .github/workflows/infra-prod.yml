@@ -115,6 +115,152 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      # Because Terraform state itself is remote (see above), this step is
+      # normally a no-op. It only kicks in after AWS ends up with resources
+      # Terraform's state doesn't know about — e.g. a previous run created
+      # them but failed/was interrupted before its own state write landed, or
+      # a partial `destroy` removed some resources from state (or scheduled
+      # a secret for deletion) without deleting all of them from AWS. Left
+      # unhandled, the next `apply` fails with "already exists"/"Duplicate"
+      # errors trying to recreate resources AWS already has (see
+      # docs/aws-deployment.md, "Recovering from already exists errors").
+      # This makes that recovery automatic instead of a manual `terraform
+      # import` chore for every occurrence.
+      - name: Self-heal Terraform state (import pre-existing resources)
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          set -euo pipefail
+          NAME="${{ env.ECR_NAMESPACE }}-prod"
+          SECRET_NAME="${{ env.ECR_NAMESPACE }}/prod/app-secrets"
+          failed=0
+
+          state_has() { terraform state list "$1" >/dev/null 2>&1; }
+
+          # Imports $2 into $1 if not already tracked, logging (but not
+          # aborting the step on) failures so every resource still gets a
+          # chance to self-heal even if one import fails.
+          do_import() {
+            local addr="$1" id="$2"
+            echo "Importing pre-existing resource $addr ($id) into state..."
+            if ! terraform import "$addr" "$id"; then
+              echo "::warning::Failed to import $addr ($id); terraform plan/apply will likely fail on it."
+              failed=1
+            fi
+          }
+
+          # Looks up $3 once via "$4..." and imports $1/$2 if it exists in AWS
+          # but isn't yet tracked in state.
+          import_if_missing() {
+            local addr="$1" id="$2"
+            shift 2
+            if state_has "$addr"; then
+              return 0
+            fi
+            if "$@" >/dev/null 2>&1; then
+              do_import "$addr" "$id"
+            fi
+          }
+
+          import_if_missing "aws_iam_role.app" "$NAME-app" \
+            aws iam get-role --role-name "$NAME-app"
+
+          import_if_missing "aws_db_subnet_group.this" "$NAME" \
+            aws rds describe-db-subnet-groups --db-subnet-group-name "$NAME"
+
+          import_if_missing "aws_s3_bucket.uploads" "$NAME-uploads" \
+            aws s3api head-bucket --bucket "$NAME-uploads"
+
+          import_if_missing "aws_s3_bucket.backups" "$NAME-backups" \
+            aws s3api head-bucket --bucket "$NAME-backups"
+
+          # Security group ids aren't guessable from their name, so look them
+          # up first instead of using the `import_if_missing` id shortcut.
+          # Scope the lookup to the same VPC Terraform targets (network.tf's
+          # data.aws_vpc.selected) since group names are only unique per VPC.
+          vpc_id="${TF_VAR_vpc_id:-}"
+          vpc_lookup_failed=0
+          if [ -z "$vpc_id" ]; then
+            # aws --output text prints the literal string "None" for a null
+            # result (e.g. no default VPC); a describe-vpcs call failure
+            # (e.g. permissions) is distinguished from that via its exit code
+            # rather than being silently folded into the same fallback.
+            if ! vpc_id="$(aws ec2 describe-vpcs --filters Name=is-default,Values=true \
+                --query 'Vpcs[0].VpcId' --output text 2>/dev/null)"; then
+              vpc_lookup_failed=1
+              vpc_id=""
+            fi
+          fi
+          if [ "$vpc_lookup_failed" -eq 1 ]; then
+            echo "::warning::Could not look up the default VPC (describe-vpcs call failed); skipping security group auto-import."
+            failed=1
+          elif [ -z "$vpc_id" ] || [ "$vpc_id" = "None" ]; then
+            echo "No default VPC found; skipping security group auto-import."
+          fi
+          for sg_key in app db; do
+            addr="aws_security_group.$sg_key"
+            sg_name="$NAME-$sg_key"
+            if state_has "$addr" || [ -z "$vpc_id" ] || [ "$vpc_id" = "None" ]; then
+              continue
+            fi
+            # Fetch the count and (potential) id in one call rather than two.
+            if sg_lookup="$(aws ec2 describe-security-groups \
+                --filters "Name=group-name,Values=$sg_name" "Name=vpc-id,Values=$vpc_id" \
+                --query '[length(SecurityGroups), SecurityGroups[0].GroupId]' --output text 2>/dev/null)"; then
+              read -r matches sg_id <<<"$sg_lookup"
+            else
+              echo "::warning::describe-security-groups failed for $sg_name; skipping auto-import."
+              failed=1
+              continue
+            fi
+            if [ "$matches" = "1" ]; then
+              do_import "$addr" "$sg_id"
+            elif [ "${matches:-0}" != "0" ]; then
+              echo "::warning::Found $matches security groups named $sg_name in $vpc_id; skipping auto-import (ambiguous)."
+              failed=1
+            fi
+          done
+
+          # The secret may be left "scheduled for deletion" by a previous
+          # (partial) destroy; it must be restored before it can be created
+          # or imported.
+          secret_is_deleted() {
+            local deleted_date
+            deleted_date="$(aws secretsmanager describe-secret --secret-id "$1" \
+              --query 'DeletedDate' --output text 2>/dev/null || true)"
+            [ -n "$deleted_date" ] && [ "$deleted_date" != "None" ]
+          }
+          if ! state_has "aws_secretsmanager_secret.app"; then
+            restore_failed=0
+            if secret_is_deleted "$SECRET_NAME"; then
+              echo "Restoring $SECRET_NAME from scheduled deletion..."
+              if ! restore_err="$(aws secretsmanager restore-secret --secret-id "$SECRET_NAME" 2>&1)"; then
+                # Flatten to one line so it can't break the ::warning:: annotation.
+                restore_err_flat="$(echo "$restore_err" | tr '\n' ' ')"
+                echo "::warning::Failed to restore $SECRET_NAME from scheduled deletion: $restore_err_flat"
+                restore_failed=1
+                failed=1
+              fi
+            fi
+            # restore-secret is not guaranteed to be immediately consistent,
+            # so re-check DeletedDate is actually gone before importing
+            # (unless the restore call itself already failed and warned above).
+            if secret_is_deleted "$SECRET_NAME"; then
+              if [ "$restore_failed" -eq 0 ]; then
+                echo "::warning::$SECRET_NAME is still scheduled for deletion after restore attempt; skipping import."
+                failed=1
+              fi
+            elif aws secretsmanager describe-secret --secret-id "$SECRET_NAME" >/dev/null 2>&1; then
+              do_import "aws_secretsmanager_secret.app" "$SECRET_NAME"
+            fi
+          fi
+
+          # Don't fail the job here: a failed import just means the next
+          # `terraform plan`/`apply` step surfaces the underlying AWS error
+          # directly, which is more actionable than failing this step.
+          if [ "$failed" -ne 0 ]; then
+            echo "::warning::One or more pre-existing resources could not be auto-imported; see warnings above."
+          fi
+
       - name: Terraform Plan
         if: github.event.inputs.action != 'destroy'
         run: terraform plan -out=tfplan

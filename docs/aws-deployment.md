@@ -145,11 +145,18 @@ a second environment).
 
 ### Recovering from "already exists" errors after a state-less apply
 
-If `terraform apply` previously ran without a remote backend (e.g. before
-this change) and partially succeeded, AWS already has the real resources
-but no state file tracks them. Re-running `terraform apply` after
-configuring the remote backend above will *not* fix this by itself — import
-each pre-existing resource into the new remote state once, then re-run
+`infra-prod.yml`'s `infra` job runs a "Self-heal Terraform state" step before
+every `plan`/`apply` that automatically imports any of the resources below
+that AWS already has but the state file doesn't track yet (restoring the
+Secrets Manager secret from "scheduled for deletion" first if needed), so
+this is normally handled without manual intervention. The steps below are
+for running the same recovery by hand — e.g. locally, or if the self-heal
+step can't reach AWS (missing/expired credentials) — such as when
+`terraform apply` previously ran without a remote backend (e.g. before this
+change) and partially succeeded, leaving real resources in AWS with no state
+file tracking them. Re-running `terraform apply` after configuring the
+remote backend above will *not* fix this by itself — import each
+pre-existing resource into the new remote state once, then re-run
 `terraform plan` to confirm no further changes are proposed:
 
 ```bash
