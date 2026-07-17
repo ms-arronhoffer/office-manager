@@ -71,7 +71,7 @@ jobs:
           # a runner service restart mid-job.
           if sudo -n docker info >/dev/null 2>&1; then
             echo "::warning::Falling back to passwordless sudo for docker in this job; restart the runner service to fix this permanently."
-            shim_dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/docker-sudo-shim.XXXXXX")"
+            shim_dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/tmp.XXXXXXXXXX")"
             printf '%s\n' '#!/bin/sh' 'exec sudo -n docker "$@"' > "$shim_dir/docker"
             chmod +x "$shim_dir/docker"
             echo "$shim_dir" >> "$GITHUB_PATH"
