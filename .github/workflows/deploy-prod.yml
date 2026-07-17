@@ -23,6 +23,14 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          # Use the daemon's built-in builder instead of the default
+          # docker-container driver. The container driver spins up a
+          # buildx_buildkit_* helper container, which on this self-hosted
+          # runner fails with "permission denied ... /var/run/docker.sock".
+          # All images here are built locally (push: false, load: true), so
+          # the docker driver is sufficient and loads straight into the daemon.
+          driver: docker
 
       - name: Build Backend Image
         uses: docker/build-push-action@v5
