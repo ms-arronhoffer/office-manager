@@ -109,6 +109,13 @@ jobs:
           # Portainer continues to track the stack.
           echo "Recreating application stack to pick up new image layers..."
 
+          # Fully tear down the previous stack first. `up --force-recreate` alone
+          # can race with the old containers' host-port bindings not yet being
+          # released, causing "port is already allocated" failures. Bringing the
+          # stack down first (and tolerating a missing/absent stack on first run)
+          # guarantees the ports are free before the new containers start.
+          docker compose -p dev-office-manager -f docker-compose.yml down --remove-orphans || true
+
           docker compose -p dev-office-manager -f docker-compose.yml up -d --force-recreate --remove-orphans
 
           # Clean up older dangling image layers to save space
