@@ -80,7 +80,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_INFRA_ROLE_ARN }}
-          aws-region: us-east-2
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
