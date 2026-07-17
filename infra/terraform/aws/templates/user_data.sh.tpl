@@ -28,9 +28,12 @@ mkdir -p "$DOCKER_CLI_PLUGINS_DIR"
 
 TMP_COMPOSE_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_COMPOSE_DIR"' EXIT
-curl -fsSL -o "$TMP_COMPOSE_DIR/$COMPOSE_ASSET" "$COMPOSE_RELEASE_URL/$COMPOSE_ASSET"
-curl -fsSL -o "$TMP_COMPOSE_DIR/$COMPOSE_ASSET.sha256" "$COMPOSE_RELEASE_URL/$COMPOSE_ASSET.sha256"
-(cd "$TMP_COMPOSE_DIR" && sha256sum -c "$COMPOSE_ASSET.sha256")
+curl -fsSL -o "$TMP_COMPOSE_DIR/$COMPOSE_ASSET" "$COMPOSE_RELEASE_URL/$COMPOSE_ASSET" \
+  || { echo "Failed to download $COMPOSE_ASSET from $COMPOSE_RELEASE_URL" >&2; exit 1; }
+curl -fsSL -o "$TMP_COMPOSE_DIR/$COMPOSE_ASSET.sha256" "$COMPOSE_RELEASE_URL/$COMPOSE_ASSET.sha256" \
+  || { echo "Failed to download $COMPOSE_ASSET.sha256 from $COMPOSE_RELEASE_URL" >&2; exit 1; }
+(cd "$TMP_COMPOSE_DIR" && sha256sum -c "$COMPOSE_ASSET.sha256") \
+  || { echo "Checksum verification failed for $COMPOSE_ASSET; aborting install" >&2; exit 1; }
 
 mv "$TMP_COMPOSE_DIR/$COMPOSE_ASSET" "$DOCKER_CLI_PLUGINS_DIR/docker-compose"
 chmod +x "$DOCKER_CLI_PLUGINS_DIR/docker-compose"
