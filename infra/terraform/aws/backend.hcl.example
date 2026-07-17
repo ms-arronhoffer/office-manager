@@ -1,0 +1,10 @@
+# Copy this file to backend.hcl (gitignored) and fill in the bucket/table
+# names output by `infra/terraform/bootstrap` (`terraform output`), or pass
+# the same keys individually via `-backend-config="bucket=..."` flags.
+# Then run: terraform init -backend-config=backend.hcl
+
+bucket         = "office-manager-tfstate-REPLACE_WITH_YOUR_AWS_ACCOUNT_ID"
+key            = "aws/prod/terraform.tfstate"
+region         = "us-east-2"
+dynamodb_table = "office-manager-tfstate-lock"
+encrypt        = true

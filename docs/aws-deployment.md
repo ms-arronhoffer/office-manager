@@ -97,24 +97,79 @@ Infrastructure-as-code lives in `infra/terraform/aws/`:
 | `templates/user_data.sh.tpl` | EC2 boot script: installs Docker, registers the box as a GitHub Actions self-hosted runner |
 | `outputs.tf` | RDS endpoint, S3 bucket names, instance id/IP, secret ARN |
 
-### Bootstrapping
+State is **remote** (S3 + DynamoDB lock table), configured via the partial
+`backend "s3" {}` block in `versions.tf`. This is required, not just
+recommended: `infra-prod.yml` runs `terraform apply` on an ephemeral
+GitHub-hosted runner, so local state would be thrown away after every run
+and the next run would try to re-create every resource, failing with
+"already exists"/"Duplicate" errors from AWS.
+
+### One-time: bootstrap the state backend
+
+Before the first `terraform init` in `infra/terraform/aws`, create the S3
+bucket + DynamoDB lock table it stores state in, using the separate
+`infra/terraform/bootstrap` module (this module keeps local state itself —
+it's the one piece of infra that has to exist before remote state can):
+
+```bash
+cd infra/terraform/bootstrap
+terraform init
+terraform apply -var="state_bucket_name=office-manager-tfstate-<your-account-id>"
+terraform output   # note state_bucket / lock_table for the next step
+```
+
+### Bootstrapping `infra/terraform/aws`
 
 ```bash
 cd infra/terraform/aws
 cp terraform.tfvars.example terraform.tfvars   # fill in non-secret values
+cp backend.hcl.example backend.hcl             # fill in the bucket/table from the step above
 # Provide secrets via environment variables so they are never written to disk:
 export TF_VAR_db_password=...
 export TF_VAR_jwt_secret=...
 export TF_VAR_default_admin_password=...
 export TF_VAR_github_runner_pat=...            # GitHub PAT, repo scope, used once at boot
-terraform init
+terraform init -backend-config=backend.hcl
 terraform plan
 terraform apply
 ```
 
-State is local for this initial "greenfield" bootstrap to keep Phase 1
-simple — configure an S3 + DynamoDB remote backend in `versions.tf` before a
-second person/environment needs to run `terraform apply`.
+In CI, the bucket/table names are supplied via the (non-secret) repository
+variables `TF_STATE_BUCKET`, `TF_STATE_LOCK_TABLE`, and optionally
+`TF_STATE_REGION` (defaults to `us-east-2`) — see
+`.github/workflows/infra-prod.yml`. The state file `key` is fixed to
+`aws/prod/terraform.tfstate` in both the workflow and
+`backend.hcl.example`; keep them in sync if you ever change it (e.g. to add
+a second environment).
+
+### Recovering from "already exists" errors after a state-less apply
+
+If `terraform apply` previously ran without a remote backend (e.g. before
+this change) and partially succeeded, AWS already has the real resources
+but no state file tracks them. Re-running `terraform apply` after
+configuring the remote backend above will *not* fix this by itself — import
+each pre-existing resource into the new remote state once, then re-run
+`terraform plan` to confirm no further changes are proposed:
+
+```bash
+cd infra/terraform/aws
+terraform init -backend-config=backend.hcl
+
+terraform import aws_iam_role.app office-manager-prod-app
+terraform import aws_db_subnet_group.this office-manager-prod
+terraform import aws_s3_bucket.uploads office-manager-prod-uploads
+terraform import aws_s3_bucket.backups office-manager-prod-backups
+terraform import aws_secretsmanager_secret.app office-manager/prod/app-secrets
+
+# Security group ids aren't guessable from the name; look them up first:
+aws ec2 describe-security-groups \
+  --filters Name=group-name,Values=office-manager-prod-app,office-manager-prod-db \
+  --query 'SecurityGroups[].{Name:GroupName,Id:GroupId}'
+terraform import aws_security_group.app <sg-id-for-office-manager-prod-app>
+terraform import aws_security_group.db  <sg-id-for-office-manager-prod-db>
+
+terraform plan   # should show no create/replace for the imported resources
+```
 
 ## CI/CD (GitHub Actions)
 
@@ -124,8 +179,16 @@ Two new workflows target the `prod` branch; `main`'s existing
 - **`.github/workflows/infra-prod.yml`** — runs `terraform plan`/`apply` on a
   GitHub-hosted runner (it can't run on the self-hosted "aws-prod" runner
   because that runner *is* the EC2 instance this workflow may be creating).
-  Triggered on changes under `infra/terraform/aws/**` pushed to `prod`, or
-  manually via `workflow_dispatch`.
+  Triggered on changes under `infra/terraform/aws/**` pushed to `prod` (runs
+  `plan` + `apply`, which creates any new resources and updates any changed
+  ones), or manually via `workflow_dispatch` with an `action` input:
+  - `plan` — show proposed changes only, no apply.
+  - `apply` / `update` — plan and apply; provisions new resources and
+    updates any resources whose configuration has drifted (these two
+    options behave identically since Terraform apply is always
+    create-or-update).
+  - `destroy` — tears down every resource managed by this state so the
+    footprint can be rebuilt from scratch.
 - **`.github/workflows/deploy-prod.yml`** — builds the four application
   images and runs `docker compose -f docker-compose.prod.yml up -d` on the
   self-hosted runner registered on the EC2 instance (label `aws-prod`),
@@ -140,6 +203,13 @@ AWS credentials (for `infra-prod.yml`):
 - `TF_VAR_STRIPE_SECRET_KEY`, `TF_VAR_GEMINI_API_KEY`, `TF_VAR_SENTRY_DSN` (optional)
 - `RUNNER_REGISTRATION_PAT` — GitHub PAT (repo scope) used by the EC2
   user-data script to mint a short-lived runner registration token
+
+Repository *variables* (not secrets — bucket/table names aren't sensitive),
+for the remote state backend created via `infra/terraform/bootstrap`:
+- `TF_STATE_BUCKET` — S3 bucket name from `terraform output state_bucket`
+- `TF_STATE_LOCK_TABLE` — DynamoDB table name from `terraform output lock_table`
+- `TF_STATE_REGION` (optional) — region the state bucket/table live in;
+  defaults to `us-east-2` if unset
 
 App deploy (for `deploy-prod.yml`), matching the Terraform outputs:
 - `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
