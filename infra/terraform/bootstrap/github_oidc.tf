@@ -34,14 +34,23 @@ data "tls_certificate" "github_actions" {
 
 locals {
   # AWS validates the OIDC provider against the SHA1 thumbprint of the last
-  # certificate in the chain served by the issuer (its root CA).
-  github_oidc_root_thumbprint = data.tls_certificate.github_actions.certificates[length(data.tls_certificate.github_actions.certificates) - 1].sha1_fingerprint
+  # certificate in the chain served by the issuer (its root CA). Guard against
+  # an unexpectedly empty chain instead of an opaque index-out-of-bounds error.
+  github_oidc_certificates    = data.tls_certificate.github_actions.certificates
+  github_oidc_root_thumbprint = length(local.github_oidc_certificates) > 0 ? local.github_oidc_certificates[length(local.github_oidc_certificates) - 1].sha1_fingerprint : null
 }
 
 resource "aws_iam_openid_connect_provider" "github_actions" {
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
   thumbprint_list = [local.github_oidc_root_thumbprint]
+
+  lifecycle {
+    precondition {
+      condition     = local.github_oidc_root_thumbprint != null
+      error_message = "Could not fetch a TLS certificate chain for https://token.actions.githubusercontent.com; unable to derive the OIDC provider thumbprint."
+    }
+  }
 }
 
 data "aws_iam_policy_document" "github_actions_assume" {
