@@ -10,6 +10,12 @@ dnf update -y
 dnf install -y docker git jq acl
 systemctl enable --now docker
 usermod -aG docker ec2-user
+# The aws-prod GitHub Actions runner's job processes run as the OS user
+# `ssm-user` (via SSM Session Manager), not `ec2-user`. Add it to the
+# `docker` group too, if present, so `docker compose` steps in the deploy
+# workflow can reach /var/run/docker.sock without relying solely on the
+# workflow's runtime self-heal step.
+id -u ssm-user >/dev/null 2>&1 && usermod -aG docker ssm-user || true
 
 # ── GitHub Actions self-hosted runner ─────────────────────────────────────────
 GITHUB_REPO="${github_repo}"

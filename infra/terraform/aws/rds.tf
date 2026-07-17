@@ -1,3 +1,13 @@
+# Resolve the latest available PostgreSQL engine version for the configured
+# major version at apply time, rather than pinning a specific minor version
+# (e.g. "16.4") that AWS eventually retires and rejects with
+# InvalidParameterCombination: "Cannot find version X.Y for postgres".
+data "aws_rds_engine_version" "postgres" {
+  engine  = "postgres"
+  version = var.db_engine_version
+  latest  = true
+}
+
 resource "aws_db_subnet_group" "this" {
   name       = "${var.project_name}-${var.environment}"
   subnet_ids = local.subnet_ids
@@ -28,7 +38,7 @@ resource "aws_security_group_rule" "db_ingress_from_app" {
 resource "aws_db_instance" "this" {
   identifier     = "${var.project_name}-${var.environment}"
   engine         = "postgres"
-  engine_version = var.db_engine_version
+  engine_version = data.aws_rds_engine_version.postgres.version_actual
 
   instance_class        = var.db_instance_class
   allocated_storage     = var.db_allocated_storage_gb

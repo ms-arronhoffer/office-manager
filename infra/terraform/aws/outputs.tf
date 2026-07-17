@@ -44,6 +44,6 @@ output "ecr_repository_urls" {
 }
 
 output "ecr_push_policy_arn" {
-  description = "ARN of the IAM policy granting ECR push access; attach it to the CI/build IAM user behind AWS_ACCESS_KEY_ID."
+  description = "ARN of the IAM policy granting ECR push access. Legacy fallback for a static-key IAM user; prefer the OIDC `github_actions_ecr_push` role from infra/terraform/bootstrap."
   value       = aws_iam_policy.ecr_push.arn
 }

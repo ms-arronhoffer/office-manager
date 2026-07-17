@@ -145,11 +145,18 @@ a second environment).
 
 ### Recovering from "already exists" errors after a state-less apply
 
-If `terraform apply` previously ran without a remote backend (e.g. before
-this change) and partially succeeded, AWS already has the real resources
-but no state file tracks them. Re-running `terraform apply` after
-configuring the remote backend above will *not* fix this by itself — import
-each pre-existing resource into the new remote state once, then re-run
+`infra-prod.yml`'s `infra` job runs a "Self-heal Terraform state" step before
+every `plan`/`apply` that automatically imports any of the resources below
+that AWS already has but the state file doesn't track yet (restoring the
+Secrets Manager secret from "scheduled for deletion" first if needed), so
+this is normally handled without manual intervention. The steps below are
+for running the same recovery by hand — e.g. locally, or if the self-heal
+step can't reach AWS (missing/expired credentials) — such as when
+`terraform apply` previously ran without a remote backend (e.g. before this
+change) and partially succeeded, leaving real resources in AWS with no state
+file tracking them. Re-running `terraform apply` after configuring the
+remote backend above will *not* fix this by itself — import each
+pre-existing resource into the new remote state once, then re-run
 `terraform plan` to confirm no further changes are proposed:
 
 ```bash
@@ -223,9 +230,9 @@ One workflow targets the `prod` branch; `main`'s existing `deploy.yml`
      rebuilt.
   2. **`build-and-push`** also runs on the `docker-build` runner. It builds the
      four application images and pushes them to AWS ECR, tagged with the commit
-     SHA (immutable) plus `latest`. It authenticates to AWS with the
-     `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` secrets (whose IAM user must
-     carry the `ecr_push_policy_arn` policy) and self-heals the ECR
+     SHA (immutable) plus `latest`. It authenticates to AWS by assuming the
+     `github_actions_ecr_push` IAM role via GitHub's OIDC provider (role-based
+     access — no static keys on the runner) and self-heals the ECR
      repositories if they don't exist yet. Skipped on the `plan`/`destroy`
      dispatch inputs.
   3. **`deploy`** runs on the self-hosted runner on the EC2 host (label
@@ -256,19 +263,41 @@ sudo systemctl restart 'actions.runner.*'
 
 ### Required repository secrets
 
-AWS credentials (used by the `infra` and `build-and-push` jobs of
-`infra-prod.yml`):
-- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` — the IAM user behind these must
-  additionally have the `ecr-push` policy (`terraform output ecr_push_policy_arn`)
-  attached so the `docker-build` runner can push images to ECR.
+AWS role-based access (used by the `infra` and `build-and-push` jobs of
+`infra-prod.yml` to assume an IAM role via GitHub's OIDC provider — no static
+AWS keys are stored in GitHub). One-time setup, from `infra/terraform/bootstrap`
+(alongside the state backend bucket/table — see "Terraform" above):
+
+```bash
+cd infra/terraform/bootstrap
+terraform apply \
+  -var state_bucket_name=<your-bucket> \
+  -var github_repository=<owner>/<repo>
+terraform output github_actions_infra_role_arn
+terraform output github_actions_ecr_push_role_arn
+```
+
+- `AWS_INFRA_ROLE_ARN` — role the `infra` job assumes to run Terraform
+  (`terraform output github_actions_infra_role_arn`).
+- `AWS_ECR_PUSH_ROLE_ARN` — role the `build-and-push` job assumes to push
+  images to ECR (`terraform output github_actions_ecr_push_role_arn`).
 - `AWS_REGION` — region the ECR registry lives in (e.g. `us-east-2`).
 - `TF_VAR_DB_PASSWORD`, `TF_VAR_JWT_SECRET`, `TF_VAR_DEFAULT_ADMIN_PASSWORD`
 - `TF_VAR_STRIPE_SECRET_KEY`, `TF_VAR_GEMINI_API_KEY`, `TF_VAR_SENTRY_DSN` (optional)
 - `RUNNER_REGISTRATION_PAT` — GitHub PAT (repo scope) used by the EC2
   user-data script to mint a short-lived runner registration token
 
+If you haven't bootstrapped the OIDC roles yet, `infra/terraform/aws/ecr.tf`
+still exports a legacy `ecr_push_policy_arn` IAM policy you can attach to a
+static-key IAM user as a fallback, but the OIDC roles above are preferred.
+
 Repository *variables* (not secrets — bucket/table names aren't sensitive),
-for the remote state backend created via `infra/terraform/bootstrap`:
+for the remote state backend created via `infra/terraform/bootstrap`. Add
+these under the repo's **Settings > Secrets and variables > Actions >
+Variables** tab (preferred). The `infra` job's backend-check/init steps also
+fall back to a same-named repository *secret* if the variable isn't set, so
+setting them under the Secrets tab instead works too — but if a value exists
+in both places, the Variables value takes precedence.
 - `TF_STATE_BUCKET` — S3 bucket name from `terraform output state_bucket`
 - `TF_STATE_LOCK_TABLE` — DynamoDB table name from `terraform output lock_table`
 - `TF_STATE_REGION` (optional) — region the state bucket/table live in;

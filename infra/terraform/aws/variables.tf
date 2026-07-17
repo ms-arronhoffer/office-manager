@@ -77,9 +77,9 @@ variable "db_instance_class" {
 }
 
 variable "db_engine_version" {
-  description = "PostgreSQL major/minor engine version, matching docker-compose's postgres:16."
+  description = "PostgreSQL major version, matching docker-compose's postgres:16. A partial version (e.g. \"16\") is resolved to the latest available minor version at apply time via the aws_rds_engine_version data source, avoiding InvalidParameterCombination errors when AWS retires older minor versions."
   type        = string
-  default     = "16.4"
+  default     = "18"
 }
 
 variable "db_allocated_storage_gb" {

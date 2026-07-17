@@ -55,6 +55,9 @@ jobs:
   # ── Stage 1: ensure the AWS infrastructure is in place ──────────────────────
   infra:
     runs-on: [self-hosted, Linux, X64, docker-build]
+    permissions:
+      contents: read
+      id-token: write # required to mint the OIDC token assumed below
     defaults:
       run:
         working-directory: infra/terraform/aws
@@ -70,12 +73,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Role-based access: assumes the `github_actions_infra` IAM role (see
+      # infra/terraform/bootstrap/github_oidc.tf) via short-lived OIDC tokens
+      # instead of long-lived AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY secrets.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-2
+          role-to-assume: ${{ secrets.AWS_INFRA_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -83,25 +88,183 @@ jobs:
           terraform_version: "1.9.5"
 
       - name: Check Terraform state backend variables
+        env:
+          # These are documented as repository *variables* (Settings >
+          # Secrets and variables > Actions > Variables), since bucket/table
+          # names aren't sensitive. Some setups add them under the
+          # *Secrets* tab instead — fall back to the same-named secret so
+          # that case still works, rather than failing with a misleading
+          # "missing" error when the value does in fact exist.
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET || secrets.TF_STATE_BUCKET }}
+          TF_STATE_LOCK_TABLE: ${{ vars.TF_STATE_LOCK_TABLE || secrets.TF_STATE_LOCK_TABLE }}
         run: |
           missing=()
-          [ -z "${{ vars.TF_STATE_BUCKET }}" ] && missing+=("TF_STATE_BUCKET")
-          [ -z "${{ vars.TF_STATE_LOCK_TABLE }}" ] && missing+=("TF_STATE_LOCK_TABLE")
+          [ -z "$TF_STATE_BUCKET" ] && missing+=("TF_STATE_BUCKET")
+          [ -z "$TF_STATE_LOCK_TABLE" ] && missing+=("TF_STATE_LOCK_TABLE")
           if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::error::Missing required repository variable(s): ${missing[*]}. Set them under Settings > Secrets and variables > Actions > Variables using the values from 'terraform output' in infra/terraform/bootstrap (see docs/aws-deployment.md). Terraform init cannot proceed with an empty S3 backend configuration."
+            echo "::error::Missing required repository variable(s): ${missing[*]}. Set them under Settings > Secrets and variables > Actions > Variables (preferred, since these values aren't sensitive) or Secrets, using the values from 'terraform output' in infra/terraform/bootstrap (see docs/aws-deployment.md). Terraform init cannot proceed with an empty S3 backend configuration."
             exit 1
           fi
 
       - name: Terraform Init
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET || secrets.TF_STATE_BUCKET }}
+          TF_STATE_LOCK_TABLE: ${{ vars.TF_STATE_LOCK_TABLE || secrets.TF_STATE_LOCK_TABLE }}
         run: |
           terraform init \
-            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
             -backend-config="key=aws/prod/terraform.tfstate" \
             -backend-config="region=${{ vars.TF_STATE_REGION || 'us-east-2' }}" \
-            -backend-config="dynamodb_table=${{ vars.TF_STATE_LOCK_TABLE }}"
+            -backend-config="dynamodb_table=${TF_STATE_LOCK_TABLE}"
 
       - name: Terraform Validate
         run: terraform validate
+
+      # Because Terraform state itself is remote (see above), this step is
+      # normally a no-op. It only kicks in after AWS ends up with resources
+      # Terraform's state doesn't know about — e.g. a previous run created
+      # them but failed/was interrupted before its own state write landed, or
+      # a partial `destroy` removed some resources from state (or scheduled
+      # a secret for deletion) without deleting all of them from AWS. Left
+      # unhandled, the next `apply` fails with "already exists"/"Duplicate"
+      # errors trying to recreate resources AWS already has (see
+      # docs/aws-deployment.md, "Recovering from already exists errors").
+      # This makes that recovery automatic instead of a manual `terraform
+      # import` chore for every occurrence.
+      - name: Self-heal Terraform state (import pre-existing resources)
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          set -euo pipefail
+          NAME="${{ env.ECR_NAMESPACE }}-prod"
+          SECRET_NAME="${{ env.ECR_NAMESPACE }}/prod/app-secrets"
+          failed=0
+
+          state_has() { terraform state list "$1" >/dev/null 2>&1; }
+
+          # Imports $2 into $1 if not already tracked, logging (but not
+          # aborting the step on) failures so every resource still gets a
+          # chance to self-heal even if one import fails.
+          do_import() {
+            local addr="$1" id="$2"
+            echo "Importing pre-existing resource $addr ($id) into state..."
+            if ! terraform import "$addr" "$id"; then
+              echo "::warning::Failed to import $addr ($id); terraform plan/apply will likely fail on it."
+              failed=1
+            fi
+          }
+
+          # Looks up $3 once via "$4..." and imports $1/$2 if it exists in AWS
+          # but isn't yet tracked in state.
+          import_if_missing() {
+            local addr="$1" id="$2"
+            shift 2
+            if state_has "$addr"; then
+              return 0
+            fi
+            if "$@" >/dev/null 2>&1; then
+              do_import "$addr" "$id"
+            fi
+          }
+
+          import_if_missing "aws_iam_role.app" "$NAME-app" \
+            aws iam get-role --role-name "$NAME-app"
+
+          import_if_missing "aws_db_subnet_group.this" "$NAME" \
+            aws rds describe-db-subnet-groups --db-subnet-group-name "$NAME"
+
+          import_if_missing "aws_s3_bucket.uploads" "$NAME-uploads" \
+            aws s3api head-bucket --bucket "$NAME-uploads"
+
+          import_if_missing "aws_s3_bucket.backups" "$NAME-backups" \
+            aws s3api head-bucket --bucket "$NAME-backups"
+
+          # Security group ids aren't guessable from their name, so look them
+          # up first instead of using the `import_if_missing` id shortcut.
+          # Scope the lookup to the same VPC Terraform targets (network.tf's
+          # data.aws_vpc.selected) since group names are only unique per VPC.
+          vpc_id="${TF_VAR_vpc_id:-}"
+          vpc_lookup_failed=0
+          if [ -z "$vpc_id" ]; then
+            # aws --output text prints the literal string "None" for a null
+            # result (e.g. no default VPC); a describe-vpcs call failure
+            # (e.g. permissions) is distinguished from that via its exit code
+            # rather than being silently folded into the same fallback.
+            if ! vpc_id="$(aws ec2 describe-vpcs --filters Name=is-default,Values=true \
+                --query 'Vpcs[0].VpcId' --output text 2>/dev/null)"; then
+              vpc_lookup_failed=1
+              vpc_id=""
+            fi
+          fi
+          if [ "$vpc_lookup_failed" -eq 1 ]; then
+            echo "::warning::Could not look up the default VPC (describe-vpcs call failed); skipping security group auto-import."
+            failed=1
+          elif [ -z "$vpc_id" ] || [ "$vpc_id" = "None" ]; then
+            echo "No default VPC found; skipping security group auto-import."
+          fi
+          for sg_key in app db; do
+            addr="aws_security_group.$sg_key"
+            sg_name="$NAME-$sg_key"
+            if state_has "$addr" || [ -z "$vpc_id" ] || [ "$vpc_id" = "None" ]; then
+              continue
+            fi
+            # Fetch the count and (potential) id in one call rather than two.
+            if sg_lookup="$(aws ec2 describe-security-groups \
+                --filters "Name=group-name,Values=$sg_name" "Name=vpc-id,Values=$vpc_id" \
+                --query '[length(SecurityGroups), SecurityGroups[0].GroupId]' --output text 2>/dev/null)"; then
+              read -r matches sg_id <<<"$sg_lookup"
+            else
+              echo "::warning::describe-security-groups failed for $sg_name; skipping auto-import."
+              failed=1
+              continue
+            fi
+            if [ "$matches" = "1" ]; then
+              do_import "$addr" "$sg_id"
+            elif [ "${matches:-0}" != "0" ]; then
+              echo "::warning::Found $matches security groups named $sg_name in $vpc_id; skipping auto-import (ambiguous)."
+              failed=1
+            fi
+          done
+
+          # The secret may be left "scheduled for deletion" by a previous
+          # (partial) destroy; it must be restored before it can be created
+          # or imported.
+          secret_is_deleted() {
+            local deleted_date
+            deleted_date="$(aws secretsmanager describe-secret --secret-id "$1" \
+              --query 'DeletedDate' --output text 2>/dev/null || true)"
+            [ -n "$deleted_date" ] && [ "$deleted_date" != "None" ]
+          }
+          if ! state_has "aws_secretsmanager_secret.app"; then
+            restore_failed=0
+            if secret_is_deleted "$SECRET_NAME"; then
+              echo "Restoring $SECRET_NAME from scheduled deletion..."
+              if ! restore_err="$(aws secretsmanager restore-secret --secret-id "$SECRET_NAME" 2>&1)"; then
+                # Flatten to one line so it can't break the ::warning:: annotation.
+                restore_err_flat="$(echo "$restore_err" | tr '\n' ' ')"
+                echo "::warning::Failed to restore $SECRET_NAME from scheduled deletion: $restore_err_flat"
+                restore_failed=1
+                failed=1
+              fi
+            fi
+            # restore-secret is not guaranteed to be immediately consistent,
+            # so re-check DeletedDate is actually gone before importing
+            # (unless the restore call itself already failed and warned above).
+            if secret_is_deleted "$SECRET_NAME"; then
+              if [ "$restore_failed" -eq 0 ]; then
+                echo "::warning::$SECRET_NAME is still scheduled for deletion after restore attempt; skipping import."
+                failed=1
+              fi
+            elif aws secretsmanager describe-secret --secret-id "$SECRET_NAME" >/dev/null 2>&1; then
+              do_import "aws_secretsmanager_secret.app" "$SECRET_NAME"
+            fi
+          fi
+
+          # Don't fail the job here: a failed import just means the next
+          # `terraform plan`/`apply` step surfaces the underlying AWS error
+          # directly, which is more actionable than failing this step.
+          if [ "$failed" -ne 0 ]; then
+            echo "::warning::One or more pre-existing resources could not be auto-imported; see warnings above."
+          fi
 
       - name: Terraform Plan
         if: github.event.inputs.action != 'destroy'
@@ -130,6 +293,9 @@ jobs:
     needs: infra
     if: github.event_name == 'push' || github.event.inputs.action == 'apply' || github.event.inputs.action == 'update'
     runs-on: [self-hosted, Linux, X64, docker-build]
+    permissions:
+      contents: read
+      id-token: write # required to mint the OIDC token assumed below
     outputs:
       registry: ${{ steps.login-ecr.outputs.registry }}
       image_tag: ${{ steps.meta.outputs.image_tag }}
@@ -138,12 +304,22 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # Role-based access: assumes the `github_actions_ecr_push` IAM role (see
+      # infra/terraform/bootstrap/github_oidc.tf) via short-lived OIDC tokens
+      # instead of long-lived AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY secrets.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
+          # v4 defaults this to `true`, which masks the AWS account ID in
+          # logs — but the ECR registry hostname embeds that account ID, and
+          # GitHub Actions silently blanks any job output containing a masked
+          # value when it's read by another job. That turned the `deploy`
+          # job's `needs.build-and-push.outputs.registry` empty even though
+          # this job succeeded. Disable masking here so the registry output
+          # can safely propagate to the `deploy` job.
+          mask-aws-account-id: false
 
       - name: Log in to Amazon ECR
         id: login-ecr
@@ -225,6 +401,41 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # Ensure this self-hosted runner can talk to the host Docker daemon.
+      # Every `docker compose` step below connects to /var/run/docker.sock,
+      # which is owned root:docker (mode 660). The aws-prod runner's job
+      # processes actually run as the OS user `ssm-user` (via SSM Session
+      # Manager), not the `ec2-user` that user_data.sh.tpl adds to the
+      # `docker` group, so the very first compose command fails with
+      # "permission denied ... /var/run/docker.sock". Self-heal it best-effort
+      # so the deploy doesn't hard-fail. Mirrors deploy.yml's equivalent step.
+      - name: Ensure Docker daemon access
+        run: |
+          if docker info >/dev/null 2>&1; then
+            echo "Docker daemon reachable."
+            exit 0
+          fi
+          echo "::warning::Docker socket not accessible by '$(id -un)'; attempting to self-heal."
+          sock=/var/run/docker.sock
+          # Persist group membership so future runner sessions work without this step.
+          sudo usermod -aG docker "$(id -un)" || true
+          # Grant the *current* session immediate access (a group change does not
+          # apply to the already-running runner process) via an ACL on the socket,
+          # falling back to fixing the socket's group/permissions.
+          if command -v setfacl >/dev/null 2>&1; then
+            sudo setfacl -m "u:$(id -un):rw" "$sock" || true
+          else
+            sudo chgrp docker "$sock" 2>/dev/null || true
+            sudo chmod g+rw "$sock" || true
+          fi
+          if ! docker info >/dev/null 2>&1; then
+            echo "::error::Unable to access the Docker daemon socket at $sock."
+            echo "Add the self-hosted runner's user to the 'docker' group and restart the runner service:"
+            echo "  sudo usermod -aG docker <runner-user> && sudo systemctl restart 'actions.runner.*'"
+            exit 1
+          fi
+          echo "Docker access restored."
+
       # Authenticate the host Docker daemon to ECR so `docker compose pull` can
       # download the images. Credentials come from the EC2 instance profile
       # (ecr:GetAuthorizationToken + pull, granted in infra/terraform/aws/ec2.tf),
@@ -232,6 +443,8 @@ jobs:
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
 
       # Fail fast if any required secret is missing — mirrors deploy.yml's
       # guard against unset GitHub secrets silently becoming empty strings.
@@ -313,8 +526,21 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           S3_UPLOAD_BUCKET: ${{ secrets.S3_UPLOAD_BUCKET }}
           S3_UPLOAD_PREFIX: ${{ secrets.S3_UPLOAD_PREFIX }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
         run: |
+          # Guard against a blank/failed upstream `build-and-push` output silently
+          # resolving image refs like "/office-manager/frontend" against Docker
+          # Hub's implicit namespace instead of ECR (which 404s with a confusing
+          # "pull access denied ... repository does not exist" error).
+          missing=()
+          [ -z "$ECR_REGISTRY" ] && missing+=("ECR_REGISTRY")
+          [ -z "$IMAGE_TAG" ] && missing+=("IMAGE_TAG")
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::${missing[*]} empty (ECR_REGISTRY='${ECR_REGISTRY}', IMAGE_TAG='${IMAGE_TAG}')."
+            echo "The 'build-and-push' job's ECR login likely failed to authenticate — check its AWS credentials/role."
+            exit 1
+          fi
+
           echo "Pulling ${ECR_REGISTRY}/${ECR_NAMESPACE}/* images tagged ${IMAGE_TAG}..."
           docker compose -p prod-office-manager -f docker-compose.prod.yml pull
 

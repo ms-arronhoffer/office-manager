@@ -65,11 +65,14 @@ resource "aws_ecr_lifecycle_policy" "app" {
   })
 }
 
-# ── IAM: ECR push policy for the build runner's CI credentials ────────────────
-# The `docker-build` runner (ubuntu-server1) is off-box, so it authenticates
-# with the AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY GitHub secrets rather than an
-# instance profile. Attach this managed policy to that IAM user to grant just
-# the ECR push permissions it needs (its ARN is exported in outputs.tf).
+# ── IAM: ECR push policy (legacy static-key fallback) ─────────────────────────
+# The `docker-build` runner (ubuntu-server1) is off-box, so it can't use an EC2
+# instance profile. It now authenticates via the `github_actions_ecr_push` OIDC
+# role provisioned once in infra/terraform/bootstrap/github_oidc.tf (see
+# infra-prod.yml's `build-and-push` job), which grants the same permissions as
+# this policy. This policy document is kept only as a fallback for attaching to
+# a static-key IAM user if OIDC isn't set up (its ARN is exported in
+# outputs.tf).
 data "aws_iam_policy_document" "ecr_push" {
   statement {
     sid       = "EcrAuth"
