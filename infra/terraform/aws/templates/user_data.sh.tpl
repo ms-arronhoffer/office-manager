@@ -18,13 +18,21 @@ usermod -aG docker ec2-user
 # binary directly from Docker's releases so `docker compose` works.
 COMPOSE_VERSION=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest | jq -r '.tag_name')
 if [ -z "$COMPOSE_VERSION" ] || [ "$COMPOSE_VERSION" = "null" ]; then
-  echo "Failed to resolve latest docker/compose release version" >&2
+  echo "Failed to resolve latest docker/compose release version (empty/null tag_name from GitHub API)" >&2
   exit 1
 fi
+COMPOSE_ASSET="docker-compose-linux-$(uname -m)"
+COMPOSE_RELEASE_URL="https://github.com/docker/compose/releases/download/$COMPOSE_VERSION"
 DOCKER_CLI_PLUGINS_DIR="/usr/local/lib/docker/cli-plugins"
 mkdir -p "$DOCKER_CLI_PLUGINS_DIR"
-curl -fsSL -o "$DOCKER_CLI_PLUGINS_DIR/docker-compose" \
-  "https://github.com/docker/compose/releases/download/$COMPOSE_VERSION/docker-compose-linux-$(uname -m)"
+
+TMP_COMPOSE_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_COMPOSE_DIR"' EXIT
+curl -fsSL -o "$TMP_COMPOSE_DIR/$COMPOSE_ASSET" "$COMPOSE_RELEASE_URL/$COMPOSE_ASSET"
+curl -fsSL -o "$TMP_COMPOSE_DIR/$COMPOSE_ASSET.sha256" "$COMPOSE_RELEASE_URL/$COMPOSE_ASSET.sha256"
+(cd "$TMP_COMPOSE_DIR" && sha256sum -c "$COMPOSE_ASSET.sha256")
+
+mv "$TMP_COMPOSE_DIR/$COMPOSE_ASSET" "$DOCKER_CLI_PLUGINS_DIR/docker-compose"
 chmod +x "$DOCKER_CLI_PLUGINS_DIR/docker-compose"
 
 # ── GitHub Actions self-hosted runner ─────────────────────────────────────────
