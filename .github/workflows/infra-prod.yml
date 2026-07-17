@@ -66,8 +66,6 @@ jobs:
       TF_VAR_gemini_api_key: ${{ secrets.TF_VAR_GEMINI_API_KEY }}
       TF_VAR_sentry_dsn: ${{ secrets.TF_VAR_SENTRY_DSN }}
       TF_VAR_github_runner_pat: ${{ secrets.RUNNER_REGISTRATION_PAT }}
-    outputs:
-      ecr_registry: ${{ steps.tf-outputs.outputs.ecr_registry }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -126,16 +124,6 @@ jobs:
       - name: Terraform Destroy
         if: github.event.inputs.action == 'destroy'
         run: terraform apply -auto-approve tfplan-destroy
-
-      # Expose the ECR registry host so downstream jobs don't hardcode the
-      # "<account>.dkr.ecr.<region>.amazonaws.com" value. Skipped on destroy
-      # (the resources — and therefore the outputs — no longer exist).
-      - name: Export Terraform outputs
-        id: tf-outputs
-        if: github.event.inputs.action != 'destroy'
-        run: |
-          ecr_registry="$(terraform output -raw ecr_registry)"
-          echo "ecr_registry=${ecr_registry}" >> "$GITHUB_OUTPUT"
 
   # ── Stage 2: build the images and push them to ECR ──────────────────────────
   build-and-push:

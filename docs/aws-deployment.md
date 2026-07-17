@@ -220,8 +220,7 @@ One workflow targets the `prod` branch; `main`'s existing `deploy.yml`
      runner's Terraform plugin cache / working dir persist between runs.
      **Terraform state itself stays remote** in the S3 bucket + DynamoDB lock
      table (see "Terraform" above), so it survives even if the runner host is
-     rebuilt. The job exports the ECR registry host (`terraform output
-     ecr_registry`) as a job output.
+     rebuilt.
   2. **`build-and-push`** also runs on the `docker-build` runner. It builds the
      four application images and pushes them to AWS ECR, tagged with the commit
      SHA (immutable) plus `latest`. It authenticates to AWS with the
