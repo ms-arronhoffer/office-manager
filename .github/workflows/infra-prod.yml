@@ -55,6 +55,9 @@ jobs:
   # ── Stage 1: ensure the AWS infrastructure is in place ──────────────────────
   infra:
     runs-on: [self-hosted, Linux, X64, docker-build]
+    permissions:
+      contents: read
+      id-token: write # required to mint the OIDC token assumed below
     defaults:
       run:
         working-directory: infra/terraform/aws
@@ -70,12 +73,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Role-based access: assumes the `github_actions_infra` IAM role (see
+      # infra/terraform/bootstrap/github_oidc.tf) via short-lived OIDC tokens
+      # instead of long-lived AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY secrets.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-2
+          role-to-assume: ${{ secrets.AWS_INFRA_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -288,6 +293,9 @@ jobs:
     needs: infra
     if: github.event_name == 'push' || github.event.inputs.action == 'apply' || github.event.inputs.action == 'update'
     runs-on: [self-hosted, Linux, X64, docker-build]
+    permissions:
+      contents: read
+      id-token: write # required to mint the OIDC token assumed below
     outputs:
       registry: ${{ steps.login-ecr.outputs.registry }}
       image_tag: ${{ steps.meta.outputs.image_tag }}
@@ -296,11 +304,13 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # Role-based access: assumes the `github_actions_ecr_push` IAM role (see
+      # infra/terraform/bootstrap/github_oidc.tf) via short-lived OIDC tokens
+      # instead of long-lived AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY secrets.
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
 
       - name: Log in to Amazon ECR
@@ -510,6 +520,19 @@ jobs:
           S3_UPLOAD_PREFIX: ${{ secrets.S3_UPLOAD_PREFIX }}
           AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
         run: |
+          # Guard against a blank/failed upstream `build-and-push` output silently
+          # resolving image refs like "/office-manager/frontend" against Docker
+          # Hub's implicit namespace instead of ECR (which 404s with a confusing
+          # "pull access denied ... repository does not exist" error).
+          missing=()
+          [ -z "$ECR_REGISTRY" ] && missing+=("ECR_REGISTRY")
+          [ -z "$IMAGE_TAG" ] && missing+=("IMAGE_TAG")
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::${missing[*]} empty (ECR_REGISTRY='${ECR_REGISTRY}', IMAGE_TAG='${IMAGE_TAG}')."
+            echo "The 'build-and-push' job's ECR login likely failed to authenticate — check its AWS credentials/role."
+            exit 1
+          fi
+
           echo "Pulling ${ECR_REGISTRY}/${ECR_NAMESPACE}/* images tagged ${IMAGE_TAG}..."
           docker compose -p prod-office-manager -f docker-compose.prod.yml pull
 
