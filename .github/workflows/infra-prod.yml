@@ -301,7 +301,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
 
       - name: Log in to Amazon ECR
         id: login-ecr
@@ -390,6 +390,8 @@ jobs:
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
 
       # Fail fast if any required secret is missing — mirrors deploy.yml's
       # guard against unset GitHub secrets silently becoming empty strings.
@@ -471,7 +473,7 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           S3_UPLOAD_BUCKET: ${{ secrets.S3_UPLOAD_BUCKET }}
           S3_UPLOAD_PREFIX: ${{ secrets.S3_UPLOAD_PREFIX }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
         run: |
           echo "Pulling ${ECR_REGISTRY}/${ECR_NAMESPACE}/* images tagged ${IMAGE_TAG}..."
           docker compose -p prod-office-manager -f docker-compose.prod.yml pull
