@@ -21,50 +21,33 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          # Use the `docker` driver so builds run against the host Docker
-          # daemon and load images into the local image store (all builds below
-          # use `load: true`). The default `docker-container` driver spins up a
-          # privileged BuildKit container, which fails on these self-hosted
-          # runners with "permission denied ... /var/run/docker.sock".
-          driver: docker
+      # Build directly with `docker build` against the host Docker daemon so
+      # images land in the local image store (the stack below runs them by
+      # name). We intentionally do NOT use docker/setup-buildx-action here:
+      # its `docker`-driver path fails on these self-hosted runners with
+      # "Cannot read properties of undefined (reading 'endpoint')", and the
+      # default `docker-container` driver spins up a privileged BuildKit
+      # container that fails with "permission denied ... /var/run/docker.sock".
+      # `docker build` uses the host's default builder and needs neither.
 
       - name: Build Backend Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          tags: office-manager-backend:latest
-          push: false
-          load: true
+        run: docker build -t office-manager-backend:latest ./backend
 
       - name: Build Frontend Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          tags: office-manager-frontend:latest
-          push: false
-          load: true
-          build-args: |
-            VITE_API_BASE_URL=/api/v1
-            VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+        run: |
+          docker build \
+            --build-arg VITE_API_BASE_URL=/api/v1 \
+            --build-arg VITE_GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
+            -t office-manager-frontend:latest \
+            ./frontend
 
       - name: Build Admin Frontend Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./admin-frontend
-          tags: office-manager-admin-frontend:latest
-          push: false
-          load: true
+        run: docker build -t office-manager-admin-frontend:latest ./admin-frontend
 
       - name: Build Landing Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./landing
-          tags: office-manager-landing:latest
-          push: false
-          load: true
+        run: docker build -t office-manager-landing:latest ./landing
 
       # Fail fast if any required secret is missing — mirrors deploy.yml's
       # guard against unset GitHub secrets silently becoming empty strings.
