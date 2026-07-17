@@ -268,7 +268,12 @@ AWS credentials (used by the `infra` and `build-and-push` jobs of
   user-data script to mint a short-lived runner registration token
 
 Repository *variables* (not secrets — bucket/table names aren't sensitive),
-for the remote state backend created via `infra/terraform/bootstrap`:
+for the remote state backend created via `infra/terraform/bootstrap`. Add
+these under the repo's **Settings > Secrets and variables > Actions >
+Variables** tab (preferred). The `infra` job's backend-check/init steps also
+fall back to a same-named repository *secret* if the variable isn't set, so
+setting them under the Secrets tab instead works too — but if a value exists
+in both places, the Variables value takes precedence.
 - `TF_STATE_BUCKET` — S3 bucket name from `terraform output state_bucket`
 - `TF_STATE_LOCK_TABLE` — DynamoDB table name from `terraform output lock_table`
 - `TF_STATE_REGION` (optional) — region the state bucket/table live in;
