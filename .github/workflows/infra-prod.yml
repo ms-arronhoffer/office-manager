@@ -1,20 +1,35 @@
-name: AWS Infra (Terraform) - prod
+name: AWS Infra + Deploy (prod)
 
-# Provisions/updates the Phase 1 AWS footprint (EC2 app host, RDS Postgres,
-# S3 buckets, IAM, Secrets Manager) described in docs/aws-deployment.md.
+# End-to-end prod pipeline for the `prod` branch. A single workflow that:
 #
-# Runs on a GitHub-hosted runner (not the self-hosted "aws-prod" runner)
-# because the self-hosted runner *is* the EC2 instance this workflow
-# creates/updates — a chicken-and-egg problem the app deploy workflow
-# (deploy-prod.yml) doesn't have once the instance exists.
+#   1. infra           — validates/updates the AWS footprint with Terraform.
+#   2. build-and-push  — builds the four app images and pushes them to ECR.
+#   3. deploy          — pulls the freshly pushed images and (re)starts the
+#                        compose stack on the AWS EC2 host.
+#
+# Stages 1 and 2 run on the persistent on-prem "docker-build" self-hosted
+# runner (labels: self-hosted, Linux, X64, docker-build). Running Terraform
+# there — rather than on the EC2 box it manages — avoids the chicken-and-egg
+# problem (the aws-prod runner *is* the instance this workflow creates), and
+# because the runner is long-lived its Terraform plugin cache / working dir
+# persist between runs. Terraform state itself is still stored remotely in the
+# S3 bucket + DynamoDB lock table (see versions.tf / backend.hcl.example), so
+# it survives even if the runner host is rebuilt.
+#
+# Stage 3 runs on the self-hosted runner registered on the AWS EC2 host
+# (label "aws-prod"; see infra/terraform/aws/templates/user_data.sh.tpl); it
+# only pulls and runs images, keeping the low-powered host out of the build
+# path. The ECR repositories and both stages' IAM permissions are provisioned
+# by infra/terraform/aws/ecr.tf.
+#
+# `main` remains the development branch and keeps deploying to the existing
+# VPS via .github/workflows/deploy.yml, unchanged. Merge/promote to `prod`
+# to ship to AWS.
 
 on:
   push:
     branches:
       - prod
-    paths:
-      - "infra/terraform/aws/**"
-      - ".github/workflows/infra-prod.yml"
   workflow_dispatch:
     inputs:
       action:
@@ -31,9 +46,15 @@ on:
 permissions:
   contents: read
 
+env:
+  # ECR repository namespace — must match infra/terraform/aws/ecr.tf
+  # ("<project_name>/<image>"). project_name defaults to "office-manager".
+  ECR_NAMESPACE: office-manager
+
 jobs:
-  terraform:
-    runs-on: ubuntu-latest
+  # ── Stage 1: ensure the AWS infrastructure is in place ──────────────────────
+  infra:
+    runs-on: [self-hosted, Linux, X64, docker-build]
     defaults:
       run:
         working-directory: infra/terraform/aws
@@ -89,6 +110,7 @@ jobs:
       # Applies the plan above. This covers both provisioning brand-new
       # resources and updating any resources whose configuration has
       # changed (Terraform's plan/apply is inherently create-or-update).
+      # Runs on push (every prod ship) and on the apply/update dispatch inputs.
       - name: Terraform Apply
         if: github.event_name == 'push' || github.event.inputs.action == 'apply' || github.event.inputs.action == 'update'
         run: terraform apply -auto-approve tfplan
@@ -102,3 +124,229 @@ jobs:
       - name: Terraform Destroy
         if: github.event.inputs.action == 'destroy'
         run: terraform apply -auto-approve tfplan-destroy
+
+  # ── Stage 2: build the images and push them to ECR ──────────────────────────
+  build-and-push:
+    needs: infra
+    if: github.event_name == 'push' || github.event.inputs.action == 'apply' || github.event.inputs.action == 'update'
+    runs-on: [self-hosted, Linux, X64, docker-build]
+    outputs:
+      registry: ${{ steps.login-ecr.outputs.registry }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Ensure the four ECR repositories exist. Terraform (the `infra` job)
+      # normally creates them, but this guard keeps the deploy resilient even
+      # if a repo was removed out-of-band, and is a no-op otherwise.
+      - name: Ensure ECR repositories exist
+        run: |
+          for image in backend frontend admin-frontend landing; do
+            repo="${ECR_NAMESPACE}/${image}"
+            if ! aws ecr describe-repositories --repository-names "$repo" >/dev/null 2>&1; then
+              echo "Creating ECR repository $repo"
+              aws ecr create-repository \
+                --repository-name "$repo" \
+                --image-scanning-configuration scanOnPush=true >/dev/null
+            fi
+          done
+
+      - name: Compute image tag
+        id: meta
+        run: echo "image_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          # Use the `docker` driver so builds run against the host Docker
+          # daemon. The default `docker-container` driver spins up a privileged
+          # BuildKit container, which fails on these self-hosted runners with
+          # "permission denied ... /var/run/docker.sock".
+          driver: docker
+
+      - name: Build and Push Backend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/backend:${{ steps.meta.outputs.image_tag }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/backend:latest
+
+      - name: Build and Push Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          build-args: |
+            VITE_API_BASE_URL=/api/v1
+            VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/frontend:${{ steps.meta.outputs.image_tag }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/frontend:latest
+
+      - name: Build and Push Admin Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin-frontend
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/admin-frontend:${{ steps.meta.outputs.image_tag }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/admin-frontend:latest
+
+      - name: Build and Push Landing Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./landing
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/landing:${{ steps.meta.outputs.image_tag }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/landing:latest
+
+  # ── Stage 3: pull the pushed images and (re)start the stack on AWS ──────────
+  deploy:
+    needs: build-and-push
+    runs-on: [self-hosted, aws-prod]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Authenticate the host Docker daemon to ECR so `docker compose pull` can
+      # download the images. Credentials come from the EC2 instance profile
+      # (ecr:GetAuthorizationToken + pull, granted in infra/terraform/aws/ec2.tf),
+      # so no static keys are needed on the box.
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Fail fast if any required secret is missing — mirrors deploy.yml's
+      # guard against unset GitHub secrets silently becoming empty strings.
+      - name: Validate Required Secrets
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_HOST: ${{ secrets.RDS_HOST }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          DEFAULT_ADMIN_PASSWORD: ${{ secrets.DEFAULT_ADMIN_PASSWORD }}
+          S3_UPLOAD_BUCKET: ${{ secrets.S3_UPLOAD_BUCKET }}
+        run: |
+          missing=()
+          for var in POSTGRES_PASSWORD POSTGRES_HOST JWT_SECRET DEFAULT_ADMIN_PASSWORD S3_UPLOAD_BUCKET; do
+            if [ -z "${!var}" ]; then
+              missing+=("$var")
+            fi
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Missing required repository secret(s): ${missing[*]}"
+            echo "Set them under Settings > Secrets and variables > Actions > Repository secrets."
+            exit 1
+          fi
+          echo "All required secrets are present."
+
+      # Amazon Linux's default Docker package can be installed without the
+      # Compose plugin. Self-heal on runner hosts that are missing `docker compose`.
+      - name: Ensure Docker Compose is available
+        run: |
+          if docker compose version >/dev/null 2>&1; then
+            docker compose version
+            exit 0
+          fi
+
+          mkdir -p "$HOME/.docker/cli-plugins"
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64|amd64) compose_arch="x86_64" ;;
+            aarch64|arm64) compose_arch="aarch64" ;;
+            *)
+              echo "::error::Unsupported architecture for Docker Compose plugin: $arch"
+              exit 1
+              ;;
+          esac
+
+          compose_version="v2.29.7"
+          curl -fsSL \
+            "https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-${compose_arch}" \
+            -o "$HOME/.docker/cli-plugins/docker-compose"
+          chmod +x "$HOME/.docker/cli-plugins/docker-compose"
+          docker compose version
+
+      - name: Deploy Updated Stack
+        env:
+          ECR_REGISTRY: ${{ needs.build-and-push.outputs.registry }}
+          ECR_NAMESPACE: ${{ env.ECR_NAMESPACE }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_HOST: ${{ secrets.RDS_HOST }}
+          POSTGRES_PORT: ${{ secrets.RDS_PORT }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          ADMIN_FRONTEND_URL: ${{ secrets.ADMIN_FRONTEND_URL }}
+          DEFAULT_ADMIN_EMAIL: ${{ secrets.DEFAULT_ADMIN_EMAIL }}
+          DEFAULT_ADMIN_PASSWORD: ${{ secrets.DEFAULT_ADMIN_PASSWORD }}
+          APP_PORT: ${{ secrets.APP_PORT }}
+          ADMIN_PORT: ${{ secrets.ADMIN_PORT }}
+          LANDING_PORT: ${{ secrets.LANDING_PORT }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          S3_UPLOAD_BUCKET: ${{ secrets.S3_UPLOAD_BUCKET }}
+          S3_UPLOAD_PREFIX: ${{ secrets.S3_UPLOAD_PREFIX }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          echo "Pulling ${ECR_REGISTRY}/${ECR_NAMESPACE}/* images tagged ${IMAGE_TAG}..."
+          docker compose -p prod-office-manager -f docker-compose.prod.yml pull
+
+          echo "Recreating application stack on AWS to pick up new image layers..."
+
+          # Fully tear down the previous stack first. `up --force-recreate` alone
+          # can race with the old containers' host-port bindings not yet being
+          # released, causing "port is already allocated" failures. Bringing the
+          # stack down first (and tolerating a missing/absent stack on first run)
+          # reduces the window in which the ports are still held.
+          docker compose -p prod-office-manager -f docker-compose.prod.yml down --remove-orphans --timeout 30 || true
+
+          # `docker compose down` returning does NOT guarantee the Docker daemon
+          # has finished releasing the old host-port bindings — the kernel/proxy
+          # can hold them for a moment longer. When that happens, the immediately
+          # following `up` fails with "port is already allocated". Retry a few
+          # times so the transient race self-heals instead of failing the deploy.
+          up() {
+            docker compose -p prod-office-manager -f docker-compose.prod.yml up -d --force-recreate --remove-orphans
+          }
+          attempt=1
+          max_attempts=5
+          until up; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::Stack failed to start after $max_attempts attempts (ports still held?)."
+              docker ps -a
+              exit 1
+            fi
+            echo "up attempt $attempt failed (likely port still releasing); retrying in 5s..."
+            docker compose -p prod-office-manager -f docker-compose.prod.yml down --remove-orphans --timeout 30 || true
+            attempt=$((attempt + 1))
+            sleep 5
+          done
+
+          docker image prune -f

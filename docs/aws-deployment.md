@@ -194,40 +194,48 @@ scratch so the current value is re-validated rather than re-applying an old
 
 ## CI/CD (GitHub Actions)
 
-Two new workflows target the `prod` branch; `main`'s existing
-`deploy.yml` (VPS/Portainer) is untouched:
+One workflow targets the `prod` branch; `main`'s existing `deploy.yml`
+(VPS/Portainer) is untouched:
 
-- **`.github/workflows/infra-prod.yml`** — runs `terraform plan`/`apply` on a
-  GitHub-hosted runner (it can't run on the self-hosted "aws-prod" runner
-  because that runner *is* the EC2 instance this workflow may be creating).
-  Triggered on changes under `infra/terraform/aws/**` pushed to `prod` (runs
-  `plan` + `apply`, which creates any new resources and updates any changed
-  ones), or manually via `workflow_dispatch` with an `action` input:
-  - `plan` — show proposed changes only, no apply.
-  - `apply` / `update` — plan and apply; provisions new resources and
-    updates any resources whose configuration has drifted (these two
+- **`.github/workflows/infra-prod.yml`** — a single, end-to-end pipeline for
+  the `prod` branch that validates the AWS infra is in place, builds the
+  container images, and deploys them onto the AWS resources. It runs on every
+  push to `prod` (full `infra` → `build-and-push` → `deploy` chain) and can be
+  triggered manually via `workflow_dispatch` with an `action` input:
+  - `plan` — run the `infra` job's `terraform plan` only (no apply, no
+    build/deploy).
+  - `apply` / `update` — apply Terraform, then build and deploy (these two
     options behave identically since Terraform apply is always
     create-or-update).
   - `destroy` — tears down every resource managed by this state so the
-    footprint can be rebuilt from scratch.
-- **`.github/workflows/deploy-prod.yml`** — a two-stage pipeline for the
-  `prod` branch:
-  1. **`build-and-push`** runs on the on-prem build runner (labels
-     `self-hosted, Linux, X64, docker-build`, e.g. `ubuntu-server1`). It builds
-     the four application images and pushes them to AWS ECR, tagged with the
-     commit SHA (immutable) plus `latest`. It authenticates to AWS with the
+    footprint can be rebuilt from scratch (skips build/deploy).
+
+  The three jobs are:
+  1. **`infra`** runs on the on-prem build runner (labels
+     `self-hosted, Linux, X64, docker-build`, e.g. `ubuntu-server1`). It runs
+     `terraform init`/`validate`/`plan`/`apply` to ensure the footprint exists
+     and is up to date. Running Terraform on this persistent runner — rather
+     than on the `aws-prod` runner, which *is* the EC2 instance this workflow
+     may be creating — avoids that chicken-and-egg problem and lets the
+     runner's Terraform plugin cache / working dir persist between runs.
+     **Terraform state itself stays remote** in the S3 bucket + DynamoDB lock
+     table (see "Terraform" above), so it survives even if the runner host is
+     rebuilt.
+  2. **`build-and-push`** also runs on the `docker-build` runner. It builds the
+     four application images and pushes them to AWS ECR, tagged with the commit
+     SHA (immutable) plus `latest`. It authenticates to AWS with the
      `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` secrets (whose IAM user must
      carry the `ecr_push_policy_arn` policy) and self-heals the ECR
-     repositories if they don't exist yet.
-  2. **`deploy`** runs on the self-hosted runner on the EC2 host (label
+     repositories if they don't exist yet. Skipped on the `plan`/`destroy`
+     dispatch inputs.
+  3. **`deploy`** runs on the self-hosted runner on the EC2 host (label
      `aws-prod`). It logs the host Docker daemon into ECR using the instance
      profile (no static keys), pulls the images just pushed, and runs
      `docker compose -f docker-compose.prod.yml up -d` against RDS/S3.
 
-  Splitting build from deploy keeps the low-powered EC2 host out of the image
-  build path (it only pulls and runs), replacing the earlier single-runner
-  approach that built directly on the box. The ECR repositories, the EC2
-  instance role's pull permissions, and the `ecr-push` IAM policy are all
+  Keeping build and deploy in separate jobs keeps the low-powered EC2 host out
+  of the image build path (it only pulls and runs). The ECR repositories, the
+  EC2 instance role's pull permissions, and the `ecr-push` IAM policy are all
   provisioned by `infra/terraform/aws/ecr.tf`.
 
 ### Troubleshooting: `permission denied ... /var/run/docker.sock`
@@ -248,8 +256,8 @@ sudo systemctl restart 'actions.runner.*'
 
 ### Required repository secrets
 
-AWS credentials (for `infra-prod.yml` and the `build-and-push` stage of
-`deploy-prod.yml`):
+AWS credentials (used by the `infra` and `build-and-push` jobs of
+`infra-prod.yml`):
 - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` — the IAM user behind these must
   additionally have the `ecr-push` policy (`terraform output ecr_push_policy_arn`)
   attached so the `docker-build` runner can push images to ECR.
@@ -266,7 +274,7 @@ for the remote state backend created via `infra/terraform/bootstrap`:
 - `TF_STATE_REGION` (optional) — region the state bucket/table live in;
   defaults to `us-east-2` if unset
 
-App deploy (for `deploy-prod.yml`), matching the Terraform outputs:
+App deploy (for the `deploy` job of `infra-prod.yml`), matching the Terraform outputs:
 - `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
 - `RDS_HOST` (= `terraform output db_address`), `RDS_PORT` (usually `5432`)
 - `JWT_SECRET`, `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PASSWORD`
