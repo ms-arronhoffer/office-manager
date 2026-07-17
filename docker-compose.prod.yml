@@ -2,7 +2,7 @@ services:
   backend:
     # Image is built by the `docker-build` runner and pushed to ECR; the
     # aws-prod runner pulls this exact tag. ECR_REGISTRY/ECR_NAMESPACE/IMAGE_TAG
-    # are exported by .github/workflows/deploy-prod.yml. Defaults keep local
+    # are exported by .github/workflows/infra-prod.yml. Defaults keep local
     # `docker compose -f docker-compose.prod.yml` usage working against a
     # locally-built image tagged office-manager/backend:latest.
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}${ECR_NAMESPACE:-office-manager}/backend:${IMAGE_TAG:-latest}

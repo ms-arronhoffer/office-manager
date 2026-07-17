@@ -3,7 +3,7 @@
 # `${var.project_name}` prefix acts as the registry "namespace" so every image
 # lives under a predictable path (e.g. office-manager/backend). The
 # `docker-build` self-hosted runner builds and pushes here; the `aws-prod` EC2
-# host pulls from here at deploy time (see .github/workflows/deploy-prod.yml).
+# host pulls from here at deploy time (see .github/workflows/infra-prod.yml).
 
 locals {
   # Keys are the compose service image basenames; each becomes an ECR
