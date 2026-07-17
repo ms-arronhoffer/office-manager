@@ -117,7 +117,6 @@ jobs:
           # Portainer continues to track the stack.
           echo "Recreating application stack to pick up new image layers..."
 
-<<<<<<< HEAD
           # Fully tear down the previous stack first. `up --force-recreate` alone
           # can race with the old containers' host-port bindings not yet being
           # released, causing "port is already allocated" failures. Bringing the
@@ -146,16 +145,6 @@ jobs:
             attempt=$((attempt + 1))
             sleep 5
           done
-=======
-          # Tear the stack down first so old containers fully release their
-          # published host ports before the new ones try to bind them.
-          # `up --force-recreate` alone can race: it starts creating the new
-          # containers while the old ones are still finishing removal, which
-          # intermittently fails with "port is already allocated".
-          docker compose -p dev-office-manager -f docker-compose.yml down --remove-orphans || true
-
-          docker compose -p dev-office-manager -f docker-compose.yml up -d --force-recreate --remove-orphans
->>>>>>> origin/main
 
           # Clean up older dangling image layers to save space
           docker image prune -f
