@@ -28,7 +28,9 @@ jobs:
       # build fails with "permission denied ... /var/run/docker.sock". This
       # commonly happens when the user was added to the group *after* the
       # runner service started (group changes don't apply to already-running
-      # processes). Self-heal it best-effort so the deploy doesn't hard-fail.
+      # processes) — restarting the runner service isn't possible from within
+      # its own job, so a plain `usermod`/ACL fix can't take effect until the
+      # *next* job. Self-heal it best-effort so *this* deploy doesn't hard-fail.
       - name: Ensure Docker daemon access
         run: |
           if docker info >/dev/null 2>&1; then
@@ -40,21 +42,48 @@ jobs:
           # Persist group membership so future runner sessions work without this step.
           sudo usermod -aG docker "$(id -un)" || true
           # Grant the *current* session immediate access (a group change does not
-          # apply to the already-running runner process) via an ACL on the socket,
-          # falling back to fixing the socket's group/permissions.
+          # apply to the already-running runner process) via an ACL on the socket.
+          # Install the `acl` package on the fly if it's missing so this always
+          # has a chance to work, falling back to fixing the socket's group/perms.
+          if ! command -v setfacl >/dev/null 2>&1; then
+            if command -v apt-get >/dev/null 2>&1; then
+              sudo apt-get update -y >/dev/null 2>&1 && sudo apt-get install -y acl >/dev/null 2>&1 || true
+            elif command -v dnf >/dev/null 2>&1; then
+              sudo dnf install -y acl >/dev/null 2>&1 || true
+            elif command -v yum >/dev/null 2>&1; then
+              sudo yum install -y acl >/dev/null 2>&1 || true
+            fi
+          fi
           if command -v setfacl >/dev/null 2>&1; then
             sudo setfacl -m "u:$(id -un):rw" "$sock" || true
           else
             sudo chgrp docker "$sock" 2>/dev/null || true
             sudo chmod g+rw "$sock" || true
           fi
-          if ! docker info >/dev/null 2>&1; then
-            echo "::error::Unable to access the Docker daemon socket at $sock."
-            echo "Add the self-hosted runner's user to the 'docker' group and restart the runner service:"
-            echo "  sudo usermod -aG docker <runner-user> && sudo systemctl restart 'actions.runner.*'"
-            exit 1
+          if docker info >/dev/null 2>&1; then
+            echo "Docker access restored."
+            exit 0
           fi
-          echo "Docker access restored."
+          # Group/ACL changes still don't apply to this already-running runner
+          # process (its supplementary group list is fixed at process start).
+          # As a last resort, wrap `docker` in a passwordless-sudo shim for the
+          # rest of *this* job only, so the deploy can proceed without needing
+          # a runner service restart mid-job.
+          if sudo -n docker info >/dev/null 2>&1; then
+            echo "::warning::Falling back to passwordless sudo for docker in this job; restart the runner service to fix this permanently."
+            # RUNNER_TEMP (a private, runner-owned directory) is a secure parent
+            # for mktemp; mktemp itself appends its own unpredictable random
+            # suffix, so the resulting path can't be pre-created by another user.
+            shim_dir="$(mktemp -d -p "${RUNNER_TEMP:-${TMPDIR:-/tmp}}")"
+            printf '%s\n' '#!/bin/sh' 'exec sudo -n docker "$@"' > "$shim_dir/docker"
+            chmod +x "$shim_dir/docker"
+            echo "$shim_dir" >> "$GITHUB_PATH"
+            exit 0
+          fi
+          echo "::error::Unable to access the Docker daemon socket at $sock."
+          echo "Add the self-hosted runner's user to the 'docker' group and restart the runner service:"
+          echo "  sudo usermod -aG docker <runner-user> && sudo systemctl restart 'actions.runner.*'"
+          exit 1
 
       # Build directly with `docker build` against the host Docker daemon so
       # images land in the local image store (the stack below runs them by
