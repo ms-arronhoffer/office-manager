@@ -129,7 +129,7 @@ jobs:
       - name: Self-heal Terraform state (import pre-existing resources)
         if: github.event.inputs.action != 'destroy'
         run: |
-          set -uo pipefail
+          set -euo pipefail
           NAME="${{ env.ECR_NAMESPACE }}-prod"
           SECRET_NAME="${{ env.ECR_NAMESPACE }}/prod/app-secrets"
           failed=0
@@ -179,6 +179,10 @@ jobs:
           # data.aws_vpc.selected) since group names are only unique per VPC.
           vpc_id="${TF_VAR_vpc_id:-}"
           if [ -z "$vpc_id" ]; then
+            # aws --output text prints the literal string "None" for a null
+            # result (e.g. no default VPC), so both empty (lookup itself
+            # failed, caught by `|| true`) and the string "None" mean
+            # "couldn't determine a VPC" and must be checked below.
             vpc_id="$(aws ec2 describe-vpcs --filters Name=is-default,Values=true \
               --query 'Vpcs[0].VpcId' --output text 2>/dev/null || true)"
           fi
@@ -210,12 +214,24 @@ jobs:
               --query 'DeletedDate' --output text 2>/dev/null || true)"
             if [ -n "$deleted_date" ] && [ "$deleted_date" != "None" ]; then
               echo "Restoring $SECRET_NAME from scheduled deletion..."
-              if ! restore_err="$(aws secretsmanager restore-secret --secret-id "$SECRET_NAME" 2>&1)"; then
+              if restore_err="$(aws secretsmanager restore-secret --secret-id "$SECRET_NAME" 2>&1)"; then
+                # restore-secret is not guaranteed to be immediately
+                # consistent; re-check DeletedDate is actually gone before
+                # treating it as importable.
+                deleted_date="$(aws secretsmanager describe-secret --secret-id "$SECRET_NAME" \
+                  --query 'DeletedDate' --output text 2>/dev/null || true)"
+              else
                 echo "::warning::Failed to restore $SECRET_NAME from scheduled deletion: $restore_err"
+                failed=1
               fi
             fi
-            if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" >/dev/null 2>&1; then
-              do_import "aws_secretsmanager_secret.app" "$SECRET_NAME"
+            if [ -z "$deleted_date" ] || [ "$deleted_date" = "None" ]; then
+              if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" >/dev/null 2>&1; then
+                do_import "aws_secretsmanager_secret.app" "$SECRET_NAME"
+              fi
+            else
+              echo "::warning::$SECRET_NAME is still scheduled for deletion after restore attempt; skipping import."
+              failed=1
             fi
           fi
 
