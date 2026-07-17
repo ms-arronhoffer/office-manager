@@ -230,6 +230,22 @@ Two new workflows target the `prod` branch; `main`'s existing
   instance role's pull permissions, and the `ecr-push` IAM policy are all
   provisioned by `infra/terraform/aws/ecr.tf`.
 
+### Troubleshooting: `permission denied ... /var/run/docker.sock`
+
+If a build step fails with `permission denied while trying to connect to the
+Docker daemon socket at unix:///var/run/docker.sock`, the self-hosted runner's
+user isn't effectively in the `docker` group. This typically happens when the
+user was added to the group *after* the runner service started (group changes
+don't apply to already-running processes). Both deploy workflows now include an
+`Ensure Docker daemon access` preflight step that self-heals this best-effort.
+To fix it permanently on the host, add the runner user to the `docker` group and
+restart the runner service so it picks up the new group:
+
+```bash
+sudo usermod -aG docker <runner-user>
+sudo systemctl restart 'actions.runner.*'
+```
+
 ### Required repository secrets
 
 AWS credentials (for `infra-prod.yml` and the `build-and-push` stage of

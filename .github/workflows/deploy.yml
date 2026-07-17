@@ -13,54 +13,72 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          # Use the `docker` driver so builds run against the host Docker
-          # daemon and load images into the local image store (all builds below
-          # use `load: true`). The default `docker-container` driver spins up a
-          # privileged BuildKit container, which fails on these self-hosted
-          # runners with "permission denied ... /var/run/docker.sock".
-          driver: docker
+      # Ensure this self-hosted runner can talk to the host Docker daemon.
+      # Every `docker build`/`docker compose` step below connects to
+      # /var/run/docker.sock, which is owned root:docker (mode 660). If the
+      # runner's user isn't effectively in the `docker` group the very first
+      # build fails with "permission denied ... /var/run/docker.sock". This
+      # commonly happens when the user was added to the group *after* the
+      # runner service started (group changes don't apply to already-running
+      # processes). Self-heal it best-effort so the deploy doesn't hard-fail.
+      - name: Ensure Docker daemon access
+        run: |
+          if docker info >/dev/null 2>&1; then
+            echo "Docker daemon reachable."
+            exit 0
+          fi
+          echo "::warning::Docker socket not accessible by '$(id -un)'; attempting to self-heal."
+          sock=/var/run/docker.sock
+          # Persist group membership so future runner sessions work without this step.
+          sudo usermod -aG docker "$(id -un)" || true
+          # Grant the *current* session immediate access (a group change does not
+          # apply to the already-running runner process) via an ACL on the socket,
+          # falling back to fixing the socket's group/permissions.
+          if command -v setfacl >/dev/null 2>&1; then
+            sudo setfacl -m "u:$(id -un):rw" "$sock" || true
+          else
+            sudo chgrp docker "$sock" 2>/dev/null || true
+            sudo chmod g+rw "$sock" || true
+          fi
+          if ! docker info >/dev/null 2>&1; then
+            echo "::error::Unable to access the Docker daemon socket at $sock."
+            echo "Add the self-hosted runner's user to the 'docker' group and restart the runner service:"
+            echo "  sudo usermod -aG docker <runner-user> && sudo systemctl restart 'actions.runner.*'"
+            exit 1
+          fi
+          echo "Docker access restored."
+
+      # Build directly with `docker build` against the host Docker daemon so
+      # images land in the local image store (the stack below runs them by
+      # name). We intentionally do NOT use docker/setup-buildx-action here:
+      # its `docker`-driver path fails on these self-hosted runners with
+      # "Cannot read properties of undefined (reading 'endpoint')", and the
+      # default `docker-container` driver spins up a privileged BuildKit
+      # container that fails with "permission denied ... /var/run/docker.sock".
+      # `docker build` uses the host's default builder and needs neither.
 
       # 1. Build backend
       - name: Build Backend Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          tags: office-manager-backend:latest
-          push: false
-          load: true
+        run: docker build -t office-manager-backend:latest ./backend
 
       # 2. Build frontend
       - name: Build Frontend Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          tags: office-manager-frontend:latest
-          push: false
-          load: true
-          build-args: |
-            VITE_API_BASE_URL=/api/v1
-            VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+        run: |
+          docker build \
+            --build-arg VITE_API_BASE_URL=/api/v1 \
+            --build-arg VITE_GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
+            -t office-manager-frontend:latest \
+            ./frontend
 
       # 3. Build Admin Frontend
       - name: Build Admin Frontend Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./admin-frontend
-          tags: office-manager-admin-frontend:latest
-          push: false
-          load: true
+        run: docker build -t office-manager-admin-frontend:latest ./admin-frontend
 
       # 4. Build Landing
       - name: Build Landing Image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./landing
-          tags: office-manager-landing:latest
-          push: false
-          load: true
+        run: docker build -t office-manager-landing:latest ./landing
 
       # 5. Fail fast if any required secret is missing or empty. These map to the
       #    compose `${VAR:?...}` required variables; an unset GitHub secret is
