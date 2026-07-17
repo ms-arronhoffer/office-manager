@@ -11,6 +11,18 @@ dnf install -y docker git jq acl
 systemctl enable --now docker
 usermod -aG docker ec2-user
 
+# The Amazon Linux 2023 "docker" package does not ship the Docker Compose CLI
+# plugin, so `docker compose ...` is not recognized as a subcommand and the
+# args (e.g. `-p my-project`) get mis-parsed as unknown flags to `docker`
+# itself ("unknown shorthand flag: 'p' in -p"). Install the compose plugin
+# binary directly from Docker's releases so `docker compose` works.
+COMPOSE_VERSION=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest | jq -r '.tag_name')
+DOCKER_CLI_PLUGINS_DIR="/usr/local/lib/docker/cli-plugins"
+mkdir -p "$DOCKER_CLI_PLUGINS_DIR"
+curl -fsSL -o "$DOCKER_CLI_PLUGINS_DIR/docker-compose" \
+  "https://github.com/docker/compose/releases/download/$COMPOSE_VERSION/docker-compose-linux-aarch64"
+chmod +x "$DOCKER_CLI_PLUGINS_DIR/docker-compose"
+
 # ── GitHub Actions self-hosted runner ─────────────────────────────────────────
 GITHUB_REPO="${github_repo}"
 RUNNER_LABELS="${github_runner_labels}"
