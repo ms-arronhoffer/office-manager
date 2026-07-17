@@ -383,6 +383,41 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # Ensure this self-hosted runner can talk to the host Docker daemon.
+      # Every `docker compose` step below connects to /var/run/docker.sock,
+      # which is owned root:docker (mode 660). The aws-prod runner's job
+      # processes actually run as the OS user `ssm-user` (via SSM Session
+      # Manager), not the `ec2-user` that user_data.sh.tpl adds to the
+      # `docker` group, so the very first compose command fails with
+      # "permission denied ... /var/run/docker.sock". Self-heal it best-effort
+      # so the deploy doesn't hard-fail. Mirrors deploy.yml's equivalent step.
+      - name: Ensure Docker daemon access
+        run: |
+          if docker info >/dev/null 2>&1; then
+            echo "Docker daemon reachable."
+            exit 0
+          fi
+          echo "::warning::Docker socket not accessible by '$(id -un)'; attempting to self-heal."
+          sock=/var/run/docker.sock
+          # Persist group membership so future runner sessions work without this step.
+          sudo usermod -aG docker "$(id -un)" || true
+          # Grant the *current* session immediate access (a group change does not
+          # apply to the already-running runner process) via an ACL on the socket,
+          # falling back to fixing the socket's group/permissions.
+          if command -v setfacl >/dev/null 2>&1; then
+            sudo setfacl -m "u:$(id -un):rw" "$sock" || true
+          else
+            sudo chgrp docker "$sock" 2>/dev/null || true
+            sudo chmod g+rw "$sock" || true
+          fi
+          if ! docker info >/dev/null 2>&1; then
+            echo "::error::Unable to access the Docker daemon socket at $sock."
+            echo "Add the self-hosted runner's user to the 'docker' group and restart the runner service:"
+            echo "  sudo usermod -aG docker <runner-user> && sudo systemctl restart 'actions.runner.*'"
+            exit 1
+          fi
+          echo "Docker access restored."
+
       # Authenticate the host Docker daemon to ECR so `docker compose pull` can
       # download the images. Credentials come from the EC2 instance profile
       # (ecr:GetAuthorizationToken + pull, granted in infra/terraform/aws/ec2.tf),
