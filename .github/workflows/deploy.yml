@@ -63,6 +63,9 @@ jobs:
           # a runner service restart mid-job.
           if sudo -n docker info >/dev/null 2>&1; then
             echo "::warning::Falling back to passwordless sudo for docker in this job; restart the runner service to fix this permanently."
+            # RUNNER_TEMP (a private, runner-owned directory) is a secure parent
+            # for mktemp; mktemp itself appends its own unpredictable random
+            # suffix, so the resulting path can't be pre-created by another user.
             shim_dir="$(mktemp -d -p "${RUNNER_TEMP:-${TMPDIR:-/tmp}}")"
             printf '%s\n' '#!/bin/sh' 'exec sudo -n docker "$@"' > "$shim_dir/docker"
             chmod +x "$shim_dir/docker"
