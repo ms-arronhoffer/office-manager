@@ -83,22 +83,34 @@ jobs:
           terraform_version: "1.9.5"
 
       - name: Check Terraform state backend variables
+        env:
+          # These are documented as repository *variables* (Settings >
+          # Secrets and variables > Actions > Variables), since bucket/table
+          # names aren't sensitive. Some setups add them under the
+          # *Secrets* tab instead — fall back to the same-named secret so
+          # that case still works, rather than failing with a misleading
+          # "missing" error when the value does in fact exist.
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET || secrets.TF_STATE_BUCKET }}
+          TF_STATE_LOCK_TABLE: ${{ vars.TF_STATE_LOCK_TABLE || secrets.TF_STATE_LOCK_TABLE }}
         run: |
           missing=()
-          [ -z "${{ vars.TF_STATE_BUCKET }}" ] && missing+=("TF_STATE_BUCKET")
-          [ -z "${{ vars.TF_STATE_LOCK_TABLE }}" ] && missing+=("TF_STATE_LOCK_TABLE")
+          [ -z "$TF_STATE_BUCKET" ] && missing+=("TF_STATE_BUCKET")
+          [ -z "$TF_STATE_LOCK_TABLE" ] && missing+=("TF_STATE_LOCK_TABLE")
           if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::error::Missing required repository variable(s): ${missing[*]}. Set them under Settings > Secrets and variables > Actions > Variables using the values from 'terraform output' in infra/terraform/bootstrap (see docs/aws-deployment.md). Terraform init cannot proceed with an empty S3 backend configuration."
+            echo "::error::Missing required repository variable(s): ${missing[*]}. Set them under Settings > Secrets and variables > Actions > Variables (preferred, since these values aren't sensitive) or Secrets, using the values from 'terraform output' in infra/terraform/bootstrap (see docs/aws-deployment.md). Terraform init cannot proceed with an empty S3 backend configuration."
             exit 1
           fi
 
       - name: Terraform Init
+        env:
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET || secrets.TF_STATE_BUCKET }}
+          TF_STATE_LOCK_TABLE: ${{ vars.TF_STATE_LOCK_TABLE || secrets.TF_STATE_LOCK_TABLE }}
         run: |
           terraform init \
-            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
             -backend-config="key=aws/prod/terraform.tfstate" \
             -backend-config="region=${{ vars.TF_STATE_REGION || 'us-east-2' }}" \
-            -backend-config="dynamodb_table=${{ vars.TF_STATE_LOCK_TABLE }}"
+            -backend-config="dynamodb_table=${TF_STATE_LOCK_TABLE}"
 
       - name: Terraform Validate
         run: terraform validate
