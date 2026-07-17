@@ -178,16 +178,23 @@ jobs:
           # Scope the lookup to the same VPC Terraform targets (network.tf's
           # data.aws_vpc.selected) since group names are only unique per VPC.
           vpc_id="${TF_VAR_vpc_id:-}"
+          vpc_lookup_failed=0
           if [ -z "$vpc_id" ]; then
             # aws --output text prints the literal string "None" for a null
-            # result (e.g. no default VPC), so both empty (lookup itself
-            # failed, caught by `|| true`) and the string "None" mean
-            # "couldn't determine a VPC" and must be checked below.
-            vpc_id="$(aws ec2 describe-vpcs --filters Name=is-default,Values=true \
-              --query 'Vpcs[0].VpcId' --output text 2>/dev/null || true)"
+            # result (e.g. no default VPC); a describe-vpcs call failure
+            # (e.g. permissions) is distinguished from that via its exit code
+            # rather than being silently folded into the same fallback.
+            if ! vpc_id="$(aws ec2 describe-vpcs --filters Name=is-default,Values=true \
+                --query 'Vpcs[0].VpcId' --output text 2>/dev/null)"; then
+              vpc_lookup_failed=1
+              vpc_id=""
+            fi
           fi
-          if [ -z "$vpc_id" ] || [ "$vpc_id" = "None" ]; then
-            echo "Could not determine a VPC id; skipping security group auto-import."
+          if [ "$vpc_lookup_failed" -eq 1 ]; then
+            echo "::warning::Could not look up the default VPC (describe-vpcs call failed); skipping security group auto-import."
+            failed=1
+          elif [ -z "$vpc_id" ] || [ "$vpc_id" = "None" ]; then
+            echo "No default VPC found; skipping security group auto-import."
           fi
           for sg_key in app db; do
             addr="aws_security_group.$sg_key"
@@ -196,12 +203,15 @@ jobs:
               continue
             fi
             # Fetch the count and (potential) id in one call rather than two.
-            # If the call itself fails (rather than just matching 0 groups),
-            # both `matches`/`sg_id` fall back to the safe "0 None", which
-            # skips import below exactly like a genuine zero-match result.
-            read -r matches sg_id <<<"$(aws ec2 describe-security-groups \
-              --filters "Name=group-name,Values=$sg_name" "Name=vpc-id,Values=$vpc_id" \
-              --query '[length(SecurityGroups), SecurityGroups[0].GroupId]' --output text 2>/dev/null || echo 0 None)"
+            if sg_lookup="$(aws ec2 describe-security-groups \
+                --filters "Name=group-name,Values=$sg_name" "Name=vpc-id,Values=$vpc_id" \
+                --query '[length(SecurityGroups), SecurityGroups[0].GroupId]' --output text 2>/dev/null)"; then
+              read -r matches sg_id <<<"$sg_lookup"
+            else
+              echo "::warning::describe-security-groups failed for $sg_name; skipping auto-import."
+              failed=1
+              continue
+            fi
             if [ "$matches" = "1" ]; then
               do_import "$addr" "$sg_id"
             elif [ "${matches:-0}" != "0" ]; then
@@ -220,19 +230,24 @@ jobs:
             [ -n "$deleted_date" ] && [ "$deleted_date" != "None" ]
           }
           if ! state_has "aws_secretsmanager_secret.app"; then
+            restore_failed=0
             if secret_is_deleted "$SECRET_NAME"; then
               echo "Restoring $SECRET_NAME from scheduled deletion..."
               if ! restore_err="$(aws secretsmanager restore-secret --secret-id "$SECRET_NAME" 2>&1)"; then
                 # Flatten to one line so it can't break the ::warning:: annotation.
                 echo "::warning::Failed to restore $SECRET_NAME from scheduled deletion: ${restore_err//$'\n'/ }"
+                restore_failed=1
                 failed=1
               fi
             fi
             # restore-secret is not guaranteed to be immediately consistent,
-            # so re-check DeletedDate is actually gone before importing.
+            # so re-check DeletedDate is actually gone before importing
+            # (unless the restore call itself already failed and warned above).
             if secret_is_deleted "$SECRET_NAME"; then
-              echo "::warning::$SECRET_NAME is still scheduled for deletion after restore attempt; skipping import."
-              failed=1
+              if [ "$restore_failed" -eq 0 ]; then
+                echo "::warning::$SECRET_NAME is still scheduled for deletion after restore attempt; skipping import."
+                failed=1
+              fi
             elif aws secretsmanager describe-secret --secret-id "$SECRET_NAME" >/dev/null 2>&1; then
               do_import "aws_secretsmanager_secret.app" "$SECRET_NAME"
             fi
