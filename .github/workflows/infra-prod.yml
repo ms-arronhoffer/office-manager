@@ -525,7 +525,7 @@ jobs:
           # Hub's implicit namespace instead of ECR (which 404s with a confusing
           # "pull access denied ... repository does not exist" error).
           if [ -z "$ECR_REGISTRY" ] || [ -z "$IMAGE_TAG" ]; then
-            echo "::error::ECR_REGISTRY or IMAGE_TAG is empty (got ECR_REGISTRY='${ECR_REGISTRY}', IMAGE_TAG='${IMAGE_TAG}')."
+            echo "::error::ECR_REGISTRY and/or IMAGE_TAG is empty (got ECR_REGISTRY='${ECR_REGISTRY}', IMAGE_TAG='${IMAGE_TAG}')."
             echo "The 'build-and-push' job's ECR login likely failed to authenticate — check its AWS credentials/role."
             exit 1
           fi

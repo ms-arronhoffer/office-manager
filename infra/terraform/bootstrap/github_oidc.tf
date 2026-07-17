@@ -32,10 +32,16 @@ data "tls_certificate" "github_actions" {
   url = "https://token.actions.githubusercontent.com"
 }
 
+locals {
+  # AWS validates the OIDC provider against the SHA1 thumbprint of the last
+  # certificate in the chain served by the issuer (its root CA).
+  github_oidc_root_thumbprint = data.tls_certificate.github_actions.certificates[length(data.tls_certificate.github_actions.certificates) - 1].sha1_fingerprint
+}
+
 resource "aws_iam_openid_connect_provider" "github_actions" {
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = [data.tls_certificate.github_actions.certificates[length(data.tls_certificate.github_actions.certificates) - 1].sha1_fingerprint]
+  thumbprint_list = [local.github_oidc_root_thumbprint]
 }
 
 data "aws_iam_policy_document" "github_actions_assume" {
