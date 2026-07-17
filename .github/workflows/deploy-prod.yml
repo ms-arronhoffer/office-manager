@@ -70,7 +70,7 @@ jobs:
           S3_UPLOAD_BUCKET: ${{ secrets.S3_UPLOAD_BUCKET }}
         run: |
           missing=()
-          for var in POSTGRES_PASSWORD POSTGRES_HOST JWT_SECRET DEFAULT_ADMIN_PASSWORD S3_UPLOAD_BUCKET; do
+          for var in POSTGRES_PASSWORD POSTGRES_HOST JWT_SECRET DEFAULT_ADMIN_PASSWORD_S3_UPLOAD_BUCKET; do
             if [ -z "${!var}" ]; then
               missing+=("$var")
             fi
