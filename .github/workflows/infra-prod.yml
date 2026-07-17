@@ -192,15 +192,13 @@ jobs:
             if state_has "$addr" || [ -z "$vpc_id" ] || [ "$vpc_id" = "None" ]; then
               continue
             fi
-            matches="$(aws ec2 describe-security-groups \
+            # Fetch the count and (potential) id in one call rather than two.
+            read -r matches sg_id <<<"$(aws ec2 describe-security-groups \
               --filters "Name=group-name,Values=$sg_name" "Name=vpc-id,Values=$vpc_id" \
-              --query 'length(SecurityGroups)' --output text 2>/dev/null || echo 0)"
+              --query '[length(SecurityGroups), SecurityGroups[0].GroupId]' --output text 2>/dev/null || echo 0 None)"
             if [ "$matches" = "1" ]; then
-              sg_id="$(aws ec2 describe-security-groups \
-                --filters "Name=group-name,Values=$sg_name" "Name=vpc-id,Values=$vpc_id" \
-                --query 'SecurityGroups[0].GroupId' --output text)"
               do_import "$addr" "$sg_id"
-            elif [ "$matches" != "0" ]; then
+            elif [ "${matches:-0}" != "0" ]; then
               echo "::warning::Found $matches security groups named $sg_name in $vpc_id; skipping auto-import (ambiguous)."
               failed=1
             fi
@@ -209,29 +207,28 @@ jobs:
           # The secret may be left "scheduled for deletion" by a previous
           # (partial) destroy; it must be restored before it can be created
           # or imported.
-          if ! state_has "aws_secretsmanager_secret.app"; then
-            deleted_date="$(aws secretsmanager describe-secret --secret-id "$SECRET_NAME" \
+          secret_is_deleted() {
+            local deleted_date
+            deleted_date="$(aws secretsmanager describe-secret --secret-id "$1" \
               --query 'DeletedDate' --output text 2>/dev/null || true)"
-            if [ -n "$deleted_date" ] && [ "$deleted_date" != "None" ]; then
+            [ -n "$deleted_date" ] && [ "$deleted_date" != "None" ]
+          }
+          if ! state_has "aws_secretsmanager_secret.app"; then
+            if secret_is_deleted "$SECRET_NAME"; then
               echo "Restoring $SECRET_NAME from scheduled deletion..."
-              if restore_err="$(aws secretsmanager restore-secret --secret-id "$SECRET_NAME" 2>&1)"; then
-                # restore-secret is not guaranteed to be immediately
-                # consistent; re-check DeletedDate is actually gone before
-                # treating it as importable.
-                deleted_date="$(aws secretsmanager describe-secret --secret-id "$SECRET_NAME" \
-                  --query 'DeletedDate' --output text 2>/dev/null || true)"
-              else
-                echo "::warning::Failed to restore $SECRET_NAME from scheduled deletion: $restore_err"
+              if ! restore_err="$(aws secretsmanager restore-secret --secret-id "$SECRET_NAME" 2>&1)"; then
+                # Flatten to one line so it can't break the ::warning:: annotation.
+                echo "::warning::Failed to restore $SECRET_NAME from scheduled deletion: ${restore_err//$'\n'/ }"
                 failed=1
               fi
             fi
-            if [ -z "$deleted_date" ] || [ "$deleted_date" = "None" ]; then
-              if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" >/dev/null 2>&1; then
-                do_import "aws_secretsmanager_secret.app" "$SECRET_NAME"
-              fi
-            else
+            # restore-secret is not guaranteed to be immediately consistent,
+            # so re-check DeletedDate is actually gone before importing.
+            if secret_is_deleted "$SECRET_NAME"; then
               echo "::warning::$SECRET_NAME is still scheduled for deletion after restore attempt; skipping import."
               failed=1
+            elif aws secretsmanager describe-secret --secret-id "$SECRET_NAME" >/dev/null 2>&1; then
+              do_import "aws_secretsmanager_secret.app" "$SECRET_NAME"
             fi
           fi
 
