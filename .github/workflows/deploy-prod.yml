@@ -113,6 +113,13 @@ jobs:
         run: |
           echo "Recreating application stack on AWS to pick up new image layers..."
 
+          # Tear the stack down first so old containers fully release their
+          # published host ports before the new ones try to bind them.
+          # `up --force-recreate` alone can race: it starts creating the new
+          # containers while the old ones are still finishing removal, which
+          # intermittently fails with "port is already allocated".
+          docker compose -p prod-office-manager -f docker-compose.prod.yml down --remove-orphans || true
+
           docker compose -p prod-office-manager -f docker-compose.prod.yml up -d --force-recreate --remove-orphans
 
           docker image prune -f
