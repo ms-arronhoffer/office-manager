@@ -165,6 +165,33 @@ jobs:
           fi
           echo "All required secrets are present."
 
+      # Amazon Linux's default Docker package can be installed without the
+      # Compose plugin. Self-heal on runner hosts that are missing `docker compose`.
+      - name: Ensure Docker Compose is available
+        run: |
+          if docker compose version >/dev/null 2>&1; then
+            docker compose version
+            exit 0
+          fi
+
+          mkdir -p "$HOME/.docker/cli-plugins"
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64|amd64) compose_arch="x86_64" ;;
+            aarch64|arm64) compose_arch="aarch64" ;;
+            *)
+              echo "::error::Unsupported architecture for Docker Compose plugin: $arch"
+              exit 1
+              ;;
+          esac
+
+          compose_version="v2.29.7"
+          curl -fsSL \
+            "https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-${compose_arch}" \
+            -o "$HOME/.docker/cli-plugins/docker-compose"
+          chmod +x "$HOME/.docker/cli-plugins/docker-compose"
+          docker compose version
+
       - name: Deploy Updated Stack
         env:
           ECR_REGISTRY: ${{ needs.build-and-push.outputs.registry }}
