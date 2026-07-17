@@ -130,12 +130,14 @@ variable "db_password" {
   sensitive   = true
 
   validation {
-    # RDS rejects control characters (e.g. a stray trailing newline picked up
-    # when a secret is stored/exported from a file). trimspace() only removes
-    # leading/trailing whitespace, so this also flags embedded control chars
-    # that would otherwise surface as an opaque AWS API error at apply time.
+    # RDS rejects control characters. A trailing newline (e.g. picked up when
+    # a secret is stored/exported from a file) is auto-stripped by the
+    # trimspace() calls at the point of use (rds.tf, secrets.tf), so it's
+    # trimmed here too before checking — this validation only needs to catch
+    # *embedded* control characters, which trimspace() can't fix and would
+    # otherwise surface as an opaque AWS API error at apply time.
     condition     = can(regex("^[^\\x00-\\x1f\\x7f]*$", trimspace(var.db_password)))
-    error_message = "db_password must not contain control characters (check the secret for an accidental trailing newline)."
+    error_message = "db_password must not contain control characters (check the secret for stray characters, e.g. an embedded newline)."
   }
 }
 
