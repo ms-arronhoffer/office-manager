@@ -312,6 +312,14 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
+          # v4 defaults this to `true`, which masks the AWS account ID in
+          # logs — but the ECR registry hostname embeds that account ID, and
+          # GitHub Actions silently blanks any job output containing a masked
+          # value when it's read by another job. That turned the `deploy`
+          # job's `needs.build-and-push.outputs.registry` empty even though
+          # this job succeeded. Disable masking here so the registry output
+          # can safely propagate to the `deploy` job.
+          mask-aws-account-id: false
 
       - name: Log in to Amazon ECR
         id: login-ecr
