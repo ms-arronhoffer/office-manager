@@ -7,7 +7,7 @@
 set -euxo pipefail
 
 dnf update -y
-dnf install -y docker git jq
+dnf install -y docker git jq acl
 systemctl enable --now docker
 usermod -aG docker ec2-user
 
