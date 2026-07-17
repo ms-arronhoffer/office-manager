@@ -16,12 +16,11 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
-          # Use the daemon's built-in builder instead of the default
-          # docker-container driver. The container driver spins up a
-          # buildx_buildkit_* helper container, which on this self-hosted
-          # runner fails with "permission denied ... /var/run/docker.sock".
-          # All images here are built locally (push: false, load: true), so
-          # the docker driver is sufficient and loads straight into the daemon.
+          # Use the `docker` driver so builds run against the host Docker
+          # daemon and load images into the local image store (all builds below
+          # use `load: true`). The default `docker-container` driver spins up a
+          # privileged BuildKit container, which fails on these self-hosted
+          # runners with "permission denied ... /var/run/docker.sock".
           driver: docker
 
       # 1. Build backend
@@ -117,14 +116,34 @@ jobs:
           # Portainer continues to track the stack.
           echo "Recreating application stack to pick up new image layers..."
 
-          # Tear the stack down first so old containers fully release their
-          # published host ports before the new ones try to bind them.
-          # `up --force-recreate` alone can race: it starts creating the new
-          # containers while the old ones are still finishing removal, which
-          # intermittently fails with "port is already allocated".
-          docker compose -p dev-office-manager -f docker-compose.yml down --remove-orphans || true
+          # Fully tear down the previous stack first. `up --force-recreate` alone
+          # can race with the old containers' host-port bindings not yet being
+          # released, causing "port is already allocated" failures. Bringing the
+          # stack down first (and tolerating a missing/absent stack on first run)
+          # reduces the window in which the ports are still held.
+          docker compose -p dev-office-manager -f docker-compose.yml down --remove-orphans --timeout 30 || true
 
-          docker compose -p dev-office-manager -f docker-compose.yml up -d --force-recreate --remove-orphans
+          # `docker compose down` returning does NOT guarantee the Docker daemon
+          # has finished releasing the old host-port bindings — the kernel/proxy
+          # can hold them for a moment longer. When that happens, the immediately
+          # following `up` fails with "port is already allocated". Retry a few
+          # times so the transient race self-heals instead of failing the deploy.
+          up() {
+            docker compose -p dev-office-manager -f docker-compose.yml up -d --force-recreate --remove-orphans
+          }
+          attempt=1
+          max_attempts=5
+          until up; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::Stack failed to start after $max_attempts attempts (ports still held?)."
+              docker ps -a
+              exit 1
+            fi
+            echo "up attempt $attempt failed (likely port still releasing); retrying in 5s..."
+            docker compose -p dev-office-manager -f docker-compose.yml down --remove-orphans --timeout 30 || true
+            attempt=$((attempt + 1))
+            sleep 5
+          done
 
           # Clean up older dangling image layers to save space
           docker image prune -f

@@ -61,6 +61,16 @@ jobs:
         with:
           terraform_version: "1.9.5"
 
+      - name: Check Terraform state backend variables
+        run: |
+          missing=()
+          [ -z "${{ vars.TF_STATE_BUCKET }}" ] && missing+=("TF_STATE_BUCKET")
+          [ -z "${{ vars.TF_STATE_LOCK_TABLE }}" ] && missing+=("TF_STATE_LOCK_TABLE")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing required repository variable(s): ${missing[*]}. Set them under Settings > Secrets and variables > Actions > Variables using the values from 'terraform output' in infra/terraform/bootstrap (see docs/aws-deployment.md). Terraform init cannot proceed with an empty S3 backend configuration."
+            exit 1
+          fi
+
       - name: Terraform Init
         run: |
           terraform init \
