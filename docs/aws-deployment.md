@@ -179,8 +179,16 @@ Two new workflows target the `prod` branch; `main`'s existing
 - **`.github/workflows/infra-prod.yml`** — runs `terraform plan`/`apply` on a
   GitHub-hosted runner (it can't run on the self-hosted "aws-prod" runner
   because that runner *is* the EC2 instance this workflow may be creating).
-  Triggered on changes under `infra/terraform/aws/**` pushed to `prod`, or
-  manually via `workflow_dispatch`.
+  Triggered on changes under `infra/terraform/aws/**` pushed to `prod` (runs
+  `plan` + `apply`, which creates any new resources and updates any changed
+  ones), or manually via `workflow_dispatch` with an `action` input:
+  - `plan` — show proposed changes only, no apply.
+  - `apply` / `update` — plan and apply; provisions new resources and
+    updates any resources whose configuration has drifted (these two
+    options behave identically since Terraform apply is always
+    create-or-update).
+  - `destroy` — tears down every resource managed by this state so the
+    footprint can be rebuilt from scratch.
 - **`.github/workflows/deploy-prod.yml`** — builds the four application
   images and runs `docker compose -f docker-compose.prod.yml up -d` on the
   self-hosted runner registered on the EC2 instance (label `aws-prod`),

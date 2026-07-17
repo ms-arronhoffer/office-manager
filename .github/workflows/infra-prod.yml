@@ -25,6 +25,8 @@ on:
         options:
           - plan
           - apply
+          - update
+          - destroy
 
 permissions:
   contents: read
@@ -71,8 +73,22 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
+        if: github.event.inputs.action != 'destroy'
         run: terraform plan -out=tfplan
 
+      # Applies the plan above. This covers both provisioning brand-new
+      # resources and updating any resources whose configuration has
+      # changed (Terraform's plan/apply is inherently create-or-update).
       - name: Terraform Apply
-        if: github.event_name == 'push' || github.event.inputs.action == 'apply'
+        if: github.event_name == 'push' || github.event.inputs.action == 'apply' || github.event.inputs.action == 'update'
         run: terraform apply -auto-approve tfplan
+
+      # Tears down the entire managed footprint so it can be rebuilt from
+      # scratch. Only runs when explicitly requested via workflow_dispatch.
+      - name: Terraform Plan Destroy
+        if: github.event.inputs.action == 'destroy'
+        run: terraform plan -destroy -out=tfplan-destroy
+
+      - name: Terraform Destroy
+        if: github.event.inputs.action == 'destroy'
+        run: terraform apply -auto-approve tfplan-destroy
