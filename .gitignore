@@ -56,6 +56,8 @@ tools/tutorial-screenshots/playwright-report/
 *.tfplan
 **/terraform.tfvars
 !**/terraform.tfvars.example
+**/backend.hcl
+!**/backend.hcl.example
 crash.log
 crash.*.log
 
