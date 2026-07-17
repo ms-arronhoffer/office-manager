@@ -235,7 +235,8 @@ jobs:
               echo "Restoring $SECRET_NAME from scheduled deletion..."
               if ! restore_err="$(aws secretsmanager restore-secret --secret-id "$SECRET_NAME" 2>&1)"; then
                 # Flatten to one line so it can't break the ::warning:: annotation.
-                echo "::warning::Failed to restore $SECRET_NAME from scheduled deletion: ${restore_err//$'\n'/ }"
+                restore_err_flat="$(echo "$restore_err" | tr '\n' ' ')"
+                echo "::warning::Failed to restore $SECRET_NAME from scheduled deletion: $restore_err_flat"
                 restore_failed=1
                 failed=1
               fi
