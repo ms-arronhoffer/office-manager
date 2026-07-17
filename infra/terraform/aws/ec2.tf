@@ -90,6 +90,25 @@ data "aws_iam_policy_document" "app_permissions" {
     ]
     resources = [aws_s3_bucket.backups.arn, "${aws_s3_bucket.backups.arn}/*"]
   }
+
+  # Pull the application images from ECR at deploy time. GetAuthorizationToken
+  # backs `docker login`/`aws ecr get-login-password`; the layer/image reads are
+  # scoped to just this project's repositories.
+  statement {
+    sid       = "EcrAuth"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"] # GetAuthorizationToken is not resource-scopable
+  }
+
+  statement {
+    sid = "EcrPull"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+    ]
+    resources = [for repo in aws_ecr_repository.app : repo.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "app" {

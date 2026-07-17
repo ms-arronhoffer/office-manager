@@ -93,6 +93,7 @@ Infrastructure-as-code lives in `infra/terraform/aws/`:
 | `ec2.tf` | App instance, security group, IAM role/instance profile |
 | `rds.tf` | RDS Postgres instance, subnet group, security group |
 | `s3.tf` | Uploads bucket + backups bucket (versioned, encrypted, lifecycle rules) |
+| `ecr.tf` | Private ECR repos (namespace `office-manager/*`) for the app images + `ecr-push` IAM policy for the build runner |
 | `secrets.tf` | Single Secrets Manager secret with all app credentials |
 | `templates/user_data.sh.tpl` | EC2 boot script: installs Docker, registers the box as a GitHub Actions self-hosted runner |
 | `outputs.tf` | RDS endpoint, S3 bucket names, instance id/IP, secret ARN |
@@ -209,16 +210,34 @@ Two new workflows target the `prod` branch; `main`'s existing
     create-or-update).
   - `destroy` — tears down every resource managed by this state so the
     footprint can be rebuilt from scratch.
-- **`.github/workflows/deploy-prod.yml`** — builds the four application
-  images and runs `docker compose -f docker-compose.prod.yml up -d` on the
-  self-hosted runner registered on the EC2 instance (label `aws-prod`),
-  mirroring `deploy.yml`'s pattern but pointing at RDS/S3 instead of local
-  containers/volumes.
+- **`.github/workflows/deploy-prod.yml`** — a two-stage pipeline for the
+  `prod` branch:
+  1. **`build-and-push`** runs on the on-prem build runner (labels
+     `self-hosted, Linux, X64, docker-build`, e.g. `ubuntu-server1`). It builds
+     the four application images and pushes them to AWS ECR, tagged with the
+     commit SHA (immutable) plus `latest`. It authenticates to AWS with the
+     `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` secrets (whose IAM user must
+     carry the `ecr_push_policy_arn` policy) and self-heals the ECR
+     repositories if they don't exist yet.
+  2. **`deploy`** runs on the self-hosted runner on the EC2 host (label
+     `aws-prod`). It logs the host Docker daemon into ECR using the instance
+     profile (no static keys), pulls the images just pushed, and runs
+     `docker compose -f docker-compose.prod.yml up -d` against RDS/S3.
+
+  Splitting build from deploy keeps the low-powered EC2 host out of the image
+  build path (it only pulls and runs), replacing the earlier single-runner
+  approach that built directly on the box. The ECR repositories, the EC2
+  instance role's pull permissions, and the `ecr-push` IAM policy are all
+  provisioned by `infra/terraform/aws/ecr.tf`.
 
 ### Required repository secrets
 
-AWS credentials (for `infra-prod.yml`):
-- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+AWS credentials (for `infra-prod.yml` and the `build-and-push` stage of
+`deploy-prod.yml`):
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` — the IAM user behind these must
+  additionally have the `ecr-push` policy (`terraform output ecr_push_policy_arn`)
+  attached so the `docker-build` runner can push images to ECR.
+- `AWS_REGION` — region the ECR registry lives in (e.g. `us-east-2`).
 - `TF_VAR_DB_PASSWORD`, `TF_VAR_JWT_SECRET`, `TF_VAR_DEFAULT_ADMIN_PASSWORD`
 - `TF_VAR_STRIPE_SECRET_KEY`, `TF_VAR_GEMINI_API_KEY`, `TF_VAR_SENTRY_DSN` (optional)
 - `RUNNER_REGISTRATION_PAT` — GitHub PAT (repo scope) used by the EC2

@@ -32,3 +32,18 @@ output "app_secrets_arn" {
   description = "ARN of the Secrets Manager secret holding app credentials."
   value       = aws_secretsmanager_secret.app.arn
 }
+
+output "ecr_registry" {
+  description = "ECR registry host (<account>.dkr.ecr.<region>.amazonaws.com) that hosts the app images."
+  value       = split("/", values(aws_ecr_repository.app)[0].repository_url)[0]
+}
+
+output "ecr_repository_urls" {
+  description = "Full push/pull URL for each application image repository, keyed by image name."
+  value       = { for name, repo in aws_ecr_repository.app : name => repo.repository_url }
+}
+
+output "ecr_push_policy_arn" {
+  description = "ARN of the IAM policy granting ECR push access; attach it to the CI/build IAM user behind AWS_ACCESS_KEY_ID."
+  value       = aws_iam_policy.ecr_push.arn
+}
