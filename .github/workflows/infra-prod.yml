@@ -115,6 +115,83 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      # Because Terraform state itself is remote (see above), this step is
+      # normally a no-op. It only kicks in after AWS ends up with resources
+      # Terraform's state doesn't know about — e.g. a previous run created
+      # them but failed/was interrupted before its own state write landed, or
+      # a partial `destroy` removed some resources from state (or scheduled
+      # a secret for deletion) without deleting all of them from AWS. Left
+      # unhandled, the next `apply` fails with "already exists"/"Duplicate"
+      # errors trying to recreate resources AWS already has (see
+      # docs/aws-deployment.md, "Recovering from already exists errors").
+      # This makes that recovery automatic instead of a manual `terraform
+      # import` chore for every occurrence.
+      - name: Self-heal Terraform state (import pre-existing resources)
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          set -uo pipefail
+          NAME="${{ env.ECR_NAMESPACE }}-prod"
+          SECRET_NAME="${{ env.ECR_NAMESPACE }}/prod/app-secrets"
+
+          state_has() { terraform state list "$1" >/dev/null 2>&1; }
+
+          import_if_missing() {
+            local addr="$1" id="$2"
+            shift 2
+            if state_has "$addr"; then
+              return 0
+            fi
+            if "$@" >/dev/null 2>&1; then
+              echo "Importing pre-existing resource $addr ($id) into state..."
+              terraform import "$addr" "$id"
+            fi
+          }
+
+          import_if_missing "aws_iam_role.app" "$NAME-app" \
+            aws iam get-role --role-name "$NAME-app"
+
+          import_if_missing "aws_db_subnet_group.this" "$NAME" \
+            aws rds describe-db-subnet-groups --db-subnet-group-name "$NAME"
+
+          import_if_missing "aws_s3_bucket.uploads" "$NAME-uploads" \
+            aws s3api head-bucket --bucket "$NAME-uploads"
+
+          import_if_missing "aws_s3_bucket.backups" "$NAME-backups" \
+            aws s3api head-bucket --bucket "$NAME-backups"
+
+          # Security group ids aren't guessable from their name, so look them
+          # up first instead of using the `import_if_missing` id shortcut.
+          for sg_key in app db; do
+            addr="aws_security_group.$sg_key"
+            sg_name="$NAME-$sg_key"
+            if state_has "$addr"; then
+              continue
+            fi
+            sg_id=$(aws ec2 describe-security-groups \
+              --filters "Name=group-name,Values=$sg_name" \
+              --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null || true)
+            if [ -n "$sg_id" ] && [ "$sg_id" != "None" ]; then
+              echo "Importing pre-existing resource $addr ($sg_id) into state..."
+              terraform import "$addr" "$sg_id"
+            fi
+          done
+
+          # The secret may be left "scheduled for deletion" by a previous
+          # (partial) destroy; it must be restored before it can be created
+          # or imported.
+          if ! state_has "aws_secretsmanager_secret.app"; then
+            deleted_date=$(aws secretsmanager describe-secret --secret-id "$SECRET_NAME" \
+              --query 'DeletedDate' --output text 2>/dev/null || true)
+            if [ -n "$deleted_date" ] && [ "$deleted_date" != "None" ]; then
+              echo "Restoring $SECRET_NAME from scheduled deletion..."
+              aws secretsmanager restore-secret --secret-id "$SECRET_NAME" || true
+            fi
+            if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" >/dev/null 2>&1; then
+              echo "Importing pre-existing resource aws_secretsmanager_secret.app ($SECRET_NAME) into state..."
+              terraform import aws_secretsmanager_secret.app "$SECRET_NAME"
+            fi
+          fi
+
       - name: Terraform Plan
         if: github.event.inputs.action != 'destroy'
         run: terraform plan -out=tfplan
