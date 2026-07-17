@@ -1,6 +1,11 @@
 services:
   backend:
-    image: office-manager-backend:latest   # Changed from build: ./backend
+    # Image is built by the `docker-build` runner and pushed to ECR; the
+    # aws-prod runner pulls this exact tag. ECR_REGISTRY/ECR_NAMESPACE/IMAGE_TAG
+    # are exported by .github/workflows/deploy-prod.yml. Defaults keep local
+    # `docker compose -f docker-compose.prod.yml` usage working against a
+    # locally-built image tagged office-manager/backend:latest.
+    image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}${ECR_NAMESPACE:-office-manager}/backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       # No local `db` container in this compose file: Postgres runs on RDS
@@ -50,7 +55,7 @@ services:
       - internal
 
   frontend:
-    image: office-manager-frontend:latest
+    image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}${ECR_NAMESPACE:-office-manager}/frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       - backend
@@ -60,7 +65,7 @@ services:
       - internal
 
   admin-frontend:
-    image: office-manager-admin-frontend:latest
+    image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}${ECR_NAMESPACE:-office-manager}/admin-frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       - backend
@@ -70,7 +75,7 @@ services:
       - internal
 
   landing:
-    image: office-manager-landing:latest
+    image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}${ECR_NAMESPACE:-office-manager}/landing:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "${LANDING_PORT:-4002}:80"
