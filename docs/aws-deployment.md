@@ -159,6 +159,13 @@ terraform import aws_iam_role.app office-manager-prod-app
 terraform import aws_db_subnet_group.this office-manager-prod
 terraform import aws_s3_bucket.uploads office-manager-prod-uploads
 terraform import aws_s3_bucket.backups office-manager-prod-backups
+
+# If the secret was previously destroyed, it sits in a "scheduled for
+# deletion" state for its recovery window (30 days by default) and *cannot*
+# be created or imported until it's restored — you'll otherwise see
+# "InvalidRequestException: You can't create this secret because a secret
+# with this name is already scheduled for deletion":
+aws secretsmanager restore-secret --secret-id office-manager/prod/app-secrets
 terraform import aws_secretsmanager_secret.app office-manager/prod/app-secrets
 
 # Security group ids aren't guessable from the name; look them up first:
@@ -170,6 +177,19 @@ terraform import aws_security_group.db  <sg-id-for-office-manager-prod-db>
 
 terraform plan   # should show no create/replace for the imported resources
 ```
+
+If `aws_db_instance.this` also failed with `InvalidParameterValue: The
+input isn't valid. Input can't contain control characters`, it's almost
+always a `TF_VAR_db_password` secret with a stray embedded/trailing
+character (e.g. a newline picked up when the value was copied from a file
+or piped in). `rds.tf`/`secrets.tf` already `trimspace()` the password and
+`variables.tf` validates it against `^[^\x00-\x1f\x7f]*$` before it reaches
+AWS — if you still hit this error, the plan that was applied (`tfplan`) was
+generated *before* that validation/secret value was fixed (e.g. from a
+stale run or an out-of-date `TF_VAR_DB_PASSWORD`). Re-check the secret
+value for control characters and re-run `terraform plan`/`apply` from
+scratch so the current value is re-validated rather than re-applying an old
+`tfplan` artifact.
 
 ## CI/CD (GitHub Actions)
 
