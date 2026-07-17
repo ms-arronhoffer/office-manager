@@ -17,10 +17,14 @@ usermod -aG docker ec2-user
 # itself ("unknown shorthand flag: 'p' in -p"). Install the compose plugin
 # binary directly from Docker's releases so `docker compose` works.
 COMPOSE_VERSION=$(curl -fsSL https://api.github.com/repos/docker/compose/releases/latest | jq -r '.tag_name')
+if [ -z "$COMPOSE_VERSION" ] || [ "$COMPOSE_VERSION" = "null" ]; then
+  echo "Failed to resolve latest docker/compose release version" >&2
+  exit 1
+fi
 DOCKER_CLI_PLUGINS_DIR="/usr/local/lib/docker/cli-plugins"
 mkdir -p "$DOCKER_CLI_PLUGINS_DIR"
 curl -fsSL -o "$DOCKER_CLI_PLUGINS_DIR/docker-compose" \
-  "https://github.com/docker/compose/releases/download/$COMPOSE_VERSION/docker-compose-linux-aarch64"
+  "https://github.com/docker/compose/releases/download/$COMPOSE_VERSION/docker-compose-linux-$(uname -m)"
 chmod +x "$DOCKER_CLI_PLUGINS_DIR/docker-compose"
 
 # ── GitHub Actions self-hosted runner ─────────────────────────────────────────
