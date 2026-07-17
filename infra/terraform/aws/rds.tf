@@ -36,9 +36,12 @@ resource "aws_db_instance" "this" {
   storage_type          = "gp3"
   storage_encrypted     = true
 
-  db_name  = var.db_name
-  username = var.db_username
-  password = var.db_password
+  db_name  = trimspace(var.db_name)
+  username = trimspace(var.db_username)
+  # trimspace() guards against a stray trailing newline in the source secret
+  # (e.g. TF_VAR_db_password populated from a file/pipe), which RDS rejects
+  # with an opaque "can't contain control characters" error.
+  password = trimspace(var.db_password)
   port     = 5432
 
   db_subnet_group_name   = aws_db_subnet_group.this.name
