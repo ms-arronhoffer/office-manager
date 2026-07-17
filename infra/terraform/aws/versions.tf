@@ -8,11 +8,17 @@ terraform {
     }
   }
 
-  # Remote state is recommended once more than one operator applies this
-  # config (e.g. an S3 backend with a DynamoDB lock table). Left as local
-  # state for the initial "greenfield" bootstrap to keep Phase 1 as cheap
-  # and simple as possible — configure a backend block here before a second
-  # environment (e.g. staging) is added.
+  # Remote state, backed by the bucket/table created once via
+  # infra/terraform/bootstrap. This is required (not just "recommended")
+  # because infra-prod.yml runs `terraform apply` on an ephemeral
+  # GitHub-hosted runner: without a persisted remote state, every run starts
+  # from empty state and tries to re-create resources a previous run already
+  # created, failing with "already exists"/"Duplicate" errors from AWS.
+  #
+  # Bucket/table names aren't secret but are account-specific, so they're
+  # supplied via `-backend-config=backend.hcl` (see backend.hcl.example)
+  # rather than hard-coded here.
+  backend "s3" {}
 }
 
 provider "aws" {
