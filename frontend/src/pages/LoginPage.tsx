@@ -488,8 +488,8 @@ const LoginPage: React.FC = () => {
               'linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px), ' +
               'linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px)',
             backgroundSize: '40px 40px',
-            maskImage: 'radial-gradient(ellipse at center, black 0%, transparent 75%)',
             WebkitMaskImage: 'radial-gradient(ellipse at center, black 0%, transparent 75%)',
+            maskImage: 'radial-gradient(ellipse at center, black 0%, transparent 75%)',
           }}
         />
 
@@ -544,7 +544,7 @@ const LoginPage: React.FC = () => {
             }}
           >
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              <Icon name="lock-private" variant="inverted" size="small" /> Encrypted in transit &amp; at rest
+              <Icon name="lock-private" variant="inverted" size="small" /> Encrypted in transit & at rest
             </span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               <Icon name="status-positive" variant="inverted" size="small" /> Trusted by growing teams
