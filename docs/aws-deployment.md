@@ -317,8 +317,16 @@ App deploy (for the `deploy` job of `infra-prod.yml`), matching the Terraform ou
     are reachable solely from the host (where NPM runs) and never directly from
     the instance's public/LAN interfaces — NPM is the sole ingress. This assumes
     NPM runs on the host itself (native/systemd or host network mode); a bridged
-    NPM container cannot reach a `127.0.0.1`-only bind and would need to share
-    the compose network or run with `network_mode: host`.
+    NPM container cannot reach a `127.0.0.1`-only bind (inside that container
+    `127.0.0.1` is its own loopback). For a bridged NPM container, attach it to
+    the stack's shared `edge` network and proxy by service name instead of
+    binding the ports to `0.0.0.0` (which would re-expose every service on the
+    public/LAN interface). One-time wiring:
+    `docker network connect prod-office-manager_edge nginx-proxy-manager-app-1`,
+    then point each NPM proxy host at the internal service name/port —
+    `http://frontend:80`, `http://backend:8000`, `http://admin-frontend:80`,
+    `http://landing:80` (adjust the network prefix if your compose project name
+    differs). This keeps every service off the public interface.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SMTP_*`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `SENTRY_DSN` (optional/as applicable)
 
 ## Application code changes

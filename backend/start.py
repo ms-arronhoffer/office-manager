@@ -330,9 +330,40 @@ def _initialize_schema() -> None:
         return
 
     if not has_alembic_table:
-        # Pre-Alembic deployment. Tables exist but Alembic was never tracked.
-        # Mark the schema as being at the last "create_all-only" revision (006)
-        # so subsequent migrations (007+) apply cleanly.
+        # Tables exist but Alembic was never tracked. Two very different shapes
+        # of database land here:
+        #
+        # 1. A modern ``create_all`` schema whose ``stamp head`` step never
+        #    persisted — e.g. the fresh-database branch above ran
+        #    ``create_all`` successfully but the container was killed (or the DB
+        #    connection blipped) before/while stamping. The schema is already at
+        #    head, just unmarked. Stamping such a DB at the legacy ``006``
+        #    baseline and replaying 007+ crashes immediately on the first object
+        #    that already exists (``relation "site_settings" already exists``),
+        #    and because the state never changes the container crash-loops
+        #    forever. Detect this by checking that every current model table is
+        #    already present; if so, heal the migration-only artifacts and stamp
+        #    at head exactly like the fresh path, rather than replaying.
+        #
+        # 2. A genuinely pre-Alembic deployment whose schema predates the
+        #    migration history. Here the historical assumption holds: the last
+        #    "create_all-only" revision was 006, so stamp there and let 007+
+        #    apply.
+        registered = set(Base.metadata.tables.keys())
+        existing = set(inspect(sync_engine).get_table_names())
+        missing = registered - existing
+        if not missing:
+            print(
+                "[start] Existing tables found but no alembic_version table; "
+                "schema already matches the current models (an interrupted "
+                "create_all+stamp). Healing artifacts and stamping at head."
+            )
+            _ensure_search_vector_columns()
+            _ensure_self_storage_schema()
+            _ensure_reconciled_columns()
+            _run_alembic("stamp", "head")
+            return
+
         print(
             "[start] Existing tables found but no alembic_version table; "
             "stamping at baseline revision 006 before upgrading."
