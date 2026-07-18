@@ -139,9 +139,15 @@ jobs:
           GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
         run: |
           # Recreate every service (backend, frontend, admin-frontend, landing, db)
-          # using the freshly built :latest images. Using the same compose project
-          # name keeps the existing container names, networks and volumes intact so
-          # Portainer continues to track the stack.
+          # using docker-compose_local.yml, which binds the host ports to all
+          # interfaces (0.0.0.0) instead of 127.0.0.1-only like docker-compose.yml.
+          # `up --build` rebuilds each service's image from the just-checked-out
+          # `main` branch code so the deploy never reuses a stale cached image
+          # (the standalone `docker build -t office-manager-*:latest` steps above
+          # tag images compose doesn't reference, so they alone don't update what
+          # actually runs). Using the same compose project name keeps the existing
+          # container names, networks and volumes intact so Portainer continues to
+          # track the stack.
           echo "Recreating application stack to pick up new image layers..."
 
           # Fully tear down the previous stack first. `up --force-recreate` alone
@@ -149,7 +155,7 @@ jobs:
           # released, causing "port is already allocated" failures. Bringing the
           # stack down first (and tolerating a missing/absent stack on first run)
           # reduces the window in which the ports are still held.
-          docker compose -p dev-office-manager -f docker-compose.yml down --remove-orphans --timeout 30 || true
+          docker compose -p dev-office-manager -f docker-compose_local.yml down --remove-orphans --timeout 30 || true
 
           # `docker compose down` returning does NOT guarantee the Docker daemon
           # has finished releasing the old host-port bindings — the kernel/proxy
@@ -157,7 +163,7 @@ jobs:
           # following `up` fails with "port is already allocated". Retry a few
           # times so the transient race self-heals instead of failing the deploy.
           up() {
-            docker compose -p dev-office-manager -f docker-compose.yml up -d --force-recreate --remove-orphans
+            docker compose -p dev-office-manager -f docker-compose_local.yml up -d --build --force-recreate --remove-orphans
           }
           attempt=1
           max_attempts=5
@@ -168,7 +174,7 @@ jobs:
               exit 1
             fi
             echo "up attempt $attempt failed (likely port still releasing); retrying in 5s..."
-            docker compose -p dev-office-manager -f docker-compose.yml down --remove-orphans --timeout 30 || true
+            docker compose -p dev-office-manager -f docker-compose_local.yml down --remove-orphans --timeout 30 || true
             attempt=$((attempt + 1))
             sleep 5
           done
