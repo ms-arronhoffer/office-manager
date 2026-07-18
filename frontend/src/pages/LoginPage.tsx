@@ -569,7 +569,7 @@ const LoginPage: React.FC = () => {
             >
               <img
                 src={HERO_IMAGE_SRC}
-                alt="Portfolio Desk dashboard showing portfolio KPIs, financial overview and open maintenance tickets"
+                alt="Portfolio Desk dashboard preview"
                 width="1440"
                 height="900"
                 loading="eager"
