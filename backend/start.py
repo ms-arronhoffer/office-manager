@@ -330,45 +330,51 @@ def _initialize_schema() -> None:
         return
 
     if not has_alembic_table:
-        # Tables exist but Alembic was never tracked. Two very different shapes
-        # of database land here:
+        # Tables exist but Alembic was never tracked. Every database that lands
+        # here was built by ``create_all`` (that is the only path this app has
+        # ever used to create schema without also writing ``alembic_version``),
+        # so its schema reflects whatever the ORM models looked like when
+        # ``create_all`` last ran — NOT any particular migration revision.
         #
-        # 1. A modern ``create_all`` schema whose ``stamp head`` step never
-        #    persisted — e.g. the fresh-database branch above ran
-        #    ``create_all`` successfully but the container was killed (or the DB
-        #    connection blipped) before/while stamping. The schema is already at
-        #    head, just unmarked. Stamping such a DB at the legacy ``006``
-        #    baseline and replaying 007+ crashes immediately on the first object
-        #    that already exists (``relation "site_settings" already exists``),
-        #    and because the state never changes the container crash-loops
-        #    forever. Detect this by checking that every current model table is
-        #    already present; if so, heal the migration-only artifacts and stamp
-        #    at head exactly like the fresh path, rather than replaying.
+        # Historically we stamped such a DB at the legacy ``006`` baseline and
+        # replayed 007+. That is fundamentally unsafe: the migrations issue bare
+        # ``CREATE TABLE`` statements for tables ``create_all`` has already
+        # built, so the very first one that already exists aborts the upgrade
+        # (``relation "site_settings" already exists``). Because the schema
+        # state never advances, the container ``sys.exit``s and crash-loops
+        # forever.
         #
-        # 2. A genuinely pre-Alembic deployment whose schema predates the
-        #    migration history. Here the historical assumption holds: the last
-        #    "create_all-only" revision was 006, so stamp there and let 007+
-        #    apply.
+        # A ``create_all`` schema is never genuinely "at 006" — even a DB that
+        # is only missing a handful of the newest tables already contains almost
+        # everything a from-006 replay would try to create. So for *every* shape
+        # of DB in this branch we heal like the fresh path instead of replaying:
+        # run ``create_all`` (``checkfirst`` builds only the missing tables),
+        # reconcile the migration-only artifacts/columns, then stamp at head.
         registered = set(Base.metadata.tables.keys())
         existing = set(inspect(sync_engine).get_table_names())
         missing = registered - existing
-        if not missing:
+        if missing:
+            print(
+                "[start] Existing tables found but no alembic_version table; "
+                f"schema is missing {len(missing)} model table(s) "
+                f"({sorted(missing)}). Creating them from models and healing "
+                "artifacts before stamping at head."
+            )
+            # ``create_all`` only issues CREATE TABLE for tables not already
+            # present, so this adds the missing tables without touching the
+            # existing ones.
+            Base.metadata.create_all(bind=sync_engine)
+        else:
             print(
                 "[start] Existing tables found but no alembic_version table; "
                 "schema already matches the current models (an interrupted "
                 "create_all+stamp). Healing artifacts and stamping at head."
             )
-            _ensure_search_vector_columns()
-            _ensure_self_storage_schema()
-            _ensure_reconciled_columns()
-            _run_alembic("stamp", "head")
-            return
-
-        print(
-            "[start] Existing tables found but no alembic_version table; "
-            "stamping at baseline revision 006 before upgrading."
-        )
-        _run_alembic("stamp", "006")
+        _ensure_search_vector_columns()
+        _ensure_self_storage_schema()
+        _ensure_reconciled_columns()
+        _run_alembic("stamp", "head")
+        return
 
     print("[start] Running alembic upgrade head...")
     _run_alembic("upgrade", "head")
