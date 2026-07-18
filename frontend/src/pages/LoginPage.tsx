@@ -18,6 +18,9 @@ import { auth as authApi } from '@/api';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
+// Amount the login form card overlaps the hero banner to create a floating effect.
+const FORM_OVERLAP_OFFSET = '-56px';
+
 type Mode = 'login' | 'forgot' | 'reset' | 'mfa';
 
 /**
@@ -554,7 +557,7 @@ const LoginPage: React.FC = () => {
       </div>
 
       {/* Login Form */}
-      <div style={{ marginTop: '-56px', padding: '0 24px 64px' }}>
+      <div style={{ marginTop: FORM_OVERLAP_OFFSET, padding: '0 24px 64px' }}>
         <Box
           display="block"
           margin={{ horizontal: 'auto' }}
