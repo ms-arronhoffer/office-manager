@@ -51,12 +51,24 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
-    # Exposed on the host so the reverse proxy (Nginx Proxy Manager) can reach
-    # the API directly. Never bound to port 80 — that stays free for the proxy.
+    # Exposed on the host so a host-level reverse proxy (Nginx Proxy Manager
+    # running natively or with network_mode: host) can reach the API directly.
+    # Never bound to port 80 — that stays free for the proxy. Bound to 127.0.0.1
+    # so the port is not exposed on the instance's public/LAN interfaces.
+    #
+    # NOTE: a 127.0.0.1 bind is only reachable by NPM if NPM runs on the host
+    # itself. A *bridged* NPM container (its own compose stack, publishing
+    # 0.0.0.0:80/81/443) cannot reach a host 127.0.0.1 bind — inside that
+    # container 127.0.0.1 is its own loopback. For that topology, attach NPM to
+    # the shared ``edge`` network below and proxy by service name
+    # (http://backend:8000, http://frontend:80, http://admin-frontend:80,
+    # http://landing:80). That keeps every service off the public interface
+    # instead of re-exposing them by binding to 0.0.0.0.
     ports:
-      - "${BACKEND_PORT:-4002}:8000"
+      - "127.0.0.1:${BACKEND_PORT:-4002}:8000"
     networks:
       - internal
+      - edge
 
   frontend:
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}${ECR_NAMESPACE:-office-manager}/frontend:${IMAGE_TAG:-latest}
@@ -64,11 +76,14 @@ services:
     depends_on:
       - backend
     # Reverse proxy (Nginx Proxy Manager) terminates TLS on 443/81 and forwards
-    # to these host ports. Nothing here binds port 80.
+    # to these host ports. Nothing here binds port 80. Bound to 127.0.0.1 so the
+    # container is reachable only from the host (where NPM runs), never directly
+    # from the public/LAN network.
     ports:
-      - "${APP_PORT:-4001}:80"
+      - "127.0.0.1:${APP_PORT:-4001}:80"
     networks:
       - internal
+      - edge
 
   admin-frontend:
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}${ECR_NAMESPACE:-office-manager}/admin-frontend:${IMAGE_TAG:-latest}
@@ -76,18 +91,32 @@ services:
     depends_on:
       - backend
     ports:
-      - "${ADMIN_PORT:-4004}:80"
+      - "127.0.0.1:${ADMIN_PORT:-4004}:80"
     networks:
       - internal
+      - edge
 
   landing:
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}${ECR_NAMESPACE:-office-manager}/landing:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
-      - "${LANDING_PORT:-4003}:80"
+      - "127.0.0.1:${LANDING_PORT:-4003}:80"
     networks:
       - internal
+      - edge
 
 networks:
   internal:
+    driver: bridge
+  # Shared ingress network for a *bridged* Nginx Proxy Manager container (its
+  # own compose stack) to reach these services by name without any service
+  # being published on the host's public/LAN interface. One-time wiring:
+  #   docker network connect prod-office-manager_edge nginx-proxy-manager-app-1
+  # then point each NPM proxy host at the service name/internal port, e.g.
+  #   frontend -> http://frontend:80,  API -> http://backend:8000,
+  #   manage    -> http://admin-frontend:80,  landing -> http://landing:80.
+  # (The compose project name prefixes the network; adjust if yours differs.)
+  # If NPM instead runs on the host (native/systemd or network_mode: host), the
+  # 127.0.0.1 host-port bindings above are sufficient and this network is unused.
+  edge:
     driver: bridge

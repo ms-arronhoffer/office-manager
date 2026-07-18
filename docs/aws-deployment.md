@@ -304,7 +304,12 @@ in both places, the Variables value takes precedence.
   defaults to `us-east-2` if unset
 
 App deploy (for the `deploy` job of `infra-prod.yml`), matching the Terraform outputs:
-- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
+- `POSTGRES_DB`, `POSTGRES_USER`
+  - `POSTGRES_PASSWORD` is *not* a GitHub secret — the `deploy` job reads it
+    directly from the `<project_name>/<environment>/app-secrets` Secrets
+    Manager secret (via the EC2 instance role's `secretsmanager:GetSecretValue`
+    permission granted in `ec2.tf`), the same value Terraform sets on RDS
+    (see `secrets.tf`), so the container's password can never diverge from it.
 - `RDS_HOST` (= `terraform output db_address`), `RDS_PORT` (usually `5432`)
 - `JWT_SECRET`, `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PASSWORD`
 - `S3_UPLOAD_BUCKET` (= `terraform output uploads_bucket`), `S3_UPLOAD_PREFIX`, `AWS_REGION`
@@ -313,7 +318,20 @@ App deploy (for the `deploy` job of `infra-prod.yml`), matching the Terraform ou
     fronts them. Nothing is bound to port 80. The convention is `APP_PORT=4001`
     (frontend), `BACKEND_PORT=4002`, `LANDING_PORT=4003`, `ADMIN_PORT=4004`
     (manage). If these secrets are unset the compose file falls back to those
-    same defaults.
+    same defaults. Each port is published on `127.0.0.1` only, so the containers
+    are reachable solely from the host (where NPM runs) and never directly from
+    the instance's public/LAN interfaces — NPM is the sole ingress. This assumes
+    NPM runs on the host itself (native/systemd or host network mode); a bridged
+    NPM container cannot reach a `127.0.0.1`-only bind (inside that container
+    `127.0.0.1` is its own loopback). For a bridged NPM container, attach it to
+    the stack's shared `edge` network and proxy by service name instead of
+    binding the ports to `0.0.0.0` (which would re-expose every service on the
+    public/LAN interface). One-time wiring:
+    `docker network connect prod-office-manager_edge nginx-proxy-manager-app-1`,
+    then point each NPM proxy host at the internal service name/port —
+    `http://frontend:80`, `http://backend:8000`, `http://admin-frontend:80`,
+    `http://landing:80` (adjust the network prefix if your compose project name
+    differs). This keeps every service off the public interface.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SMTP_*`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `SENTRY_DSN` (optional/as applicable)
 
 ## Application code changes

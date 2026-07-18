@@ -2,6 +2,7 @@
 import os
 import subprocess
 import sys
+import time
 import traceback
 import uuid
 
@@ -255,6 +256,49 @@ def _ensure_self_storage_schema() -> None:
     print("[start] Ensured self-storage facility/manager tables exist.")
 
 
+def _wait_for_database() -> None:
+    """Block until the database accepts connections before touching the schema.
+
+    In production Postgres runs on RDS (see ``docker-compose.prod.yml``), which
+    can still be booting, failing over, or briefly unreachable when the backend
+    container starts — there is no local ``db`` service with a healthcheck to
+    gate on. Every schema step below (``inspect(sync_engine)``, ``create_all``,
+    ``alembic upgrade``) opens a connection on the first call, so if the DB is
+    not yet reachable the very first statement raises, ``start.py`` exits 1, and
+    the container crash-loops (``Restarting (1)``) instead of waiting the few
+    seconds the database needs to come up.
+
+    Poll with ``SELECT 1`` on a short interval up to ``STARTUP_DB_WAIT_SECONDS``
+    (default 120s) so a transient outage self-heals without a crash loop. If the
+    database is still unreachable after the budget, exit so the orchestrator's
+    restart policy takes over — the same failure mode as before, just no longer
+    triggered by a database that simply needed a moment to accept connections.
+    """
+    timeout = int(os.getenv("STARTUP_DB_WAIT_SECONDS", "120"))
+    interval = int(os.getenv("STARTUP_DB_WAIT_INTERVAL_SECONDS", "3"))
+    deadline = time.monotonic() + timeout
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            with sync_engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            print(f"[start] Database is reachable (after {attempt} attempt(s)).")
+            return
+        except Exception as exc:  # noqa: BLE001 - any connection error should retry
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                sys.exit(
+                    f"[start] Database not reachable after {timeout}s "
+                    f"({attempt} attempt(s)); last error: {exc!r}"
+                )
+            print(
+                f"[start] Database not ready (attempt {attempt}): {exc!r}; "
+                f"retrying in {interval}s ({int(remaining)}s left)."
+            )
+            time.sleep(interval)
+
+
 def _run_alembic(*args: str) -> None:
     """Invoke the Alembic CLI from the backend root, passing the live DB URL."""
     env = os.environ.copy()
@@ -330,14 +374,51 @@ def _initialize_schema() -> None:
         return
 
     if not has_alembic_table:
-        # Pre-Alembic deployment. Tables exist but Alembic was never tracked.
-        # Mark the schema as being at the last "create_all-only" revision (006)
-        # so subsequent migrations (007+) apply cleanly.
-        print(
-            "[start] Existing tables found but no alembic_version table; "
-            "stamping at baseline revision 006 before upgrading."
-        )
-        _run_alembic("stamp", "006")
+        # Tables exist but Alembic was never tracked. Every database that lands
+        # here was built by ``create_all`` (that is the only path this app has
+        # ever used to create schema without also writing ``alembic_version``),
+        # so its schema reflects whatever the ORM models looked like when
+        # ``create_all`` last ran — NOT any particular migration revision.
+        #
+        # Historically we stamped such a DB at the legacy ``006`` baseline and
+        # replayed 007+. That is fundamentally unsafe: the migrations issue bare
+        # ``CREATE TABLE`` statements for tables ``create_all`` has already
+        # built, so the very first one that already exists aborts the upgrade
+        # (``relation "site_settings" already exists``). Because the schema
+        # state never advances, the container ``sys.exit``s and crash-loops
+        # forever.
+        #
+        # A ``create_all`` schema is never genuinely "at 006" — even a DB that
+        # is only missing a handful of the newest tables already contains almost
+        # everything a from-006 replay would try to create. So for *every* shape
+        # of DB in this branch we heal like the fresh path instead of replaying:
+        # run ``create_all`` (``checkfirst`` builds only the missing tables),
+        # reconcile the migration-only artifacts/columns, then stamp at head.
+        registered = set(Base.metadata.tables.keys())
+        existing = set(inspect(sync_engine).get_table_names())
+        missing = registered - existing
+        if missing:
+            print(
+                "[start] Existing tables found but no alembic_version table; "
+                f"schema is missing {len(missing)} model table(s) "
+                f"({sorted(missing)}). Creating them from models and healing "
+                "artifacts before stamping at head."
+            )
+            # ``create_all`` only issues CREATE TABLE for tables not already
+            # present, so this adds the missing tables without touching the
+            # existing ones.
+            Base.metadata.create_all(bind=sync_engine)
+        else:
+            print(
+                "[start] Existing tables found but no alembic_version table; "
+                "schema already matches the current models (an interrupted "
+                "create_all+stamp). Healing artifacts and stamping at head."
+            )
+        _ensure_search_vector_columns()
+        _ensure_self_storage_schema()
+        _ensure_reconciled_columns()
+        _run_alembic("stamp", "head")
+        return
 
     print("[start] Running alembic upgrade head...")
     _run_alembic("upgrade", "head")
@@ -454,6 +535,7 @@ def _ensure_default_org() -> None:
         print("[start] Created default organization.")
 
 
+_wait_for_database()
 _initialize_schema()
 _ensure_default_org()
 _ensure_default_admin()
