@@ -16,6 +16,7 @@ from app.database import get_db
 from app.models.notification import Notification
 from app.models.organization import Organization
 from app.models.user import User
+from app.models.enterprise_activation_code import EnterpriseActivationCode
 from app.services import billing_ledger_service as ledger
 from app.services.stripe_settings import StripeSettings, resolve_stripe_settings
 from app.utils.email_client import send_email
@@ -277,7 +278,117 @@ async def get_subscription(
 # ─── POST /billing/checkout ───────────────────────────────────────────────────
 
 class CheckoutRequest(BaseModel):
-    plan: str  # "starter" or "pro" (Enterprise is custom-priced — contact sales)
+    plan: str  # "starter", "pro", or "enterprise"
+    # For the custom-priced Enterprise tier the org admin supplies a "custom ID":
+    # either an internal activation code minted by sales, or the bespoke Stripe
+    # Price ID provisioned under the Enterprise Product. Ignored for Starter/Pro.
+    enterprise_code: str | None = None
+
+
+def _validate_activation_code(code: EnterpriseActivationCode, org: Organization) -> None:
+    """Raise 400 if an Enterprise activation code cannot be redeemed by ``org``."""
+    now = datetime.now(timezone.utc)
+    if not code.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This Enterprise activation code is no longer active.",
+        )
+    expires_at = code.expires_at
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at < now:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This Enterprise activation code has expired.",
+            )
+    if code.organization_id is not None and code.organization_id != org.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This Enterprise activation code is not valid for your organization.",
+        )
+    # Single-use, but idempotent for the org that already redeemed it (so an
+    # abandoned checkout can be retried) — any other org is rejected.
+    if code.redeemed_at is not None and code.redeemed_by_org_id != org.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This Enterprise activation code has already been used.",
+        )
+
+
+async def _resolve_enterprise_price(
+    db: AsyncSession,
+    org: Organization,
+    entered: str | None,
+    stripe_cfg: "StripeSettings",
+) -> tuple[str, EnterpriseActivationCode | None]:
+    """Resolve a customer-entered Enterprise "custom ID" to a Stripe Price ID.
+
+    The value is first looked up as an internal activation code; failing that it
+    is treated as a raw Stripe Price ID. Either way the resolved price is
+    validated to belong to the configured Enterprise Product, so an arbitrary
+    price can never be used to grant the Enterprise tier. Returns the price id
+    and the matched activation code (if any, so the caller can mark it redeemed).
+    """
+    entered = (entered or "").strip()
+    if not entered:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An Enterprise activation code or price ID is required. Please contact sales to get one.",
+        )
+    if not stripe_cfg.product_id_enterprise:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enterprise plans are not configured on this server. Please contact sales.",
+        )
+
+    code = (
+        await db.execute(
+            select(EnterpriseActivationCode).where(EnterpriseActivationCode.code == entered)
+        )
+    ).scalar_one_or_none()
+
+    if code is not None:
+        _validate_activation_code(code, org)
+        price_id = code.stripe_price_id
+    else:
+        # Not a known activation code — accept a raw Stripe Price ID (validated
+        # against the Enterprise Product below), but reject anything else so a
+        # mistyped code doesn't fall through to a confusing Stripe error.
+        if not entered.startswith("price_"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid Enterprise activation code.",
+            )
+        price_id = entered
+
+    # Validate the resolved price belongs to the configured Enterprise Product.
+    try:
+        price = stripe.Price.retrieve(price_id)
+    except stripe.error.StripeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The Enterprise price could not be found. Please check the code or contact sales.",
+        )
+    product = price.get("product") if isinstance(price, dict) else getattr(price, "product", None)
+    if isinstance(product, dict):
+        product = product.get("id")
+    if not product or product != stripe_cfg.product_id_enterprise:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That price is not a valid Enterprise plan.",
+        )
+
+    return price_id, code
+
+
+def _redeem_activation_code(code: EnterpriseActivationCode | None, org: Organization) -> None:
+    """Mark an activation code as redeemed by ``org`` (idempotent)."""
+    if code is None:
+        return
+    if code.redeemed_at is None:
+        code.redeemed_at = datetime.now(timezone.utc)
+        code.redeemed_by_org_id = org.id
 
 
 @router.post("/checkout")
@@ -295,29 +406,29 @@ async def create_checkout_session(
       switched in place (upgrade *or* downgrade) by swapping the
       subscription's price, rather than starting a second subscription.
       Stripe prorates the change automatically.
+    * Enterprise is custom-priced: the admin supplies an activation code (or the
+      bespoke Stripe Price ID) which is validated against the Enterprise Product
+      before use.
     """
     stripe_cfg = await _require_stripe(db)
-
-    if payload.plan == "enterprise":
-        # Enterprise pricing is negotiated per subscriber and provisioned
-        # directly in Stripe, so it is not available via self-serve checkout.
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Enterprise plans are custom-priced. Please contact sales to get started.",
-        )
-
-    price_map = {
-        "starter": stripe_cfg.price_id_starter,
-        "pro": stripe_cfg.price_id_pro,
-    }
-    price_id = price_map.get(payload.plan)
-    if not price_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown plan '{payload.plan}' or price not configured.",
-        )
-
     org = await _get_org(current_user.organization_id, db)
+
+    activation_code: EnterpriseActivationCode | None = None
+    if payload.plan == "enterprise":
+        price_id, activation_code = await _resolve_enterprise_price(
+            db, org, payload.enterprise_code, stripe_cfg
+        )
+    else:
+        price_map = {
+            "starter": stripe_cfg.price_id_starter,
+            "pro": stripe_cfg.price_id_pro,
+        }
+        price_id = price_map.get(payload.plan)
+        if not price_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown plan '{payload.plan}' or price not configured.",
+            )
 
     if org.stripe_subscription_id and org.payment_status != "canceled":
         # Existing subscription: swap the price in place instead of starting
@@ -337,6 +448,7 @@ async def create_checkout_session(
         org.plan = _plan_from_price(price, stripe_cfg)
         _mark_active(org)
         _sync_subscription_timing(org, updated)
+        _redeem_activation_code(activation_code, org)
         await db.commit()
         await db.refresh(org)
         return {"plan": org.plan, "payment_status": org.payment_status, "checkout_url": None}
@@ -354,6 +466,9 @@ async def create_checkout_session(
         session_kwargs["customer_email"] = current_user.email
 
     session = stripe.checkout.Session.create(**session_kwargs)
+    if activation_code is not None:
+        _redeem_activation_code(activation_code, org)
+        await db.commit()
     return {"checkout_url": session.url}
 
 
