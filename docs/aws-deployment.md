@@ -313,7 +313,12 @@ App deploy (for the `deploy` job of `infra-prod.yml`), matching the Terraform ou
     fronts them. Nothing is bound to port 80. The convention is `APP_PORT=4001`
     (frontend), `BACKEND_PORT=4002`, `LANDING_PORT=4003`, `ADMIN_PORT=4004`
     (manage). If these secrets are unset the compose file falls back to those
-    same defaults.
+    same defaults. Each port is published on `127.0.0.1` only, so the containers
+    are reachable solely from the host (where NPM runs) and never directly from
+    the instance's public/LAN interfaces — NPM is the sole ingress. This assumes
+    NPM runs on the host itself (native/systemd or host network mode); a bridged
+    NPM container cannot reach a `127.0.0.1`-only bind and would need to share
+    the compose network or run with `network_mode: host`.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SMTP_*`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `SENTRY_DSN` (optional/as applicable)
 
 ## Application code changes
