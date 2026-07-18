@@ -2,6 +2,7 @@
 import os
 import subprocess
 import sys
+import time
 import traceback
 import uuid
 
@@ -255,6 +256,49 @@ def _ensure_self_storage_schema() -> None:
     print("[start] Ensured self-storage facility/manager tables exist.")
 
 
+def _wait_for_database() -> None:
+    """Block until the database accepts connections before touching the schema.
+
+    In production Postgres runs on RDS (see ``docker-compose.prod.yml``), which
+    can still be booting, failing over, or briefly unreachable when the backend
+    container starts — there is no local ``db`` service with a healthcheck to
+    gate on. Every schema step below (``inspect(sync_engine)``, ``create_all``,
+    ``alembic upgrade``) opens a connection on the first call, so if the DB is
+    not yet reachable the very first statement raises, ``start.py`` exits 1, and
+    the container crash-loops (``Restarting (1)``) instead of waiting the few
+    seconds the database needs to come up.
+
+    Poll with ``SELECT 1`` on a short interval up to ``STARTUP_DB_WAIT_SECONDS``
+    (default 120s) so a transient outage self-heals without a crash loop. If the
+    database is still unreachable after the budget, exit so the orchestrator's
+    restart policy takes over — the same failure mode as before, just no longer
+    triggered by a database that simply needed a moment to accept connections.
+    """
+    timeout = int(os.getenv("STARTUP_DB_WAIT_SECONDS", "120"))
+    interval = int(os.getenv("STARTUP_DB_WAIT_INTERVAL_SECONDS", "3"))
+    deadline = time.monotonic() + timeout
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            with sync_engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            print(f"[start] Database is reachable (after {attempt} attempt(s)).")
+            return
+        except Exception as exc:  # noqa: BLE001 - any connection error should retry
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                sys.exit(
+                    f"[start] Database not reachable after {timeout}s "
+                    f"({attempt} attempt(s)); last error: {exc!r}"
+                )
+            print(
+                f"[start] Database not ready (attempt {attempt}): {exc!r}; "
+                f"retrying in {interval}s ({int(remaining)}s left)."
+            )
+            time.sleep(interval)
+
+
 def _run_alembic(*args: str) -> None:
     """Invoke the Alembic CLI from the backend root, passing the live DB URL."""
     env = os.environ.copy()
@@ -491,6 +535,7 @@ def _ensure_default_org() -> None:
         print("[start] Created default organization.")
 
 
+_wait_for_database()
 _initialize_schema()
 _ensure_default_org()
 _ensure_default_admin()
