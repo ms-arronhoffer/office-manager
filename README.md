@@ -641,7 +641,39 @@ sudo certbot --nginx -d officemanager.yourdomain.com
 | `STRIPE_WEBHOOK_SECRET`  | No       | —                            | Stripe webhook signing secret                        |
 | `STRIPE_PRICE_STARTER`   | No       | —                            | Stripe Price ID for the Starter plan                 |
 | `STRIPE_PRICE_PRO`       | No       | —                            | Stripe Price ID for the Pro plan                     |
-| `STRIPE_PRICE_ENTERPRISE`| No       | —                            | Stripe Price ID for the Enterprise plan              |
+| `STRIPE_PRODUCT_ID_ENTERPRISE` | No | —                            | Stripe **Product** ID for Enterprise (custom-priced per subscriber; see below) |
+
+> These `STRIPE_*` values are fallbacks. They can also be set (and rotated) from
+> the super-admin console under **Billing → Stripe Integration**, which takes
+> precedence over the environment.
+
+### Enterprise custom pricing
+
+Enterprise is **custom-priced per subscriber** — each customer negotiates their
+own amount, seat count, and terms — so it is not sold from a single shared
+price. Instead:
+
+1. **Create one Enterprise Product** in the Stripe Dashboard and set its Product
+   ID as `STRIPE_PRODUCT_ID_ENTERPRISE` (or in the admin console). This is done
+   once per environment.
+2. **For each Enterprise customer**, create a new **Price under that Product**
+   with the negotiated amount. This yields a per-customer Price ID
+   (`price_…`). Because it belongs to the Enterprise Product, the app
+   automatically classifies any subscription on that price as the `enterprise`
+   plan (see `_plan_from_price` in `backend/app/routers/billing.py`).
+3. **Mint an activation code** for the customer from the super-admin billing API
+   (`POST /admin/v1/billing/enterprise-codes` with the `stripe_price_id`, and
+   optionally an `organization_id` to bind it and/or an `expires_at`). A
+   readable, hard-to-guess code (e.g. `ENT-AB12CD-34EF56`) is returned; hand it
+   to the customer. Existing codes can be listed (`GET`) or revoked
+   (`POST /admin/v1/billing/enterprise-codes/{id}/revoke`).
+4. **The customer self-activates**: on their **Billing** page they select the
+   Enterprise plan and enter the activation code (a raw Enterprise Price ID is
+   also accepted). The backend validates the resolved price belongs to the
+   configured Enterprise Product before starting Stripe Checkout (or swapping an
+   existing subscription's price in place), so an arbitrary price can never be
+   used to grant the Enterprise tier. Codes are single-use but idempotent for
+   the redeeming org.
 
 ---
 

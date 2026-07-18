@@ -13,6 +13,14 @@ from app.services import entitlements as ent
 from tests.conftest import auth_headers
 
 
+async def _make_org(db, slug):
+    org = Organization(name="Other Co", slug=slug, plan="starter", is_active=True)
+    db.add(org)
+    await db.commit()
+    await db.refresh(org)
+    return org
+
+
 async def _org_admin(db, **org_kwargs):
     org_kwargs.setdefault("plan", "starter")
     org = Organization(name="Acme Co", slug=f"acme-{id(org_kwargs)}", is_active=True, **org_kwargs)
@@ -36,6 +44,7 @@ def _stripe_env(monkeypatch):
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_x")
     monkeypatch.setattr(settings, "STRIPE_PRICE_ID_STARTER", "price_starter")
     monkeypatch.setattr(settings, "STRIPE_PRICE_ID_PRO", "price_pro")
+    monkeypatch.setattr(settings, "STRIPE_PRODUCT_ID_ENTERPRISE", "prod_enterprise")
     yield
 
 
@@ -273,3 +282,219 @@ async def test_expired_trial_can_still_reach_billing_to_upgrade(client, db_sessi
     access = r2.json()["access"]
     assert access["state"] == ent.ACCESS_TRIAL_EXPIRED
     assert access["blocked"] is True
+
+
+# ─── Enterprise custom-priced activation ────────────────────────────────────
+
+from app.models.enterprise_activation_code import EnterpriseActivationCode  # noqa: E402
+
+
+async def _enterprise_code(db, org=None, **kwargs):
+    kwargs.setdefault("stripe_price_id", "price_ent_custom")
+    code = EnterpriseActivationCode(
+        code=kwargs.pop("code", f"ENT-{id(kwargs)}"),
+        organization_id=org.id if org else None,
+        **kwargs,
+    )
+    db.add(code)
+    await db.commit()
+    await db.refresh(code)
+    return code
+
+
+@pytest.mark.asyncio
+async def test_enterprise_activation_code_creates_checkout(client, db_session, monkeypatch):
+    """A valid activation code resolves to a bespoke Enterprise price and starts
+    a Checkout session; the code is marked redeemed by the org."""
+    org, admin = await _org_admin(db_session)
+    code = await _enterprise_code(db_session, org)
+
+    monkeypatch.setattr(
+        "stripe.Price.retrieve",
+        lambda price_id: {"id": price_id, "product": "prod_enterprise"},
+    )
+
+    class _FakeSession:
+        url = "https://checkout.stripe.com/session/ent"
+
+    monkeypatch.setattr("stripe.checkout.Session.create", lambda **kwargs: _FakeSession())
+
+    r = await client.post(
+        "/api/v1/billing/checkout", headers=auth_headers(admin),
+        json={"plan": "enterprise", "enterprise_code": code.code},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["checkout_url"] == "https://checkout.stripe.com/session/ent"
+
+    await db_session.refresh(code)
+    assert code.redeemed_at is not None
+    assert code.redeemed_by_org_id == org.id
+
+
+@pytest.mark.asyncio
+async def test_enterprise_activation_switches_existing_subscription_in_place(client, db_session, monkeypatch):
+    """A valid code on an org with a live subscription swaps the price in place
+    and the plan resolves to enterprise (matched by product)."""
+    org, admin = await _org_admin(
+        db_session, plan="pro", stripe_subscription_id="sub_live", payment_status="active",
+    )
+    code = await _enterprise_code(db_session, org)
+
+    monkeypatch.setattr(
+        "stripe.Price.retrieve",
+        lambda price_id: {"id": price_id, "product": "prod_enterprise"},
+    )
+    fake_sub = {"items": {"data": [{"id": "si_1", "price": {"id": "price_pro", "product": "prod_pro"}}]}}
+    fake_updated = {
+        "items": {"data": [{"price": {"id": "price_ent_custom", "product": "prod_enterprise"}}]},
+        "cancel_at_period_end": False,
+        "current_period_end": None,
+    }
+    monkeypatch.setattr("stripe.Subscription.retrieve", lambda sub_id: fake_sub)
+    monkeypatch.setattr("stripe.Subscription.modify", lambda sub_id, **kwargs: fake_updated)
+
+    r = await client.post(
+        "/api/v1/billing/checkout", headers=auth_headers(admin),
+        json={"plan": "enterprise", "enterprise_code": code.code},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["plan"] == "enterprise"
+
+    await db_session.refresh(org)
+    assert org.plan == "enterprise"
+
+
+@pytest.mark.asyncio
+async def test_enterprise_raw_price_id_accepted_when_product_matches(client, db_session, monkeypatch):
+    """A raw Stripe Price ID belonging to the Enterprise product is accepted
+    even without an activation code."""
+    org, admin = await _org_admin(db_session)
+
+    monkeypatch.setattr(
+        "stripe.Price.retrieve",
+        lambda price_id: {"id": price_id, "product": "prod_enterprise"},
+    )
+
+    class _FakeSession:
+        url = "https://checkout.stripe.com/session/raw"
+
+    monkeypatch.setattr("stripe.checkout.Session.create", lambda **kwargs: _FakeSession())
+
+    r = await client.post(
+        "/api/v1/billing/checkout", headers=auth_headers(admin),
+        json={"plan": "enterprise", "enterprise_code": "price_ent_direct"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["checkout_url"] == "https://checkout.stripe.com/session/raw"
+
+
+@pytest.mark.asyncio
+async def test_enterprise_price_from_wrong_product_rejected(client, db_session, monkeypatch):
+    """A price whose product is not the Enterprise product is rejected so it can
+    never over-grant the Enterprise tier."""
+    org, admin = await _org_admin(db_session)
+    code = await _enterprise_code(db_session, org, stripe_price_id="price_other")
+
+    monkeypatch.setattr(
+        "stripe.Price.retrieve",
+        lambda price_id: {"id": price_id, "product": "prod_something_else"},
+    )
+
+    r = await client.post(
+        "/api/v1/billing/checkout", headers=auth_headers(admin),
+        json={"plan": "enterprise", "enterprise_code": code.code},
+    )
+    assert r.status_code == 400
+    assert "not a valid Enterprise plan" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_enterprise_missing_code_rejected(client, db_session):
+    """Selecting Enterprise without a code returns a 400."""
+    org, admin = await _org_admin(db_session)
+
+    r = await client.post(
+        "/api/v1/billing/checkout", headers=auth_headers(admin), json={"plan": "enterprise"},
+    )
+    assert r.status_code == 400
+    assert "required" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_enterprise_unknown_code_rejected(client, db_session):
+    """An unknown, non-price-id value is rejected as an invalid code."""
+    org, admin = await _org_admin(db_session)
+
+    r = await client.post(
+        "/api/v1/billing/checkout", headers=auth_headers(admin),
+        json={"plan": "enterprise", "enterprise_code": "TOTALLY-BOGUS"},
+    )
+    assert r.status_code == 400
+    assert "Invalid Enterprise activation code" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_enterprise_code_bound_to_other_org_rejected(client, db_session, monkeypatch):
+    """A code bound to a different org cannot be redeemed."""
+    org, admin = await _org_admin(db_session)
+    other = await _make_org(db_session, "other-bound-co")
+    code = await _enterprise_code(db_session, other)  # bound to `other`
+
+    r = await client.post(
+        "/api/v1/billing/checkout", headers=auth_headers(admin),
+        json={"plan": "enterprise", "enterprise_code": code.code},
+    )
+    assert r.status_code == 400
+    assert "not valid for your organization" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_enterprise_code_already_used_by_other_org_rejected(client, db_session, monkeypatch):
+    """A code already redeemed by another org is rejected as already used."""
+    org, admin = await _org_admin(db_session)
+    other = await _make_org(db_session, "other-used-co")
+    code = await _enterprise_code(db_session, stripe_price_id="price_ent_custom")
+    code.redeemed_at = datetime.now(timezone.utc)
+    code.redeemed_by_org_id = other.id
+    await db_session.commit()
+
+    r = await client.post(
+        "/api/v1/billing/checkout", headers=auth_headers(admin),
+        json={"plan": "enterprise", "enterprise_code": code.code},
+    )
+    assert r.status_code == 400
+    assert "already been used" in r.json()["detail"]
+
+
+# ─── Super-admin activation code minting ────────────────────────────────────
+
+async def _super_admin(db):
+    sa = User(
+        email=f"root{id(db)}@test.com", display_name="Root",
+        password_hash=hash_password("pw12345678"),
+        auth_provider="internal", role="admin", is_active=True, is_super_admin=True,
+    )
+    db.add(sa)
+    await db.commit()
+    await db.refresh(sa)
+    return sa
+
+
+@pytest.mark.asyncio
+async def test_admin_can_mint_and_list_enterprise_code(client, db_session):
+    sa = await _super_admin(db_session)
+
+    r = await client.post(
+        "/admin/v1/billing/enterprise-codes", headers=auth_headers(sa),
+        json={"stripe_price_id": "price_ent_custom", "notes": "Acme negotiated deal"},
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["stripe_price_id"] == "price_ent_custom"
+    assert body["code"]
+    assert body["is_active"] is True
+
+    r2 = await client.get("/admin/v1/billing/enterprise-codes", headers=auth_headers(sa))
+    assert r2.status_code == 200, r2.text
+    codes = r2.json()
+    assert any(c["code"] == body["code"] for c in codes)

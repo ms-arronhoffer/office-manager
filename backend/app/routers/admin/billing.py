@@ -2,6 +2,7 @@
 import csv
 import io
 import math
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -17,6 +18,7 @@ from app.models.billing_ledger import (
     BillingCharge, BillingCredit, BillingInvoice,
     BillingRefund, BillingSubscription,
 )
+from app.models.enterprise_activation_code import EnterpriseActivationCode
 from app.models.organization import Organization
 from app.models.platform_stripe_config import PlatformStripeConfig
 from app.models.user import User
@@ -646,3 +648,128 @@ async def test_stripe_config(
         cfg.last_verify_error = error
         await db.commit()
     return StripeTestOut(ok=ok, error=error)
+
+
+# ─── Enterprise activation codes ────────────────────────────────────────────────
+#
+# Enterprise is custom-priced per subscriber. Sales negotiates a bespoke price,
+# provisions it as a Stripe Price under the Enterprise Product, then mints an
+# opaque activation code here that maps to that price. The org admin enters the
+# code on their billing page to self-activate the negotiated Enterprise plan.
+
+class EnterpriseCodeIn(BaseModel):
+    stripe_price_id: str
+    organization_id: uuid.UUID | None = None
+    expires_at: datetime | None = None
+    # Optional custom code; a secure random code is generated when omitted.
+    code: str | None = None
+    notes: str | None = None
+
+
+class EnterpriseCodeOut(BaseModel):
+    id: uuid.UUID
+    code: str
+    stripe_price_id: str
+    organization_id: uuid.UUID | None
+    is_active: bool
+    expires_at: datetime | None
+    redeemed_at: datetime | None
+    redeemed_by_org_id: uuid.UUID | None
+    notes: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+def _generate_activation_code() -> str:
+    """Generate a readable, hard-to-guess Enterprise activation code."""
+    return f"ENT-{secrets.token_hex(3).upper()}-{secrets.token_hex(3).upper()}"
+
+
+@router.get("/enterprise-codes", response_model=list[EnterpriseCodeOut])
+async def list_enterprise_codes(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_console_role("super_admin", "finance")),
+):
+    """List all Enterprise activation codes (most recent first)."""
+    rows = (
+        await db.execute(
+            select(EnterpriseActivationCode).order_by(EnterpriseActivationCode.created_at.desc())
+        )
+    ).scalars().all()
+    return [EnterpriseCodeOut.model_validate(r) for r in rows]
+
+
+@router.post("/enterprise-codes", response_model=EnterpriseCodeOut, status_code=status.HTTP_201_CREATED)
+async def create_enterprise_code(
+    payload: EnterpriseCodeIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_console_role("super_admin", "finance")),
+):
+    """Mint an Enterprise activation code mapping to a bespoke Stripe Price."""
+    price_id = payload.stripe_price_id.strip()
+    if not price_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="A Stripe price ID is required."
+        )
+
+    if payload.organization_id is not None:
+        org = (
+            await db.execute(select(Organization).where(Organization.id == payload.organization_id))
+        ).scalar_one_or_none()
+        if org is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    code_str = (payload.code or "").strip() or _generate_activation_code()
+    existing = (
+        await db.execute(
+            select(EnterpriseActivationCode).where(EnterpriseActivationCode.code == code_str)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="That activation code already exists."
+        )
+
+    obj = EnterpriseActivationCode(
+        code=code_str,
+        stripe_price_id=price_id,
+        organization_id=payload.organization_id,
+        expires_at=payload.expires_at,
+        notes=(payload.notes or None),
+        created_by_id=current_user.id,
+    )
+    db.add(obj)
+    await db.commit()
+    await db.refresh(obj)
+    await log_activity(
+        db, user=current_user, action="created", entity_type="enterprise_activation_code",
+        entity_id=obj.id, entity_label=obj.code,
+        changes={"action": "enterprise_code_minted", "stripe_price_id": price_id},
+    )
+    return EnterpriseCodeOut.model_validate(obj)
+
+
+@router.post("/enterprise-codes/{code_id}/revoke", response_model=EnterpriseCodeOut)
+async def revoke_enterprise_code(
+    code_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_console_role("super_admin", "finance")),
+):
+    """Deactivate an Enterprise activation code so it can no longer be redeemed."""
+    obj = (
+        await db.execute(
+            select(EnterpriseActivationCode).where(EnterpriseActivationCode.id == code_id)
+        )
+    ).scalar_one_or_none()
+    if obj is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Activation code not found")
+    obj.is_active = False
+    await db.commit()
+    await db.refresh(obj)
+    await log_activity(
+        db, user=current_user, action="updated", entity_type="enterprise_activation_code",
+        entity_id=obj.id, entity_label=obj.code,
+        changes={"action": "enterprise_code_revoked"},
+    )
+    return EnterpriseCodeOut.model_validate(obj)

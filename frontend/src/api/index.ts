@@ -1008,10 +1008,10 @@ export const recurringTicketRules = {
 export const billing = {
   getSubscription: () => client.get<BillingSubscription>('/billing/subscription'),
 
-  createCheckout: (plan: 'starter' | 'pro') =>
+  createCheckout: (plan: 'starter' | 'pro' | 'enterprise', enterpriseCode?: string) =>
     client.post<{ checkout_url: string | null; plan?: string; payment_status?: string }>(
       '/billing/checkout',
-      { plan }
+      { plan, ...(enterpriseCode ? { enterprise_code: enterpriseCode } : {}) }
     ),
 
   confirmCheckout: (sessionId: string) =>
