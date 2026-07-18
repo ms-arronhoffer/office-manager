@@ -24,6 +24,9 @@ const FORM_OVERLAP_OFFSET = '-56px';
 // Real product screenshot shown in the login hero banner.
 const HERO_IMAGE_SRC = '/images/login-hero-dashboard.png';
 
+// Cap the hero image height so it never pushes the login form below the fold.
+const HERO_IMAGE_MAX_HEIGHT = '26vh';
+
 type Mode = 'login' | 'forgot' | 'reset' | 'mfa';
 
 /**
@@ -566,7 +569,7 @@ const LoginPage: React.FC = () => {
                 overflow: 'hidden',
                 boxShadow: '0 24px 64px rgba(3, 24, 47, 0.45)',
                 border: '1px solid rgba(255, 255, 255, 0.15)',
-                maxHeight: '26vh',
+                maxHeight: HERO_IMAGE_MAX_HEIGHT,
               }}
             >
               <img
@@ -576,7 +579,7 @@ const LoginPage: React.FC = () => {
                 height="900"
                 loading="eager"
                 decoding="async"
-                style={{ display: 'block', width: '100%', height: 'auto', maxHeight: '26vh', objectFit: 'cover' }}
+                style={{ display: 'block', width: '100%', height: 'auto', maxHeight: HERO_IMAGE_MAX_HEIGHT, objectFit: 'contain' }}
               />
             </div>
           </div>
