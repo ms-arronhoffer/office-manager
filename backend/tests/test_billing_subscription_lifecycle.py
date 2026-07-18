@@ -77,6 +77,24 @@ async def test_subscription_not_trialing_once_subscribed(client, db_session):
     assert body["trial_days_remaining"] is None
 
 
+@pytest.mark.asyncio
+async def test_subscription_trial_status_reported_from_payment_status(client, db_session):
+    """An org explicitly marked as a trial (``payment_status == "trial"``, the
+    authoritative signup marker) must report as trialing on the Billing page —
+    with its days remaining — rather than falling back to "Active"."""
+    trial_end = datetime.now(timezone.utc) + timedelta(days=8)
+    org, admin = await _org_admin(
+        db_session, payment_status="trial", trial_ends_at=trial_end,
+    )
+
+    r = await client.get("/api/v1/billing/subscription", headers=auth_headers(admin))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["is_trialing"] is True
+    assert body["trial_days_remaining"] in (7, 8)
+    assert body["trial_ends_at"] is not None
+
+
 # ─── Starter checkout ───────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

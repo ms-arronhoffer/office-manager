@@ -251,12 +251,25 @@ async def get_subscription(
     trial_ends_at = org.trial_ends_at
     if trial_ends_at is not None and trial_ends_at.tzinfo is None:
         trial_ends_at = trial_ends_at.replace(tzinfo=timezone.utc)
-    is_trialing = (
-        trial_ends_at is not None
-        and org.stripe_subscription_id is None
-        and now <= trial_ends_at
+    # A live paid subscription (present and not canceled) always supersedes a
+    # trial. Absent that, treat the org as trialing when it is explicitly marked
+    # as such (``payment_status == "trial"`` — the authoritative signup marker
+    # honored by entitlements, the admin console, and billing hygiene) or when a
+    # future trial window is still on file. Relying solely on the ``trial_ends_at``
+    # date heuristic meant orgs flagged as trials without an in-window end date
+    # were mis-reported as "Active" with no days remaining.
+    has_paid_subscription = (
+        org.stripe_subscription_id is not None and org.payment_status != "canceled"
     )
-    trial_days_remaining = max(0, (trial_ends_at - now).days) if is_trialing else None
+    is_trialing = not has_paid_subscription and (
+        org.payment_status == "trial"
+        or (trial_ends_at is not None and now <= trial_ends_at)
+    )
+    trial_days_remaining = (
+        max(0, (trial_ends_at - now).days)
+        if is_trialing and trial_ends_at is not None
+        else None
+    )
 
     return {
         "plan": org.plan,
