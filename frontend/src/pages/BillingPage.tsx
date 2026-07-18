@@ -9,6 +9,7 @@ import ColumnLayout from '@cloudscape-design/components/column-layout';
 import Container from '@cloudscape-design/components/container';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
+import Input from '@cloudscape-design/components/input';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Spinner from '@cloudscape-design/components/spinner';
 import { billing as billingApi } from '@/api';
@@ -67,6 +68,8 @@ const BillingPage: React.FC = () => {
   const [isReactivating, setIsReactivating] = useState(false);
   const [checkoutSuccess, setCheckoutSuccess] = useState(false);
   const [planChangeSuccess, setPlanChangeSuccess] = useState(false);
+  const [enterpriseCode, setEnterpriseCode] = useState('');
+  const [isActivatingEnterprise, setIsActivatingEnterprise] = useState(false);
 
   const refreshSubscription = async () => {
     const { data } = await billingApi.getSubscription();
@@ -122,6 +125,30 @@ const BillingPage: React.FC = () => {
       setError('Could not change plan. Please try again.');
     } finally {
       setIsChangingPlan(null);
+    }
+  };
+
+  const handleActivateEnterprise = async () => {
+    const code = enterpriseCode.trim();
+    if (!code) return;
+    setIsActivatingEnterprise(true);
+    setError(null);
+    try {
+      const { data } = await billingApi.createCheckout('enterprise', code);
+      if (data.checkout_url) {
+        // No existing subscription yet — redirect to Stripe Checkout.
+        window.location.href = data.checkout_url;
+        return;
+      }
+      // Existing subscription was switched in place; refresh and show success.
+      await refreshSubscription();
+      setEnterpriseCode('');
+      setPlanChangeSuccess(true);
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail || 'Could not activate Enterprise plan. Please check your code and try again.');
+    } finally {
+      setIsActivatingEnterprise(false);
     }
   };
 
@@ -399,7 +426,38 @@ const BillingPage: React.FC = () => {
                   id: 'action',
                   content: item => {
                     if (item.plan === 'enterprise') {
-                      return <Box color="text-body-secondary">Custom pricing — contact sales</Box>;
+                      if (!sub?.billing_configured) {
+                        return <Box color="text-body-secondary">Custom pricing — contact sales</Box>;
+                      }
+                      if (currentPlan === 'enterprise' && hasPaidSubscription) {
+                        return <Box color="text-status-success">Your current plan</Box>;
+                      }
+                      // Enterprise is custom-priced: the admin activates it with
+                      // an activation code (or bespoke Stripe Price ID) provided
+                      // by sales.
+                      return (
+                        <SpaceBetween size="xs">
+                          <Box color="text-body-secondary" fontSize="body-s">
+                            Custom pricing. Enter the activation code from your sales contact.
+                          </Box>
+                          <Input
+                            value={enterpriseCode}
+                            onChange={e => setEnterpriseCode(e.detail.value)}
+                            placeholder="Enterprise activation code"
+                            disabled={isActivatingEnterprise}
+                            ariaLabel="Enterprise activation code"
+                          />
+                          <Button
+                            variant="primary"
+                            loading={isActivatingEnterprise}
+                            disabled={!enterpriseCode.trim()}
+                            onClick={handleActivateEnterprise}
+                            fullWidth
+                          >
+                            Activate Enterprise
+                          </Button>
+                        </SpaceBetween>
+                      );
                     }
                     if (!sub?.billing_configured) return null;
 
