@@ -297,7 +297,6 @@ jobs:
       contents: read
       id-token: write # required to mint the OIDC token assumed below
     outputs:
-      registry: ${{ steps.login-ecr.outputs.registry }}
       image_tag: ${{ steps.meta.outputs.image_tag }}
 
     steps:
@@ -312,14 +311,6 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
-          # v4 defaults this to `true`, which masks the AWS account ID in
-          # logs — but the ECR registry hostname embeds that account ID, and
-          # GitHub Actions silently blanks any job output containing a masked
-          # value when it's read by another job. That turned the `deploy`
-          # job's `needs.build-and-push.outputs.registry` empty even though
-          # this job succeeded. Disable masking here so the registry output
-          # can safely propagate to the `deploy` job.
-          mask-aws-account-id: false
 
       - name: Log in to Amazon ECR
         id: login-ecr
@@ -498,7 +489,14 @@ jobs:
 
       - name: Deploy Updated Stack
         env:
-          ECR_REGISTRY: ${{ needs.build-and-push.outputs.registry }}
+          # Use this job's own ECR login output rather than a cross-job output
+          # from `build-and-push`. The registry hostname embeds the AWS account
+          # ID, which GitHub masks; passing it as a job output between jobs makes
+          # GitHub silently blank it, leaving `ECR_REGISTRY` empty here. The
+          # deploy job authenticates to the *same* ECR registry via the EC2
+          # instance profile, so its local `login-ecr` step yields the correct
+          # registry URI without any cross-job masking pitfalls.
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_NAMESPACE: ${{ env.ECR_NAMESPACE }}
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
@@ -528,16 +526,17 @@ jobs:
           S3_UPLOAD_PREFIX: ${{ secrets.S3_UPLOAD_PREFIX }}
           AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
         run: |
-          # Guard against a blank/failed upstream `build-and-push` output silently
-          # resolving image refs like "/office-manager/frontend" against Docker
-          # Hub's implicit namespace instead of ECR (which 404s with a confusing
-          # "pull access denied ... repository does not exist" error).
+          # Guard against a blank/failed image ref silently resolving refs like
+          # "/office-manager/frontend" against Docker Hub's implicit namespace
+          # instead of ECR (which 404s with a confusing "pull access denied ...
+          # repository does not exist" error). ECR_REGISTRY comes from this
+          # job's own `login-ecr` step; IMAGE_TAG comes from `build-and-push`.
           missing=()
           [ -z "$ECR_REGISTRY" ] && missing+=("ECR_REGISTRY")
           [ -z "$IMAGE_TAG" ] && missing+=("IMAGE_TAG")
           if [ ${#missing[@]} -ne 0 ]; then
             echo "::error::${missing[*]} empty (ECR_REGISTRY='${ECR_REGISTRY}', IMAGE_TAG='${IMAGE_TAG}')."
-            echo "The 'build-and-push' job's ECR login likely failed to authenticate — check its AWS credentials/role."
+            echo "ECR_REGISTRY comes from this job's ECR login (check the EC2 instance profile's ECR permissions); IMAGE_TAG comes from the 'build-and-push' job."
             exit 1
           fi
 
