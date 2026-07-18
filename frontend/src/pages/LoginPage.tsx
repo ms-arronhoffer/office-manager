@@ -12,6 +12,7 @@ import Alert from '@cloudscape-design/components/alert';
 import Link from '@cloudscape-design/components/link';
 import Toggle from '@cloudscape-design/components/toggle';
 import Icon from '@cloudscape-design/components/icon';
+import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/auth/AuthContext';
 import { useSiteSettings } from '@/context/SiteSettingsContext';
 import { auth as authApi } from '@/api';
@@ -27,7 +28,7 @@ const HERO_IMAGE_SRC = '/images/login-hero-dashboard.png';
 // Cap the hero image height so it never pushes the login form below the fold.
 const HERO_IMAGE_MAX_HEIGHT = '26vh';
 
-type Mode = 'login' | 'forgot' | 'reset' | 'mfa';
+type Mode = 'login' | 'forgot' | 'reset' | 'mfa' | 'mfaSetup' | 'mfaBackup';
 
 /**
  * Build a user-facing error message from a request failure.
@@ -82,6 +83,13 @@ const LoginPage: React.FC = () => {
   const [mfaCode, setMfaCode] = useState('');
   const [useBackupCode, setUseBackupCode] = useState(false);
 
+  // MFA setup state (super-admin first-time TOTP enrolment)
+  const [mfaQrUri, setMfaQrUri] = useState('');
+  const [mfaSecret, setMfaSecret] = useState('');
+  const [mfaSetupCode, setMfaSetupCode] = useState('');
+  const [backupCodes, setBackupCodes] = useState<string[]>([]);
+  const [pendingToken, setPendingToken] = useState('');
+
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
 
   // Redirect away from the login page once the user is authenticated.
@@ -121,7 +129,9 @@ const LoginPage: React.FC = () => {
     try {
       const response = await authApi.login(email, password);
       const data = response.data;
-      if (data.mfa_required && data.mfa_token) {
+      if (data.mfa_setup_required && data.mfa_token) {
+        await beginMfaSetup(data.mfa_token);
+      } else if (data.mfa_required && data.mfa_token) {
         setMfaToken(data.mfa_token);
         setMfaCode('');
         setUseBackupCode(false);
@@ -222,6 +232,51 @@ const LoginPage: React.FC = () => {
     }
   };
 
+  // ── MFA Setup (first-time TOTP enrolment for super-admins) ─────────────────
+  const beginMfaSetup = async (token: string) => {
+    setMfaToken(token);
+    const { data } = await authApi.mfaSetup(token);
+    setMfaQrUri(data.qr_uri);
+    setMfaSecret(data.secret);
+    setMfaSetupCode('');
+    setUseBackupCode(false);
+    setMode('mfaSetup');
+  };
+
+  const handleMfaSetupConfirm = async () => {
+    if (!mfaSetupCode) {
+      setError('Please enter the 6-digit code from your authenticator app.');
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      const { data } = await authApi.mfaEnable(mfaToken, mfaSetupCode);
+      setBackupCodes(data.backup_codes);
+      setPendingToken(data.access_token);
+      setMfaSetupCode('');
+      setMode('mfaBackup');
+    } catch (err: unknown) {
+      setError(getRequestErrorMessage(err, 'Invalid authentication code. Please try again.'));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleMfaBackupContinue = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await loginWithToken(pendingToken);
+      reloadSiteSettings();
+      navigate(from, { replace: true });
+    } catch (err: unknown) {
+      setError(getRequestErrorMessage(err, 'Unable to sign in. Please try again.'));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // ── Form content per mode ──────────────────────────────────────────────────
   const renderFormHeader = () => {
     if (mode === 'forgot') {
@@ -249,6 +304,26 @@ const LoginPage: React.FC = () => {
           }
         >
           Two-Factor Authentication
+        </Header>
+      );
+    }
+    if (mode === 'mfaSetup') {
+      return (
+        <Header
+          variant="h2"
+          description="Your account requires two-factor authentication. Scan the QR code with an authenticator app, then enter the 6-digit code to finish setup."
+        >
+          Set Up Two-Factor Authentication
+        </Header>
+      );
+    }
+    if (mode === 'mfaBackup') {
+      return (
+        <Header
+          variant="h2"
+          description="Save these backup codes somewhere safe. Each one can be used once if you lose access to your authenticator app."
+        >
+          Save Your Backup Codes
         </Header>
       );
     }
@@ -359,6 +434,65 @@ const LoginPage: React.FC = () => {
       );
     }
 
+    // MFA setup mode (first-time TOTP enrolment)
+    if (mode === 'mfaSetup') {
+      return (
+        <SpaceBetween direction="vertical" size="l">
+          {error && (
+            <Alert type="error" dismissible onDismiss={() => setError(null)}>
+              {error}
+            </Alert>
+          )}
+          <Box textAlign="center">
+            <QRCodeSVG value={mfaQrUri} size={200} />
+          </Box>
+          <FormField
+            label="Can't scan? Enter this setup key manually"
+            description={mfaSecret}
+          />
+          <FormField label="Authentication code">
+            <Input
+              value={mfaSetupCode}
+              onChange={({ detail }) => { setMfaSetupCode(detail.value); setError(null); }}
+              placeholder="6-digit code"
+              inputMode="numeric"
+              disabled={isLoading}
+              onKeyDown={({ detail }) => { if (detail.key === 'Enter') handleMfaSetupConfirm(); }}
+              autoFocus
+            />
+          </FormField>
+        </SpaceBetween>
+      );
+    }
+
+    // MFA backup codes mode (shown once after enabling TOTP)
+    if (mode === 'mfaBackup') {
+      return (
+        <SpaceBetween direction="vertical" size="l">
+          {error && (
+            <Alert type="error" dismissible onDismiss={() => setError(null)}>
+              {error}
+            </Alert>
+          )}
+          <Alert type="warning">
+            These codes are shown one time only. Copy and save them now.
+          </Alert>
+          <div
+            style={{
+              fontFamily: 'monospace',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              padding: '12px',
+              borderRadius: '8px',
+              background: '#f4f4f4',
+            }}
+          >
+            {backupCodes.join('\n')}
+          </div>
+        </SpaceBetween>
+      );
+    }
+
     // Login mode
     return (
       <SpaceBetween direction="vertical" size="l">
@@ -440,6 +574,29 @@ const LoginPage: React.FC = () => {
           </Button>
           <Button variant="link" onClick={() => switchMode('login')}>
             Back to sign in
+          </Button>
+        </SpaceBetween>
+      );
+    }
+
+    if (mode === 'mfaSetup') {
+      return (
+        <SpaceBetween direction="vertical" size="s">
+          <Button variant="primary" loading={isLoading} onClick={handleMfaSetupConfirm} fullWidth>
+            Enable 2FA
+          </Button>
+          <Button variant="link" onClick={() => switchMode('login')}>
+            Back to sign in
+          </Button>
+        </SpaceBetween>
+      );
+    }
+
+    if (mode === 'mfaBackup') {
+      return (
+        <SpaceBetween direction="vertical" size="s">
+          <Button variant="primary" loading={isLoading} onClick={handleMfaBackupContinue} fullWidth>
+            I've saved my backup codes — Continue
           </Button>
         </SpaceBetween>
       );

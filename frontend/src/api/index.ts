@@ -233,6 +233,17 @@ export interface LoginResponse {
   mfa_token?: string;
 }
 
+export interface MfaSetupResponse {
+  secret: string;
+  qr_uri: string;
+}
+
+export interface MfaEnableResponse {
+  access_token: string;
+  token_type?: string;
+  backup_codes: string[];
+}
+
 export const auth = {
   login: (email: string, password: string) =>
     client.post<LoginResponse>('/auth/login', { email, password }),
@@ -264,6 +275,12 @@ export const auth = {
 
   verifyMfa: (mfa_token: string, code: string) =>
     client.post<TokenResponse>('/auth/mfa/verify', { mfa_token, code }),
+
+  mfaSetup: (mfa_token: string) =>
+    client.post<MfaSetupResponse>('/auth/mfa/setup', { mfa_token }),
+
+  mfaEnable: (mfa_token: string, code: string) =>
+    client.post<MfaEnableResponse>('/auth/mfa/enable', { mfa_token, code }),
 };
 
 // ─── Managers ─────────────────────────────────────────────────────────────────
