@@ -11,11 +11,15 @@ import Box from '@cloudscape-design/components/box';
 import Alert from '@cloudscape-design/components/alert';
 import Link from '@cloudscape-design/components/link';
 import Toggle from '@cloudscape-design/components/toggle';
+import Icon from '@cloudscape-design/components/icon';
 import { useAuth } from '@/auth/AuthContext';
 import { useSiteSettings } from '@/context/SiteSettingsContext';
 import { auth as authApi } from '@/api';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+
+// Amount the login form card overlaps the hero banner to create a floating effect.
+const FORM_OVERLAP_OFFSET = '-56px';
 
 type Mode = 'login' | 'forgot' | 'reset' | 'mfa';
 
@@ -468,41 +472,106 @@ const LoginPage: React.FC = () => {
       {/* Hero Banner */}
       <div
         style={{
-          background: 'linear-gradient(135deg, #0972d3 0%, #033160 100%)',
-          padding: '64px 24px',
+          position: 'relative',
+          overflow: 'hidden',
+          background: 'radial-gradient(circle at 15% 20%, #0f6ab0 0%, transparent 45%), ' +
+            'radial-gradient(circle at 85% 0%, #1a3f70 0%, transparent 55%), ' +
+            'linear-gradient(160deg, #06182f 0%, #0a2b52 45%, #0972d3 100%)',
+          padding: '72px 24px 96px',
           textAlign: 'center',
         }}
       >
+        {/* Subtle grid overlay for depth */}
         <div
+          aria-hidden="true"
           style={{
-            fontSize: '2.5rem',
-            fontWeight: 700,
-            color: '#ffffff',
-            letterSpacing: '-0.5px',
-            marginBottom: '12px',
+            position: 'absolute',
+            inset: 0,
+            backgroundImage:
+              'linear-gradient(rgba(255,255,255,0.06) 1px, transparent 1px), ' +
+              'linear-gradient(90deg, rgba(255,255,255,0.06) 1px, transparent 1px)',
+            backgroundSize: '40px 40px',
+            WebkitMaskImage: 'radial-gradient(ellipse at center, black 0%, transparent 75%)',
+            maskImage: 'radial-gradient(ellipse at center, black 0%, transparent 75%)',
           }}
-        >
-          Portfolio Desk
-        </div>
-        <div style={{ fontSize: '1.1rem', color: 'rgba(255, 255, 255, 0.85)', maxWidth: '480px', margin: '0 auto' }}>
-          {settings.login_subtitle}
+        />
+
+        <div style={{ position: 'relative' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '56px',
+              height: '56px',
+              borderRadius: '16px',
+              background: 'rgba(255, 255, 255, 0.12)',
+              border: '1px solid rgba(255, 255, 255, 0.25)',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+              marginBottom: '20px',
+            }}
+          >
+            <Icon name="security" size="medium" variant="inverted" />
+          </div>
+
+          <div
+            style={{
+              fontSize: '2.5rem',
+              fontWeight: 700,
+              color: '#ffffff',
+              letterSpacing: '-0.5px',
+              marginBottom: '12px',
+            }}
+          >
+            Portfolio Desk
+          </div>
+          <div
+            style={{
+              fontSize: '1.1rem',
+              color: 'rgba(255, 255, 255, 0.85)',
+              maxWidth: '480px',
+              margin: '0 auto 28px',
+            }}
+          >
+            {settings.login_subtitle}
+          </div>
+
+          <div
+            style={{
+              display: 'inline-flex',
+              flexWrap: 'wrap',
+              justifyContent: 'center',
+              gap: '10px 24px',
+              fontSize: '0.85rem',
+              color: 'rgba(255, 255, 255, 0.75)',
+            }}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <Icon name="lock-private" variant="inverted" size="small" /> Encrypted in transit & at rest
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <Icon name="status-positive" variant="inverted" size="small" /> Trusted by growing teams
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Login Form */}
-      <Box padding={{ top: 'xxxl', horizontal: 'xxl' }} display="block">
+      <div style={{ marginTop: FORM_OVERLAP_OFFSET, padding: '0 24px 64px' }}>
         <Box
           display="block"
           margin={{ horizontal: 'auto' }}
           padding={{ horizontal: 'xxxl' }}
         >
-          <Container header={renderFormHeader()}>
-            <Form actions={renderFormActions()}>
-              {renderFormBody()}
-            </Form>
-          </Container>
+          <div style={{ borderRadius: '16px', boxShadow: '0 20px 48px rgba(3, 49, 96, 0.18)' }}>
+            <Container header={renderFormHeader()}>
+              <Form actions={renderFormActions()}>
+                {renderFormBody()}
+              </Form>
+            </Container>
+          </div>
         </Box>
-      </Box>
+      </div>
     </div>
   );
 };
