@@ -7,7 +7,17 @@ on:
 
 jobs:
   build-and-deploy:
-    runs-on: self-hosted
+    # Pin to the on-prem "docker-build" self-hosted runner. A bare
+    # `runs-on: self-hosted` matches *any* self-hosted runner, including the
+    # AWS EC2 host (registered with labels "self-hosted,aws-prod"). When this
+    # dev-stack deploy landed on that host it brought up the `dev-office-manager`
+    # compose project alongside `prod-office-manager`, and the two stacks fought
+    # over the same host port secrets (APP_PORT/ADMIN_PORT/LANDING_PORT) — the
+    # dev containers persistently held the ports, so the prod deploy failed with
+    # "Bind for 0.0.0.0:<port> failed: port is already allocated" no matter how
+    # many times it retried. Targeting the docker-build runner keeps the dev
+    # stack off the aws-prod host so the two never collide.
+    runs-on: [self-hosted, Linux, X64, docker-build]
 
     steps:
       - name: Checkout Code
