@@ -352,3 +352,22 @@ export async function testStripeConfig(): Promise<{ ok: boolean; error: string |
   const res = await api.post<{ ok: boolean; error: string | null }>("/admin/v1/billing/stripe-config/test")
   return res.data
 }
+
+// ─── Enterprise activation codes ────────────────────────────────────────────
+
+export async function getEnterpriseCodes(): Promise<import("../types").EnterpriseCode[]> {
+  const res = await api.get<import("../types").EnterpriseCode[]>("/admin/v1/billing/enterprise-codes")
+  return res.data
+}
+
+export async function createEnterpriseCode(
+  payload: import("../types").EnterpriseCodeInput,
+): Promise<import("../types").EnterpriseCode> {
+  const res = await api.post<import("../types").EnterpriseCode>("/admin/v1/billing/enterprise-codes", payload)
+  return res.data
+}
+
+export async function revokeEnterpriseCode(codeId: string): Promise<import("../types").EnterpriseCode> {
+  const res = await api.post<import("../types").EnterpriseCode>(`/admin/v1/billing/enterprise-codes/${codeId}/revoke`)
+  return res.data
+}
