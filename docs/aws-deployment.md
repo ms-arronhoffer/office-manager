@@ -308,7 +308,12 @@ App deploy (for the `deploy` job of `infra-prod.yml`), matching the Terraform ou
 - `RDS_HOST` (= `terraform output db_address`), `RDS_PORT` (usually `5432`)
 - `JWT_SECRET`, `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PASSWORD`
 - `S3_UPLOAD_BUCKET` (= `terraform output uploads_bucket`), `S3_UPLOAD_PREFIX`, `AWS_REGION`
-- `FRONTEND_URL`, `ADMIN_FRONTEND_URL`, `APP_PORT`, `ADMIN_PORT`, `LANDING_PORT`
+- `FRONTEND_URL`, `ADMIN_FRONTEND_URL`, `APP_PORT`, `ADMIN_PORT`, `LANDING_PORT`, `BACKEND_PORT`
+  - Host ports the stack binds; a reverse proxy (Nginx Proxy Manager on 443/81)
+    fronts them. Nothing is bound to port 80. The convention is `APP_PORT=4001`
+    (frontend), `BACKEND_PORT=4002`, `LANDING_PORT=4003`, `ADMIN_PORT=4004`
+    (manage). If these secrets are unset the compose file falls back to those
+    same defaults.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SMTP_*`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `SENTRY_DSN` (optional/as applicable)
 
 ## Application code changes
