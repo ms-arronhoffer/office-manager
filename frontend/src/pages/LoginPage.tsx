@@ -377,6 +377,7 @@ const LoginPage: React.FC = () => {
             placeholder="you@example.com"
             disabled={isLoading}
             onKeyDown={({ detail }) => { if (detail.key === 'Enter') handleLogin(); }}
+            autoFocus
           />
         </FormField>
         <FormField
@@ -480,7 +481,7 @@ const LoginPage: React.FC = () => {
           background: 'radial-gradient(circle at 15% 20%, #0f6ab0 0%, transparent 45%), ' +
             'radial-gradient(circle at 85% 0%, #1a3f70 0%, transparent 55%), ' +
             'linear-gradient(160deg, #06182f 0%, #0a2b52 45%, #0972d3 100%)',
-          padding: '72px 24px 96px',
+          padding: 'clamp(28px, 4vh, 56px) 24px clamp(48px, 8vh, 88px)',
           textAlign: 'center',
         }}
       >
@@ -558,13 +559,14 @@ const LoginPage: React.FC = () => {
           </div>
 
           {/* Hero image: a real screenshot of the product dashboard */}
-          <div style={{ maxWidth: '880px', margin: '40px auto 0' }}>
+          <div style={{ maxWidth: '880px', margin: 'clamp(20px, 3vh, 40px) auto 0' }}>
             <div
               style={{
                 borderRadius: '16px',
                 overflow: 'hidden',
                 boxShadow: '0 24px 64px rgba(3, 24, 47, 0.45)',
                 border: '1px solid rgba(255, 255, 255, 0.15)',
+                maxHeight: '26vh',
               }}
             >
               <img
@@ -574,7 +576,7 @@ const LoginPage: React.FC = () => {
                 height="900"
                 loading="eager"
                 decoding="async"
-                style={{ display: 'block', width: '100%', height: 'auto' }}
+                style={{ display: 'block', width: '100%', height: 'auto', maxHeight: '26vh', objectFit: 'cover' }}
               />
             </div>
           </div>
