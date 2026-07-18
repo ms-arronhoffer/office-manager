@@ -235,12 +235,16 @@ const LoginPage: React.FC = () => {
   // ── MFA Setup (first-time TOTP enrolment for super-admins) ─────────────────
   const beginMfaSetup = async (token: string) => {
     setMfaToken(token);
-    const { data } = await authApi.mfaSetup(token);
-    setMfaQrUri(data.qr_uri);
-    setMfaSecret(data.secret);
-    setMfaSetupCode('');
-    setUseBackupCode(false);
-    setMode('mfaSetup');
+    try {
+      const { data } = await authApi.mfaSetup(token);
+      setMfaQrUri(data.qr_uri);
+      setMfaSecret(data.secret);
+      setMfaSetupCode('');
+      setUseBackupCode(false);
+      setMode('mfaSetup');
+    } catch (err: unknown) {
+      setError(getRequestErrorMessage(err, 'Unable to start two-factor setup. Please try again.'));
+    }
   };
 
   const handleMfaSetupConfirm = async () => {
