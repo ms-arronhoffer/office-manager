@@ -553,6 +553,28 @@ const LoginPage: React.FC = () => {
               <Icon name="status-positive" variant="inverted" size="small" /> Trusted by growing teams
             </span>
           </div>
+
+          {/* Hero image: a real screenshot of the product dashboard */}
+          <div style={{ maxWidth: '880px', margin: '40px auto 0' }}>
+            <div
+              style={{
+                borderRadius: '16px',
+                overflow: 'hidden',
+                boxShadow: '0 24px 64px rgba(3, 24, 47, 0.45)',
+                border: '1px solid rgba(255, 255, 255, 0.15)',
+              }}
+            >
+              <img
+                src="/images/login-hero-dashboard.png"
+                alt="Portfolio Desk dashboard showing portfolio KPIs, financial overview and open maintenance tickets"
+                width="1440"
+                height="900"
+                loading="eager"
+                decoding="async"
+                style={{ display: 'block', width: '100%', height: 'auto' }}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
