@@ -457,11 +457,37 @@ jobs:
         env:
           AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
 
+      # Read the DB password straight from Secrets Manager instead of a
+      # GitHub secret. Terraform writes the RDS master password into this
+      # same secret (see infra/terraform/aws/secrets.tf), and the EC2
+      # instance role is already granted secretsmanager:GetSecretValue on it
+      # (see infra/terraform/aws/ec2.tf) — so the container's password can
+      # never drift from what Terraform actually set on RDS.
+      - name: Fetch POSTGRES_PASSWORD from Secrets Manager
+        id: db-secret
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
+        run: |
+          set -euo pipefail
+          SECRET_NAME="${{ env.ECR_NAMESPACE }}/prod/app-secrets"
+          if ! secret_json="$(aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" \
+            --query SecretString --output text)"; then
+            echo "::error::Failed to fetch Secrets Manager secret '$SECRET_NAME' (check the EC2 instance role's secretsmanager:GetSecretValue permission in ec2.tf)."
+            exit 1
+          fi
+          db_password="$(jq -r '.POSTGRES_PASSWORD // empty' <<<"$secret_json")"
+          if [ -z "$db_password" ]; then
+            echo "::error::Secret '$SECRET_NAME' is missing the POSTGRES_PASSWORD key."
+            exit 1
+          fi
+          echo "::add-mask::$db_password"
+          echo "pw=$db_password" >> "$GITHUB_OUTPUT"
+
       # Fail fast if any required secret is missing — mirrors deploy.yml's
       # guard against unset GitHub secrets silently becoming empty strings.
       - name: Validate Required Secrets
         env:
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_PASSWORD: ${{ steps.db-secret.outputs.pw }}
           POSTGRES_HOST: ${{ secrets.RDS_HOST }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           DEFAULT_ADMIN_PASSWORD: ${{ secrets.DEFAULT_ADMIN_PASSWORD }}
@@ -521,7 +547,7 @@ jobs:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_PASSWORD: ${{ steps.db-secret.outputs.pw }}
           POSTGRES_HOST: ${{ secrets.RDS_HOST }}
           POSTGRES_PORT: ${{ secrets.RDS_PORT }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
