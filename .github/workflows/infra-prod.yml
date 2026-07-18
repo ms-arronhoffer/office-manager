@@ -470,10 +470,14 @@ jobs:
         run: |
           set -euo pipefail
           SECRET_NAME="${{ env.ECR_NAMESPACE }}/prod/app-secrets"
-          db_password="$(aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" \
-            --query SecretString --output text | jq -r '.POSTGRES_PASSWORD // empty')"
+          if ! secret_json="$(aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" \
+            --query SecretString --output text)"; then
+            echo "::error::Failed to fetch Secrets Manager secret '$SECRET_NAME' (check the EC2 instance role's secretsmanager:GetSecretValue permission in ec2.tf)."
+            exit 1
+          fi
+          db_password="$(jq -r '.POSTGRES_PASSWORD // empty' <<<"$secret_json")"
           if [ -z "$db_password" ]; then
-            echo "::error::Failed to read POSTGRES_PASSWORD from Secrets Manager secret '$SECRET_NAME'."
+            echo "::error::Secret '$SECRET_NAME' is missing the POSTGRES_PASSWORD key."
             exit 1
           fi
           echo "::add-mask::$db_password"
