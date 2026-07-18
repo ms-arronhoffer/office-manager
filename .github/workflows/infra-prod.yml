@@ -335,20 +335,37 @@ jobs:
         id: meta
         run: echo "image_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
+      # This runner is amd64 (`X64`), but the `aws-prod` deploy host is arm64
+      # (Graviton / al2023-arm64 — see infra/terraform/aws/network.tf). Register
+      # QEMU/binfmt handlers so buildx can cross-build the arm64 images the
+      # deploy host pulls; without this every image is amd64-only and the
+      # `deploy` job's `docker compose pull` fails with
+      # "no matching manifest for linux/arm64/v8 in the manifest list entries".
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
           # Use the `docker` driver so builds run against the host Docker
           # daemon. The default `docker-container` driver spins up a privileged
           # BuildKit container, which fails on these self-hosted runners with
-          # "permission denied ... /var/run/docker.sock".
+          # "permission denied ... /var/run/docker.sock". The `docker` driver
+          # (with the QEMU step above) still cross-builds a single foreign
+          # platform such as linux/arm64.
           driver: docker
 
+      # `platforms: linux/arm64` targets the aws-prod deploy host's architecture
+      # rather than this amd64 build runner's, so the pushed image manifest
+      # matches what `deploy` pulls.
       - name: Build and Push Backend Image
         uses: docker/build-push-action@v5
         with:
           context: ./backend
           push: true
+          platforms: linux/arm64
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/backend:${{ steps.meta.outputs.image_tag }}
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/backend:latest
@@ -358,6 +375,7 @@ jobs:
         with:
           context: ./frontend
           push: true
+          platforms: linux/arm64
           build-args: |
             VITE_API_BASE_URL=/api/v1
             VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
@@ -370,6 +388,7 @@ jobs:
         with:
           context: ./admin-frontend
           push: true
+          platforms: linux/arm64
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/admin-frontend:${{ steps.meta.outputs.image_tag }}
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/admin-frontend:latest
@@ -379,6 +398,7 @@ jobs:
         with:
           context: ./landing
           push: true
+          platforms: linux/arm64
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/landing:${{ steps.meta.outputs.image_tag }}
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/landing:latest
