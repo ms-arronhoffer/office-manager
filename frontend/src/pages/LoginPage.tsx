@@ -21,6 +21,9 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 // Amount the login form card overlaps the hero banner to create a floating effect.
 const FORM_OVERLAP_OFFSET = '-56px';
 
+// Real product screenshot shown in the login hero banner.
+const HERO_IMAGE_SRC = '/images/login-hero-dashboard.png';
+
 type Mode = 'login' | 'forgot' | 'reset' | 'mfa';
 
 /**
@@ -565,7 +568,7 @@ const LoginPage: React.FC = () => {
               }}
             >
               <img
-                src="/images/login-hero-dashboard.png"
+                src={HERO_IMAGE_SRC}
                 alt="Portfolio Desk dashboard showing portfolio KPIs, financial overview and open maintenance tickets"
                 width="1440"
                 height="900"
