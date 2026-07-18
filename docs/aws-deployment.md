@@ -304,7 +304,12 @@ in both places, the Variables value takes precedence.
   defaults to `us-east-2` if unset
 
 App deploy (for the `deploy` job of `infra-prod.yml`), matching the Terraform outputs:
-- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
+- `POSTGRES_DB`, `POSTGRES_USER`
+  - `POSTGRES_PASSWORD` is *not* a GitHub secret — the `deploy` job reads it
+    directly from the `<project_name>/<environment>/app-secrets` Secrets
+    Manager secret (via the EC2 instance role's `secretsmanager:GetSecretValue`
+    permission granted in `ec2.tf`), the same value Terraform sets on RDS
+    (see `secrets.tf`), so the container's password can never diverge from it.
 - `RDS_HOST` (= `terraform output db_address`), `RDS_PORT` (usually `5432`)
 - `JWT_SECRET`, `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PASSWORD`
 - `S3_UPLOAD_BUCKET` (= `terraform output uploads_bucket`), `S3_UPLOAD_PREFIX`, `AWS_REGION`
