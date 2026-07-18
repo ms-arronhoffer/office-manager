@@ -17,7 +17,7 @@ services:
       - internal
 
   backend:
-    image: office-manager-backend:latest   # Changed from build: ./backend
+    build: ./backend
     restart: unless-stopped
     depends_on:
       db:
@@ -62,7 +62,11 @@ services:
       - internal
 
   frontend:
-    image: office-manager-frontend:latest   # Changed from build:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api/v1
+        VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     restart: unless-stopped
     depends_on:
       - backend
@@ -74,7 +78,8 @@ services:
       - internal
 
   admin-frontend:
-    image: office-manager-admin-frontend:latest   # Changed from build:
+    build:
+      context: ./admin-frontend
     restart: unless-stopped
     depends_on:
       - backend
@@ -84,7 +89,7 @@ services:
       - internal
 
   landing:
-    image: office-manager-landing:latest   # Changed from build:
+    build: ./landing
     restart: unless-stopped
     ports:
       - "127.0.0.1:${LANDING_PORT:-4002}:80"
