@@ -53,8 +53,11 @@ services:
       start_period: 40s
     # Exposed on the host so the reverse proxy (Nginx Proxy Manager) can reach
     # the API directly. Never bound to port 80 — that stays free for the proxy.
+    # Bound to 127.0.0.1 so the port is reachable only from the host itself
+    # (where NPM runs); it is not exposed on the instance's public/LAN
+    # interfaces, so NPM is the sole ingress path to every service.
     ports:
-      - "${BACKEND_PORT:-4002}:8000"
+      - "127.0.0.1:${BACKEND_PORT:-4002}:8000"
     networks:
       - internal
 
@@ -64,9 +67,11 @@ services:
     depends_on:
       - backend
     # Reverse proxy (Nginx Proxy Manager) terminates TLS on 443/81 and forwards
-    # to these host ports. Nothing here binds port 80.
+    # to these host ports. Nothing here binds port 80. Bound to 127.0.0.1 so the
+    # container is reachable only from the host (where NPM runs), never directly
+    # from the public/LAN network.
     ports:
-      - "${APP_PORT:-4001}:80"
+      - "127.0.0.1:${APP_PORT:-4001}:80"
     networks:
       - internal
 
@@ -76,7 +81,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "${ADMIN_PORT:-4004}:80"
+      - "127.0.0.1:${ADMIN_PORT:-4004}:80"
     networks:
       - internal
 
@@ -84,7 +89,7 @@ services:
     image: ${ECR_REGISTRY:+${ECR_REGISTRY}/}${ECR_NAMESPACE:-office-manager}/landing:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
-      - "${LANDING_PORT:-4003}:80"
+      - "127.0.0.1:${LANDING_PORT:-4003}:80"
     networks:
       - internal
 
