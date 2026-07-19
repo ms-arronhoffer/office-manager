@@ -57,4 +57,27 @@ describe('LoginPage', () => {
     expect(await screen.findByText(/invalid credentials/i)).toBeInTheDocument();
     spy.mockRestore();
   });
+
+  it('starts TOTP setup instead of showing "Unexpected response" when setup is required', async () => {
+    const loginSpy = vi
+      .spyOn(authApi, 'login')
+      .mockResolvedValueOnce({
+        data: { mfa_setup_required: true, mfa_token: 'challenge-token' },
+      } as Awaited<ReturnType<typeof authApi.login>>);
+    const setupSpy = vi
+      .spyOn(authApi, 'mfaSetup')
+      .mockResolvedValueOnce({
+        data: { secret: 'ABCDEF', qr_uri: 'otpauth://totp/demo' },
+      } as Awaited<ReturnType<typeof authApi.mfaSetup>>);
+    renderLoginPage();
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'admin@officemanager.local');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'password123');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+    expect(await screen.findByText(/set up two-factor authentication/i)).toBeInTheDocument();
+    expect(setupSpy).toHaveBeenCalledWith('challenge-token');
+    expect(screen.queryByText(/unexpected response/i)).not.toBeInTheDocument();
+    loginSpy.mockRestore();
+    setupSpy.mockRestore();
+  });
 });
