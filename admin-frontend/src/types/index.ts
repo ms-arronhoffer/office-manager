@@ -353,6 +353,27 @@ export interface StripeConfigInput {
   is_enabled?: boolean
 }
 
+export interface EnterpriseCode {
+  id: string
+  code: string
+  stripe_price_id: string
+  organization_id: string | null
+  is_active: boolean
+  expires_at: string | null
+  redeemed_at: string | null
+  redeemed_by_org_id: string | null
+  notes: string | null
+  created_at: string
+}
+
+export interface EnterpriseCodeInput {
+  stripe_price_id: string
+  organization_id?: string | null
+  expires_at?: string | null
+  code?: string | null
+  notes?: string | null
+}
+
 export interface AuthPayload {
   sub: string
   role: string

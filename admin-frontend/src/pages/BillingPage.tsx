@@ -5,6 +5,7 @@ import { Card } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { Label } from "../components/ui/label"
 import { Checkbox } from "../components/ui/checkbox"
+import { Textarea } from "../components/ui/textarea"
 import { Alert, AlertDescription } from "../components/ui/alert"
 import { Pagination } from "../components/ui/pagination"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table"
@@ -21,8 +22,11 @@ import {
   getStripeConfig,
   saveStripeConfig,
   testStripeConfig,
+  getEnterpriseCodes,
+  createEnterpriseCode,
+  revokeEnterpriseCode,
 } from "../api"
-import type { BillingRow, RevenueMetrics, StripeConfig } from "../types"
+import type { BillingRow, RevenueMetrics, StripeConfig, EnterpriseCode } from "../types"
 
 const BILLING_PER_PAGE = 20
 
@@ -252,6 +256,225 @@ function StripeIntegrationCard() {
   )
 }
 
+function EnterpriseCodesCard() {
+  const [codes, setCodes] = useState<EnterpriseCode[]>([])
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [minting, setMinting] = useState(false)
+  const [msg, setMsg] = useState("")
+  const [err, setErr] = useState("")
+
+  // Mint form fields.
+  const [priceId, setPriceId] = useState("")
+  const [orgId, setOrgId] = useState("")
+  const [expiresAt, setExpiresAt] = useState("")
+  const [customCode, setCustomCode] = useState("")
+  const [notes, setNotes] = useState("")
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await getEnterpriseCodes()
+      setCodes(data)
+      setErr("")
+    } catch {
+      setErr("Enterprise activation codes are unavailable.")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const resetForm = () => {
+    setPriceId("")
+    setOrgId("")
+    setExpiresAt("")
+    setCustomCode("")
+    setNotes("")
+  }
+
+  const handleMint = async () => {
+    setMsg("")
+    setErr("")
+    if (!priceId.trim()) {
+      setErr("A Stripe price ID is required to mint a code.")
+      return
+    }
+    setMinting(true)
+    try {
+      const created = await createEnterpriseCode({
+        stripe_price_id: priceId.trim(),
+        organization_id: orgId.trim() || null,
+        expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
+        code: customCode.trim() || null,
+        notes: notes.trim() || null,
+      })
+      setCodes((prev) => [created, ...prev])
+      setMsg(`Minted activation code ${created.code}.`)
+      resetForm()
+    } catch (e) {
+      const detail =
+        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setErr(detail || "Failed to mint activation code.")
+    } finally {
+      setMinting(false)
+    }
+  }
+
+  const handleRevoke = async (code: EnterpriseCode) => {
+    if (!window.confirm(`Revoke activation code ${code.code}? It can no longer be redeemed.`)) return
+    setMsg("")
+    setErr("")
+    try {
+      const updated = await revokeEnterpriseCode(code.id)
+      setCodes((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+      setMsg(`Revoked activation code ${updated.code}.`)
+    } catch {
+      setErr("Failed to revoke activation code.")
+    }
+  }
+
+  const codeStatus = (code: EnterpriseCode) => {
+    if (!code.is_active) return <Badge variant="outline">Revoked</Badge>
+    if (code.redeemed_at) return <Badge variant="secondary">Redeemed</Badge>
+    if (code.expires_at && new Date(code.expires_at) < new Date())
+      return <Badge variant="destructive">Expired</Badge>
+    return <Badge variant="secondary">Active</Badge>
+  }
+
+  return (
+    <Card className="mb-6 p-6">
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">Enterprise activation codes</h2>
+          <p className="text-sm text-slate-600">
+            Mint an opaque code that maps to a bespoke Stripe Price under the Enterprise product.
+            The org admin redeems it on their billing page to self-activate the negotiated plan.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>
+          {open ? "Close" : "Mint code"}
+        </Button>
+      </div>
+
+      {msg && <p className="mt-3 text-sm text-emerald-700">{msg}</p>}
+      {err && <p className="mt-3 text-sm text-red-700">{err}</p>}
+
+      {open && (
+        <div className="mt-6 border-t border-slate-200 pt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="ent-price" className="text-sm">Stripe price ID (required)</Label>
+            <Input
+              id="ent-price"
+              autoComplete="off"
+              placeholder="price_…"
+              value={priceId}
+              onChange={(e) => setPriceId(e.target.value)}
+              className="mt-2 font-mono"
+            />
+          </div>
+          <div>
+            <Label htmlFor="ent-org" className="text-sm">Organization ID (optional — restricts redemption)</Label>
+            <Input
+              id="ent-org"
+              autoComplete="off"
+              placeholder="Any org may redeem when blank"
+              value={orgId}
+              onChange={(e) => setOrgId(e.target.value)}
+              className="mt-2 font-mono"
+            />
+          </div>
+          <div>
+            <Label htmlFor="ent-code" className="text-sm">Custom code (optional — auto-generated when blank)</Label>
+            <Input
+              id="ent-code"
+              autoComplete="off"
+              placeholder="ENT-XXXXXX-XXXXXX"
+              value={customCode}
+              onChange={(e) => setCustomCode(e.target.value)}
+              className="mt-2 font-mono"
+            />
+          </div>
+          <div>
+            <Label htmlFor="ent-expires" className="text-sm">Expires at (optional)</Label>
+            <Input
+              id="ent-expires"
+              type="datetime-local"
+              autoComplete="off"
+              value={expiresAt}
+              onChange={(e) => setExpiresAt(e.target.value)}
+              className="mt-2"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <Label htmlFor="ent-notes" className="text-sm">Notes (optional)</Label>
+            <Textarea
+              id="ent-notes"
+              placeholder="e.g. Negotiated by sales for Acme Corp."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="mt-2"
+            />
+          </div>
+          <div className="md:col-span-2">
+            <Button onClick={handleMint} disabled={minting}>
+              {minting ? "Minting…" : "Mint activation code"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-6 overflow-x-auto">
+        {loading ? (
+          <p className="text-sm text-slate-500">Loading activation codes…</p>
+        ) : codes.length === 0 ? (
+          <p className="text-sm text-slate-500">No activation codes minted yet.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Code</TableHead>
+                <TableHead>Price ID</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Expires</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {codes.map((code) => (
+                <TableRow key={code.id}>
+                  <TableCell className="font-mono">{code.code}</TableCell>
+                  <TableCell className="font-mono text-xs">{code.stripe_price_id}</TableCell>
+                  <TableCell>{codeStatus(code)}</TableCell>
+                  <TableCell className="text-sm text-slate-600">
+                    {code.expires_at ? new Date(code.expires_at).toLocaleDateString() : "—"}
+                  </TableCell>
+                  <TableCell className="text-sm text-slate-600">
+                    {new Date(code.created_at).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell>
+                    {code.is_active ? (
+                      <Button variant="outline" size="sm" onClick={() => handleRevoke(code)}>
+                        Revoke
+                      </Button>
+                    ) : (
+                      <span className="text-sm text-slate-400">—</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 function RevenueDashboard() {
   const [rev, setRev] = useState<RevenueMetrics | null>(null)
   const [err, setErr] = useState("")
@@ -364,6 +587,8 @@ export default function BillingPage() {
       <RevenueDashboard />
 
       <StripeIntegrationCard />
+
+      <EnterpriseCodesCard />
 
       {error && (
         <Alert variant="destructive" className="mb-6">
