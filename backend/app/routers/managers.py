@@ -2,6 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_role
@@ -34,8 +35,16 @@ async def create_manager(
     current_user: User = Depends(require_role("admin", "editor")),
 ):
     manager = Manager(organization_id=current_user.organization_id, **payload.model_dump())
+    name = manager.name
     db.add(manager)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A manager named '{name}' already exists.",
+        )
     await db.refresh(manager)
     return ManagerResponse.model_validate(manager, from_attributes=True)
 
@@ -51,10 +60,19 @@ async def update_manager(
         db, Manager, manager_id, current_user.organization_id, detail="Manager not found"
     )
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    for field, value in updates.items():
         setattr(manager, field, value)
+    name = updates.get("name", manager.name)
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A manager named '{name}' already exists.",
+        )
     await db.refresh(manager)
     return ManagerResponse.model_validate(manager, from_attributes=True)
 

@@ -124,11 +124,14 @@ const ManagersPage: React.FC = () => {
       }
       closeModal();
       fetchManagers();
-    } catch {
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response
+        ?.data?.detail;
       setActionError(
-        modalMode === 'create'
-          ? 'Failed to create manager.'
-          : 'Failed to update manager.',
+        detail ||
+          (modalMode === 'create'
+            ? 'Failed to create manager.'
+            : 'Failed to update manager.'),
       );
     } finally {
       setSaving(false);

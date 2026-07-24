@@ -1,6 +1,6 @@
 import uuid
 from decimal import Decimal
-from sqlalchemy import String, Integer, Boolean, Text, ForeignKey, Index, Numeric
+from sqlalchemy import String, Integer, Boolean, Text, ForeignKey, Index, Numeric, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 from app.models.mixins import SoftDeleteMixin
@@ -8,10 +8,17 @@ from app.models.mixins import SoftDeleteMixin
 
 class Manager(TimestampMixin, Base):
     __tablename__ = "managers"
+    # Manager names are unique per organization (not globally): different
+    # tenants may legitimately have a manager with the same name, and a global
+    # unique constraint made cross-tenant (and same-tenant duplicate) inserts
+    # fail with a raw IntegrityError surfaced as "Failed to create manager".
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name", name="uq_managers_org_name"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id"), nullable=True, index=True)
-    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(Text, nullable=True)
 
