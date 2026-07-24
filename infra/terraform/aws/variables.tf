@@ -74,6 +74,12 @@ variable "key_pair_name" {
   default     = "Prod Office Manager"
 }
 
+variable "app_eip_allocation_id" {
+  description = "Allocation id of an existing Elastic IP to attach to the application EC2 instance, giving prod a stable public address that survives instance replacement. Leave empty to keep the ephemeral auto-assigned public IP."
+  type        = string
+  default     = "eipalloc-04448fb4ab8eeae33"
+}
+
 # ── Database (RDS) ────────────────────────────────────────────────────────────
 
 variable "db_instance_class" {
@@ -180,31 +186,48 @@ variable "sentry_dsn" {
   default     = ""
 }
 
-# ── GitHub Actions self-hosted runner bootstrap ───────────────────────────────
-# The `prod` deploy workflow expects a self-hosted runner labeled "aws-prod"
-# to exist and be online. Rather than requiring a human to SSH in and run
-# `config.sh` by hand, the EC2 instance registers itself as a runner on boot
-# using a short-lived registration token it fetches from the GitHub API with
-# the PAT below. The PAT only needs the `repo` (classic) or
-# "Administration: write" (fine-grained) scope on this repository and should
-# be rotated periodically; it is only ever used at boot time to mint the
-# actual (1-hour) runner registration token, never stored on disk afterwards.
-
-variable "github_repo" {
-  description = "GitHub \"owner/repo\" this runner registers against."
-  type        = string
-  default     = "ms-arronhoffer/office-manager"
-}
-
-variable "github_runner_pat" {
-  description = "GitHub PAT used once at boot to fetch a runner registration token. Provide via TF_VAR_github_runner_pat."
+# Additional application secrets folded into the same Secrets Manager secret so
+# the SSM-driven `deploy` job can assemble the container `.env` entirely on-box
+# (the instance profile already grants secretsmanager:GetSecretValue). Provide
+# via TF_VAR_<name> / GitHub Actions secrets; each is optional.
+variable "google_client_secret" {
+  description = "Google OAuth client secret (optional)."
   type        = string
   sensitive   = true
   default     = ""
 }
 
-variable "github_runner_labels" {
-  description = "Comma-separated labels applied to the self-hosted runner registered on the EC2 instance."
+variable "smtp_user" {
+  description = "SMTP username/login for outbound email (optional)."
   type        = string
-  default     = "self-hosted,aws-prod"
+  sensitive   = true
+  default     = ""
+}
+
+variable "smtp_password" {
+  description = "SMTP password for outbound email (optional)."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "npm_admin_password" {
+  description = "Nginx Proxy Manager admin password used by the deploy step to provision proxy routes (optional)."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+# ── GitHub repository (used to clone the app on the EC2 host) ────────────────
+# The instance clones this repo at boot so the SSM-driven `deploy` job can run
+# `docker compose -f docker-compose.prod.yml` against a working tree checked
+# out at the exact commit being shipped. The box no longer registers a
+# self-hosted GitHub Actions runner — deploys are driven remotely from the
+# on-prem `docker-build` runner via AWS Systems Manager (SSM). Public repo, so
+# no token is needed for the clone.
+
+variable "github_repo" {
+  description = "GitHub \"owner/repo\" cloned onto the app instance for compose-based deploys."
+  type        = string
+  default     = "ms-arronhoffer/office-manager"
 }
