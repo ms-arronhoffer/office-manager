@@ -18,6 +18,10 @@ npm_admin_allowed_cidrs = ["74.133.78.157/32"]
 # (id key-0569bda36e38aca5d). Leave empty to disable SSH key access.
 key_pair_name = "Prod Office Manager"
 
+# Pre-allocated Elastic IP attached to the app instance for a stable public
+# address. Leave empty to use the ephemeral auto-assigned public IP.
+app_eip_allocation_id = "eipalloc-04448fb4ab8eeae33"
+
 # db_password             = "..."
 # jwt_secret              = "..."
 # default_admin_password  = "..."

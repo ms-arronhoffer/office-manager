@@ -74,6 +74,12 @@ variable "key_pair_name" {
   default     = "Prod Office Manager"
 }
 
+variable "app_eip_allocation_id" {
+  description = "Allocation id of an existing Elastic IP to attach to the application EC2 instance, giving prod a stable public address that survives instance replacement. Leave empty to keep the ephemeral auto-assigned public IP."
+  type        = string
+  default     = "eipalloc-04448fb4ab8eeae33"
+}
+
 # ── Database (RDS) ────────────────────────────────────────────────────────────
 
 variable "db_instance_class" {
