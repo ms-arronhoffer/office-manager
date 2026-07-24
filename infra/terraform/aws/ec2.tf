@@ -30,6 +30,21 @@ resource "aws_security_group" "app" {
     }
   }
 
+  # Nginx Proxy Manager admin UI (port 81). Kept off the public internet —
+  # restrict to the same trusted office/VPN CIDR(s) allowed to SSH in. Leave
+  # `npm_admin_allowed_cidrs` empty to keep the admin UI closed entirely (reach
+  # it via an SSH tunnel or SSM port-forward instead).
+  dynamic "ingress" {
+    for_each = length(var.npm_admin_allowed_cidrs) > 0 ? [1] : []
+    content {
+      description = "Nginx Proxy Manager admin UI (restrict to office/VPN CIDRs)"
+      from_port   = 81
+      to_port     = 81
+      protocol    = "tcp"
+      cidr_blocks = var.npm_admin_allowed_cidrs
+    }
+  }
+
   egress {
     from_port   = 0
     to_port     = 0

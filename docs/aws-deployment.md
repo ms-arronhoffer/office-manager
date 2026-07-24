@@ -314,25 +314,49 @@ App deploy (for the `deploy` job of `infra-prod.yml`), matching the Terraform ou
 - `JWT_SECRET`, `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PASSWORD`
 - `S3_UPLOAD_BUCKET` (= `terraform output uploads_bucket`), `S3_UPLOAD_PREFIX`, `AWS_REGION`
 - `FRONTEND_URL`, `ADMIN_FRONTEND_URL`, `APP_PORT`, `ADMIN_PORT`, `LANDING_PORT`, `BACKEND_PORT`
-  - Host ports the stack binds; a reverse proxy (Nginx Proxy Manager on 443/81)
-    fronts them. Nothing is bound to port 80. The convention is `APP_PORT=4001`
-    (frontend), `BACKEND_PORT=4002`, `LANDING_PORT=4003`, `ADMIN_PORT=4004`
-    (manage). If these secrets are unset the compose file falls back to those
-    same defaults. Each port is published on `127.0.0.1` only, so the containers
-    are reachable solely from the host (where NPM runs) and never directly from
-    the instance's public/LAN interfaces — NPM is the sole ingress. This assumes
-    NPM runs on the host itself (native/systemd or host network mode); a bridged
-    NPM container cannot reach a `127.0.0.1`-only bind (inside that container
-    `127.0.0.1` is its own loopback). For a bridged NPM container, attach it to
-    the stack's shared `edge` network and proxy by service name instead of
-    binding the ports to `0.0.0.0` (which would re-expose every service on the
-    public/LAN interface). One-time wiring:
-    `docker network connect prod-office-manager_edge nginx-proxy-manager-app-1`,
-    then point each NPM proxy host at the internal service name/port —
-    `http://frontend:80`, `http://backend:8000`, `http://admin-frontend:80`,
-    `http://landing:80` (adjust the network prefix if your compose project name
-    differs). This keeps every service off the public interface.
+  - Host ports the stack binds. The bundled Nginx Proxy Manager (see below)
+    fronts them. Nothing is bound to port 80/443 except NPM. The convention is
+    `APP_PORT=4001` (frontend), `BACKEND_PORT=4002`, `LANDING_PORT=4003`,
+    `ADMIN_PORT=4004` (manage). If these secrets are unset the compose file falls
+    back to those same defaults. Each port is published on `127.0.0.1` only (for
+    host-level debugging); NPM itself reaches every container by service name
+    over the shared `edge` network, so the app containers are never exposed on
+    the instance's public/LAN interfaces — NPM is the sole ingress.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SMTP_*`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `SENTRY_DSN` (optional/as applicable)
+
+## Reverse proxy — Nginx Proxy Manager
+
+`docker-compose.prod.yml` runs [Nginx Proxy Manager](https://nginxproxymanager.com/)
+(`nginx-proxy-manager` service) as the single public ingress. It is the only
+container bound to the host's public interface:
+
+- `80` — public HTTP (redirected to HTTPS by *Force SSL*)
+- `443` — public HTTPS
+- `81` — admin UI, firewalled to the office CIDR in the security group
+
+NPM joins the stack's shared `edge` network and proxies to each app container by
+service name (`http://frontend:80`, `http://admin-frontend:80`,
+`http://landing:80`, `http://backend:8000`). Its config DB and issued
+certificates persist in the `npm_data` / `npm_letsencrypt` docker volumes across
+redeploys.
+
+Routes, SSL certificates and the per-host **Block Common Exploits**,
+**Websockets Support** and **Force SSL** toggles are provisioned idempotently by
+`infra/nginx-proxy-manager/bootstrap.py`. Point DNS at `terraform output
+app_public_ip`, set `NPM_LETSENCRYPT_EMAIL` + the `NPM_*_DOMAIN` variables, and
+run the script from the host — see
+[`infra/nginx-proxy-manager/README.md`](../infra/nginx-proxy-manager/README.md)
+for the full walkthrough. Change the default `admin@example.com` / `changeme`
+NPM admin credentials on first login.
+
+### SSH / firewall
+
+The `office-manager-prod-app` security group opens port `22` (SSH) and port `81`
+(NPM admin UI) only to the trusted office CIDR — `ssh_allowed_cidrs` and
+`npm_admin_allowed_cidrs` in `infra/terraform/aws/variables.tf`. SSH uses the
+`Prod Office Manager` EC2 key pair (`key_pair_name`). SSM Session Manager remains
+available as a keyless fallback via the instance's IAM role.
+
 
 ## Application code changes
 
