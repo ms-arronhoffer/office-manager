@@ -39,7 +39,13 @@ variable "subnet_ids" {
 variable "ssh_allowed_cidrs" {
   description = "CIDR blocks allowed to reach the app EC2 instance over SSH (port 22). Restrict this to your office/VPN IP range."
   type        = list(string)
-  default     = []
+  default     = ["74.133.78.157/32"]
+}
+
+variable "npm_admin_allowed_cidrs" {
+  description = "CIDR blocks allowed to reach the Nginx Proxy Manager admin UI (port 81). Restrict this to your office/VPN IP range; leave empty to keep the admin UI closed and reach it via an SSH tunnel/SSM port-forward instead."
+  type        = list(string)
+  default     = ["74.133.78.157/32"]
 }
 
 variable "app_allowed_cidrs" {
@@ -65,7 +71,7 @@ variable "app_root_volume_gb" {
 variable "key_pair_name" {
   description = "Name of an existing EC2 key pair for SSH access. Leave empty to disable SSH key access (recommended if using SSM Session Manager instead)."
   type        = string
-  default     = ""
+  default     = "Prod Office Manager"
 }
 
 # ── Database (RDS) ────────────────────────────────────────────────────────────
