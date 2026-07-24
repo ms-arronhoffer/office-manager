@@ -256,6 +256,48 @@ def _ensure_self_storage_schema() -> None:
     print("[start] Ensured self-storage facility/manager tables exist.")
 
 
+def _ensure_manager_name_constraint() -> None:
+    """Scope ``managers.name`` uniqueness to the organization.
+
+    ``managers.name`` historically had a *global* unique constraint
+    (``managers_name_key``). In a multi-tenant deployment that blocked two
+    organizations from having a manager with the same name and made duplicate
+    inserts raise a raw ``IntegrityError`` surfaced as a spurious "Failed to
+    create manager" 500. Migration 105 swaps it for a composite
+    ``(organization_id, name)`` constraint, but a database that was
+    create_all-stamped at an older head never runs that migration (``alembic
+    upgrade`` is a no-op there), so heal it here as well.
+
+    Idempotent: drops the global constraint only if present and adds the
+    composite one only if absent, so it is a safe no-op on fresh create_all
+    deployments (which already declare ``uq_managers_org_name`` and never had
+    the global constraint) and on DBs that ran migration 105.
+    """
+    inspector = inspect(sync_engine)
+    if not inspector.has_table("managers"):
+        return
+
+    unique_names = {uc["name"] for uc in inspector.get_unique_constraints("managers")}
+    unique_names |= {
+        ix["name"] for ix in inspector.get_indexes("managers") if ix.get("unique")
+    }
+    unique_names = {name for name in unique_names if name}
+
+    with sync_engine.begin() as conn:
+        if "managers_name_key" in unique_names:
+            conn.execute(
+                text('ALTER TABLE managers DROP CONSTRAINT IF EXISTS "managers_name_key"')
+            )
+        if "uq_managers_org_name" not in unique_names:
+            conn.execute(
+                text(
+                    "ALTER TABLE managers ADD CONSTRAINT uq_managers_org_name "
+                    "UNIQUE (organization_id, name)"
+                )
+            )
+    print("[start] Ensured managers.name is unique per organization.")
+
+
 def _wait_for_database() -> None:
     """Block until the database accepts connections before touching the schema.
 
@@ -370,6 +412,7 @@ def _initialize_schema() -> None:
         _ensure_search_vector_columns()
         _ensure_self_storage_schema()
         _ensure_reconciled_columns()
+        _ensure_manager_name_constraint()
         _run_alembic("stamp", "head")
         return
 
@@ -417,6 +460,7 @@ def _initialize_schema() -> None:
         _ensure_search_vector_columns()
         _ensure_self_storage_schema()
         _ensure_reconciled_columns()
+        _ensure_manager_name_constraint()
         _run_alembic("stamp", "head")
         return
 
@@ -429,6 +473,7 @@ def _initialize_schema() -> None:
     # Idempotent on healthy DBs.
     _ensure_self_storage_schema()
     _ensure_reconciled_columns()
+    _ensure_manager_name_constraint()
     # The migration-only full-text ``search_vector`` columns/indexes are not
     # declared on the ORM models, so a database first built via ``create_all`` +
     # ``alembic stamp head`` at an older revision is marked as already having
