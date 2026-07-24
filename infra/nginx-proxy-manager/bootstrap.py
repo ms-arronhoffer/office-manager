@@ -56,7 +56,12 @@ class Route:
 
 
 def _env(name: str, default: str = "") -> str:
-    return os.environ.get(name, default).strip()
+    # Treat an empty/whitespace value the same as an unset variable so the
+    # provided default applies. GitHub Actions injects ``env:`` keys mapped to
+    # unset secrets as empty strings, which would otherwise shadow the defaults
+    # (e.g. the fresh-install NPM admin credentials).
+    value = os.environ.get(name, "").strip()
+    return value or default
 
 
 def _api(
