@@ -144,15 +144,41 @@ resource "aws_iam_role_policy" "github_actions_ecr_push" {
 }
 
 # ── Role for the `deploy` job (SSM-driven remote deploy) ─────────────────────
-# The `deploy` job runs on the on-prem `docker-build` runner (not on the EC2
-# host anymore — the box no longer registers a self-hosted runner). It ships
-# the container pull/restart to the instance via `aws ssm send-command`, so it
+# The `deploy` job runs on the on-prem `docker-build` runner (NOT on the EC2
+# host — the box no longer registers a self-hosted runner). It drives the
+# container pull/restart remotely with a single `aws ssm send-command`, so it
 # needs to run a shell command on exactly the app instance and poll the result.
 # Scoped tightly: SendCommand only against the `<project>-<environment>-app`
 # instance (matched by its Name tag) plus the AWS-RunShellScript document, and
 # read-only describe/poll APIs. All the heavier permissions (ECR pull, Secrets
 # Manager read, S3) stay on the *instance* profile, exercised on-box by the
 # command this role sends — never granted to CI.
+#
+# Because this role can run arbitrary shell as root on the production host, its
+# trust policy is deliberately narrower than the infra/ecr-push roles: only the
+# `prod` branch (which is what ships to AWS) may assume it, not any ref.
+data "aws_iam_policy_document" "github_actions_deploy_assume" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github_actions.arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repository}:ref:refs/heads/prod"]
+    }
+  }
+}
+
 data "aws_iam_policy_document" "github_actions_deploy" {
   statement {
     sid       = "SendCommandToAppInstance"
@@ -188,7 +214,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
 
 resource "aws_iam_role" "github_actions_deploy" {
   name               = "office-manager-github-actions-deploy"
-  assume_role_policy = data.aws_iam_policy_document.github_actions_assume.json
+  assume_role_policy = data.aws_iam_policy_document.github_actions_deploy_assume.json
 }
 
 resource "aws_iam_role_policy" "github_actions_deploy" {

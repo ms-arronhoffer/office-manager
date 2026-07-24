@@ -568,15 +568,28 @@ jobs:
           if [ ! -d "$REPO_DIR/.git" ]; then
             git clone "https://github.com/$REPO.git" "$REPO_DIR"
           fi
+          # This command runs as root (via SSM) while the warm clone is owned by
+          # ec2-user; mark the tree trusted so git doesn't refuse with
+          # "detected dubious ownership".
+          git config --global --add safe.directory "$REPO_DIR"
           cd "$REPO_DIR"
           git fetch --all --prune --quiet
           # Deploy the exact commit that produced the images being pulled.
           git checkout -f "$SHA"
 
-          # ── Assemble the container .env ────────────────────────────────────
-          umask 077
-          env_file="$REPO_DIR/.env"
-          echo "$CONFIG_B64" | base64 -d > "$env_file"
+          # ── Load config + secrets into THIS shell's environment ────────────
+          # docker compose and bootstrap.py read variables straight from the
+          # process environment, so we deliberately do NOT write a `.env` file
+          # or `source` untrusted content. That avoids compose interpolating a
+          # literal `$` inside a secret AND avoids shell command-injection from
+          # `$( )`/backticks in a password: `export "k=$v"` assigns $v literally
+          # with no re-evaluation, and nothing secret is written to disk.
+          conf="$(mktemp)"
+          echo "$CONFIG_B64" | base64 -d > "$conf"
+          while IFS='=' read -r k v; do
+            [ -n "$k" ] && export "$k=$v"
+          done < "$conf"
+          rm -f "$conf"
 
           secret_json="$(aws secretsmanager get-secret-value \
             --secret-id "$SECRET_NAME" --region "$REGION" \
@@ -585,23 +598,23 @@ jobs:
                    STRIPE_SECRET_KEY GEMINI_API_KEY SENTRY_DSN \
                    GOOGLE_CLIENT_SECRET SMTP_USER SMTP_PASSWORD NPM_ADMIN_PASSWORD; do
             v="$(printf '%s' "$secret_json" | jq -r --arg k "$k" '.[$k] // empty')"
-            [ -n "$v" ] && printf '%s=%s\n' "$k" "$v" >> "$env_file"
+            [ -n "$v" ] && export "$k=$v"
           done
+          unset secret_json
 
-          # Required-by-compose secret sanity check.
+          # Required-by-compose secrets must be present.
           for req in POSTGRES_PASSWORD JWT_SECRET DEFAULT_ADMIN_PASSWORD; do
-            grep -q "^${req}=" "$env_file" || { echo "Missing $req in Secrets Manager secret $SECRET_NAME" >&2; exit 1; }
+            [ -n "${!req:-}" ] || { echo "Missing $req in Secrets Manager secret $SECRET_NAME" >&2; exit 1; }
           done
 
           # ── ECR login (instance profile grants pull) ───────────────────────
           account_id="$(aws sts get-caller-identity --query Account --output text)"
-          ecr_registry="${account_id}.dkr.ecr.${REGION}.amazonaws.com"
-          echo "ECR_REGISTRY=${ecr_registry}" >> "$env_file"
+          export ECR_REGISTRY="${account_id}.dkr.ecr.${REGION}.amazonaws.com"
           aws ecr get-login-password --region "$REGION" \
-            | docker login --username AWS --password-stdin "$ecr_registry"
+            | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
           # ── Pull + recreate the stack ──────────────────────────────────────
-          echo "Pulling ${ecr_registry}/* images tagged ${SHA}..."
+          echo "Pulling ${ECR_REGISTRY}/* images tagged ${SHA}..."
           "${COMPOSE[@]}" pull
 
           # Tear the old stack down first so host-port bindings are released
@@ -625,10 +638,9 @@ jobs:
           docker image prune -f
 
           # ── Provision NPM routes (idempotent; no-op without domains) ────────
-          set -a
-          # shellcheck disable=SC1090
-          . "$env_file"
-          set +a
+          # NPM_* values are already exported above (domains from config,
+          # NPM_ADMIN_PASSWORD from Secrets Manager); bootstrap.py reads them
+          # from the environment, so no `source` of untrusted content is needed.
           export NPM_BASE_URL="http://localhost:81"
           if [ -n "${NPM_FRONTEND_DOMAIN:-}${NPM_ADMIN_DOMAIN:-}${NPM_LANDING_DOMAIN:-}${NPM_API_DOMAIN:-}" ]; then
             python3 infra/nginx-proxy-manager/bootstrap.py
