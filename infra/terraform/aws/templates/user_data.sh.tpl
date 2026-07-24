@@ -1,10 +1,21 @@
 #!/bin/bash
 # Bootstrap script for the Phase 1 application EC2 instance:
-#   1. Installs Docker + the Docker Compose plugin.
-#   2. Registers this instance as a GitHub Actions self-hosted runner labeled
+#   1. Ensures the SSM Agent is installed and running (Session Manager access).
+#   2. Installs Docker + the Docker Compose plugin.
+#   3. Registers this instance as a GitHub Actions self-hosted runner labeled
 #      "aws-prod" so the `prod` branch deploy workflow can target it.
 # Idempotent: safe to re-run (e.g. on instance replacement).
 set -euxo pipefail
+
+# ── SSM Agent ─────────────────────────────────────────────────────────────────
+# Session Manager (SSM) is how we shell into this box without opening port 22 —
+# the IAM role attached in ec2.tf grants AmazonSSMManagedInstanceCore for exactly
+# this. On AL2023 the agent ships pre-installed, but we install + enable it
+# explicitly here (and do it FIRST, before the slower/flakier steps below) so a
+# failure later in this script under `set -e` can never leave the instance
+# unreachable via SSM. `dnf install` is a no-op when the agent is already present.
+dnf install -y amazon-ssm-agent || true
+systemctl enable --now amazon-ssm-agent || true
 
 dnf update -y
 dnf install -y docker git jq acl
