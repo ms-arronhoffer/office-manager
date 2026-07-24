@@ -17,3 +17,8 @@ output "github_actions_ecr_push_role_arn" {
   description = "Role ARN for infra-prod.yml's `build-and-push` job. Set as the AWS_ECR_PUSH_ROLE_ARN repository secret."
   value       = aws_iam_role.github_actions_ecr_push.arn
 }
+
+output "github_actions_deploy_role_arn" {
+  description = "Role ARN for infra-prod.yml's `deploy` job (SSM-driven remote deploy). Set as the AWS_DEPLOY_ROLE_ARN repository secret."
+  value       = aws_iam_role.github_actions_deploy.arn
+}

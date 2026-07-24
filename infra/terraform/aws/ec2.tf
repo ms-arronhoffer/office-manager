@@ -161,10 +161,7 @@ resource "aws_instance" "app" {
   }
 
   user_data = templatefile("${path.module}/templates/user_data.sh.tpl", {
-    github_repo          = var.github_repo
-    github_runner_pat    = var.github_runner_pat
-    github_runner_labels = var.github_runner_labels
-    aws_region           = var.aws_region
+    github_repo = var.github_repo
   })
 
   tags = {

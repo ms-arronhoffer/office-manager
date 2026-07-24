@@ -10,17 +10,19 @@ name: AWS Infra + Deploy (prod)
 # Stages 1 and 2 run on the persistent on-prem "docker-build" self-hosted
 # runner (labels: self-hosted, Linux, X64, docker-build). Running Terraform
 # there — rather than on the EC2 box it manages — avoids the chicken-and-egg
-# problem (the aws-prod runner *is* the instance this workflow creates), and
-# because the runner is long-lived its Terraform plugin cache / working dir
-# persist between runs. Terraform state itself is still stored remotely in the
-# S3 bucket + DynamoDB lock table (see versions.tf / backend.hcl.example), so
-# it survives even if the runner host is rebuilt.
+# problem (that box *is* the instance this workflow creates), and because the
+# runner is long-lived its Terraform plugin cache / working dir persist between
+# runs. Terraform state itself is still stored remotely in the S3 bucket +
+# DynamoDB lock table (see versions.tf / backend.hcl.example), so it survives
+# even if the runner host is rebuilt.
 #
-# Stage 3 runs on the self-hosted runner registered on the AWS EC2 host
-# (label "aws-prod"; see infra/terraform/aws/templates/user_data.sh.tpl); it
-# only pulls and runs images, keeping the low-powered host out of the build
-# path. The ECR repositories and both stages' IAM permissions are provisioned
-# by infra/terraform/aws/ecr.tf.
+# Stage 3 ALSO runs on the "docker-build" runner. It does not run on the EC2
+# host — that box no longer registers a self-hosted runner. Instead the deploy
+# is driven remotely with `aws ssm send-command`, so the pull/restart still
+# happens on-box (keeping the low-powered host out of the build path) but there
+# is no runner registration to lose when the instance is replaced by Terraform.
+# The ECR repositories and every stage's IAM permissions are provisioned by
+# infra/terraform/aws/ecr.tf and infra/terraform/bootstrap/github_oidc.tf.
 #
 # `main` remains the development branch and keeps deploying to the existing
 # VPS via .github/workflows/deploy.yml, unchanged. Merge/promote to `prod`
@@ -68,7 +70,12 @@ jobs:
       TF_VAR_stripe_secret_key: ${{ secrets.TF_VAR_STRIPE_SECRET_KEY }}
       TF_VAR_gemini_api_key: ${{ secrets.TF_VAR_GEMINI_API_KEY }}
       TF_VAR_sentry_dsn: ${{ secrets.TF_VAR_SENTRY_DSN }}
-      TF_VAR_github_runner_pat: ${{ secrets.RUNNER_REGISTRATION_PAT }}
+      # Folded into the Secrets Manager app secret so the SSM-driven deploy job
+      # can assemble the container .env entirely on-box (all optional).
+      TF_VAR_google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      TF_VAR_smtp_user: ${{ secrets.SMTP_USER }}
+      TF_VAR_smtp_password: ${{ secrets.SMTP_PASSWORD }}
+      TF_VAR_npm_admin_password: ${{ secrets.NPM_ADMIN_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -335,7 +342,7 @@ jobs:
         id: meta
         run: echo "image_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
-      # This runner is amd64 (`X64`), but the `aws-prod` deploy host is arm64
+      # This runner is amd64 (`X64`), but the prod EC2 deploy host is arm64
       # (Graviton / al2023-arm64 — see infra/terraform/aws/network.tf). Register
       # QEMU/binfmt handlers so buildx can cross-build the arm64 images the
       # deploy host pulls; without this every image is amd64-only and the
@@ -357,7 +364,7 @@ jobs:
           # platform such as linux/arm64.
           driver: docker
 
-      # `platforms: linux/arm64` targets the aws-prod deploy host's architecture
+      # `platforms: linux/arm64` targets the prod EC2 deploy host's architecture
       # rather than this amd64 build runner's, so the pushed image manifest
       # matches what `deploy` pulls.
       - name: Build and Push Backend Image
@@ -404,245 +411,273 @@ jobs:
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_NAMESPACE }}/landing:latest
 
   # ── Stage 3: pull the pushed images and (re)start the stack on AWS ──────────
+  # Runs on the on-prem `docker-build` runner (NOT on the EC2 host — the box no
+  # longer registers a self-hosted runner). It drives the container pull/restart
+  # remotely with a single `aws ssm send-command`, so a rebuilt/replaced
+  # instance needs zero manual bootstrap: as long as Terraform has recreated it
+  # (with the SSM agent + Docker from user_data), the very next deploy works.
   deploy:
     needs: build-and-push
-    runs-on: [self-hosted, aws-prod]
+    if: github.event_name == 'push' || github.event.inputs.action == 'apply' || github.event.inputs.action == 'update'
+    runs-on: [self-hosted, Linux, X64, docker-build]
+    permissions:
+      contents: read
+      id-token: write # required to mint the OIDC token assumed below
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      # Assume the `github_actions_deploy` role (see infra/terraform/bootstrap/
+      # github_oidc.tf): least-privilege, only `ssm:SendCommand` at the app
+      # instance plus poll/describe. All the heavy lifting (ECR pull, Secrets
+      # Manager read, S3) happens on-box under the *instance* profile.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-2' }}
 
-      # Ensure this self-hosted runner can talk to the host Docker daemon.
-      # Every `docker compose` step below connects to /var/run/docker.sock,
-      # which is owned root:docker (mode 660). The aws-prod runner's job
-      # processes actually run as the OS user `ssm-user` (via SSM Session
-      # Manager), not the `ec2-user` that user_data.sh.tpl adds to the
-      # `docker` group, so the very first compose command fails with
-      # "permission denied ... /var/run/docker.sock". Self-heal it best-effort
-      # so the deploy doesn't hard-fail. Mirrors deploy.yml's equivalent step.
-      - name: Ensure Docker daemon access
-        run: |
-          if docker info >/dev/null 2>&1; then
-            echo "Docker daemon reachable."
-            exit 0
-          fi
-          echo "::warning::Docker socket not accessible by '$(id -un)'; attempting to self-heal."
-          sock=/var/run/docker.sock
-          # Persist group membership so future runner sessions work without this step.
-          sudo usermod -aG docker "$(id -un)" || true
-          # Grant the *current* session immediate access (a group change does not
-          # apply to the already-running runner process) via an ACL on the socket,
-          # falling back to fixing the socket's group/permissions.
-          if command -v setfacl >/dev/null 2>&1; then
-            sudo setfacl -m "u:$(id -un):rw" "$sock" || true
-          else
-            sudo chgrp docker "$sock" 2>/dev/null || true
-            sudo chmod g+rw "$sock" || true
-          fi
-          if ! docker info >/dev/null 2>&1; then
-            echo "::error::Unable to access the Docker daemon socket at $sock."
-            echo "Add the self-hosted runner's user to the 'docker' group and restart the runner service:"
-            echo "  sudo usermod -aG docker <runner-user> && sudo systemctl restart 'actions.runner.*'"
-            exit 1
-          fi
-          echo "Docker access restored."
-
-      # Authenticate the host Docker daemon to ECR so `docker compose pull` can
-      # download the images. Credentials come from the EC2 instance profile
-      # (ecr:GetAuthorizationToken + pull, granted in infra/terraform/aws/ec2.tf),
-      # so no static keys are needed on the box.
-      - name: Log in to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-        env:
-          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
-
-      # Read the DB password straight from Secrets Manager instead of a
-      # GitHub secret. Terraform writes the RDS master password into this
-      # same secret (see infra/terraform/aws/secrets.tf), and the EC2
-      # instance role is already granted secretsmanager:GetSecretValue on it
-      # (see infra/terraform/aws/ec2.tf) — so the container's password can
-      # never drift from what Terraform actually set on RDS.
-      - name: Fetch POSTGRES_PASSWORD from Secrets Manager
-        id: db-secret
+      # Resolve the target instance by its Terraform-managed Name tag so we
+      # never hard-code an instance id that changes when the box is replaced.
+      - name: Resolve app instance id
+        id: ec2
         env:
           AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
         run: |
           set -euo pipefail
-          SECRET_NAME="${{ env.ECR_NAMESPACE }}/prod/app-secrets"
-          if ! secret_json="$(aws secretsmanager get-secret-value --secret-id "$SECRET_NAME" \
-            --query SecretString --output text)"; then
-            echo "::error::Failed to fetch Secrets Manager secret '$SECRET_NAME' (check the EC2 instance role's secretsmanager:GetSecretValue permission in ec2.tf)."
+          iid="$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${ECR_NAMESPACE}-prod-app" \
+                      "Name=instance-state-name,Values=running,pending" \
+            --query 'Reservations[].Instances[].InstanceId | [0]' \
+            --output text)"
+          if [ -z "$iid" ] || [ "$iid" = "None" ]; then
+            echo "::error::No running EC2 instance tagged Name=${ECR_NAMESPACE}-prod-app found. Has the 'infra' job created it?"
             exit 1
           fi
-          db_password="$(jq -r '.POSTGRES_PASSWORD // empty' <<<"$secret_json")"
-          if [ -z "$db_password" ]; then
-            echo "::error::Secret '$SECRET_NAME' is missing the POSTGRES_PASSWORD key."
-            exit 1
-          fi
-          echo "::add-mask::$db_password"
-          echo "pw=$db_password" >> "$GITHUB_OUTPUT"
+          echo "Resolved app instance: $iid"
+          echo "instance_id=$iid" >> "$GITHUB_OUTPUT"
 
-      # Fail fast if any required secret is missing — mirrors deploy.yml's
-      # guard against unset GitHub secrets silently becoming empty strings.
-      - name: Validate Required Secrets
+      # Everything the container stack needs is either a *secret* (fetched
+      # on-box from Secrets Manager) or *non-secret config* (assembled here and
+      # shipped base64-encoded so it neither trips GitHub's log masking nor
+      # leaks real secrets into CloudTrail / SSM command history).
+      - name: Deploy via SSM
         env:
-          POSTGRES_PASSWORD: ${{ steps.db-secret.outputs.pw }}
-          POSTGRES_HOST: ${{ secrets.RDS_HOST }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          DEFAULT_ADMIN_PASSWORD: ${{ secrets.DEFAULT_ADMIN_PASSWORD }}
-          S3_UPLOAD_BUCKET: ${{ secrets.S3_UPLOAD_BUCKET }}
-        run: |
-          missing=()
-          for var in POSTGRES_PASSWORD POSTGRES_HOST JWT_SECRET DEFAULT_ADMIN_PASSWORD S3_UPLOAD_BUCKET; do
-            if [ -z "${!var}" ]; then
-              missing+=("$var")
-            fi
-          done
-          if [ ${#missing[@]} -ne 0 ]; then
-            echo "::error::Missing required repository secret(s): ${missing[*]}"
-            echo "Set them under Settings > Secrets and variables > Actions > Repository secrets."
-            exit 1
-          fi
-          echo "All required secrets are present."
-
-      # Amazon Linux's default Docker package can be installed without the
-      # Compose plugin. Self-heal on runner hosts that are missing `docker compose`.
-      - name: Ensure Docker Compose is available
-        run: |
-          if docker compose version >/dev/null 2>&1; then
-            docker compose version
-            exit 0
-          fi
-
-          mkdir -p "$HOME/.docker/cli-plugins"
-          arch="$(uname -m)"
-          case "$arch" in
-            x86_64|amd64) compose_arch="x86_64" ;;
-            aarch64|arm64) compose_arch="aarch64" ;;
-            *)
-              echo "::error::Unsupported architecture for Docker Compose plugin: $arch"
-              exit 1
-              ;;
-          esac
-
-          compose_version="v2.29.7"
-          curl -fsSL \
-            "https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-${compose_arch}" \
-            -o "$HOME/.docker/cli-plugins/docker-compose"
-          chmod +x "$HOME/.docker/cli-plugins/docker-compose"
-          docker compose version
-
-      - name: Deploy Updated Stack
-        env:
-          # Use this job's own ECR login output rather than a cross-job output
-          # from `build-and-push`. The registry hostname embeds the AWS account
-          # ID, which GitHub masks; passing it as a job output between jobs makes
-          # GitHub silently blank it, leaving `ECR_REGISTRY` empty here. The
-          # deploy job authenticates to the *same* ECR registry via the EC2
-          # instance profile, so its local `login-ecr` step yields the correct
-          # registry URI without any cross-job masking pitfalls.
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_NAMESPACE: ${{ env.ECR_NAMESPACE }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
+          INSTANCE_ID: ${{ steps.ec2.outputs.instance_id }}
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
-          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          # Non-secret container config (defaults live in docker-compose.prod.yml).
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
-          POSTGRES_PASSWORD: ${{ steps.db-secret.outputs.pw }}
           POSTGRES_HOST: ${{ secrets.RDS_HOST }}
           POSTGRES_PORT: ${{ secrets.RDS_PORT }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SUPPORT_EMAIL: ${{ secrets.SUPPORT_EMAIL }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
           ADMIN_FRONTEND_URL: ${{ secrets.ADMIN_FRONTEND_URL }}
           DEFAULT_ADMIN_EMAIL: ${{ secrets.DEFAULT_ADMIN_EMAIL }}
-          DEFAULT_ADMIN_PASSWORD: ${{ secrets.DEFAULT_ADMIN_PASSWORD }}
+          SUPER_ADMIN_EMAILS: ${{ secrets.SUPER_ADMIN_EMAILS }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+          S3_UPLOAD_BUCKET: ${{ secrets.S3_UPLOAD_BUCKET }}
+          S3_UPLOAD_PREFIX: ${{ secrets.S3_UPLOAD_PREFIX }}
           APP_PORT: ${{ secrets.APP_PORT }}
           ADMIN_PORT: ${{ secrets.ADMIN_PORT }}
           LANDING_PORT: ${{ secrets.LANDING_PORT }}
           BACKEND_PORT: ${{ secrets.BACKEND_PORT }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          S3_UPLOAD_BUCKET: ${{ secrets.S3_UPLOAD_BUCKET }}
-          S3_UPLOAD_PREFIX: ${{ secrets.S3_UPLOAD_PREFIX }}
-          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
-          # Pin the Nginx Proxy Manager image (falls back to the compose default).
           NPM_IMAGE_TAG: ${{ secrets.NPM_IMAGE_TAG }}
-        run: |
-          # Guard against a blank/failed image ref silently resolving refs like
-          # "/office-manager/frontend" against Docker Hub's implicit namespace
-          # instead of ECR (which 404s with a confusing "pull access denied ...
-          # repository does not exist" error). ECR_REGISTRY comes from this
-          # job's own `login-ecr` step; IMAGE_TAG comes from `build-and-push`.
-          missing=()
-          [ -z "$ECR_REGISTRY" ] && missing+=("ECR_REGISTRY")
-          [ -z "$IMAGE_TAG" ] && missing+=("IMAGE_TAG")
-          if [ ${#missing[@]} -ne 0 ]; then
-            echo "::error::${missing[*]} empty (ECR_REGISTRY='${ECR_REGISTRY}', IMAGE_TAG='${IMAGE_TAG}')."
-            echo "ECR_REGISTRY comes from this job's ECR login (check the EC2 instance profile's ECR permissions); IMAGE_TAG comes from the 'build-and-push' job."
-            exit 1
-          fi
-
-          echo "Pulling ${ECR_REGISTRY}/${ECR_NAMESPACE}/* images tagged ${IMAGE_TAG}..."
-          docker compose -p prod-office-manager -f docker-compose.prod.yml pull
-
-          echo "Recreating application stack on AWS to pick up new image layers..."
-
-          # Fully tear down the previous stack first. `up --force-recreate` alone
-          # can race with the old containers' host-port bindings not yet being
-          # released, causing "port is already allocated" failures. Bringing the
-          # stack down first (and tolerating a missing/absent stack on first run)
-          # reduces the window in which the ports are still held.
-          docker compose -p prod-office-manager -f docker-compose.prod.yml down --remove-orphans --timeout 30 || true
-
-          # `docker compose down` returning does NOT guarantee the Docker daemon
-          # has finished releasing the old host-port bindings — the kernel/proxy
-          # can hold them for a moment longer. When that happens, the immediately
-          # following `up` fails with "port is already allocated". Retry a few
-          # times so the transient race self-heals instead of failing the deploy.
-          up() {
-            docker compose -p prod-office-manager -f docker-compose.prod.yml up -d --force-recreate --remove-orphans
-          }
-          attempt=1
-          max_attempts=5
-          until up; do
-            if [ "$attempt" -ge "$max_attempts" ]; then
-              echo "::error::Stack failed to start after $max_attempts attempts (ports still held?)."
-              docker ps -a
-              exit 1
-            fi
-            echo "up attempt $attempt failed (likely port still releasing); retrying in 5s..."
-            docker compose -p prod-office-manager -f docker-compose.prod.yml down --remove-orphans --timeout 30 || true
-            attempt=$((attempt + 1))
-            sleep 5
-          done
-
-          docker image prune -f
-
-      # Provision NPM proxy hosts (routes), Let's Encrypt certs and the per-host
-      # Block Common Exploits / Websockets Support / Force SSL toggles. Idempotent
-      # and no-op unless at least one NPM_*_DOMAIN secret is configured, so it
-      # never breaks a deploy where DNS/domains aren't set up yet.
-      - name: Configure Nginx Proxy Manager routes
-        env:
-          NPM_BASE_URL: http://localhost:81
           NPM_ADMIN_EMAIL: ${{ secrets.NPM_ADMIN_EMAIL }}
-          NPM_ADMIN_PASSWORD: ${{ secrets.NPM_ADMIN_PASSWORD }}
           NPM_LETSENCRYPT_EMAIL: ${{ secrets.NPM_LETSENCRYPT_EMAIL }}
           NPM_FRONTEND_DOMAIN: ${{ secrets.NPM_FRONTEND_DOMAIN }}
           NPM_ADMIN_DOMAIN: ${{ secrets.NPM_ADMIN_DOMAIN }}
           NPM_LANDING_DOMAIN: ${{ secrets.NPM_LANDING_DOMAIN }}
           NPM_API_DOMAIN: ${{ secrets.NPM_API_DOMAIN }}
         run: |
-          if [ -z "$NPM_FRONTEND_DOMAIN$NPM_ADMIN_DOMAIN$NPM_LANDING_DOMAIN$NPM_API_DOMAIN" ]; then
-            echo "No NPM_*_DOMAIN secrets set; skipping proxy-host configuration."
-            exit 0
+          set -euo pipefail
+
+          # Fail fast on the handful of values the compose stack marks required
+          # (docker-compose.prod.yml `${VAR:?...}`) but that come from CI config
+          # rather than Secrets Manager. The secret-sourced ones are validated
+          # on-box after the Secrets Manager fetch.
+          missing=()
+          for var in IMAGE_TAG POSTGRES_HOST S3_UPLOAD_BUCKET; do
+            [ -z "${!var:-}" ] && missing+=("$var")
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Missing required value(s): ${missing[*]}. IMAGE_TAG comes from 'build-and-push'; the rest are repository secrets (RDS_HOST, S3_UPLOAD_BUCKET)."
+            exit 1
           fi
-          python3 infra/nginx-proxy-manager/bootstrap.py
+
+          # ── Assemble non-secret .env config ─────────────────────────────────
+          # Only keys with a value are emitted; docker-compose.prod.yml supplies
+          # sane defaults for anything omitted. Secrets are deliberately NOT
+          # included here — the on-box script fetches those from Secrets Manager.
+          conf="$(mktemp)"
+          emit() { [ -n "${2:-}" ] && printf '%s=%s\n' "$1" "$2" >> "$conf" || true; }
+          emit ECR_NAMESPACE   "$ECR_NAMESPACE"
+          emit IMAGE_TAG       "$IMAGE_TAG"
+          emit AWS_REGION      "$AWS_REGION"
+          emit POSTGRES_USER   "$POSTGRES_USER"
+          emit POSTGRES_HOST   "$POSTGRES_HOST"
+          emit POSTGRES_PORT   "$POSTGRES_PORT"
+          emit POSTGRES_DB     "$POSTGRES_DB"
+          emit GOOGLE_CLIENT_ID "$GOOGLE_CLIENT_ID"
+          emit SMTP_HOST       "$SMTP_HOST"
+          emit SMTP_PORT       "$SMTP_PORT"
+          emit SMTP_FROM       "$SMTP_FROM"
+          emit SUPPORT_EMAIL   "$SUPPORT_EMAIL"
+          emit FRONTEND_URL    "$FRONTEND_URL"
+          emit ADMIN_FRONTEND_URL "$ADMIN_FRONTEND_URL"
+          emit DEFAULT_ADMIN_EMAIL "$DEFAULT_ADMIN_EMAIL"
+          emit SUPER_ADMIN_EMAILS  "$SUPER_ADMIN_EMAILS"
+          emit GEMINI_MODEL    "$GEMINI_MODEL"
+          emit S3_UPLOAD_BUCKET "$S3_UPLOAD_BUCKET"
+          emit S3_UPLOAD_PREFIX "$S3_UPLOAD_PREFIX"
+          emit APP_PORT        "$APP_PORT"
+          emit ADMIN_PORT      "$ADMIN_PORT"
+          emit LANDING_PORT    "$LANDING_PORT"
+          emit BACKEND_PORT    "$BACKEND_PORT"
+          emit NPM_IMAGE_TAG   "$NPM_IMAGE_TAG"
+          emit NPM_ADMIN_EMAIL "$NPM_ADMIN_EMAIL"
+          emit NPM_LETSENCRYPT_EMAIL "$NPM_LETSENCRYPT_EMAIL"
+          emit NPM_FRONTEND_DOMAIN "$NPM_FRONTEND_DOMAIN"
+          emit NPM_ADMIN_DOMAIN "$NPM_ADMIN_DOMAIN"
+          emit NPM_LANDING_DOMAIN "$NPM_LANDING_DOMAIN"
+          emit NPM_API_DOMAIN  "$NPM_API_DOMAIN"
+          config_b64="$(base64 -w0 "$conf")"
+          rm -f "$conf"
+
+          # ── Build the remote script ─────────────────────────────────────────
+          # A short dynamic header injects the (non-secret) job-side values;
+          # the static body is a quoted heredoc so nothing else is expanded here.
+          remote="$(mktemp)"
+          {
+            echo "#!/bin/bash"
+            echo "CONFIG_B64='${config_b64}'"
+            echo "REPO='${GITHUB_REPOSITORY}'"
+            echo "SHA='${IMAGE_TAG}'"
+            echo "SECRET_NAME='${ECR_NAMESPACE}/prod/app-secrets'"
+            echo "REGION='${AWS_REGION}'"
+            cat <<'REMOTE'
+          set -euo pipefail
+          REPO_DIR=/home/ec2-user/office-manager
+          PROJECT=prod-office-manager
+          COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.prod.yml)
+
+          # Warm-cache clone may be missing if the box was just rebuilt.
+          if [ ! -d "$REPO_DIR/.git" ]; then
+            git clone "https://github.com/$REPO.git" "$REPO_DIR"
+          fi
+          cd "$REPO_DIR"
+          git fetch --all --prune --quiet
+          # Deploy the exact commit that produced the images being pulled.
+          git checkout -f "$SHA"
+
+          # ── Assemble the container .env ────────────────────────────────────
+          umask 077
+          env_file="$REPO_DIR/.env"
+          echo "$CONFIG_B64" | base64 -d > "$env_file"
+
+          secret_json="$(aws secretsmanager get-secret-value \
+            --secret-id "$SECRET_NAME" --region "$REGION" \
+            --query SecretString --output text)"
+          for k in POSTGRES_PASSWORD JWT_SECRET DEFAULT_ADMIN_PASSWORD \
+                   STRIPE_SECRET_KEY GEMINI_API_KEY SENTRY_DSN \
+                   GOOGLE_CLIENT_SECRET SMTP_USER SMTP_PASSWORD NPM_ADMIN_PASSWORD; do
+            v="$(printf '%s' "$secret_json" | jq -r --arg k "$k" '.[$k] // empty')"
+            [ -n "$v" ] && printf '%s=%s\n' "$k" "$v" >> "$env_file"
+          done
+
+          # Required-by-compose secret sanity check.
+          for req in POSTGRES_PASSWORD JWT_SECRET DEFAULT_ADMIN_PASSWORD; do
+            grep -q "^${req}=" "$env_file" || { echo "Missing $req in Secrets Manager secret $SECRET_NAME" >&2; exit 1; }
+          done
+
+          # ── ECR login (instance profile grants pull) ───────────────────────
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          ecr_registry="${account_id}.dkr.ecr.${REGION}.amazonaws.com"
+          echo "ECR_REGISTRY=${ecr_registry}" >> "$env_file"
+          aws ecr get-login-password --region "$REGION" \
+            | docker login --username AWS --password-stdin "$ecr_registry"
+
+          # ── Pull + recreate the stack ──────────────────────────────────────
+          echo "Pulling ${ecr_registry}/* images tagged ${SHA}..."
+          "${COMPOSE[@]}" pull
+
+          # Tear the old stack down first so host-port bindings are released
+          # before `up` rebinds them (avoids "port is already allocated").
+          "${COMPOSE[@]}" down --remove-orphans --timeout 30 || true
+
+          attempt=1
+          max_attempts=5
+          until "${COMPOSE[@]}" up -d --force-recreate --remove-orphans; do
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "Stack failed to start after $max_attempts attempts (ports still held?)." >&2
+              docker ps -a
+              exit 1
+            fi
+            echo "up attempt $attempt failed (likely port still releasing); retrying in 5s..."
+            "${COMPOSE[@]}" down --remove-orphans --timeout 30 || true
+            attempt=$((attempt + 1))
+            sleep 5
+          done
+
+          docker image prune -f
+
+          # ── Provision NPM routes (idempotent; no-op without domains) ────────
+          set -a
+          # shellcheck disable=SC1090
+          . "$env_file"
+          set +a
+          export NPM_BASE_URL="http://localhost:81"
+          if [ -n "${NPM_FRONTEND_DOMAIN:-}${NPM_ADMIN_DOMAIN:-}${NPM_LANDING_DOMAIN:-}${NPM_API_DOMAIN:-}" ]; then
+            python3 infra/nginx-proxy-manager/bootstrap.py
+          else
+            echo "No NPM_*_DOMAIN set; skipping proxy-host configuration."
+          fi
+
+          echo "DEPLOY_OK"
+          REMOTE
+          } > "$remote"
+
+          # ── Send the command and stream the result ─────────────────────────
+          params="$(mktemp)"
+          jq -Rs '{commands: [.]}' "$remote" > "$params"
+          rm -f "$remote"
+
+          cmd_id="$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "prod deploy ${IMAGE_TAG}" \
+            --parameters "file://${params}" \
+            --region "$AWS_REGION" \
+            --query 'Command.CommandId' --output text)"
+          rm -f "$params"
+          echo "SSM command: $cmd_id (instance $INSTANCE_ID)"
+
+          # Poll until the invocation reaches a terminal state.
+          status="Pending"
+          for _ in $(seq 1 120); do
+            sleep 15
+            status="$(aws ssm get-command-invocation \
+              --command-id "$cmd_id" --instance-id "$INSTANCE_ID" \
+              --region "$AWS_REGION" --query 'Status' --output text 2>/dev/null || echo Pending)"
+            echo "status: $status"
+            case "$status" in
+              Success|Failed|Cancelled|TimedOut|Undeliverable|Terminated) break ;;
+            esac
+          done
+
+          echo "----- remote stdout -----"
+          aws ssm get-command-invocation --command-id "$cmd_id" --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" --query 'StandardOutputContent' --output text || true
+          echo "----- remote stderr -----"
+          aws ssm get-command-invocation --command-id "$cmd_id" --instance-id "$INSTANCE_ID" \
+            --region "$AWS_REGION" --query 'StandardErrorContent' --output text || true
+
+          if [ "$status" != "Success" ]; then
+            echo "::error::Remote deploy command finished with status '$status'."
+            exit 1
+          fi
+          echo "Remote deploy succeeded."
 

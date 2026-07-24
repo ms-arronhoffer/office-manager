@@ -18,5 +18,11 @@ resource "aws_secretsmanager_secret_version" "app" {
     STRIPE_SECRET_KEY      = var.stripe_secret_key
     GEMINI_API_KEY         = var.gemini_api_key
     SENTRY_DSN             = var.sentry_dsn
+    # Folded in so the SSM-driven deploy can build the whole container .env
+    # on-box from this single secret (see .github/workflows/infra-prod.yml).
+    GOOGLE_CLIENT_SECRET = var.google_client_secret
+    SMTP_USER            = var.smtp_user
+    SMTP_PASSWORD        = var.smtp_password
+    NPM_ADMIN_PASSWORD   = var.npm_admin_password
   })
 }

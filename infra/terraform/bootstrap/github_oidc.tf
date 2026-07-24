@@ -1,12 +1,13 @@
-# GitHub Actions OIDC federation: lets infra-prod.yml's `infra` and
-# `build-and-push` jobs (the on-prem `docker-build` self-hosted runner)
-# authenticate to AWS by assuming an IAM role instead of using long-lived
-# AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY secrets. Static keys don't expire and
-# are easy to leak/rotate-forget; a role assumed via short-lived OIDC tokens
-# is safer and is what "Configure AWS credentials" should use whenever a job
-# can't rely on an EC2 instance profile (the `deploy` job already gets
-# role-based access for free from the `aws-prod` instance's profile — see
-# infra/terraform/aws/ec2.tf's `aws_iam_role.app`).
+# GitHub Actions OIDC federation: lets infra-prod.yml's `infra`,
+# `build-and-push` and `deploy` jobs (all on the on-prem `docker-build`
+# self-hosted runner) authenticate to AWS by assuming an IAM role instead of
+# using long-lived AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY secrets. Static keys
+# don't expire and are easy to leak/rotate-forget; a role assumed via
+# short-lived OIDC tokens is safer. The `deploy` job assumes the least-privilege
+# `github_actions_deploy` role below (only `ssm:SendCommand` at the app
+# instance); the heavier ECR-pull / Secrets Manager / S3 permissions stay on the
+# *instance* profile (infra/terraform/aws/ec2.tf's `aws_iam_role.app`) and are
+# exercised on-box by the command that role sends.
 #
 # Applied once, by hand, alongside the rest of this bootstrap module (see
 # main.tf's header comment) — not by CI — since the CI role itself can't be
@@ -22,6 +23,12 @@ variable "ecr_project_name" {
   description = "ECR repository name prefix (must match infra/terraform/aws's project_name) that the ecr-push role is scoped to."
   type        = string
   default     = "office-manager"
+}
+
+variable "environment" {
+  description = "Deployment environment name (must match infra/terraform/aws's environment). Used to scope the deploy role's ssm:SendCommand permission to the `<project>-<environment>-app` instance."
+  type        = string
+  default     = "prod"
 }
 
 data "aws_caller_identity" "current" {}
@@ -134,4 +141,58 @@ resource "aws_iam_role_policy" "github_actions_ecr_push" {
   name   = "ecr-push"
   role   = aws_iam_role.github_actions_ecr_push.id
   policy = data.aws_iam_policy_document.github_actions_ecr_push.json
+}
+
+# ── Role for the `deploy` job (SSM-driven remote deploy) ─────────────────────
+# The `deploy` job runs on the on-prem `docker-build` runner (not on the EC2
+# host anymore — the box no longer registers a self-hosted runner). It ships
+# the container pull/restart to the instance via `aws ssm send-command`, so it
+# needs to run a shell command on exactly the app instance and poll the result.
+# Scoped tightly: SendCommand only against the `<project>-<environment>-app`
+# instance (matched by its Name tag) plus the AWS-RunShellScript document, and
+# read-only describe/poll APIs. All the heavier permissions (ECR pull, Secrets
+# Manager read, S3) stay on the *instance* profile, exercised on-box by the
+# command this role sends — never granted to CI.
+data "aws_iam_policy_document" "github_actions_deploy" {
+  statement {
+    sid       = "SendCommandToAppInstance"
+    actions   = ["ssm:SendCommand"]
+    resources = ["arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ssm:resourceTag/Name"
+      values   = ["${var.ecr_project_name}-${var.environment}-app"]
+    }
+  }
+
+  statement {
+    sid       = "SendCommandShellDocument"
+    actions   = ["ssm:SendCommand"]
+    resources = ["arn:aws:ssm:${var.aws_region}::document/AWS-RunShellScript"]
+  }
+
+  # Poll the command result and resolve the instance id by tag. None of these
+  # read-only actions support resource-level permissions, so they use "*".
+  statement {
+    sid = "PollAndDiscover"
+    actions = [
+      "ssm:GetCommandInvocation",
+      "ssm:ListCommandInvocations",
+      "ssm:ListCommands",
+      "ec2:DescribeInstances",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role" "github_actions_deploy" {
+  name               = "office-manager-github-actions-deploy"
+  assume_role_policy = data.aws_iam_policy_document.github_actions_assume.json
+}
+
+resource "aws_iam_role_policy" "github_actions_deploy" {
+  name   = "ssm-deploy"
+  role   = aws_iam_role.github_actions_deploy.id
+  policy = data.aws_iam_policy_document.github_actions_deploy.json
 }
