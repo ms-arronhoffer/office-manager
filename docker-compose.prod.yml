@@ -51,19 +51,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
-    # Exposed on the host so a host-level reverse proxy (Nginx Proxy Manager
-    # running natively or with network_mode: host) can reach the API directly.
-    # Never bound to port 80 — that stays free for the proxy. Bound to 127.0.0.1
-    # so the port is not exposed on the instance's public/LAN interfaces.
-    #
-    # NOTE: a 127.0.0.1 bind is only reachable by NPM if NPM runs on the host
-    # itself. A *bridged* NPM container (its own compose stack, publishing
-    # 0.0.0.0:80/81/443) cannot reach a host 127.0.0.1 bind — inside that
-    # container 127.0.0.1 is its own loopback. For that topology, attach NPM to
-    # the shared ``edge`` network below and proxy by service name
-    # (http://backend:8000, http://frontend:80, http://admin-frontend:80,
-    # http://landing:80). That keeps every service off the public interface
-    # instead of re-exposing them by binding to 0.0.0.0.
+    # Published on 127.0.0.1 only, for host-level debugging (e.g. curl from an
+    # SSH session). The bundled ``nginx-proxy-manager`` service does NOT use this
+    # host port — it reaches the API as ``http://backend:8000`` over the shared
+    # ``edge`` network below, so the container stays off the instance's
+    # public/LAN interfaces. Never bound to 80/443 — those stay free for NPM.
     ports:
       - "127.0.0.1:${BACKEND_PORT:-4002}:8000"
     networks:
@@ -105,18 +97,50 @@ services:
       - internal
       - edge
 
+  # Nginx Proxy Manager is the single public ingress for the whole stack. It is
+  # the only service that binds the host's public interface (80/443 for HTTP(S)
+  # traffic, 81 for its admin UI). It reaches every app container by service
+  # name over the shared ``edge`` network, so nothing else needs to be exposed
+  # beyond 127.0.0.1. Port 81 (admin UI) is additionally firewalled at the AWS
+  # security-group level to the trusted office CIDR (see infra/terraform/aws).
+  #
+  # Proxy hosts (routes), SSL certificates and the per-host "Block Common
+  # Exploits", "Websockets Support" and "Force SSL" toggles are provisioned
+  # idempotently by infra/nginx-proxy-manager/bootstrap.py after the container
+  # is healthy — see that directory's README and docs/aws-deployment.md.
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:${NPM_IMAGE_TAG:-2.15.1}
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - admin-frontend
+      - landing
+      - backend
+    ports:
+      - "80:80"     # public HTTP (redirected to HTTPS by Force SSL)
+      - "443:443"   # public HTTPS
+      - "81:81"     # admin UI — locked down to the office CIDR in the SG
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    networks:
+      - edge
+
 networks:
   internal:
     driver: bridge
-  # Shared ingress network for a *bridged* Nginx Proxy Manager container (its
-  # own compose stack) to reach these services by name without any service
-  # being published on the host's public/LAN interface. One-time wiring:
-  #   docker network connect prod-office-manager_edge nginx-proxy-manager-app-1
-  # then point each NPM proxy host at the service name/internal port, e.g.
-  #   frontend -> http://frontend:80,  API -> http://backend:8000,
-  #   manage    -> http://admin-frontend:80,  landing -> http://landing:80.
-  # (The compose project name prefixes the network; adjust if yours differs.)
-  # If NPM instead runs on the host (native/systemd or network_mode: host), the
-  # 127.0.0.1 host-port bindings above are sufficient and this network is unused.
+  # Shared ingress network. The bundled ``nginx-proxy-manager`` service (defined
+  # above, in this same compose project) attaches here and reaches every app
+  # container by service name/internal port — ``http://frontend:80``,
+  # ``http://backend:8000``, ``http://admin-frontend:80``, ``http://landing:80``
+  # — so no service needs to be published on the host's public/LAN interface and
+  # no manual ``docker network connect`` wiring is required.
   edge:
     driver: bridge
+
+volumes:
+  # Nginx Proxy Manager configuration DB (proxy hosts, users, settings) and the
+  # issued Let's Encrypt certificates. Persisted so routes/certs survive
+  # container recreation on redeploy.
+  npm_data:
+  npm_letsencrypt:

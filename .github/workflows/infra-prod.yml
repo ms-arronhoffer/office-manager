@@ -572,6 +572,8 @@ jobs:
           S3_UPLOAD_BUCKET: ${{ secrets.S3_UPLOAD_BUCKET }}
           S3_UPLOAD_PREFIX: ${{ secrets.S3_UPLOAD_PREFIX }}
           AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
+          # Pin the Nginx Proxy Manager image (falls back to the compose default).
+          NPM_IMAGE_TAG: ${{ secrets.NPM_IMAGE_TAG }}
         run: |
           # Guard against a blank/failed image ref silently resolving refs like
           # "/office-manager/frontend" against Docker Hub's implicit namespace
@@ -622,3 +624,25 @@ jobs:
           done
 
           docker image prune -f
+
+      # Provision NPM proxy hosts (routes), Let's Encrypt certs and the per-host
+      # Block Common Exploits / Websockets Support / Force SSL toggles. Idempotent
+      # and no-op unless at least one NPM_*_DOMAIN secret is configured, so it
+      # never breaks a deploy where DNS/domains aren't set up yet.
+      - name: Configure Nginx Proxy Manager routes
+        env:
+          NPM_BASE_URL: http://localhost:81
+          NPM_ADMIN_EMAIL: ${{ secrets.NPM_ADMIN_EMAIL }}
+          NPM_ADMIN_PASSWORD: ${{ secrets.NPM_ADMIN_PASSWORD }}
+          NPM_LETSENCRYPT_EMAIL: ${{ secrets.NPM_LETSENCRYPT_EMAIL }}
+          NPM_FRONTEND_DOMAIN: ${{ secrets.NPM_FRONTEND_DOMAIN }}
+          NPM_ADMIN_DOMAIN: ${{ secrets.NPM_ADMIN_DOMAIN }}
+          NPM_LANDING_DOMAIN: ${{ secrets.NPM_LANDING_DOMAIN }}
+          NPM_API_DOMAIN: ${{ secrets.NPM_API_DOMAIN }}
+        run: |
+          if [ -z "$NPM_FRONTEND_DOMAIN$NPM_ADMIN_DOMAIN$NPM_LANDING_DOMAIN$NPM_API_DOMAIN" ]; then
+            echo "No NPM_*_DOMAIN secrets set; skipping proxy-host configuration."
+            exit 0
+          fi
+          python3 infra/nginx-proxy-manager/bootstrap.py
+
