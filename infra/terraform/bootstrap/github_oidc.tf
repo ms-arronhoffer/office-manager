@@ -206,6 +206,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "ssm:GetCommandInvocation",
       "ssm:ListCommandInvocations",
       "ssm:ListCommands",
+      "ssm:DescribeInstanceInformation",
       "ec2:DescribeInstances",
     ]
     resources = ["*"]

@@ -443,9 +443,12 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-2' }}
         run: |
           set -euo pipefail
+          # Only "running" instances can receive SSM commands — a "pending"
+          # box guarantees the send-command below fails with
+          # "InvalidInstanceId: Instances not in a valid state for account".
           iid="$(aws ec2 describe-instances \
             --filters "Name=tag:Name,Values=${ECR_NAMESPACE}-prod-app" \
-                      "Name=instance-state-name,Values=running,pending" \
+                      "Name=instance-state-name,Values=running" \
             --query 'Reservations[].Instances[].InstanceId | [0]' \
             --output text)"
           if [ -z "$iid" ] || [ "$iid" = "None" ]; then
@@ -652,19 +655,60 @@ jobs:
           REMOTE
           } > "$remote"
 
+          # ── Wait until the instance is registered with SSM ──────────────────
+          # `describe-instances` above only proves the box reached EC2 state
+          # "running"; the SSM agent registers a short while later (especially
+          # right after Terraform replaces the box, or while user_data is still
+          # running). Sending before then fails with "InvalidInstanceId:
+          # Instances not in a valid state for account". Poll SSM until the
+          # instance reports PingStatus=Online before issuing send-command.
+          echo "Waiting for $INSTANCE_ID to register with SSM..."
+          ping_status="Unknown"
+          for _ in $(seq 1 40); do
+            ping_status="$(aws ssm describe-instance-information \
+              --filters "Key=InstanceIds,Values=${INSTANCE_ID}" \
+              --region "$AWS_REGION" \
+              --query 'InstanceInformationList[0].PingStatus' \
+              --output text 2>/dev/null || echo Unknown)"
+            [ "$ping_status" = "Online" ] && break
+            echo "  SSM ping status: ${ping_status:-None}; retrying in 15s..."
+            sleep 15
+          done
+          if [ "$ping_status" != "Online" ]; then
+            echo "::error::Instance $INSTANCE_ID never became SSM-managed (last ping status: ${ping_status:-None}). Check the SSM agent (amazon-ssm-agent) and that the instance profile grants AmazonSSMManagedInstanceCore."
+            exit 1
+          fi
+          echo "$INSTANCE_ID is SSM-managed (Online)."
+
           # ── Send the command and stream the result ─────────────────────────
           params="$(mktemp)"
           jq -Rs '{commands: [.]}' "$remote" > "$params"
           rm -f "$remote"
 
-          cmd_id="$(aws ssm send-command \
-            --instance-ids "$INSTANCE_ID" \
-            --document-name AWS-RunShellScript \
-            --comment "prod deploy ${IMAGE_TAG}" \
-            --parameters "file://${params}" \
-            --region "$AWS_REGION" \
-            --query 'Command.CommandId' --output text)"
-          rm -f "$params"
+          # Retry briefly on the transient InvalidInstanceId that can still
+          # occur in the moments right after the agent first reports Online.
+          sendcmd_err="$(mktemp)"
+          cmd_id=""
+          for attempt in $(seq 1 6); do
+            if cmd_id="$(aws ssm send-command \
+              --instance-ids "$INSTANCE_ID" \
+              --document-name AWS-RunShellScript \
+              --comment "prod deploy ${IMAGE_TAG}" \
+              --parameters "file://${params}" \
+              --region "$AWS_REGION" \
+              --query 'Command.CommandId' --output text 2>"$sendcmd_err")"; then
+              break
+            fi
+            if [ "$attempt" -ge 6 ] || ! grep -q "InvalidInstanceId" "$sendcmd_err"; then
+              echo "::error::aws ssm send-command failed: $(tr '\n' ' ' < "$sendcmd_err")"
+              rm -f "$params" "$sendcmd_err"
+              exit 1
+            fi
+            echo "send-command attempt $attempt hit InvalidInstanceId; retrying in 15s..."
+            cmd_id=""
+            sleep 15
+          done
+          rm -f "$params" "$sendcmd_err"
           echo "SSM command: $cmd_id (instance $INSTANCE_ID)"
 
           # Poll until the invocation reaches a terminal state.
