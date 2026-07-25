@@ -30,6 +30,21 @@ resource "aws_security_group" "app" {
     }
   }
 
+  # Nginx Proxy Manager admin UI (port 81). Kept off the public internet —
+  # restrict to the same trusted office/VPN CIDR(s) allowed to SSH in. Leave
+  # `npm_admin_allowed_cidrs` empty to keep the admin UI closed entirely (reach
+  # it via an SSH tunnel or SSM port-forward instead).
+  dynamic "ingress" {
+    for_each = length(var.npm_admin_allowed_cidrs) > 0 ? [1] : []
+    content {
+      description = "Nginx Proxy Manager admin UI (restrict to office/VPN CIDRs)"
+      from_port   = 81
+      to_port     = 81
+      protocol    = "tcp"
+      cidr_blocks = var.npm_admin_allowed_cidrs
+    }
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -146,13 +161,20 @@ resource "aws_instance" "app" {
   }
 
   user_data = templatefile("${path.module}/templates/user_data.sh.tpl", {
-    github_repo          = var.github_repo
-    github_runner_pat    = var.github_runner_pat
-    github_runner_labels = var.github_runner_labels
-    aws_region           = var.aws_region
+    github_repo = var.github_repo
   })
 
   tags = {
     Name = "${var.project_name}-${var.environment}-app"
   }
+}
+
+# Attach the pre-allocated Elastic IP so prod keeps a stable public address even
+# when the instance is stopped/started or replaced. The EIP is managed outside
+# Terraform (created once in the console), so we associate by allocation id
+# rather than creating an aws_eip resource here.
+resource "aws_eip_association" "app" {
+  count         = var.app_eip_allocation_id != "" ? 1 : 0
+  instance_id   = aws_instance.app.id
+  allocation_id = var.app_eip_allocation_id
 }

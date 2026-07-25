@@ -7,7 +7,20 @@ environment = "prod"
 
 # Restrict SSH to your office/VPN CIDR(s); leave empty and use SSM Session
 # Manager instead (already granted via the instance's IAM role).
-ssh_allowed_cidrs = []
+ssh_allowed_cidrs = ["74.133.78.157/32"]
+
+# CIDR(s) allowed to reach the Nginx Proxy Manager admin UI on port 81. Keep
+# this restricted to trusted office/VPN IPs; leave empty to close the admin UI
+# and reach it via an SSH tunnel / SSM port-forward instead.
+npm_admin_allowed_cidrs = ["74.133.78.157/32"]
+
+# Existing EC2 key pair used for SSH. Matches the "Prod Office Manager" RSA key
+# (id key-0569bda36e38aca5d). Leave empty to disable SSH key access.
+key_pair_name = "Prod Office Manager"
+
+# Pre-allocated Elastic IP attached to the app instance for a stable public
+# address. Leave empty to use the ephemeral auto-assigned public IP.
+app_eip_allocation_id = "eipalloc-04448fb4ab8eeae33"
 
 # db_password             = "..."
 # jwt_secret              = "..."
@@ -15,4 +28,9 @@ ssh_allowed_cidrs = []
 # stripe_secret_key       = "..."
 # gemini_api_key          = "..."
 # sentry_dsn              = "..."
-# github_runner_pat       = "..."
+# Additional app secrets folded into the Secrets Manager secret so the
+# SSM-driven deploy can build the container .env on-box (all optional):
+# google_client_secret    = "..."
+# smtp_user               = "..."
+# smtp_password           = "..."
+# npm_admin_password      = "..."

@@ -4,8 +4,8 @@ output "app_instance_id" {
 }
 
 output "app_public_ip" {
-  description = "Public IP of the application host. Point your DNS (Route 53 or otherwise) at this until an ALB is introduced in Phase 2."
-  value       = aws_instance.app.public_ip
+  description = "Public IP of the application host. When an Elastic IP is attached (app_eip_allocation_id set) this is the stable EIP; otherwise it is the ephemeral auto-assigned address. Point your DNS (Route 53 or otherwise) at this until an ALB is introduced in Phase 2."
+  value       = length(aws_eip_association.app) > 0 ? aws_eip_association.app[0].public_ip : aws_instance.app.public_ip
 }
 
 output "db_endpoint" {

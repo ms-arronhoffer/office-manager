@@ -95,7 +95,7 @@ Infrastructure-as-code lives in `infra/terraform/aws/`:
 | `s3.tf` | Uploads bucket + backups bucket (versioned, encrypted, lifecycle rules) |
 | `ecr.tf` | Private ECR repos (namespace `office-manager/*`) for the app images + `ecr-push` IAM policy for the build runner |
 | `secrets.tf` | Single Secrets Manager secret with all app credentials |
-| `templates/user_data.sh.tpl` | EC2 boot script: installs Docker, registers the box as a GitHub Actions self-hosted runner |
+| `templates/user_data.sh.tpl` | EC2 boot script: installs Docker + the Compose plugin and clones the app repo (no self-hosted runner — deploys are driven remotely via SSM) |
 | `outputs.tf` | RDS endpoint, S3 bucket names, instance id/IP, secret ARN |
 
 State is **remote** (S3 + DynamoDB lock table), configured via the partial
@@ -129,7 +129,12 @@ cp backend.hcl.example backend.hcl             # fill in the bucket/table from t
 export TF_VAR_db_password=...
 export TF_VAR_jwt_secret=...
 export TF_VAR_default_admin_password=...
-export TF_VAR_github_runner_pat=...            # GitHub PAT, repo scope, used once at boot
+# Optional app secrets folded into the Secrets Manager secret so the SSM-driven
+# deploy can build the container .env on-box:
+export TF_VAR_google_client_secret=...
+export TF_VAR_smtp_user=...
+export TF_VAR_smtp_password=...
+export TF_VAR_npm_admin_password=...
 terraform init -backend-config=backend.hcl
 terraform plan
 terraform apply
@@ -235,10 +240,22 @@ One workflow targets the `prod` branch; `main`'s existing `deploy.yml`
      access — no static keys on the runner) and self-heals the ECR
      repositories if they don't exist yet. Skipped on the `plan`/`destroy`
      dispatch inputs.
-  3. **`deploy`** runs on the self-hosted runner on the EC2 host (label
-     `aws-prod`). It logs the host Docker daemon into ECR using the instance
-     profile (no static keys), pulls the images just pushed, and runs
-     `docker compose -f docker-compose.prod.yml up -d` against RDS/S3.
+  3. **`deploy`** also runs on the `docker-build` runner (no longer on the EC2
+     host — the box does not register a self-hosted runner). It assumes the
+     `github_actions_deploy` IAM role via OIDC and drives the release remotely
+     with a single `aws ssm send-command`: the on-box script checks out the
+     exact commit being shipped, assembles the container `.env` (non-secret
+     config shipped base64-encoded from CI; secrets fetched from Secrets Manager
+     under the instance profile), logs the host Docker daemon into ECR, and runs
+     `docker compose -f docker-compose.prod.yml pull` + `up -d` against RDS/S3,
+     then provisions the Nginx Proxy Manager routes. The job polls the command
+     and fails if the remote status isn't `Success`.
+
+  Because the deploy is driven remotely over SSM, a **rebuilt or replaced EC2
+  instance needs zero manual bootstrap**: as long as Terraform has recreated it
+  (user_data installs the SSM agent + Docker + Compose and warm-clones the
+  repo), the next deploy runs against it unchanged — there is no self-hosted
+  runner registration to lose on `terraform apply`.
 
   Keeping build and deploy in separate jobs keeps the low-powered EC2 host out
   of the image build path (it only pulls and runs). The ECR repositories, the
@@ -247,19 +264,22 @@ One workflow targets the `prod` branch; `main`'s existing `deploy.yml`
 
 ### Troubleshooting: `permission denied ... /var/run/docker.sock`
 
-If a build step fails with `permission denied while trying to connect to the
-Docker daemon socket at unix:///var/run/docker.sock`, the self-hosted runner's
-user isn't effectively in the `docker` group. This typically happens when the
-user was added to the group *after* the runner service started (group changes
-don't apply to already-running processes). Both deploy workflows now include an
-`Ensure Docker daemon access` preflight step that self-heals this best-effort.
-To fix it permanently on the host, add the runner user to the `docker` group and
-restart the runner service so it picks up the new group:
+If a **build** step (the `build-and-push` job) fails with `permission denied
+while trying to connect to the Docker daemon socket at
+unix:///var/run/docker.sock`, the `docker-build` runner's user isn't effectively
+in the `docker` group. This typically happens when the user was added to the
+group *after* the runner service started (group changes don't apply to
+already-running processes). Fix it permanently on that runner host:
 
 ```bash
 sudo usermod -aG docker <runner-user>
 sudo systemctl restart 'actions.runner.*'
 ```
+
+The `deploy` job no longer touches the runner's Docker socket — its
+`docker compose` commands run on the EC2 host as `root` (via SSM
+`send-command`), which always has socket access, so the old on-box `ssm-user`
+docker-group workaround is gone.
 
 ### Required repository secrets
 
@@ -275,17 +295,24 @@ terraform apply \
   -var github_repository=<owner>/<repo>
 terraform output github_actions_infra_role_arn
 terraform output github_actions_ecr_push_role_arn
+terraform output github_actions_deploy_role_arn
 ```
 
 - `AWS_INFRA_ROLE_ARN` — role the `infra` job assumes to run Terraform
   (`terraform output github_actions_infra_role_arn`).
 - `AWS_ECR_PUSH_ROLE_ARN` — role the `build-and-push` job assumes to push
   images to ECR (`terraform output github_actions_ecr_push_role_arn`).
+- `AWS_DEPLOY_ROLE_ARN` — role the `deploy` job assumes to run the deploy on
+  the EC2 host via SSM (`terraform output github_actions_deploy_role_arn`).
 - `AWS_REGION` — region the ECR registry lives in (e.g. `us-east-2`).
 - `TF_VAR_DB_PASSWORD`, `TF_VAR_JWT_SECRET`, `TF_VAR_DEFAULT_ADMIN_PASSWORD`
 - `TF_VAR_STRIPE_SECRET_KEY`, `TF_VAR_GEMINI_API_KEY`, `TF_VAR_SENTRY_DSN` (optional)
-- `RUNNER_REGISTRATION_PAT` — GitHub PAT (repo scope) used by the EC2
-  user-data script to mint a short-lived runner registration token
+- `GOOGLE_CLIENT_SECRET`, `SMTP_USER`, `SMTP_PASSWORD`, `NPM_ADMIN_PASSWORD`
+  (optional) — folded into the Secrets Manager app secret by the `infra` job so
+  the `deploy` job can assemble the container `.env` on-box. The remaining
+  non-secret container config (`RDS_HOST`, `POSTGRES_DB`, `FRONTEND_URL`,
+  `S3_UPLOAD_BUCKET`, ports, `NPM_*_DOMAIN`, …) is still read by the `deploy`
+  job and shipped to the box with the SSM command.
 
 If you haven't bootstrapped the OIDC roles yet, `infra/terraform/aws/ecr.tf`
 still exports a legacy `ecr_push_policy_arn` IAM policy you can attach to a
@@ -314,25 +341,49 @@ App deploy (for the `deploy` job of `infra-prod.yml`), matching the Terraform ou
 - `JWT_SECRET`, `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PASSWORD`
 - `S3_UPLOAD_BUCKET` (= `terraform output uploads_bucket`), `S3_UPLOAD_PREFIX`, `AWS_REGION`
 - `FRONTEND_URL`, `ADMIN_FRONTEND_URL`, `APP_PORT`, `ADMIN_PORT`, `LANDING_PORT`, `BACKEND_PORT`
-  - Host ports the stack binds; a reverse proxy (Nginx Proxy Manager on 443/81)
-    fronts them. Nothing is bound to port 80. The convention is `APP_PORT=4001`
-    (frontend), `BACKEND_PORT=4002`, `LANDING_PORT=4003`, `ADMIN_PORT=4004`
-    (manage). If these secrets are unset the compose file falls back to those
-    same defaults. Each port is published on `127.0.0.1` only, so the containers
-    are reachable solely from the host (where NPM runs) and never directly from
-    the instance's public/LAN interfaces — NPM is the sole ingress. This assumes
-    NPM runs on the host itself (native/systemd or host network mode); a bridged
-    NPM container cannot reach a `127.0.0.1`-only bind (inside that container
-    `127.0.0.1` is its own loopback). For a bridged NPM container, attach it to
-    the stack's shared `edge` network and proxy by service name instead of
-    binding the ports to `0.0.0.0` (which would re-expose every service on the
-    public/LAN interface). One-time wiring:
-    `docker network connect prod-office-manager_edge nginx-proxy-manager-app-1`,
-    then point each NPM proxy host at the internal service name/port —
-    `http://frontend:80`, `http://backend:8000`, `http://admin-frontend:80`,
-    `http://landing:80` (adjust the network prefix if your compose project name
-    differs). This keeps every service off the public interface.
+  - Host ports the stack binds. The bundled Nginx Proxy Manager (see below)
+    fronts them. Nothing is bound to port 80/443 except NPM. The convention is
+    `APP_PORT=4001` (frontend), `BACKEND_PORT=4002`, `LANDING_PORT=4003`,
+    `ADMIN_PORT=4004` (manage). If these secrets are unset the compose file falls
+    back to those same defaults. Each port is published on `127.0.0.1` only (for
+    host-level debugging); NPM itself reaches every container by service name
+    over the shared `edge` network, so the app containers are never exposed on
+    the instance's public/LAN interfaces — NPM is the sole ingress.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SMTP_*`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `SENTRY_DSN` (optional/as applicable)
+
+## Reverse proxy — Nginx Proxy Manager
+
+`docker-compose.prod.yml` runs [Nginx Proxy Manager](https://nginxproxymanager.com/)
+(`nginx-proxy-manager` service) as the single public ingress. It is the only
+container bound to the host's public interface:
+
+- `80` — public HTTP (redirected to HTTPS by *Force SSL*)
+- `443` — public HTTPS
+- `81` — admin UI, firewalled to the office CIDR in the security group
+
+NPM joins the stack's shared `edge` network and proxies to each app container by
+service name (`http://frontend:80`, `http://admin-frontend:80`,
+`http://landing:80`, `http://backend:8000`). Its config DB and issued
+certificates persist in the `npm_data` / `npm_letsencrypt` docker volumes across
+redeploys.
+
+Routes, SSL certificates and the per-host **Block Common Exploits**,
+**Websockets Support** and **Force SSL** toggles are provisioned idempotently by
+`infra/nginx-proxy-manager/bootstrap.py`. Point DNS at `terraform output
+app_public_ip`, set `NPM_LETSENCRYPT_EMAIL` + the `NPM_*_DOMAIN` variables, and
+run the script from the host — see
+[`infra/nginx-proxy-manager/README.md`](../infra/nginx-proxy-manager/README.md)
+for the full walkthrough. Change the default `admin@example.com` / `changeme`
+NPM admin credentials on first login.
+
+### SSH / firewall
+
+The `office-manager-prod-app` security group opens port `22` (SSH) and port `81`
+(NPM admin UI) only to the trusted office CIDR — `ssh_allowed_cidrs` and
+`npm_admin_allowed_cidrs` in `infra/terraform/aws/variables.tf`. SSH uses the
+`Prod Office Manager` EC2 key pair (`key_pair_name`). SSM Session Manager remains
+available as a keyless fallback via the instance's IAM role.
+
 
 ## Application code changes
 
