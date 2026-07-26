@@ -35,13 +35,16 @@ reach the app.
 
 1. Deploy the stack (the `deploy` job of `.github/workflows/infra-prod.yml`, or
    `docker compose -f docker-compose.prod.yml up -d` on the host).
-2. The NPM container seeds a default admin account
-   (`admin@example.com` / `changeme`). Set `NPM_ADMIN_EMAIL` / `NPM_ADMIN_PASSWORD`
-   to the credentials you want and run the bootstrap script — on a brand-new
-   container it logs in with the seeded defaults and **rotates them to your
-   configured values automatically**, so no manual UI step is required. (You can
-   still log in at `http://<host>:81` **through the office network** to change
-   them by hand instead.)
+2. A brand-new NPM container (>= 2.12) starts with **no admin account** and
+   reports `setup: false` until the first user is created. Set
+   `NPM_ADMIN_EMAIL` / `NPM_ADMIN_PASSWORD` to the credentials you want and run
+   the bootstrap script — on a fresh container it **creates the first admin
+   account with your configured credentials automatically**, so no manual UI
+   step is required. (Older NPM images that still seed the legacy default
+   `admin@example.com` / `changeme` account are also supported: the script logs
+   in with those defaults and rotates them to your configured values. You can
+   still log in at `http://<host>:81` **through the office network** to set them
+   by hand instead.)
 3. Point DNS `A` records for each public domain at the instance's public IP
    (`terraform output app_public_ip`).
 
