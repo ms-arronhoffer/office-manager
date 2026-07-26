@@ -173,5 +173,71 @@ class ApiErrorTests(unittest.TestCase):
             bootstrap.urllib.request.urlopen = orig
 
 
+class BuildRoutesTests(unittest.TestCase):
+    """`_build_routes` should skip placeholder/reserved domains (e.g. null.example)."""
+
+    _ENV_VARS = (
+        "NPM_FRONTEND_DOMAIN",
+        "NPM_ADMIN_DOMAIN",
+        "NPM_LANDING_DOMAIN",
+        "NPM_API_DOMAIN",
+    )
+
+    def setUp(self) -> None:
+        import os
+
+        self._saved = {k: os.environ.get(k) for k in self._ENV_VARS}
+        for k in self._ENV_VARS:
+            os.environ.pop(k, None)
+
+    def tearDown(self) -> None:
+        import os
+
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_placeholder_domain_detection(self) -> None:
+        for domain in [
+            "null.example",
+            "NULL.EXAMPLE",
+            "null",
+            "none",
+            "example.com",
+            "api.example.com",
+            "foo.example",
+            "host.invalid",
+            "host.test",
+            "",
+        ]:
+            self.assertTrue(bootstrap._is_placeholder_domain(domain), domain)
+
+        for domain in [
+            "app.portfoliodesk.ai",
+            "manage.portfoliodesk.ai",
+            "portfoliodesk.ai",
+            "api.mycompany.com",
+        ]:
+            self.assertFalse(bootstrap._is_placeholder_domain(domain), domain)
+
+    def test_build_routes_skips_placeholder_api_domain(self) -> None:
+        import os
+
+        os.environ["NPM_FRONTEND_DOMAIN"] = "app.portfoliodesk.ai"
+        os.environ["NPM_ADMIN_DOMAIN"] = "manage.portfoliodesk.ai"
+        os.environ["NPM_LANDING_DOMAIN"] = "portfoliodesk.ai"
+        os.environ["NPM_API_DOMAIN"] = "null.example"
+
+        routes = bootstrap._build_routes()
+        domains = [r.domain for r in routes]
+        self.assertEqual(
+            domains,
+            ["app.portfoliodesk.ai", "manage.portfoliodesk.ai", "portfoliodesk.ai"],
+        )
+        self.assertNotIn("null.example", domains)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
