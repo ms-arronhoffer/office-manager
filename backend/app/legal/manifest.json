@@ -1,0 +1,40 @@
+{
+  "documents": [
+    {
+      "slug": "terms-of-service",
+      "title": "Terms of Service",
+      "version": "2024-01-01",
+      "effective_date": "2024-01-01",
+      "summary": "The agreement governing your use of the service.",
+      "required_at_signup": true,
+      "file": "terms-of-service.md"
+    },
+    {
+      "slug": "eula",
+      "title": "End User License Agreement",
+      "version": "2024-01-01",
+      "effective_date": "2024-01-01",
+      "summary": "The license that permits you and your users to access the software.",
+      "required_at_signup": true,
+      "file": "eula.md"
+    },
+    {
+      "slug": "privacy-policy",
+      "title": "Privacy Policy",
+      "version": "2024-01-01",
+      "effective_date": "2024-01-01",
+      "summary": "How we collect, use, and protect personal information.",
+      "required_at_signup": true,
+      "file": "privacy-policy.md"
+    },
+    {
+      "slug": "acceptable-use-policy",
+      "title": "Acceptable Use Policy",
+      "version": "2024-01-01",
+      "effective_date": "2024-01-01",
+      "summary": "The conduct and usage rules for the service.",
+      "required_at_signup": true,
+      "file": "acceptable-use-policy.md"
+    }
+  ]
+}

@@ -69,7 +69,7 @@ from app.routers import (  # noqa: E402
     ai, waivers, document_search, maintenance, saved_reports, assistant,
     support_requests, leasing, resident_portal, announcements, rent,
     leasing_funnel, listings, owners, owner_portal, lease_templates,
-    application_templates, buildium, self_storage,
+    application_templates, buildium, self_storage, legal,
 )
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit, usage as admin_usage, support_requests as admin_support_requests  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature, require_category  # noqa: E402
@@ -92,6 +92,9 @@ _residential_guard = _org_guard + [Depends(require_category("residential"))]
 _self_storage_guard = _org_guard + [Depends(require_category("self_storage"))]
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
+# Public, unauthenticated: legal documents must be viewable before any account
+# exists (marketing site + signup flow).
+app.include_router(legal.router, prefix="/api/v1/legal", tags=["Legal"])
 app.include_router(managers.router, prefix="/api/v1/managers", tags=["Managers"], dependencies=_org_guard)
 app.include_router(offices.router, prefix="/api/v1/offices", tags=["Offices"], dependencies=_org_guard)
 app.include_router(leases.router, prefix="/api/v1/leases", tags=["Leases"], dependencies=_commercial_guard)

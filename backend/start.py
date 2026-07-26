@@ -210,6 +210,9 @@ _RECONCILE_COLUMNS: dict[str, list[str]] = {
     "organizations": [
         "cancel_at_period_end boolean NOT NULL DEFAULT false",
         "current_period_end timestamptz",
+        # Legal acceptance captured at signup (Terms/EULA/Privacy/AUP).
+        "legal_accepted_at timestamptz",
+        "legal_accepted_versions jsonb NOT NULL DEFAULT '{}'::jsonb",
     ],
 }
 

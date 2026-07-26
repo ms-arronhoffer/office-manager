@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
@@ -6,11 +6,47 @@ import Form from '@cloudscape-design/components/form';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Button from '@cloudscape-design/components/button';
+import Checkbox from '@cloudscape-design/components/checkbox';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Box from '@cloudscape-design/components/box';
 import Alert from '@cloudscape-design/components/alert';
 import Link from '@cloudscape-design/components/link';
 import { useAuth } from '@/auth/AuthContext';
+import { legal } from '@/api';
+import type { LegalDocumentMeta } from '@/types';
+
+/**
+ * Renders the "I agree to …" label with inline links to each required legal
+ * document (opened in a new tab so the signup form is preserved). Falls back to
+ * a generic label if the document list has not loaded yet.
+ */
+const LegalAgreementLabel: React.FC<{ docs: LegalDocumentMeta[] }> = ({ docs }) => {
+  if (docs.length === 0) {
+    return (
+      <span>
+        I agree to the{' '}
+        <Link href="/legal" external>
+          Terms of Service, EULA, and Privacy Policy
+        </Link>
+        .
+      </span>
+    );
+  }
+  return (
+    <span>
+      I agree to the{' '}
+      {docs.map((doc, index) => (
+        <React.Fragment key={doc.slug}>
+          {index > 0 && (index === docs.length - 1 ? ', and ' : ', ')}
+          <Link href={`/legal/${doc.slug}`} external>
+            {doc.title}
+          </Link>
+        </React.Fragment>
+      ))}
+      .
+    </span>
+  );
+};
 
 const SignupPage: React.FC = () => {
   const navigate = useNavigate();
@@ -21,8 +57,25 @@ const SignupPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [acceptedLegal, setAcceptedLegal] = useState(false);
+  const [legalDocs, setLegalDocs] = useState<LegalDocumentMeta[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    legal
+      .list()
+      .then(({ data }) => {
+        if (active) setLegalDocs(data.filter((d) => d.required_at_signup));
+      })
+      .catch(() => {
+        /* Non-fatal: the checkbox still gates submission with a generic label. */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   if (isAuthenticated) {
     navigate('/', { replace: true });
@@ -42,10 +95,20 @@ const SignupPage: React.FC = () => {
       setError('Password must be at least 12 characters.');
       return;
     }
+    if (!acceptedLegal) {
+      setError('You must accept the Terms of Service, EULA, and Privacy Policy to continue.');
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
-      await signup({ org_name: orgName.trim(), display_name: displayName.trim(), email: email.trim(), password });
+      await signup({
+        org_name: orgName.trim(),
+        display_name: displayName.trim(),
+        email: email.trim(),
+        password,
+        accepted_legal: acceptedLegal,
+      });
       navigate('/onboarding', { replace: true });
     } catch (err: unknown) {
       const message =
@@ -100,6 +163,7 @@ const SignupPage: React.FC = () => {
                     onClick={handleSubmit}
                     fullWidth
                     formAction="submit"
+                    disabled={!acceptedLegal}
                   >
                     Create account
                   </Button>
@@ -167,6 +231,13 @@ const SignupPage: React.FC = () => {
                     }}
                   />
                 </FormField>
+                <Checkbox
+                  checked={acceptedLegal}
+                  onChange={({ detail }) => setAcceptedLegal(detail.checked)}
+                  disabled={isLoading}
+                >
+                  <LegalAgreementLabel docs={legalDocs} />
+                </Checkbox>
               </SpaceBetween>
             </Form>
           </Container>

@@ -65,6 +65,21 @@ export interface SignupRequest {
   email: string;
   password: string;
   display_name: string;
+  accepted_legal: boolean;
+}
+
+export interface LegalDocumentMeta {
+  slug: string;
+  title: string;
+  version: string;
+  effective_date: string;
+  summary: string;
+  required_at_signup: boolean;
+}
+
+export interface LegalDocument extends LegalDocumentMeta {
+  html: string;
+  markdown: string;
 }
 
 export interface SignupResponse {
