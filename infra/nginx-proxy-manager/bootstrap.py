@@ -32,6 +32,7 @@ Uses the Python standard library only (no third-party dependencies).
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import sys
@@ -41,8 +42,19 @@ import urllib.request
 from dataclasses import dataclass
 
 
+# NPM seeds this admin account on a fresh install and forces the operator to
+# change it on first login. bootstrap.py uses these to self-provision the
+# configured credentials the first time it runs against a brand-new container.
+DEFAULT_ADMIN_EMAIL = "admin@example.com"
+DEFAULT_ADMIN_PASSWORD = "changeme"
+
+
 class NpmError(RuntimeError):
     """Raised when the NPM API returns an unexpected response."""
+
+
+class NpmAuthError(NpmError):
+    """Raised when the NPM API rejects the supplied credentials (HTTP 400/401)."""
 
 
 @dataclass
@@ -86,12 +98,32 @@ def _api(
             body = resp.read().decode()
     except urllib.error.HTTPError as exc:  # pragma: no cover - network dependent
         detail = exc.read().decode(errors="replace")
-        raise NpmError(f"{method} {path} -> HTTP {exc.code}: {detail}") from exc
+        message = f"{method} {path} -> HTTP {exc.code}: {detail}"
+        # 400/401 from the token endpoint mean the credentials were rejected;
+        # surface that as a distinct type so callers can fall back to the
+        # first-boot defaults instead of aborting the deploy.
+        if exc.code in (400, 401):
+            raise NpmAuthError(message) from exc
+        raise NpmError(message) from exc
     except urllib.error.URLError as exc:  # pragma: no cover - network dependent
         raise NpmError(f"{method} {path} failed: {exc.reason}") from exc
+    except (TimeoutError, OSError, http.client.HTTPException) as exc:  # pragma: no cover - network dependent
+        # A read timeout (``socket.timeout``/``TimeoutError``), a reset
+        # connection, or a malformed/partial HTTP response
+        # (``http.client.HTTPException`` such as ``BadStatusLine`` /
+        # ``IncompleteRead``) while NPM is still starting is raised bare rather
+        # than wrapped in ``URLError``. Surface it as an ``NpmError`` so the
+        # ``_wait_for_api`` retry loop can absorb it instead of aborting the
+        # deploy with an uncaught traceback.
+        raise NpmError(f"{method} {path} failed: {exc}") from exc
     if not body:
         return None
-    return json.loads(body)
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as exc:  # pragma: no cover - network dependent
+        # NPM occasionally returns a truncated/HTML body (e.g. a gateway page)
+        # while it is still booting; treat that as a transient API error.
+        raise NpmError(f"{method} {path} returned non-JSON response: {exc}") from exc
 
 
 def _wait_for_api(base_url: str, attempts: int = 30, delay: int = 5) -> None:
@@ -109,11 +141,132 @@ def _wait_for_api(base_url: str, attempts: int = 30, delay: int = 5) -> None:
     raise NpmError(f"NPM API never became reachable at {base_url}: {last_error}")
 
 
-def _login(base_url: str, identity: str, secret: str) -> str:
+def _request_token(base_url: str, identity: str, secret: str) -> str:
+    """Exchange credentials for an NPM API token.
+
+    Raises :class:`NpmAuthError` when the credentials are rejected so callers can
+    distinguish "wrong password" from "API unreachable".
+    """
+
     result = _api(base_url, "POST", "/api/tokens", payload={"identity": identity, "secret": secret})
     if not isinstance(result, dict) or "token" not in result:
         raise NpmError("Login did not return a token; check NPM admin credentials.")
     return str(result["token"])
+
+
+def _needs_setup(base_url: str) -> bool:
+    """Return ``True`` when NPM has no users yet (fresh install).
+
+    A brand-new NPM container (>= 2.12) reports ``{"setup": false}`` from
+    ``GET /api/`` until the first admin user is created. Any transient error is
+    treated as "not in setup mode" so the caller falls back to the other login
+    paths rather than misclassifying a hiccup as a fresh install.
+    """
+
+    try:
+        status = _api(base_url, "GET", "/api/")
+    except NpmError:
+        return False
+    return isinstance(status, dict) and status.get("setup") is False
+
+
+def _create_initial_admin(base_url: str, email: str, secret: str) -> None:
+    """Create the first admin user on a fresh NPM install.
+
+    NPM >= 2.12 no longer seeds a usable default admin account. While a fresh
+    container reports ``setup: false`` it has zero users and the
+    ``POST /api/users`` endpoint is unauthenticated, so we register the
+    configured credentials directly as the first (admin) account — no seeded
+    default and no password rotation required.
+    """
+
+    payload = {
+        "name": "Administrator",
+        "nickname": "Admin",
+        "email": email,
+        "roles": ["admin"],
+        "is_disabled": False,
+        "auth": {"type": "password", "secret": secret},
+    }
+    _api(base_url, "POST", "/api/users", payload=payload)
+    print(f"    created initial NPM admin account for {email}")
+
+
+def _provision_admin(base_url: str, token: str, email: str, secret: str) -> None:
+    """Rotate the seeded default admin account to the configured credentials.
+
+    Called with a token obtained from NPM's first-boot defaults. Updates the
+    admin email (if it differs) and changes the password from the default to the
+    configured secret.
+    """
+
+    me = _api(base_url, "GET", "/api/users/me", token=token)
+    user_id = int(me["id"]) if isinstance(me, dict) and "id" in me else 1
+
+    if not isinstance(me, dict) or me.get("email") != email:
+        _api(base_url, "PUT", f"/api/users/{user_id}", token=token, payload={"email": email})
+        print(f"    set NPM admin email to {email}")
+
+    _api(
+        base_url,
+        "PUT",
+        f"/api/users/{user_id}/auth",
+        token=token,
+        payload={"type": "password", "current": DEFAULT_ADMIN_PASSWORD, "secret": secret},
+    )
+    print("    rotated NPM admin password to the configured value")
+
+
+def _login(base_url: str, identity: str, secret: str) -> str:
+    """Authenticate, self-provisioning the admin account on a fresh NPM install.
+
+    Three cases are handled so the very first deploy succeeds without any manual
+    UI step and subsequent deploys authenticate normally:
+
+    1. The configured credentials already work (every deploy after the first).
+    2. Fresh NPM >= 2.12: no admin user exists yet (``GET /api/`` reports
+       ``setup: false``). While in that state ``POST /api/users`` is
+       unauthenticated, so we create the first admin with the configured
+       credentials and log in.
+    3. Legacy first-boot (older NPM images): the only account is the seeded
+       default (``admin@example.com`` / ``changeme``); we log in with those and
+       rotate them to the configured values.
+    """
+
+    try:
+        return _request_token(base_url, identity, secret)
+    except NpmAuthError:
+        pass
+
+    # Case 2: brand-new NPM with no users yet — register the configured admin
+    # directly via the unauthenticated setup endpoint.
+    if _needs_setup(base_url):
+        print("  Fresh NPM detected (no admin user yet); creating the configured admin account…")
+        _create_initial_admin(base_url, identity, secret)
+        return _request_token(base_url, identity, secret)
+
+    # Already using the defaults but they were rejected — nothing we can do.
+    if (identity, secret) == (DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD):
+        raise NpmError(
+            "NPM rejected the default admin credentials "
+            f"({DEFAULT_ADMIN_EMAIL}); the admin account may already have been "
+            "changed. Set NPM_ADMIN_EMAIL/NPM_ADMIN_PASSWORD to the current "
+            "credentials."
+        )
+
+    try:
+        default_token = _request_token(base_url, DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD)
+    except NpmAuthError:
+        raise NpmError(
+            "Could not authenticate with NPM: the configured "
+            "NPM_ADMIN_EMAIL/NPM_ADMIN_PASSWORD were rejected and so were the "
+            "default first-boot credentials. If the admin credentials were "
+            "changed manually, update NPM_ADMIN_EMAIL/NPM_ADMIN_PASSWORD to match."
+        ) from None
+
+    print("  Legacy first-boot NPM detected; provisioning the configured admin credentials…")
+    _provision_admin(base_url, default_token, identity, secret)
+    return _request_token(base_url, identity, secret)
 
 
 def _find_certificate(base_url: str, token: str, domain: str) -> int | None:
