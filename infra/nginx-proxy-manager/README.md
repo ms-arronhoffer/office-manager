@@ -106,3 +106,11 @@ has propagated to finish enabling SSL.
 | `NPM_LANDING_DOMAIN`     | *(unset)*               | Public domain → `landing:80`                             |
 | `NPM_API_DOMAIN`         | *(unset)*               | Optional public domain → `backend:8000`                  |
 | `NPM_IMAGE_TAG`          | `2.15.1`                | `jc21/nginx-proxy-manager` image tag (set in compose)    |
+
+Any domain variable set to a placeholder/reserved value is treated as unset and
+skipped (no proxy host is created). This covers RFC 2606 / RFC 6761 reserved
+names — the `.example`, `.invalid` and `.test` TLDs and `example.com` /
+`example.net` / `example.org` (and their subdomains) — plus the literal
+sentinels `null`, `none`, `nil` and `changeme`. This keeps an optional route
+such as `NPM_API_DOMAIN=null.example` from creating an unreachable proxy host
+that can never obtain a certificate and shows up "Offline".
