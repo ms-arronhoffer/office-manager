@@ -5,6 +5,8 @@ import type {
   SignupRequest,
   SignupResponse,
   CategoriesState,
+  LegalDocument,
+  LegalDocumentMeta,
   StorageFacility,
   StorageFacilityCreate,
   StorageFacilityUpdate,
@@ -1145,6 +1147,12 @@ export const organizations = {
     client.put<CategoriesState>('/organizations/me/categories', {
       enabled_categories: enabledCategories,
     }),
+};
+
+// ─── Legal documents (public: no auth required) ──────────────────────────────
+export const legal = {
+  list: () => client.get<LegalDocumentMeta[]>('/legal'),
+  get: (slug: string) => client.get<LegalDocument>(`/legal/${slug}`),
 };
 
 // ─── Self Storage ────────────────────────────────────────────────────────────

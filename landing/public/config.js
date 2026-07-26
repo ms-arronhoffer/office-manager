@@ -6,6 +6,15 @@ window.SITE_CONFIG = {
   LOGIN_URL:     "https://app.portfoliodesk.ai/login",
   MANAGE_URL:    "https://manage.portfoliodesk.ai",
 
+  // Legal documents. These point at the app's public legal viewer, which is the
+  // single source of truth (rendered from Markdown on the backend), so the
+  // documents can be updated without rebuilding the landing site.
+  LEGAL_URL:     "https://app.portfoliodesk.ai/legal",
+  TERMS_URL:     "https://app.portfoliodesk.ai/legal/terms-of-service",
+  EULA_URL:      "https://app.portfoliodesk.ai/legal/eula",
+  PRIVACY_URL:   "https://app.portfoliodesk.ai/legal/privacy-policy",
+  AUP_URL:       "https://app.portfoliodesk.ai/legal/acceptable-use-policy",
+
   // Contact handling. The on-site /contact form posts JSON to CONTACT_ENDPOINT
   // (e.g. a serverless function or form backend). When left blank, the form
   // falls back to a JS-built mailto using SUPPORT_EMAIL, assembled at submit

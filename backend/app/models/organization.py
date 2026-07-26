@@ -34,6 +34,16 @@ class Organization(TimestampMixin, Base):
     # requesting a cancellation, and kept in sync from Stripe webhooks.
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     admin_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Legal acceptance recorded at signup: when the org's admin accepted the
+    # required legal documents (Terms of Service, EULA, Privacy Policy, ...) and
+    # a snapshot of the ``slug -> version`` map that was accepted. Lets us prove
+    # which version of each document an organization agreed to.
+    legal_accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    legal_accepted_versions: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=dict, nullable=False, server_default="{}"
+    )
     # Per-org entitlement overrides; keys are validated against the entitlements
     # catalog (app.services.entitlements). Override values win over plan defaults.
     entitlement_overrides: Mapped[dict[str, Any]] = mapped_column(

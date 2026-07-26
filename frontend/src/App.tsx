@@ -17,6 +17,7 @@ import SessionTimeoutWarning from '@/components/common/SessionTimeoutWarning';
 // Lazy-loaded pages
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const SignupPage = lazy(() => import('@/pages/SignupPage'));
+const LegalPage = lazy(() => import('@/pages/LegalPage'));
 const OnboardingPage = lazy(() => import('@/pages/OnboardingPage'));
 const BillingPage = lazy(() => import('@/pages/BillingPage'));
 const ApiKeysPage = lazy(() => import('@/pages/ApiKeysPage'));
@@ -104,6 +105,8 @@ const App: React.FC = () => {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/reset-password/:token" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
+            <Route path="/legal" element={<LegalPage />} />
+            <Route path="/legal/:slug" element={<LegalPage />} />
             <Route path="/verify-email/:token" element={<VerifyEmailPage />} />
             <Route path="/vendor-portal" element={<VendorPortalPage />} />
             <Route path="/client-portal" element={<ClientPortalPage />} />

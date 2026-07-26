@@ -25,6 +25,7 @@ from app.schemas.organization import (
 )
 from app.services import entitlements as ent
 from app.services import categories as cat
+from app.services import legal_service
 from app.services.email_verification_service import issue_verification_token, send_verification_email
 
 router = APIRouter()
@@ -84,6 +85,11 @@ async def signup(
         # console, metrics, and billing-hygiene treat them as trials.
         payment_status="trial",
         trial_ends_at=datetime.now(timezone.utc) + timedelta(days=settings.TRIAL_DAYS),
+        # Record acceptance of the required legal documents. The schema validator
+        # already enforces ``accepted_legal is True``; snapshot the accepted
+        # versions so we can prove which document versions were agreed to.
+        legal_accepted_at=datetime.now(timezone.utc),
+        legal_accepted_versions=legal_service.current_versions(),
     )
     db.add(org)
     await db.flush()  # get org.id before creating user
