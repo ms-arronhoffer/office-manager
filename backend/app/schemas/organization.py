@@ -10,11 +10,23 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str
     display_name: str
+    # The signup form requires the admin to accept the legal documents (Terms of
+    # Service, EULA, Privacy Policy, Acceptable Use Policy). Must be ``True``.
+    accepted_legal: bool = False
 
     @field_validator("password")
     @classmethod
     def validate_password(cls, value: str) -> str:
         return validate_password_strength(value)
+
+    @field_validator("accepted_legal")
+    @classmethod
+    def validate_accepted_legal(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError(
+                "You must accept the Terms of Service, EULA, and Privacy Policy to continue."
+            )
+        return value
 
 
 class SignupResponse(BaseModel):
