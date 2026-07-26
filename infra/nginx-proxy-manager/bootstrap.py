@@ -32,6 +32,7 @@ Uses the Python standard library only (no third-party dependencies).
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import sys
@@ -106,10 +107,12 @@ def _api(
         raise NpmError(message) from exc
     except urllib.error.URLError as exc:  # pragma: no cover - network dependent
         raise NpmError(f"{method} {path} failed: {exc.reason}") from exc
-    except (TimeoutError, OSError) as exc:  # pragma: no cover - network dependent
-        # A read timeout (``socket.timeout``/``TimeoutError``) or a reset
-        # connection while NPM is still starting is raised bare rather than
-        # wrapped in ``URLError``. Surface it as an ``NpmError`` so the
+    except (TimeoutError, OSError, http.client.HTTPException) as exc:  # pragma: no cover - network dependent
+        # A read timeout (``socket.timeout``/``TimeoutError``), a reset
+        # connection, or a malformed/partial HTTP response
+        # (``http.client.HTTPException`` such as ``BadStatusLine`` /
+        # ``IncompleteRead``) while NPM is still starting is raised bare rather
+        # than wrapped in ``URLError``. Surface it as an ``NpmError`` so the
         # ``_wait_for_api`` retry loop can absorb it instead of aborting the
         # deploy with an uncaught traceback.
         raise NpmError(f"{method} {path} failed: {exc}") from exc

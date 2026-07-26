@@ -125,6 +125,24 @@ class ApiErrorTests(unittest.TestCase):
         finally:
             bootstrap.urllib.request.urlopen = orig
 
+    def test_malformed_http_response_raises_transient_error(self) -> None:
+        # NPM can emit a partial/malformed HTTP response while booting, which
+        # urllib surfaces as an ``http.client.HTTPException`` (not an OSError or
+        # URLError). It must be wrapped as an NpmError so ``_wait_for_api`` can
+        # retry instead of crashing the deploy.
+        import http.client
+
+        def fake_urlopen(req, timeout=0):  # noqa: ARG001
+            raise http.client.BadStatusLine("''")
+
+        orig = bootstrap.urllib.request.urlopen
+        bootstrap.urllib.request.urlopen = fake_urlopen
+        try:
+            with self.assertRaises(bootstrap.NpmError):
+                bootstrap._api("http://localhost:81", "GET", "/api/")
+        finally:
+            bootstrap.urllib.request.urlopen = orig
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
