@@ -214,6 +214,13 @@ _RECONCILE_COLUMNS: dict[str, list[str]] = {
         "legal_accepted_at timestamptz",
         "legal_accepted_versions jsonb NOT NULL DEFAULT '{}'::jsonb",
     ],
+    # Per-user legal acceptance (migration 107): every user must accept the
+    # required legal documents before their account is treated as active. A DB
+    # create_all-stamped at an older head would 500 on /auth/me without these.
+    "users": [
+        "legal_accepted_at timestamptz",
+        "legal_accepted_versions jsonb NOT NULL DEFAULT '{}'::jsonb",
+    ],
 }
 
 

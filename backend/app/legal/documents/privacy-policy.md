@@ -83,6 +83,3 @@ reflected in an updated version and effective date shown above.
 
 For privacy questions or requests, contact your Portfolio Desk account
 representative or support contact.
-
-> This document is a template and should be reviewed by qualified legal counsel
-> before production use.
