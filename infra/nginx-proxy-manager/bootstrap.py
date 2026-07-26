@@ -154,6 +154,44 @@ def _request_token(base_url: str, identity: str, secret: str) -> str:
     return str(result["token"])
 
 
+def _needs_setup(base_url: str) -> bool:
+    """Return ``True`` when NPM has no users yet (fresh install).
+
+    A brand-new NPM container (>= 2.12) reports ``{"setup": false}`` from
+    ``GET /api/`` until the first admin user is created. Any transient error is
+    treated as "not in setup mode" so the caller falls back to the other login
+    paths rather than misclassifying a hiccup as a fresh install.
+    """
+
+    try:
+        status = _api(base_url, "GET", "/api/")
+    except NpmError:
+        return False
+    return isinstance(status, dict) and status.get("setup") is False
+
+
+def _create_initial_admin(base_url: str, email: str, secret: str) -> None:
+    """Create the first admin user on a fresh NPM install.
+
+    NPM >= 2.12 no longer seeds a usable default admin account. While a fresh
+    container reports ``setup: false`` it has zero users and the
+    ``POST /api/users`` endpoint is unauthenticated, so we register the
+    configured credentials directly as the first (admin) account — no seeded
+    default and no password rotation required.
+    """
+
+    payload = {
+        "name": "Administrator",
+        "nickname": "Admin",
+        "email": email,
+        "roles": ["admin"],
+        "is_disabled": False,
+        "auth": {"type": "password", "secret": secret},
+    }
+    _api(base_url, "POST", "/api/users", payload=payload)
+    print(f"    created initial NPM admin account for {email}")
+
+
 def _provision_admin(base_url: str, token: str, email: str, secret: str) -> None:
     """Rotate the seeded default admin account to the configured credentials.
 
@@ -182,17 +220,30 @@ def _provision_admin(base_url: str, token: str, email: str, secret: str) -> None
 def _login(base_url: str, identity: str, secret: str) -> str:
     """Authenticate, self-provisioning the admin account on a fresh NPM install.
 
-    On a brand-new NPM container the only account is the seeded default
-    (``admin@example.com`` / ``changeme``). If the configured credentials are
-    rejected we log in with those defaults and rotate them to the configured
-    values, so the very first deploy succeeds without any manual UI step and
-    subsequent deploys authenticate normally.
+    Three cases are handled so the very first deploy succeeds without any manual
+    UI step and subsequent deploys authenticate normally:
+
+    1. The configured credentials already work (every deploy after the first).
+    2. Fresh NPM >= 2.12: no admin user exists yet (``GET /api/`` reports
+       ``setup: false``). While in that state ``POST /api/users`` is
+       unauthenticated, so we create the first admin with the configured
+       credentials and log in.
+    3. Legacy first-boot (older NPM images): the only account is the seeded
+       default (``admin@example.com`` / ``changeme``); we log in with those and
+       rotate them to the configured values.
     """
 
     try:
         return _request_token(base_url, identity, secret)
     except NpmAuthError:
         pass
+
+    # Case 2: brand-new NPM with no users yet — register the configured admin
+    # directly via the unauthenticated setup endpoint.
+    if _needs_setup(base_url):
+        print("  Fresh NPM detected (no admin user yet); creating the configured admin account…")
+        _create_initial_admin(base_url, identity, secret)
+        return _request_token(base_url, identity, secret)
 
     # Already using the defaults but they were rejected — nothing we can do.
     if (identity, secret) == (DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD):
@@ -213,7 +264,7 @@ def _login(base_url: str, identity: str, secret: str) -> str:
             "changed manually, update NPM_ADMIN_EMAIL/NPM_ADMIN_PASSWORD to match."
         ) from None
 
-    print("  First-boot NPM detected; provisioning the configured admin credentials…")
+    print("  Legacy first-boot NPM detected; provisioning the configured admin credentials…")
     _provision_admin(base_url, default_token, identity, secret)
     return _request_token(base_url, identity, secret)
 

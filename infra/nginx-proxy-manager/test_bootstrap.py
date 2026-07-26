@@ -31,18 +31,34 @@ def _http_error(code: int, body: str = "") -> urllib.error.HTTPError:
 class FakeNpm:
     """Minimal in-memory stand-in for the NPM admin API used by bootstrap._api."""
 
-    def __init__(self, email: str, password: str) -> None:
+    def __init__(self, email: str | None, password: str | None, *, has_user: bool = True) -> None:
+        # ``has_user=False`` models a brand-new NPM (>= 2.12): no admin account
+        # exists yet and ``GET /api/`` reports ``setup: false``.
         self.email = email
         self.password = password
+        self.has_user = has_user and email is not None
         self.user_id = 1
         self.calls: list[tuple[str, str]] = []
 
     def api(self, base_url, method, path, token=None, payload=None):  # noqa: ARG002
         self.calls.append((method, path))
+        if method == "GET" and path == "/api/":
+            return {"status": "OK", "setup": self.has_user}
         if method == "POST" and path == "/api/tokens":
-            if payload["identity"] == self.email and payload["secret"] == self.password:
+            if (
+                self.has_user
+                and payload["identity"] == self.email
+                and payload["secret"] == self.password
+            ):
                 return {"token": "tok", "expires": "later"}
-            raise bootstrap.NpmAuthError("POST /api/tokens -> HTTP 401: bad creds")
+            raise bootstrap.NpmAuthError("POST /api/tokens -> HTTP 400: bad creds")
+        if method == "POST" and path == "/api/users":
+            # Fresh-install first-admin creation is unauthenticated.
+            assert not self.has_user
+            self.email = payload["email"]
+            self.password = payload["auth"]["secret"]
+            self.has_user = True
+            return {"id": self.user_id, "email": self.email}
         if method == "GET" and path == "/api/users/me":
             return {"id": self.user_id, "email": self.email, "name": "Administrator"}
         if method == "PUT" and path == f"/api/users/{self.user_id}":
@@ -80,6 +96,19 @@ class LoginTests(unittest.TestCase):
         self.assertEqual(fake.password, "sup3rsecret")
         self.assertIn(("PUT", "/api/users/1"), fake.calls)
         self.assertIn(("PUT", "/api/users/1/auth"), fake.calls)
+
+    def test_fresh_install_creates_first_admin(self) -> None:
+        # Modern NPM (>= 2.12) starts with no users and reports setup:false;
+        # the first admin is created with the configured credentials directly.
+        fake = FakeNpm(None, None, has_user=False)
+        bootstrap._api = fake.api
+        token = bootstrap._login("http://localhost:81", "ops@corp.com", "sup3rsecret")
+        self.assertEqual(token, "tok")
+        self.assertEqual(fake.email, "ops@corp.com")
+        self.assertEqual(fake.password, "sup3rsecret")
+        self.assertIn(("POST", "/api/users"), fake.calls)
+        # No legacy default-credential rotation is attempted.
+        self.assertNotIn(("PUT", "/api/users/1/auth"), fake.calls)
 
     def test_default_credentials_rejected_raises(self) -> None:
         fake = FakeNpm("someone@else.com", "unknownpass")
