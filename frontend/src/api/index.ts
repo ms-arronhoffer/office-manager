@@ -258,6 +258,9 @@ export const auth = {
 
   getMe: () => client.get<User>('/auth/me'),
 
+  acceptLegal: () =>
+    client.post<User>('/auth/me/accept-legal', { accepted_legal: true }),
+
   refreshToken: () => client.post<TokenResponse>('/auth/refresh'),
 
   changePassword: (currentPassword: string, newPassword: string) =>

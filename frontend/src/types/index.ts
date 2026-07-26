@@ -11,6 +11,9 @@ export interface User {
   email_verified: boolean;
   last_login_at?: string;
   created_at: string;
+  legal_accepted_at?: string | null;
+  legal_accepted_versions?: Record<string, string>;
+  legal_acceptance_required?: boolean;
 }
 
 // ─── Organization ─────────────────────────────────────────────────────────────
