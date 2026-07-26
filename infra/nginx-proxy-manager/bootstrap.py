@@ -106,9 +106,21 @@ def _api(
         raise NpmError(message) from exc
     except urllib.error.URLError as exc:  # pragma: no cover - network dependent
         raise NpmError(f"{method} {path} failed: {exc.reason}") from exc
+    except (TimeoutError, OSError) as exc:  # pragma: no cover - network dependent
+        # A read timeout (``socket.timeout``/``TimeoutError``) or a reset
+        # connection while NPM is still starting is raised bare rather than
+        # wrapped in ``URLError``. Surface it as an ``NpmError`` so the
+        # ``_wait_for_api`` retry loop can absorb it instead of aborting the
+        # deploy with an uncaught traceback.
+        raise NpmError(f"{method} {path} failed: {exc}") from exc
     if not body:
         return None
-    return json.loads(body)
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as exc:  # pragma: no cover - network dependent
+        # NPM occasionally returns a truncated/HTML body (e.g. a gateway page)
+        # while it is still booting; treat that as a transient API error.
+        raise NpmError(f"{method} {path} returned non-JSON response: {exc}") from exc
 
 
 def _wait_for_api(base_url: str, attempts: int = 30, delay: int = 5) -> None:
