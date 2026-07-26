@@ -563,6 +563,11 @@ jobs:
             echo "REGION='${AWS_REGION}'"
             cat <<'REMOTE'
           set -euo pipefail
+          # SSM's AWS-RunShellScript runs as root without a login shell, so $HOME
+          # is often unset. git needs it to locate/write ~/.gitconfig (otherwise
+          # `git config --global`, clone, fetch and checkout die with
+          # "fatal: $HOME not set" / exit status 128). Pin it before any git use.
+          export HOME="${HOME:-/root}"
           REPO_DIR=/home/ec2-user/office-manager
           PROJECT=prod-office-manager
           COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.prod.yml)
