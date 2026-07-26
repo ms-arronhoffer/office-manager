@@ -36,10 +36,12 @@ reach the app.
 1. Deploy the stack (the `deploy` job of `.github/workflows/infra-prod.yml`, or
    `docker compose -f docker-compose.prod.yml up -d` on the host).
 2. The NPM container seeds a default admin account
-   (`admin@example.com` / `changeme`). Log in at `http://<host>:81` **through the
-   office network** and change the email/password immediately, **or** set
-   `NPM_ADMIN_EMAIL` / `NPM_ADMIN_PASSWORD` to the rotated credentials before
-   running the bootstrap script.
+   (`admin@example.com` / `changeme`). Set `NPM_ADMIN_EMAIL` / `NPM_ADMIN_PASSWORD`
+   to the credentials you want and run the bootstrap script — on a brand-new
+   container it logs in with the seeded defaults and **rotates them to your
+   configured values automatically**, so no manual UI step is required. (You can
+   still log in at `http://<host>:81` **through the office network** to change
+   them by hand instead.)
 3. Point DNS `A` records for each public domain at the instance's public IP
    (`terraform output app_public_ip`).
 
