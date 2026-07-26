@@ -21,6 +21,15 @@ class User(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     preferences: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=dict)
+    # Per-user legal acceptance recorded for auditing. A user's account is only
+    # considered active once they have accepted the required legal documents
+    # (Terms of Service, EULA, Privacy Policy, Acceptable Use Policy). The org
+    # creator's acceptance is captured at signup; every other user must accept
+    # on first login. ``legal_accepted_at`` records when acceptance happened and
+    # ``legal_accepted_versions`` snapshots the ``slug -> version`` map accepted,
+    # so we can prove which version of each document the user agreed to.
+    legal_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    legal_accepted_versions: Mapped[dict | None] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     password_reset_token: Mapped[str | None] = mapped_column(String(128), nullable=True)
     password_reset_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

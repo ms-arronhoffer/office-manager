@@ -94,6 +94,3 @@ is established, without regard to conflict-of-laws principles.
 
 Questions about these Terms may be directed to your Portfolio Desk account
 representative or support contact.
-
-> This document is a template and should be reviewed by qualified legal counsel
-> before production use.

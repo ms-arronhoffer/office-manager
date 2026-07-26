@@ -11,6 +11,7 @@ interface AuthContextType {
   loginWithToken: (token: string) => Promise<void>;
   googleLogin: (googleToken: string) => Promise<void>;
   signup: (data: SignupRequest) => Promise<void>;
+  refreshUser: () => Promise<void>;
   logout: () => void;
 }
 
@@ -85,6 +86,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     window.location.href = '/login';
   };
 
+  const refreshUser = async () => {
+    const userResponse = await auth.getMe();
+    setUser(userResponse.data);
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -96,6 +102,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithToken,
         googleLogin,
         signup,
+        refreshUser,
         logout,
       }}
     >

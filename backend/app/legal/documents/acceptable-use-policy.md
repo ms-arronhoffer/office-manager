@@ -51,6 +51,3 @@ practical and lawful, we will provide notice.
 
 To report a suspected violation of this AUP, contact your Portfolio Desk account
 representative or support contact.
-
-> This document is a template and should be reviewed by qualified legal counsel
-> before production use.

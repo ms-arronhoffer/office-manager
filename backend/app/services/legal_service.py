@@ -125,3 +125,24 @@ def current_versions() -> dict[str, str]:
 def required_documents() -> list[LegalDocumentMeta]:
     """Return the documents that must be accepted to create an organization."""
     return [doc for doc in _load_manifest() if doc.required_at_signup]
+
+
+def required_versions() -> dict[str, str]:
+    """Return a ``slug -> version`` map for the documents required at signup."""
+    return {doc.slug: doc.version for doc in required_documents()}
+
+
+def acceptance_satisfied(accepted_versions: dict[str, str] | None) -> bool:
+    """Return ``True`` if ``accepted_versions`` covers every required document
+    at its current version.
+
+    Used to decide whether a user must (re)accept the legal documents before
+    their account is treated as active. A user who accepted an older version of
+    a required document (after it was materially updated) is prompted to accept
+    again.
+    """
+    accepted = accepted_versions or {}
+    return all(
+        accepted.get(slug) == version
+        for slug, version in required_versions().items()
+    )

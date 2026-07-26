@@ -23,6 +23,7 @@ from app.schemas.user import (
 )
 from app.services.email_verification_service import issue_verification_token, send_verification_email
 from app.services.password_reset_service import issue_password_reset_token, send_password_reset_email
+from app.services import legal_service
 from app.services.console_roles import resolve_console_role
 
 router = APIRouter()
@@ -379,6 +380,35 @@ async def refresh_token(
 
 @router.get("/me", response_model=UserResponse)
 async def me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+class AcceptLegalRequest(BaseModel):
+    """First-login acceptance of the required legal documents."""
+
+    accepted_legal: bool
+
+    @field_validator("accepted_legal")
+    @classmethod
+    def _must_accept(cls, value: bool) -> bool:
+        if value is not True:
+            raise ValueError("You must accept the legal documents to continue.")
+        return value
+
+
+@router.post("/me/accept-legal", response_model=UserResponse)
+async def accept_legal(
+    payload: AcceptLegalRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Record the authenticated user's acceptance of the required legal
+    documents. Presented on first login before the account becomes active; the
+    accepted document versions are snapshotted for auditing."""
+    current_user.legal_accepted_at = datetime.now(timezone.utc)
+    current_user.legal_accepted_versions = legal_service.current_versions()
+    await db.commit()
+    await db.refresh(current_user)
     return current_user
 
 
