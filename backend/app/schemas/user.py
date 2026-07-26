@@ -1,8 +1,11 @@
 import uuid
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, field_validator
+from typing import Any
+
+from pydantic import BaseModel, EmailStr, computed_field, field_validator
 
 from app.auth.password_policy import validate_password_strength
+from app.services import legal_service
 
 
 class LoginRequest(BaseModel):
@@ -51,6 +54,19 @@ class UserResponse(BaseModel):
     email_verified: bool
     last_login_at: datetime | None
     created_at: datetime
+    # Per-user legal acceptance, recorded for auditing. ``legal_accepted_at`` is
+    # null until the user agrees to the required legal documents;
+    # ``legal_accepted_versions`` snapshots the accepted ``slug -> version`` map.
+    legal_accepted_at: datetime | None = None
+    legal_accepted_versions: dict[str, Any] = {}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def legal_acceptance_required(self) -> bool:
+        """Whether the user must (re)accept the legal documents before their
+        account is treated as active. True until they have accepted the current
+        version of every required document."""
+        return not legal_service.acceptance_satisfied(self.legal_accepted_versions)
 
     model_config = {"from_attributes": True}
 

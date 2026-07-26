@@ -31,6 +31,3 @@ as the file is deployed.
 
 When you materially change a document, **bump its `version`** so acceptances are
 recorded against the new version.
-
-> These documents are provided as starting templates and should be reviewed by
-> qualified legal counsel before production use.

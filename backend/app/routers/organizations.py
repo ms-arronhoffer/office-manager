@@ -94,7 +94,10 @@ async def signup(
     db.add(org)
     await db.flush()  # get org.id before creating user
 
-    # Create admin user
+    # Create admin user. The org creator accepts the required legal documents as
+    # part of signup (the schema validator enforces ``accepted_legal is True``);
+    # snapshot the accepted versions on the user too so their signup agreement is
+    # their per-user record of acceptance and they are not re-prompted on login.
     user = User(
         email=payload.email,
         display_name=payload.display_name,
@@ -103,6 +106,8 @@ async def signup(
         role="admin",
         is_active=True,
         organization_id=org.id,
+        legal_accepted_at=org.legal_accepted_at,
+        legal_accepted_versions=legal_service.current_versions(),
     )
     db.add(user)
     await db.commit()

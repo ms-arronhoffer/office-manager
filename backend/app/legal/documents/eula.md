@@ -69,6 +69,3 @@ reference.
 We may update this EULA from time to time. Material changes will be reflected in
 an updated version and effective date. Continued use of the Software after changes
 take effect constitutes acceptance of the updated EULA.
-
-> This document is a template and should be reviewed by qualified legal counsel
-> before production use.
