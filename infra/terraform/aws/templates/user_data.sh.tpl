@@ -22,6 +22,23 @@ set -euxo pipefail
 dnf install -y amazon-ssm-agent || true
 systemctl enable --now amazon-ssm-agent || true
 
+# Defense in depth: if the agent still isn't active (e.g. the AMI shipped
+# without it and the package wasn't in the enabled repos), install it directly
+# from Amazon's canonical RPM and start it. Without a running agent the box
+# never registers with SSM and the deploy workflow fails with "never became
+# SSM-managed".
+if ! systemctl is-active --quiet amazon-ssm-agent; then
+  case "$(uname -m)" in
+    x86_64 | amd64) SSM_ARCH="amd64" ;;
+    aarch64 | arm64) SSM_ARCH="arm64" ;;
+    *) SSM_ARCH="" ;;
+  esac
+  if [ -n "$SSM_ARCH" ]; then
+    dnf install -y "https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_$SSM_ARCH/amazon-ssm-agent.rpm" || true
+    systemctl enable --now amazon-ssm-agent || true
+  fi
+fi
+
 dnf update -y
 dnf install -y docker git jq acl python3
 systemctl enable --now docker
