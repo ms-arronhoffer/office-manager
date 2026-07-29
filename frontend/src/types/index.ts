@@ -2066,6 +2066,13 @@ export interface AssistantReindexResult {
   indexed: number;
 }
 
+export interface DataQueryPresentation {
+  hidden_columns: string[];
+  link_column: string | null;
+  route: string | null;
+  id_column: string | null;
+}
+
 export interface DataQueryResult {
   answer: string;
   spec: Record<string, unknown>;
@@ -2073,6 +2080,7 @@ export interface DataQueryResult {
   rows: Array<Array<string | number | boolean | null>>;
   total: number;
   model: string;
+  presentation?: DataQueryPresentation;
 }
 
 export interface LeaseDocumentSearchMatch {

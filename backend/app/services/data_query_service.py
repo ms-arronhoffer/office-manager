@@ -69,6 +69,26 @@ _SKIP_COLUMNS = frozenset({
     "organization_id", "embedding", "search_vector",
 })
 
+# Frontend detail-page route base for each linkable entity (table name → path).
+# Only entities with a real detail page are mapped; others render as plain text.
+_ENTITY_ROUTES: dict[str, str] = {
+    "offices": "offices",
+    "leases": "leases",
+    "landlords": "landlords",
+    "vendors": "vendors",
+    "management_companies": "management-companies",
+    "transitions": "transitions",
+    "hvac_contracts": "hvac-contracts",
+    "maintenance_tickets": "maintenance-tickets",
+}
+
+# Columns that make a good human-readable row label, in priority order. The
+# first one present in a result becomes the clickable link cell.
+_LABEL_COLUMN_PRIORITY = (
+    "name", "lease_name", "title", "display_name", "company_name",
+    "office_name", "office_number", "full_name", "label", "subject", "email",
+)
+
 # Aggregate functions the engine can compute. ``count`` needs no column;
 # the rest require a numeric ``aggregate_column``.
 _AGGREGATES = frozenset({"count", "sum", "avg", "min", "max"})
@@ -528,3 +548,48 @@ def summarize(spec: dict[str, Any], result: dict[str, Any]) -> str:
     if total > shown:
         return f"Showing {shown} of {total} {entity.lower()} matching your query."
     return f"{total} {entity.lower()} match your query."
+
+
+def _is_guid_column(name: str) -> bool:
+    """A column is an opaque GUID reference when it is ``id`` or ends ``_id``."""
+    return name == "id" or name.endswith("_id")
+
+
+def build_presentation(spec: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    """Derive user-friendly display metadata for a data-query result.
+
+    Purely presentational — the raw ``columns``/``rows`` are left untouched so
+    callers keep full fidelity. Returns:
+
+    * ``hidden_columns`` — opaque GUID columns (``id``/``*_id``) the UI can hide.
+    * ``link_column`` — the human-readable column to render as a link (or ``None``).
+    * ``route`` — the frontend detail-route base for the entity (or ``None``).
+    * ``id_column`` — the column holding each row's id for the link (or ``None``).
+
+    Aggregate and group-by results have no per-row identity, so nothing is hidden
+    or linked.
+    """
+    columns: list[str] = result.get("columns", [])
+    if spec.get("aggregate"):
+        return {"hidden_columns": [], "link_column": None, "route": None, "id_column": None}
+
+    hidden = [c for c in columns if _is_guid_column(c)]
+    id_column = "id" if "id" in columns else None
+    route = _ENTITY_ROUTES.get(spec.get("entity"))
+
+    link_column: str | None = None
+    if route and id_column:
+        visible = [c for c in columns if c not in hidden]
+        for candidate in _LABEL_COLUMN_PRIORITY:
+            if candidate in visible:
+                link_column = candidate
+                break
+        if link_column is None and visible:
+            link_column = visible[0]
+
+    return {
+        "hidden_columns": hidden,
+        "link_column": link_column,
+        "route": route,
+        "id_column": id_column,
+    }

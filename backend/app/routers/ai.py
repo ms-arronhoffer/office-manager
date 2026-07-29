@@ -318,6 +318,7 @@ class DataQueryResponse(BaseModel):
     rows: list[list]
     total: int
     model: str
+    presentation: dict = Field(default_factory=dict)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1625,6 +1626,14 @@ async def data_query(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         )
 
+    # For row listings, make sure the primary key is selected so the client can
+    # build a link to each row's detail page. Aggregates have no per-row id, and
+    # an empty select already returns every column (id included).
+    if not spec["aggregate"] and spec["select"] and "id" not in spec["select"]:
+        entity_cols = data_query_service.build_catalog()[spec["entity"]]["columns"]
+        if "id" in entity_cols:
+            spec["select"] = ["id", *spec["select"]]
+
     result = await data_query_service.execute_spec(
         db, organization_id=current_user.organization_id, spec=spec
     )
@@ -1638,4 +1647,5 @@ async def data_query(
         rows=result["rows"],
         total=result["total"],
         model=settings.GEMINI_MODEL,
+        presentation=data_query_service.build_presentation(spec, result),
     )
