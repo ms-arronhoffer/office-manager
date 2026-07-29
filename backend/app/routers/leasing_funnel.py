@@ -62,7 +62,7 @@ from app.services import leasing_funnel_service as svc
 from app.services import usage_service
 from app.services import waiver_service
 from app.services.leasing_funnel_service import FunnelError
-from app.utils.email_client import send_email
+from app.utils.email_client import EmailCategory, send_email
 from app.utils.tenant_scope import load_or_404
 
 logger = logging.getLogger(__name__)
@@ -492,7 +492,7 @@ async def _deliver_application_email(
             f"rental application: <strong>{title}</strong>.</p>"
             f"<p><a href=\"{apply_url}\">Complete and sign your application</a></p>"
         )
-        sent = bool(await send_email(recipient_email, email_subject, html))
+        sent = bool(await send_email(recipient_email, email_subject, html, category=EmailCategory.NOTIFICATIONS))
         if not sent:
             error_detail = (
                 "send_email returned False — SMTP is not configured "
@@ -710,7 +710,7 @@ async def _deliver_lease_email(
             f"<p><a href=\"{sign_url}\">Review and sign the lease</a></p>"
             f"{expiry_line}"
         )
-        sent = bool(await send_email(recipient_email, email_subject, html))
+        sent = bool(await send_email(recipient_email, email_subject, html, category=EmailCategory.NOTIFICATIONS))
         if not sent:
             error_detail = (
                 "send_email returned False — SMTP is not configured "

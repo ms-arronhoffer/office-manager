@@ -38,6 +38,10 @@ class Vendor(SoftDeleteMixin, TimestampMixin, Base):
     zip_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
     is_preferred: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Default GL expense account new bills for this vendor are charged to.
+    default_gl_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("gl_accounts.id", ondelete="SET NULL"), nullable=True
+    )
 
     # --- Tax / 1099 reporting (Phase 1.3) ---
     # Whether payments to this vendor are reportable on a 1099 form.
@@ -62,6 +66,8 @@ class Vendor(SoftDeleteMixin, TimestampMixin, Base):
     tickets: Mapped[list["MaintenanceTicket"]] = relationship(
         back_populates="vendor", lazy="select"
     )
+    default_gl_account: Mapped["GLAccount | None"] = relationship("GLAccount")
 
 
 from app.models.office import Office  # noqa: E402
+from app.models.general_ledger import GLAccount  # noqa: E402

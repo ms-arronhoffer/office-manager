@@ -18,7 +18,7 @@ import { usePreferences } from '@/context/PreferencesContext';
 import { useAuth } from '@/auth/AuthContext';
 import ImportModal from '@/components/common/ImportModal';
 
-const DEFAULT_VISIBLE = ['office', 'transition_type', 'status', 'start_date', 'target_date', 'checklist'];
+const DEFAULT_VISIBLE = ['office', 'transition_type', 'status', 'estimated_date', 'lease_expiration', 'checklist'];
 
 const capitalize = (s: string) =>
   s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ');
@@ -31,6 +31,7 @@ const statusIndicatorType = (
     case 'in_progress': return 'in-progress';
     case 'planned':    return 'pending';
     case 'cancelled':  return 'error';
+    default:           return 'pending';
   }
 };
 
@@ -125,16 +126,16 @@ const TransitionsPage: React.FC = () => {
       sortingField: 'status',
     },
     {
-      id: 'start_date',
-      header: 'Start Date',
-      cell: (item: Transition) => item.start_date ?? '—',
-      sortingField: 'start_date',
+      id: 'estimated_date',
+      header: 'Estimated Date',
+      cell: (item: Transition) => item.estimated_date ?? '—',
+      sortingField: 'estimated_date',
     },
     {
-      id: 'target_date',
-      header: 'Target Date',
-      cell: (item: Transition) => item.target_date ?? '—',
-      sortingField: 'target_date',
+      id: 'lease_expiration',
+      header: 'Lease Expiration',
+      cell: (item: Transition) => item.lease_expiration ?? '—',
+      sortingField: 'lease_expiration',
     },
     {
       id: 'checklist',

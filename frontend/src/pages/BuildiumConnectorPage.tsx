@@ -40,7 +40,7 @@ const ENTITY_PROGRESS_TOTAL = (p: BuildiumEntityProgress) => p.created + p.updat
 const POLL_INTERVAL_MS = 3000;
 
 const BuildiumConnectorPage: React.FC = () => {
-  const { addFlashMessage } = useFlashbar();
+  const { addFlash } = useFlashbar();
 
   // Connection state
   const [connection, setConnection] = useState<BuildiumConnection | null>(null);
@@ -73,11 +73,11 @@ const BuildiumConnectorPage: React.FC = () => {
       setClientId(res.data.client_id ?? '');
       setBaseUrl(res.data.base_url ?? '');
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to load Buildium connection settings.' });
+      addFlash({ type: 'error', content: 'Failed to load Buildium connection settings.' });
     } finally {
       setLoadingConnection(false);
     }
-  }, [addFlashMessage]);
+  }, [addFlash]);
 
   const loadGlMapping = useCallback(async () => {
     setLoadingMapping(true);
@@ -89,11 +89,11 @@ const BuildiumConnectorPage: React.FC = () => {
       setGlMappings(mappingRes.data);
       setGlAccounts(accountsRes.data);
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to load GL account mapping.' });
+      addFlash({ type: 'error', content: 'Failed to load GL account mapping.' });
     } finally {
       setLoadingMapping(false);
     }
-  }, [addFlashMessage]);
+  }, [addFlash]);
 
   const loadEntityTypes = useCallback(async () => {
     try {
@@ -101,9 +101,9 @@ const BuildiumConnectorPage: React.FC = () => {
       setEntityTypes(res.data);
       setSelectedEntities(new Set(res.data.map((e) => e.key)));
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to load migration entity types.' });
+      addFlash({ type: 'error', content: 'Failed to load migration entity types.' });
     }
-  }, [addFlashMessage]);
+  }, [addFlash]);
 
   const loadRuns = useCallback(async () => {
     try {
@@ -147,10 +147,10 @@ const BuildiumConnectorPage: React.FC = () => {
         base_url: baseUrl.trim() || undefined,
       });
       setClientSecret('');
-      addFlashMessage({ type: 'success', content: 'Buildium connection saved.' });
+      addFlash({ type: 'success', content: 'Buildium connection saved.' });
       await loadConnection();
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to save Buildium connection.' });
+      addFlash({ type: 'error', content: 'Failed to save Buildium connection.' });
     } finally {
       setSavingConnection(false);
     }
@@ -161,13 +161,13 @@ const BuildiumConnectorPage: React.FC = () => {
     try {
       const res = await buildiumApi.testConnection();
       if (res.data.ok) {
-        addFlashMessage({ type: 'success', content: 'Connected to Buildium successfully.' });
+        addFlash({ type: 'success', content: 'Connected to Buildium successfully.' });
       } else {
-        addFlashMessage({ type: 'error', content: `Connection test failed: ${res.data.error ?? 'unknown error'}` });
+        addFlash({ type: 'error', content: `Connection test failed: ${res.data.error ?? 'unknown error'}` });
       }
       await loadConnection();
     } catch (err: any) {
-      addFlashMessage({
+      addFlash({
         type: 'error',
         content: err?.response?.data?.detail ?? 'Failed to test Buildium connection.',
       });
@@ -181,7 +181,7 @@ const BuildiumConnectorPage: React.FC = () => {
       const res = await buildiumApi.updateGlMapping(mapping.id, glAccountId);
       setGlMappings((prev) => prev.map((m) => (m.id === mapping.id ? res.data : m)));
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to update GL account mapping.' });
+      addFlash({ type: 'error', content: 'Failed to update GL account mapping.' });
     }
   };
 
@@ -200,11 +200,11 @@ const BuildiumConnectorPage: React.FC = () => {
         entities: selectedEntities.size === entityTypes.length ? null : Array.from(selectedEntities),
         dry_run: dryRun,
       });
-      addFlashMessage({ type: 'success', content: `Migration ${dryRun ? 'dry run ' : ''}started.` });
+      addFlash({ type: 'success', content: `Migration ${dryRun ? 'dry run ' : ''}started.` });
       setConfirmOpen(false);
       await loadRuns();
     } catch (err: any) {
-      addFlashMessage({
+      addFlash({
         type: 'error',
         content: err?.response?.data?.detail ?? 'Failed to start migration.',
       });
@@ -216,10 +216,10 @@ const BuildiumConnectorPage: React.FC = () => {
   const handleCancelRun = async (run: BuildiumMigrationRun) => {
     try {
       await buildiumApi.cancelRun(run.id);
-      addFlashMessage({ type: 'success', content: 'Migration run cancelled.' });
+      addFlash({ type: 'success', content: 'Migration run cancelled.' });
       await loadRuns();
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to cancel migration run.' });
+      addFlash({ type: 'error', content: 'Failed to cancel migration run.' });
     }
   };
 

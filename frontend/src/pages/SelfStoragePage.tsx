@@ -904,7 +904,7 @@ const AgreementsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
             <Input
               value={moveInDate}
               onChange={(e) => setMoveInDate(e.detail.value)}
-              type="date"
+              type={"date" as any}
               placeholder="YYYY-MM-DD"
             />
           </FormField>

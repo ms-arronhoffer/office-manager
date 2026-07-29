@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.email import EmailAcknowledgement, EmailReminderRule
 from app.models.user import User
-from app.utils.email_client import send_email
+from app.utils.email_client import EmailCategory, send_email
 
 
 def acknowledge_url(token: str) -> str:
@@ -212,7 +212,7 @@ class DigestBuffer:
         for recipient, fragments in self._items.items():
             body = intro + "<ul>" + "".join(fragments) + "</ul>"
             try:
-                outcomes[recipient] = await send_email(recipient, subject, body)
+                outcomes[recipient] = await send_email(recipient, subject, body, category=EmailCategory.NOTIFICATIONS)
             except Exception:
                 outcomes[recipient] = False
         self._items.clear()

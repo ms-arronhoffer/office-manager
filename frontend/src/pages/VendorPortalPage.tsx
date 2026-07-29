@@ -714,14 +714,14 @@ const VendorPortalPage: React.FC = () => {
           <SpaceBetween direction="horizontal" size="m">
             <FormField label="Effective date">
               <Input
-                type="date"
+                type={"date" as any}
                 value={coiForm.effective_date}
                 onChange={({ detail }) => setCoiForm((f) => ({ ...f, effective_date: detail.value }))}
               />
             </FormField>
             <FormField label="Expiration date">
               <Input
-                type="date"
+                type={"date" as any}
                 value={coiForm.expiration_date}
                 onChange={({ detail }) => setCoiForm((f) => ({ ...f, expiration_date: detail.value }))}
               />
@@ -794,7 +794,7 @@ const VendorPortalPage: React.FC = () => {
           <SpaceBetween direction="horizontal" size="m">
             <FormField label="Scheduled date">
               <Input
-                type="datetime-local"
+                type={"datetime-local" as any}
                 value={ticketForm.scheduled_date}
                 onChange={({ detail }) => setTicketForm((f) => ({ ...f, scheduled_date: detail.value }))}
               />
@@ -859,14 +859,14 @@ const VendorPortalPage: React.FC = () => {
           <SpaceBetween direction="horizontal" size="m">
             <FormField label="Phone">
               <Input
-                type="tel"
+                type={"tel" as any}
                 value={contactForm.phone}
                 onChange={({ detail }) => setContactForm((f) => ({ ...f, phone: detail.value }))}
               />
             </FormField>
             <FormField label="Mobile">
               <Input
-                type="tel"
+                type={"tel" as any}
                 value={contactForm.mobile}
                 onChange={({ detail }) => setContactForm((f) => ({ ...f, mobile: detail.value }))}
               />
@@ -916,7 +916,7 @@ const VendorPortalPage: React.FC = () => {
             <Input
               value={profileForm.contact_phone ?? ''}
               onChange={({ detail }) => setProfileForm((f) => ({ ...f, contact_phone: detail.value }))}
-              type="tel"
+              type={"tel" as any}
             />
           </FormField>
           <FormField label="Address line 1">

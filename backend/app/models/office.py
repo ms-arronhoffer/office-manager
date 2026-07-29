@@ -75,8 +75,13 @@ class Office(SoftDeleteMixin, TimestampMixin, Base):
     owner_city: Mapped[str | None] = mapped_column(String(100), nullable=True)
     owner_state: Mapped[str | None] = mapped_column(String(2), nullable=True)
     owner_zip_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # GL account this office's activity is attributed to (chart of accounts).
+    gl_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("gl_accounts.id", ondelete="SET NULL"), nullable=True
+    )
 
     manager: Mapped["Manager | None"] = relationship(back_populates="offices")
+    gl_account: Mapped["GLAccount | None"] = relationship("GLAccount")
     leases: Mapped[list["Lease"]] = relationship(back_populates="office")
     landlords: Mapped[list["Landlord"]] = relationship(back_populates="office")
     owner_landlords: Mapped[list["Landlord"]] = relationship(
@@ -95,3 +100,4 @@ from app.models.landlord import Landlord  # noqa: E402
 from app.models.transition import OfficeTransition  # noqa: E402
 from app.models.hvac_contract import HvacContract  # noqa: E402
 from app.models.vendor import Vendor  # noqa: E402
+from app.models.general_ledger import GLAccount  # noqa: E402

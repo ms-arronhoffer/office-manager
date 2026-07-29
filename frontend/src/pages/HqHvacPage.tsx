@@ -216,8 +216,8 @@ const HeatPumpsTab: React.FC<{
         ]}
         expandableRows={{
           getItemChildren: () => [],
-          isItemExpandable: (item) => (item.service_logs?.length ?? 0) > 0,
-          expandableRowContent: (item) => (
+          isItemExpandable: (item: HeatPump) => (item.service_logs?.length ?? 0) > 0,
+          expandableRowContent: (item: HeatPump) => (
             <ExpandableSection headerText={`Service Logs (${item.service_logs?.length ?? 0})`} defaultExpanded>
               <Table
                 variant="embedded"
@@ -232,7 +232,7 @@ const HeatPumpsTab: React.FC<{
               />
             </ExpandableSection>
           ),
-        }}
+        } as any}
         empty={<Box textAlign="center" color="text-body-secondary" padding="l">No heat pumps found</Box>}
         stickyColumns={{ last: 1 }}
       />
@@ -261,9 +261,9 @@ const HeatPumpsTab: React.FC<{
           <FormField label="Tonnage" description="Cooling capacity in tons"><Input value={modal.form.tonnage} onChange={({ detail }) => modal.updateField('tonnage', detail.value)} type="number" /></FormField>
           <FormField label="SEER Rating" description="Seasonal energy efficiency ratio"><Input value={modal.form.seer_rating} onChange={({ detail }) => modal.updateField('seer_rating', detail.value)} type="number" /></FormField>
           <FormField label="Filter Size"><Input value={modal.form.filter_size} onChange={({ detail }) => modal.updateField('filter_size', detail.value)} placeholder="e.g., 20x25x1" /></FormField>
-          <FormField label="Warranty Expiration"><Input value={modal.form.warranty_expiration} onChange={({ detail }) => modal.updateField('warranty_expiration', detail.value)} type="date" /></FormField>
-          <FormField label="Last Service Date"><Input value={modal.form.last_service_date} onChange={({ detail }) => modal.updateField('last_service_date', detail.value)} type="date" /></FormField>
-          <FormField label="Next Service Date"><Input value={modal.form.next_service_date} onChange={({ detail }) => modal.updateField('next_service_date', detail.value)} type="date" /></FormField>
+          <FormField label="Warranty Expiration"><Input value={modal.form.warranty_expiration} onChange={({ detail }) => modal.updateField('warranty_expiration', detail.value)} type={"date" as any} /></FormField>
+          <FormField label="Last Service Date"><Input value={modal.form.last_service_date} onChange={({ detail }) => modal.updateField('last_service_date', detail.value)} type={"date" as any} /></FormField>
+          <FormField label="Next Service Date"><Input value={modal.form.next_service_date} onChange={({ detail }) => modal.updateField('next_service_date', detail.value)} type={"date" as any} /></FormField>
           <FormField label="Status">
             <Select
               selectedOption={STATUS_OPTIONS.find((o) => o.value === modal.form.status) ?? null}
@@ -390,8 +390,8 @@ const PmTasksTab: React.FC<{
           <FormField label="Task Description" constraintText="Required"><Textarea value={modal.form.task_description} onChange={({ detail }) => modal.updateField('task_description', detail.value)} rows={2} /></FormField>
           <FormField label="Frequency"><Input value={modal.form.frequency} onChange={({ detail }) => modal.updateField('frequency', detail.value)} placeholder="e.g., Monthly, Quarterly" /></FormField>
           <FormField label="Can Do In-House"><Toggle checked={modal.form.can_in_house as boolean} onChange={({ detail }) => modal.updateField('can_in_house', detail.checked as never)} /></FormField>
-          <FormField label="Last PM Date"><Input value={modal.form.last_pm_date} onChange={({ detail }) => modal.updateField('last_pm_date', detail.value)} type="date" /></FormField>
-          <FormField label="Next Due Date"><Input value={modal.form.next_due_date} onChange={({ detail }) => modal.updateField('next_due_date', detail.value)} type="date" /></FormField>
+          <FormField label="Last PM Date"><Input value={modal.form.last_pm_date} onChange={({ detail }) => modal.updateField('last_pm_date', detail.value)} type={"date" as any} /></FormField>
+          <FormField label="Next Due Date"><Input value={modal.form.next_due_date} onChange={({ detail }) => modal.updateField('next_due_date', detail.value)} type={"date" as any} /></FormField>
           <FormField label="Status">
             <Select selectedOption={{ label: modal.form.status, value: modal.form.status }}
               onChange={({ detail }) => modal.updateField('status', (detail.selectedOption?.value ?? 'Not Started') as never)}
@@ -512,7 +512,7 @@ const PmLogTab: React.FC<{
         <SpaceBetween size="m">
           {modal.error && <Alert type="error">{modal.error}</Alert>}
           <FormField label="Technician"><Input value={modal.form.tech_name} onChange={({ detail }) => modal.updateField('tech_name', detail.value)} /></FormField>
-          <FormField label="Date of Visit"><Input value={modal.form.date_of_visit} onChange={({ detail }) => modal.updateField('date_of_visit', detail.value)} type="date" /></FormField>
+          <FormField label="Date of Visit"><Input value={modal.form.date_of_visit} onChange={({ detail }) => modal.updateField('date_of_visit', detail.value)} type={"date" as any} /></FormField>
           <FormField label="Location">
             <Select
               selectedOption={modal.form.location ? { label: modal.form.location, value: modal.form.location } : null}
@@ -636,7 +636,7 @@ const IssuesTab: React.FC<{
         <SpaceBetween size="m">
           {modal.error && <Alert type="error">{modal.error}</Alert>}
           <FormField label="Description" constraintText="Required"><Textarea value={modal.form.description} onChange={({ detail }) => modal.updateField('description', detail.value)} rows={3} /></FormField>
-          <FormField label="Issue Date"><Input value={modal.form.issue_date} onChange={({ detail }) => modal.updateField('issue_date', detail.value)} type="date" /></FormField>
+          <FormField label="Issue Date"><Input value={modal.form.issue_date} onChange={({ detail }) => modal.updateField('issue_date', detail.value)} type={"date" as any} /></FormField>
           <FormField label="Invoice Number"><Input value={modal.form.invoice_number} onChange={({ detail }) => modal.updateField('invoice_number', detail.value)} /></FormField>
           <FormField label="Cost"><Input value={modal.form.cost} onChange={({ detail }) => modal.updateField('cost', detail.value)} type="number" /></FormField>
           <FormField label="Status">
@@ -752,7 +752,7 @@ const MaintenanceContractsTab: React.FC<{
         <SpaceBetween size="m">
           {modal.error && <Alert type="error">{modal.error}</Alert>}
           <FormField label="Contractor Name"><Input value={modal.form.contractor_name} onChange={({ detail }) => modal.updateField('contractor_name', detail.value)} /></FormField>
-          <FormField label="Start Date"><Input value={modal.form.contract_start_date} onChange={({ detail }) => modal.updateField('contract_start_date', detail.value)} type="date" /></FormField>
+          <FormField label="Start Date"><Input value={modal.form.contract_start_date} onChange={({ detail }) => modal.updateField('contract_start_date', detail.value)} type={"date" as any} /></FormField>
           <FormField label="Cancellation Notice"><Input value={modal.form.cancellation_notice} onChange={({ detail }) => modal.updateField('cancellation_notice', detail.value)} /></FormField>
           <FormField label="Equipment Covered"><Textarea value={modal.form.equipment_covered} onChange={({ detail }) => modal.updateField('equipment_covered', detail.value)} rows={2} /></FormField>
           <FormField label="Notes"><Textarea value={modal.form.notes} onChange={({ detail }) => modal.updateField('notes', detail.value)} rows={2} /></FormField>
@@ -787,9 +787,9 @@ const BackflowsTab: React.FC<{
     try {
       const data = {
         location_desc: modal.form.location_desc,
-        replaced_year: modal.form.replaced_year || undefined,
+        replaced_year: modal.form.replaced_year ? Number(modal.form.replaced_year) : undefined,
         last_tested_by: modal.form.last_tested_by || undefined,
-        last_tested_year: modal.form.last_tested_year || undefined,
+        last_tested_year: modal.form.last_tested_year ? Number(modal.form.last_tested_year) : undefined,
         reported_to: modal.form.reported_to || undefined,
         notes: modal.form.notes || undefined,
       };

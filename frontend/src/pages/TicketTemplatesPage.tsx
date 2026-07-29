@@ -343,7 +343,7 @@ const TicketTemplatesPage: React.FC = () => {
                     header: '',
                     cell: (t: TicketTemplate) => (
                       <SpaceBetween direction="horizontal" size="xs">
-                        <Button variant="inline-icon" iconName="add-plus" ariaLabel="Create Tickets" title="Create tickets from template" onClick={() => { setBulkTarget(t); setBulkOffices([]); }} />
+                        <Button variant="inline-icon" iconName="add-plus" ariaLabel="Create Tickets" onClick={() => { setBulkTarget(t); setBulkOffices([]); }} />
                         <Button variant="inline-icon" iconName="edit" ariaLabel="Edit" onClick={() => openEdit(t)} />
                         <Button variant="inline-icon" iconName="remove" ariaLabel="Delete" onClick={() => setDeleteTarget(t)} />
                       </SpaceBetween>

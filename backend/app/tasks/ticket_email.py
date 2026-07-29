@@ -9,7 +9,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from app.models import EmailReminderRule, EmailLog
 from app.models.maintenance_ticket import MaintenanceTicket
-from app.utils.email_client import send_email
+from app.utils.email_client import EmailCategory, send_email
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ async def send_high_priority_ticket_emails(db: AsyncSession, ticket: Maintenance
                     location_hours=ticket.location_hours or "N/A",
                 )
                 email_subject = f"[HIGH PRIORITY] {ticket.subject} - {office_name}"
-                sent = await send_email(recipient, email_subject, html)
+                sent = await send_email(recipient, email_subject, html, category=EmailCategory.NOTIFICATIONS)
 
                 log = EmailLog(
                     rule_id=rule.id,
@@ -143,7 +143,7 @@ async def send_ticket_created_emails(db: AsyncSession, ticket: MaintenanceTicket
                 vendor_name=vendor_name,
             )
             email_subject = f"New Maintenance Ticket: {ticket.subject} - {office_name}"
-            await send_email(recipient, email_subject, html)
+            await send_email(recipient, email_subject, html, category=EmailCategory.NOTIFICATIONS)
         except Exception:
             logger.exception(
                 "Failed to send ticket_created email to %s for ticket %s",
@@ -196,7 +196,7 @@ async def send_ticket_status_email(
                     updated_by=updated_by_name,
                 )
                 email_subject = f"Ticket Status Update: {ticket.subject}"
-                sent = await send_email(recipient, email_subject, html)
+                sent = await send_email(recipient, email_subject, html, category=EmailCategory.NOTIFICATIONS)
                 log = EmailLog(
                     rule_id=rule.id,
                     sent_to=recipient,
@@ -243,7 +243,7 @@ async def send_ticket_closed_email(
             closed_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
         )
         email_subject = f"Your ticket has been resolved: {ticket.subject}"
-        await send_email(ticket.created_by.email, email_subject, html)
+        await send_email(ticket.created_by.email, email_subject, html, category=EmailCategory.NOTIFICATIONS)
     except Exception:
         logger.exception("Failed to send ticket_closed email for ticket %s", ticket.id)
 
@@ -275,7 +275,7 @@ async def send_ticket_assigned_email(
             description=ticket.description or "",
         )
         email_subject = f"Ticket Assigned to You: {ticket.subject}"
-        await send_email(assignee_email, email_subject, html)
+        await send_email(assignee_email, email_subject, html, category=EmailCategory.NOTIFICATIONS)
     except Exception:
         logger.exception("Failed to send ticket_assigned email to %s", assignee_email)
 
@@ -330,7 +330,7 @@ async def send_mention_emails(
                     mentioned_name=user.display_name,
                 )
                 email_subject = f"You were mentioned in a ticket: {ticket.subject}"
-                await send_email(user.email, email_subject, html)
+                await send_email(user.email, email_subject, html, category=EmailCategory.NOTIFICATIONS)
                 notified.add(user.email)
                 logger.info("Mention email sent to %s for ticket %s", user.email, ticket.id)
             except Exception:

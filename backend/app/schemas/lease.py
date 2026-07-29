@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pydantic import BaseModel, field_validator
-from app.schemas.office import ManagerResponse
+from app.schemas.office import ManagerResponse, GLAccountRef
 from app.utils.currency import normalize_currency_code
 
 
@@ -222,6 +222,86 @@ class _LeaseBoundedTextMixin(BaseModel):
         return _coerce_enum(value, LEASE_STATUSES)
 
 
+CAM_CHARGE_TYPES = {"fixed", "percent_increase"}
+
+
+class LeaseCamEntryBase(BaseModel):
+    year: int
+    charge_type: str = "fixed"          # 'fixed' | 'percent_increase'
+    amount: Decimal | None = None       # used when charge_type == 'fixed'
+    percent_increase: Decimal | None = None  # e.g. 0.030000 = 3 % over prior year
+    gl_account_id: uuid.UUID | None = None
+    notes: str | None = None
+
+    @field_validator("charge_type", mode="before")
+    @classmethod
+    def _normalize_charge_type(cls, value: object) -> str:
+        coerced = _coerce_enum(value, CAM_CHARGE_TYPES)
+        return coerced or "fixed"
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _coerce_amount(cls, value: object) -> Decimal | None:
+        return _coerce_decimal(value, integer_digits=13, scale=2)
+
+    @field_validator("percent_increase", mode="before")
+    @classmethod
+    def _coerce_percent(cls, value: object) -> Decimal | None:
+        return _coerce_decimal(value, integer_digits=2, scale=6)
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def _cap_notes(cls, value: object) -> str | None:
+        return _cap_length(value, 1000)
+
+
+class LeaseCamEntryCreate(LeaseCamEntryBase):
+    pass
+
+
+class LeaseCamEntryUpdate(BaseModel):
+    year: int | None = None
+    charge_type: str | None = None
+    amount: Decimal | None = None
+    percent_increase: Decimal | None = None
+    gl_account_id: uuid.UUID | None = None
+    notes: str | None = None
+
+    @field_validator("charge_type", mode="before")
+    @classmethod
+    def _normalize_charge_type(cls, value: object) -> str | None:
+        return _coerce_enum(value, CAM_CHARGE_TYPES)
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _coerce_amount(cls, value: object) -> Decimal | None:
+        return _coerce_decimal(value, integer_digits=13, scale=2)
+
+    @field_validator("percent_increase", mode="before")
+    @classmethod
+    def _coerce_percent(cls, value: object) -> Decimal | None:
+        return _coerce_decimal(value, integer_digits=2, scale=6)
+
+    @field_validator("notes", mode="before")
+    @classmethod
+    def _cap_notes(cls, value: object) -> str | None:
+        return _cap_length(value, 1000)
+
+
+class LeaseCamEntryResponse(BaseModel):
+    id: uuid.UUID
+    year: int
+    charge_type: str
+    amount: Decimal | None
+    percent_increase: Decimal | None
+    gl_account_id: uuid.UUID | None
+    gl_account: GLAccountRef | None = None
+    notes: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class LeaseCreate(_LeaseAccountingFields, _LeaseBoundedTextMixin):
     office_id: uuid.UUID | None = None
     lease_name: str
@@ -265,6 +345,7 @@ class LeaseResponse(_LeaseAccountingFields):
     status: str | None
     expiration_year: int
     notes: list[LeaseNoteResponse]
+    cam_entries: list[LeaseCamEntryResponse] = []
     created_at: datetime
     updated_at: datetime
 

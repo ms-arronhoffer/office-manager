@@ -43,7 +43,7 @@ async def export_offices(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    stmt = select(Office).options(joinedload(Office.manager)).where(
+    stmt = select(Office).options(joinedload(Office.manager), joinedload(Office.gl_account)).where(
         Office.is_deleted.is_(False),
         Office.organization_id == current_user.organization_id,
     )
@@ -116,7 +116,7 @@ async def list_offices(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    stmt = select(Office).options(joinedload(Office.manager)).where(
+    stmt = select(Office).options(joinedload(Office.manager), joinedload(Office.gl_account)).where(
         Office.is_deleted.is_(False),
         Office.organization_id == current_user.organization_id,
     )
@@ -180,7 +180,7 @@ async def get_office(
     current_user: User = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(Office).options(joinedload(Office.manager)).where(Office.id == office_id, Office.is_deleted.is_(False), Office.organization_id == current_user.organization_id)
+        select(Office).options(joinedload(Office.manager), joinedload(Office.gl_account)).where(Office.id == office_id, Office.is_deleted.is_(False), Office.organization_id == current_user.organization_id)
     )
     office = result.scalar_one_or_none()
     if not office:
@@ -239,7 +239,7 @@ async def create_office(
     # Reload with manager relationship. This awaited query eagerly loads every
     # attribute the response needs, so serialization never triggers lazy IO.
     result = await db.execute(
-        select(Office).options(joinedload(Office.manager)).where(Office.id == office_id)
+        select(Office).options(joinedload(Office.manager), joinedload(Office.gl_account)).where(Office.id == office_id)
     )
     return OfficeResponse.model_validate(result.scalar_one(), from_attributes=True)
 
@@ -278,7 +278,7 @@ async def update_office(
 
     try:
         result = await db.execute(
-            select(Office).options(joinedload(Office.manager)).where(Office.id == office_id, Office.is_deleted.is_(False), Office.organization_id == current_user.organization_id)
+            select(Office).options(joinedload(Office.manager), joinedload(Office.gl_account)).where(Office.id == office_id, Office.is_deleted.is_(False), Office.organization_id == current_user.organization_id)
         )
         return OfficeResponse.model_validate(result.scalar_one(), from_attributes=True)
     except Exception:
@@ -320,7 +320,7 @@ async def restore_office(
     await db.commit()
     await log_activity(db, user=current_user, action="updated", entity_type="office", entity_id=office_id, entity_label=office.location_name)
     result = await db.execute(
-        select(Office).options(joinedload(Office.manager)).where(Office.id == office_id, Office.is_deleted.is_(False), Office.organization_id == current_user.organization_id)
+        select(Office).options(joinedload(Office.manager), joinedload(Office.gl_account)).where(Office.id == office_id, Office.is_deleted.is_(False), Office.organization_id == current_user.organization_id)
     )
     return OfficeResponse.model_validate(result.scalar_one(), from_attributes=True)
 

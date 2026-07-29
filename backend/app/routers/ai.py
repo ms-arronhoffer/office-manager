@@ -262,6 +262,21 @@ class AssistantQueryRequest(BaseModel):
     limit: int = Field(default=12, ge=1, le=20)
 
 
+# Returned by the RAG assistant when retrieval finds nothing even after an
+# on-demand reindex — actionable guidance instead of a bare refusal.
+_EMPTY_ANSWER_GUIDANCE = (
+    "I couldn't find anything in your organization's records that answers that. "
+    "A few things to try:\n\n"
+    "- If you're asking for specific figures or lists (rent amounts, expiring "
+    "leases, vendor totals, and similar), switch to **Data query** mode — it "
+    "reads your live data directly and is best for numbers and filters.\n"
+    "- Rephrase using names that appear in your portfolio (an office, lease, "
+    "landlord, or vendor name).\n"
+    "- If you just added or imported this record, give indexing a moment and "
+    "ask again."
+)
+
+
 class AssistantCitation(BaseModel):
     index: int
     source_type: str
@@ -303,6 +318,7 @@ class DataQueryResponse(BaseModel):
     rows: list[list]
     total: int
     model: str
+    presentation: dict = Field(default_factory=dict)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1497,10 +1513,31 @@ async def assistant_query(
         db, organization_id=org_id, query=payload.question, limit=payload.limit
     )
 
-    try:
-        answer = await ai_service.answer_assistant_question(payload.question, chunks)
-    except ai_service.AIError as exc:
-        raise _ai_error_response(exc)
+    # The knowledge index is only rebuilt nightly by the scheduler, so records
+    # created earlier today may not be indexed yet — which produces a false
+    # "I couldn't find any information in your records" answer. On a miss,
+    # rebuild the org's index on demand (cooldown-gated) and retry once so
+    # freshly-added offices, leases, vendors, etc. become retrievable now.
+    if not chunks:
+        try:
+            reindexed = await knowledge_service.ensure_index_fresh(db, org_id)
+        except ai_service.AIError as exc:
+            raise _ai_error_response(exc)
+        if reindexed:
+            chunks = await knowledge_service.retrieve(
+                db, organization_id=org_id, query=payload.question, limit=payload.limit
+            )
+
+    if not chunks:
+        # Still nothing after a fresh rebuild: skip the model call and return
+        # actionable guidance instead of a flat refusal, pointing the user at
+        # the structured "Data query" mode that reads their live data directly.
+        answer = _EMPTY_ANSWER_GUIDANCE
+    else:
+        try:
+            answer = await ai_service.answer_assistant_question(payload.question, chunks)
+        except ai_service.AIError as exc:
+            raise _ai_error_response(exc)
 
     await _log_ai_usage(db, current_user.organization_id, "ai_assistant")
     mode = chunks[0]["match_type"] if chunks else "semantic"
@@ -1589,6 +1626,14 @@ async def data_query(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         )
 
+    # For row listings, make sure the primary key is selected so the client can
+    # build a link to each row's detail page. Aggregates have no per-row id, and
+    # an empty select already returns every column (id included).
+    if not spec["aggregate"] and spec["select"] and "id" not in spec["select"]:
+        entity_cols = data_query_service.build_catalog()[spec["entity"]]["columns"]
+        if "id" in entity_cols:
+            spec["select"] = ["id", *spec["select"]]
+
     result = await data_query_service.execute_spec(
         db, organization_id=current_user.organization_id, spec=spec
     )
@@ -1602,4 +1647,5 @@ async def data_query(
         rows=result["rows"],
         total=result["total"],
         model=settings.GEMINI_MODEL,
+        presentation=data_query_service.build_presentation(spec, result),
     )

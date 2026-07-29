@@ -238,9 +238,6 @@ const OfficeDetailPage: React.FC = () => {
     return <Alert type="error">{error || 'Office not found.'}</Alert>;
   }
 
-  // Derive primary landlord from the first lease that has one
-  const primaryLandlord = leases.find((l) => l.landlord)?.landlord;
-
   return (
     <>
       {deleteModal}
@@ -283,9 +280,9 @@ const OfficeDetailPage: React.FC = () => {
             <ColumnLayout columns={3} variant="text-grid">
               <ValuePair label="Office Number" value={office.office_number} />
               <ValuePair label="Location Name" value={office.location_name} />
-              <ValuePair label="Type" value={office.office_type} />
+              <ValuePair label="Type" value={office.location_type} />
               <ValuePair label="Sector" value={office.sector} />
-              <ValuePair label="Region" value={office.region} />
+              <ValuePair label="Region" value={office.region_number} />
               <ValuePair
                 label="Status"
                 value={
@@ -311,6 +308,14 @@ const OfficeDetailPage: React.FC = () => {
               <ValuePair label="Phone" value={office.phone_number} />
               <ValuePair label="Fax" value={office.fax} />
               <ValuePair label="Manager" value={office.manager?.name} />
+              <ValuePair
+                label="GL Account"
+                value={
+                  office.gl_account
+                    ? `${office.gl_account.code} - ${office.gl_account.name}`
+                    : undefined
+                }
+              />
             </ColumnLayout>
             {office.notes && (
               <Box margin={{ top: 'm' }}>
@@ -391,8 +396,7 @@ const OfficeDetailPage: React.FC = () => {
                       {
                         id: 'lessor_name',
                         header: 'Lessor',
-                        cell: (item: Lease) =>
-                          item.lessor_name || item.landlord?.name || '—',
+                        cell: (item: Lease) => item.lessor_name || '—',
                       },
                       {
                         id: 'lease_expiration',
@@ -403,19 +407,19 @@ const OfficeDetailPage: React.FC = () => {
                             : '—',
                       },
                       {
-                        id: 'monthly_rent',
-                        header: 'Monthly Rent',
+                        id: 'payment_amount',
+                        header: 'Payment Amount',
                         cell: (item: Lease) =>
-                          item.monthly_rent != null
-                            ? `$${item.monthly_rent.toLocaleString()}`
+                          item.payment_amount != null
+                            ? `$${item.payment_amount.toLocaleString()}`
                             : '—',
                       },
                       {
                         id: 'notice_given',
                         header: 'Notice Given',
                         cell: (item: Lease) => (
-                          <StatusIndicator type={item.notice_given ? 'success' : 'pending'}>
-                            {item.notice_given ? 'Yes' : 'No'}
+                          <StatusIndicator type={item.notice_given_date ? 'success' : 'pending'}>
+                            {item.notice_given_date ? 'Yes' : 'No'}
                           </StatusIndicator>
                         ),
                       },
@@ -570,54 +574,6 @@ const OfficeDetailPage: React.FC = () => {
                           </Container>
                         ))}
                       </SpaceBetween>
-                    ) : primaryLandlord ? (
-                      <Container>
-                        <SpaceBetween size="m">
-                          <ColumnLayout columns={2} variant="text-grid">
-                            <ValuePair label="Name" value={primaryLandlord.contact_name} />
-                            <ValuePair label="Company" value={primaryLandlord.landlord_company} />
-                            <ValuePair label="Email" value={primaryLandlord.contact_email} />
-                            <ValuePair label="Phone" value={primaryLandlord.contact_phone} />
-                            <ValuePair
-                              label="Property Address"
-                              value={
-                                <span style={{ whiteSpace: 'pre-line' }}>
-                                  {formatAddress(
-                                    {
-                                      address_line_1: primaryLandlord.address_line_1,
-                                      address_line_2: primaryLandlord.address_line_2,
-                                      city: primaryLandlord.city,
-                                      state: primaryLandlord.state,
-                                      zip_code: primaryLandlord.zip_code,
-                                    },
-                                    primaryLandlord.address,
-                                  ) || '—'}
-                                </span>
-                              }
-                            />
-                            <ValuePair
-                              label="Mailing Address"
-                              value={
-                                <span style={{ whiteSpace: 'pre-line' }}>
-                                  {formatAddress(
-                                    {
-                                      address_line_1: primaryLandlord.mailing_address_line_1,
-                                      address_line_2: primaryLandlord.mailing_address_line_2,
-                                      city: primaryLandlord.mailing_city,
-                                      state: primaryLandlord.mailing_state,
-                                      zip_code: primaryLandlord.mailing_zip_code,
-                                    },
-                                    primaryLandlord.contact_mailing_address,
-                                  ) || '—'}
-                                </span>
-                              }
-                            />
-                          </ColumnLayout>
-                          <Link onFollow={() => navigate(`/landlords/${primaryLandlord.id}`)}>
-                            View full landlord record
-                          </Link>
-                        </SpaceBetween>
-                      </Container>
                     ) : landlordsLoading ? (
                       <Box textAlign="center" color="text-body-secondary" padding="l">
                         Loading landlord information…
@@ -640,11 +596,11 @@ const OfficeDetailPage: React.FC = () => {
                     loadingText="Loading HVAC contracts..."
                     columnDefinitions={[
                       {
-                        id: 'vendor_name',
+                        id: 'hvac_company',
                         header: 'Vendor',
                         cell: (item: HvacContract) => (
                           <Link onFollow={() => navigate(`/hvac-contracts/${item.id}`)}>
-                            {item.vendor_name}
+                            {item.hvac_company}
                           </Link>
                         ),
                       },
@@ -662,21 +618,13 @@ const OfficeDetailPage: React.FC = () => {
                             : '—',
                       },
                       {
-                        id: 'landlord_managed',
+                        id: 'landlord_handles',
                         header: 'Landlord Managed',
                         cell: (item: HvacContract) => (
-                          <StatusIndicator type={item.landlord_managed ? 'success' : 'info'}>
-                            {item.landlord_managed ? 'Yes' : 'No'}
+                          <StatusIndicator type={item.landlord_handles ? 'success' : 'info'}>
+                            {item.landlord_handles ? 'Yes' : 'No'}
                           </StatusIndicator>
                         ),
-                      },
-                      {
-                        id: 'annual_cost',
-                        header: 'Annual Cost',
-                        cell: (item: HvacContract) =>
-                          item.annual_cost != null
-                            ? `$${item.annual_cost.toLocaleString()}`
-                            : '—',
                       },
                     ]}
                     items={hvacContracts}
@@ -792,7 +740,7 @@ const OfficeDetailPage: React.FC = () => {
                       {
                         id: 'target_date',
                         header: 'Target Date',
-                        cell: (item: Transition) => item.target_date ?? '—',
+                        cell: (item: Transition) => item.estimated_date ?? '—',
                       },
                     ]}
                     items={officeTransitions}
@@ -983,7 +931,8 @@ const OfficeDetailPage: React.FC = () => {
         <SpaceBetween size="m">
           <FormField label="Snapshot Date">
             <Input
-              type="datetime-local"
+              type="text"
+              placeholder="YYYY-MM-DDTHH:mm"
               value={snapshotForm.snapshot_date}
               onChange={({ detail }) =>
                 setSnapshotForm(prev => ({ ...prev, snapshot_date: detail.value }))

@@ -215,6 +215,7 @@ class LogCreate(BaseModel):
     invoice_number: Optional[str] = None
     description: str
     status: Optional[str] = None
+    gl_account_id: Optional[uuid.UUID] = None
 
 
 class LogResponse(BaseModel):
@@ -228,6 +229,7 @@ class LogResponse(BaseModel):
     invoice_number: Optional[str] = None
     description: str
     status: Optional[str] = None
+    gl_account_id: Optional[uuid.UUID] = None
     created_at: datetime
     vendor: Optional[VendorSummary] = None
 

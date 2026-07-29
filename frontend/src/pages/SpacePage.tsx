@@ -262,7 +262,7 @@ const SpacePage: React.FC = () => {
         <SpaceBetween size="m">
           <FormField label="Snapshot Date">
             <Input
-              type="datetime-local"
+              type={"datetime-local" as any}
               value={snapshotForm.snapshot_date}
               onChange={({ detail }) =>
                 setSnapshotForm(prev => ({ ...prev, snapshot_date: detail.value }))

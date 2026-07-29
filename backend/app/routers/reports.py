@@ -13,7 +13,7 @@ from app.models.site_settings import SiteSettings
 from app.services.report_service import ReportService, DATASET_CONFIGS
 from app.services import entitlements as ent
 from app.services import usage_service
-from app.utils.email_client import send_email_with_attachment
+from app.utils.email_client import EmailCategory, send_email_with_attachment
 from datetime import date
 import uuid
 
@@ -163,6 +163,7 @@ async def email_report(
             html_body=request.html_body,
             attachment_bytes=pdf_bytes,
             attachment_filename=filename,
+            category=EmailCategory.NOTIFICATIONS,
         )
         results.append({"recipient": recipient, "sent": sent})
 

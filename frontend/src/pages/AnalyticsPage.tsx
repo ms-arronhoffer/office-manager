@@ -49,9 +49,8 @@ const ScoreGauge: React.FC<{ label: string; score: number; description?: string 
 }) => (
   <Box>
     <Box fontWeight="bold" fontSize="body-s" color="text-body-secondary">{label}</Box>
-    <Box fontSize="display-l" fontWeight="bold" color="inherit" padding={{ bottom: 'xxs' }}
-      style={{ color: healthColor(score) } as React.CSSProperties}>
-      {score}
+    <Box fontSize="display-l" fontWeight="bold" color="inherit" padding={{ bottom: 'xxs' }}>
+      <span style={{ color: healthColor(score) }}>{score}</span>
     </Box>
     <ProgressBar value={score} additionalInfo={description} />
   </Box>
@@ -464,7 +463,7 @@ const AnalyticsPage: React.FC = () => {
                 series={[{
                   title: 'Leases',
                   type: 'bar',
-                  data: (['expired', 'critical', 'warning', 'healthy'] as const).map((b) => ({
+                  data: (['expired', 'critical', 'warning', 'healthy']).map((b) => ({
                     x: b,
                     y: leaseRisk.find((r) => r.bucket === b)?.count ?? 0,
                   })),
@@ -514,7 +513,7 @@ const AnalyticsPage: React.FC = () => {
               {
                 id: 'rank',
                 header: '#',
-                cell: (_: TopOfficeByTickets, idx: number) => idx + 1,
+                cell: (item: TopOfficeByTickets) => topOffices.indexOf(item) + 1,
                 width: 50,
               },
               {

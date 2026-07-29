@@ -31,7 +31,7 @@ from app.services.email_rule_engine import (
     resolve_recipients,
 )
 from app.services.vendor_portal_links import ensure_portal_token, vendor_reupload_url
-from app.utils.email_client import send_email
+from app.utils.email_client import EmailCategory, send_email
 from app.utils.notifications import create_notification
 
 log = logging.getLogger(__name__)
@@ -172,7 +172,7 @@ async def _process_rule(db, rule: EmailReminderRule) -> None:
                     ))
             else:
                 for recipient in recipients:
-                    sent = await send_email(recipient, step_subject, html)
+                    sent = await send_email(recipient, step_subject, html, category=EmailCategory.NOTIFICATIONS)
                     db.add(EmailLog(
                         rule_id=rule.id, sent_to=recipient, subject=step_subject,
                         body=html, status="sent" if sent else "failed",

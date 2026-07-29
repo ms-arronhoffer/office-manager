@@ -95,6 +95,9 @@ import type {
   LeasePortfolioResponse,
   LeaseRenewal,
   LeaseOption,
+  LeaseCamEntry,
+  LeaseCamEntryInput,
+  GLAccountOption,
   LeaseAbstractResponse,
   AbstractClause,
   AbstractClauseUpdate,
@@ -134,6 +137,10 @@ import type {
   ClientPortalInviteResponse,
   ClientPortalSession,
   ClientPortalProfile,
+  ClientPortalSummary,
+  ClientPortalOffice,
+  ClientPortalLease,
+  ClientPortalTicket,
   ClientPortalStatus,
   ClientPortalChangeRequest,
   ClientPortalChangeRequestCreate,
@@ -392,6 +399,18 @@ export const leases = {
 
   deleteOption: (leaseId: string, optionId: string) =>
     client.delete(`/leases/${leaseId}/options/${optionId}`),
+
+  listCamEntries: (leaseId: string) =>
+    client.get<LeaseCamEntry[]>(`/leases/${leaseId}/cam-entries`),
+
+  createCamEntry: (leaseId: string, data: LeaseCamEntryInput) =>
+    client.post<LeaseCamEntry>(`/leases/${leaseId}/cam-entries`, data),
+
+  updateCamEntry: (leaseId: string, entryId: string, data: Partial<LeaseCamEntryInput>) =>
+    client.put<LeaseCamEntry>(`/leases/${leaseId}/cam-entries/${entryId}`, data),
+
+  deleteCamEntry: (leaseId: string, entryId: string) =>
+    client.delete(`/leases/${leaseId}/cam-entries/${entryId}`),
 
   rentRoll: (params?: Record<string, unknown>) =>
     client.get<RentRollResponse>('/leases/rent-roll', { params }),
@@ -725,7 +744,7 @@ export const users = {
   list: (params?: Record<string, unknown>) =>
     client.get<PaginatedResponse<User>>('/users', { params }),
 
-  create: (data: { email: string; display_name: string; role?: string }) =>
+  create: (data: { email: string; display_name: string; password?: string; role?: string; is_active?: boolean }) =>
     client.post<User>('/users', data),
 
   update: (id: string, data: Partial<User>) => client.put<User>(`/users/${id}`, data),
@@ -1637,6 +1656,8 @@ export const maintenance = {
 export const gl = {
   listAccounts: () => client.get<GLAccount[]>('/gl/accounts'),
 
+  accountOptions: () => client.get<GLAccountOption[]>('/gl/accounts/options'),
+
   createAccount: (data: GLAccountCreate) =>
     client.post<GLAccount>('/gl/accounts', data),
 
@@ -1965,6 +1986,7 @@ import type {
   PortfolioAskResult,
   WaiverTemplateCreate,
   WaiverTemplateUpdate,
+  WaiverTemplate as WaiverTemplateType,
   WaiverRequestItem,
   SendWaiverRequest as SendWaiverRequestType,
   WaiverRecipientSuggestion,

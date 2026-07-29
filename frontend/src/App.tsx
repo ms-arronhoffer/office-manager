@@ -26,9 +26,11 @@ const BuildiumConnectorPage = lazy(() => import('@/pages/BuildiumConnectorPage')
 const OfficesPage = lazy(() => import('@/pages/OfficesPage'));
 const OfficeDetailPage = lazy(() => import('@/pages/OfficeDetailPage'));
 const OfficeFormPage = lazy(() => import('@/pages/OfficeFormPage'));
+const OfficeWizardPage = lazy(() => import('@/pages/OfficeWizardPage'));
 const LeasesPage = lazy(() => import('@/pages/LeasesPage'));
 const LeaseDetailPage = lazy(() => import('@/pages/LeaseDetailPage'));
 const LeaseFormPage = lazy(() => import('@/pages/LeaseFormPage'));
+const LeaseWizardPage = lazy(() => import('@/pages/LeaseWizardPage'));
 const LandlordsPage = lazy(() => import('@/pages/LandlordsPage'));
 const LandlordDetailPage = lazy(() => import('@/pages/LandlordDetailPage'));
 const LandlordFormPage = lazy(() => import('@/pages/LandlordFormPage'));
@@ -142,6 +144,7 @@ const App: React.FC = () => {
                         <Route path="dashboard/sla" element={<DashboardHubPage />} />
                         <Route path="offices" element={<OfficesPage />} />
                         <Route path="offices/new" element={<OfficeFormPage />} />
+                        <Route path="offices/wizard" element={<OfficeWizardPage />} />
                         <Route path="offices/:id" element={<OfficeDetailPage />} />
                         <Route path="offices/:id/edit" element={<OfficeFormPage />} />
                         <Route path="leases" element={<LeasesPage />} />
@@ -174,6 +177,7 @@ const App: React.FC = () => {
                         <Route path="self-storage/reservations" element={<SelfStoragePage />} />
                         <Route path="self-storage/rate-plans" element={<SelfStoragePage />} />
                         <Route path="leases/new" element={<LeaseFormPage />} />
+                        <Route path="leases/wizard" element={<LeaseWizardPage />} />
                         <Route path="leases/:id" element={<LeaseDetailPage />} />
                         <Route path="leases/:id/edit" element={<LeaseFormPage />} />
                         <Route path="landlords" element={<LandlordsPage />} />

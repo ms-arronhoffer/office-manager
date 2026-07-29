@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import type { PropertyFilterProps } from '@cloudscape-design/collection-hooks';
+import type { PropertyFilterProps } from '@cloudscape-design/components/property-filter';
 
 type Token = PropertyFilterProps.Token;
 

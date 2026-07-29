@@ -33,6 +33,7 @@ class VendorCreate(BaseModel):
     legal_name: str | None = None
     tax_classification: str | None = None
     default_tax_box: str | None = None
+    default_gl_account_id: uuid.UUID | None = None
     office_ids: list[uuid.UUID] = []
 
 
@@ -57,6 +58,7 @@ class VendorUpdate(BaseModel):
     legal_name: str | None = None
     tax_classification: str | None = None
     default_tax_box: str | None = None
+    default_gl_account_id: uuid.UUID | None = None
     office_ids: list[uuid.UUID] | None = None
 
 
@@ -82,6 +84,7 @@ class VendorResponse(BaseModel):
     legal_name: str | None = None
     tax_classification: str | None = None
     default_tax_box: str | None = None
+    default_gl_account_id: uuid.UUID | None = None
     offices: list[VendorOfficeRef]
     created_at: datetime
     updated_at: datetime

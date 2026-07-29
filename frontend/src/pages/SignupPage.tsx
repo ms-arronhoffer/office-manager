@@ -146,7 +146,7 @@ const SignupPage: React.FC = () => {
       </div>
 
       <Box padding={{ top: 'xxxl', horizontal: 'xxl' }} display="block">
-        <Box display="block" margin={{ horizontal: 'auto' }} padding={{ horizontal: 'xxxl' }}>
+        <Box display="block" padding={{ horizontal: 'xxxl' }}>
           <Container
             header={
               <Header variant="h2" description="Create your organization and admin account.">

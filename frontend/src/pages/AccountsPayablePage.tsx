@@ -355,10 +355,10 @@ const AccountsPayablePage: React.FC = () => {
           </FormField>
           <ColumnLayout columns={3}>
             <FormField label="Bill date">
-              <Input type="date" value={billDate} onChange={({ detail }) => setBillDate(detail.value)} />
+              <Input type={"date" as any} value={billDate} onChange={({ detail }) => setBillDate(detail.value)} />
             </FormField>
             <FormField label="Due date">
-              <Input type="date" value={dueDate} onChange={({ detail }) => setDueDate(detail.value)} />
+              <Input type={"date" as any} value={dueDate} onChange={({ detail }) => setDueDate(detail.value)} />
             </FormField>
             <FormField label="Bill number">
               <Input value={billNumber} onChange={({ detail }) => setBillNumber(detail.value)} />
@@ -427,7 +427,7 @@ const AccountsPayablePage: React.FC = () => {
         <SpaceBetween size="m">
           <Box>Outstanding balance: <strong>{fmt(payBill?.balance_due)}</strong></Box>
           <FormField label="Payment date">
-            <Input type="date" value={payDate} onChange={({ detail }) => setPayDate(detail.value)} />
+            <Input type={"date" as any} value={payDate} onChange={({ detail }) => setPayDate(detail.value)} />
           </FormField>
           <FormField label="Amount">
             <Input type="number" value={payAmount} onChange={({ detail }) => setPayAmount(detail.value)} />

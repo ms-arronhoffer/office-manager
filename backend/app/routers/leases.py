@@ -9,13 +9,13 @@ from fastapi.responses import StreamingResponse
 from icalendar import Calendar, Event
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.auth.dependencies import get_current_user, require_role
 from app.database import get_db
 from pydantic import BaseModel
 from app.models.base import _utcnow
-from app.models.lease import Lease, LeaseNote
+from app.models.lease import Lease, LeaseNote, LeaseCamEntry, CAM_CHARGE_TYPES
 from app.models.lease_option import LeaseOption
 from app.models.lease_renewal import LeaseRenewal
 from app.models.organization import Organization
@@ -24,6 +24,9 @@ from app.schemas.common import PaginatedResponse
 from app.schemas.lease import (
     LeaseCreate,
     LeaseAccountingResponse,
+    LeaseCamEntryCreate,
+    LeaseCamEntryResponse,
+    LeaseCamEntryUpdate,
     LeaseNoteCreate,
     LeaseNoteResponse,
     LeaseResponse,
@@ -152,7 +155,7 @@ async def upcoming_leases(
     cutoff = date.today() + timedelta(days=days)
     stmt = (
         select(Lease)
-        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes))
+        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes), selectinload(Lease.cam_entries).joinedload(LeaseCamEntry.gl_account))
         .where(Lease.is_deleted.is_(False))
         .where(Lease.organization_id == current_user.organization_id)
         .where(Lease.lease_expiration.is_not(None))
@@ -173,7 +176,7 @@ async def notices_due(
     cutoff = date.today() + timedelta(days=days)
     stmt = (
         select(Lease)
-        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes))
+        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes), selectinload(Lease.cam_entries).joinedload(LeaseCamEntry.gl_account))
         .where(Lease.is_deleted.is_(False))
         .where(Lease.organization_id == current_user.organization_id)
         .where(Lease.lease_notice_date.is_not(None))
@@ -287,7 +290,7 @@ async def list_leases(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    base_stmt = select(Lease).options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes)).where(Lease.is_deleted.is_(False))
+    base_stmt = select(Lease).options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes), selectinload(Lease.cam_entries).joinedload(LeaseCamEntry.gl_account)).where(Lease.is_deleted.is_(False))
     base_stmt = base_stmt.where(Lease.organization_id == current_user.organization_id)
     base_stmt = _apply_filters(base_stmt, year, manager_id, notice_status, status)
 
@@ -335,7 +338,7 @@ async def get_lease(
 ):
     result = await db.execute(
         select(Lease)
-        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes))
+        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes), selectinload(Lease.cam_entries).joinedload(LeaseCamEntry.gl_account))
         .where(Lease.id == lease_id, Lease.is_deleted.is_(False), Lease.organization_id == current_user.organization_id)
     )
     lease = result.unique().scalar_one_or_none()
@@ -373,7 +376,7 @@ async def create_lease(
     # lease into a spurious 500 ("Failed to create lease").
     result = await db.execute(
         select(Lease)
-        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes))
+        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes), selectinload(Lease.cam_entries).joinedload(LeaseCamEntry.gl_account))
         .where(Lease.id == lease.id)
     )
     response = LeaseResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
@@ -434,7 +437,7 @@ async def update_lease(
     # lease") even though the row persisted.
     result = await db.execute(
         select(Lease)
-        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes))
+        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes), selectinload(Lease.cam_entries).joinedload(LeaseCamEntry.gl_account))
         .where(
             Lease.id == lease_id,
             Lease.is_deleted.is_(False),
@@ -496,7 +499,7 @@ async def restore_lease(
         pass
     result = await db.execute(
         select(Lease)
-        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes))
+        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes), selectinload(Lease.cam_entries).joinedload(LeaseCamEntry.gl_account))
         .where(
             Lease.id == lease_id,
             Lease.is_deleted.is_(False),
@@ -532,7 +535,7 @@ async def clone_lease(
     # Build the response before the best-effort activity log (see create_lease).
     result = await db.execute(
         select(Lease)
-        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes))
+        .options(joinedload(Lease.office), joinedload(Lease.manager), joinedload(Lease.notes), selectinload(Lease.cam_entries).joinedload(LeaseCamEntry.gl_account))
         .where(Lease.id == new_lease.id, Lease.organization_id == org_id)
     )
     response = LeaseResponse.model_validate(result.unique().scalar_one(), from_attributes=True)
@@ -741,6 +744,104 @@ async def delete_renewal(
     if not renewal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Renewal not found")
     await db.delete(renewal)
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# CAM (common-area-maintenance) schedule sub-resource
+# ---------------------------------------------------------------------------
+
+async def _load_cam_entry(
+    db: AsyncSession, lease_id: uuid.UUID, entry_id: uuid.UUID
+) -> LeaseCamEntry:
+    result = await db.execute(
+        select(LeaseCamEntry)
+        .options(joinedload(LeaseCamEntry.gl_account))
+        .where(LeaseCamEntry.id == entry_id, LeaseCamEntry.lease_id == lease_id)
+    )
+    entry = result.scalar_one_or_none()
+    if not entry:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="CAM entry not found"
+        )
+    return entry
+
+
+@router.get("/{lease_id}/cam-entries", response_model=list[LeaseCamEntryResponse])
+async def list_cam_entries(
+    lease_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await _load_lease(db, lease_id, current_user.organization_id)
+    result = await db.execute(
+        select(LeaseCamEntry)
+        .options(joinedload(LeaseCamEntry.gl_account))
+        .where(LeaseCamEntry.lease_id == lease_id)
+        .order_by(LeaseCamEntry.year)
+    )
+    return [
+        LeaseCamEntryResponse.model_validate(e, from_attributes=True)
+        for e in result.scalars().unique().all()
+    ]
+
+
+@router.post(
+    "/{lease_id}/cam-entries",
+    response_model=LeaseCamEntryResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_cam_entry(
+    lease_id: uuid.UUID,
+    payload: LeaseCamEntryCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    await _load_lease(db, lease_id, current_user.organization_id)
+    entry = LeaseCamEntry(
+        **payload.model_dump(),
+        lease_id=lease_id,
+        organization_id=current_user.organization_id,
+    )
+    db.add(entry)
+    await db.commit()
+    entry = await _load_cam_entry(db, lease_id, entry.id)
+    return LeaseCamEntryResponse.model_validate(entry, from_attributes=True)
+
+
+@router.put(
+    "/{lease_id}/cam-entries/{entry_id}", response_model=LeaseCamEntryResponse
+)
+async def update_cam_entry(
+    lease_id: uuid.UUID,
+    entry_id: uuid.UUID,
+    payload: LeaseCamEntryUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    await _load_lease(db, lease_id, current_user.organization_id)
+    entry = await _load_cam_entry(db, lease_id, entry_id)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        if hasattr(entry, field):
+            setattr(entry, field, value)
+    entry.updated_at = _utcnow()
+    await db.commit()
+    entry = await _load_cam_entry(db, lease_id, entry_id)
+    return LeaseCamEntryResponse.model_validate(entry, from_attributes=True)
+
+
+@router.delete(
+    "/{lease_id}/cam-entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_cam_entry(
+    lease_id: uuid.UUID,
+    entry_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    await _load_lease(db, lease_id, current_user.organization_id)
+    entry = await _load_cam_entry(db, lease_id, entry_id)
+    await db.delete(entry)
     await db.commit()
 
 

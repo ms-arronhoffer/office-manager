@@ -4,6 +4,16 @@ from decimal import Decimal
 from pydantic import BaseModel
 
 
+class GLAccountRef(BaseModel):
+    """Slim GL account reference embedded in responses."""
+
+    id: uuid.UUID
+    code: str
+    name: str
+
+    model_config = {"from_attributes": True}
+
+
 class ManagerResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -52,6 +62,7 @@ class OfficeCreate(BaseModel):
     headcount_capacity: int | None = None
     current_headcount: int | None = None
     space_type: str | None = None
+    gl_account_id: uuid.UUID | None = None
     # Property owner (may differ from landlord)
     owner_same_as_landlord: bool = False
     owner_name: str | None = None
@@ -92,6 +103,7 @@ class OfficeUpdate(BaseModel):
     headcount_capacity: int | None = None
     current_headcount: int | None = None
     space_type: str | None = None
+    gl_account_id: uuid.UUID | None = None
     # Property owner (may differ from landlord)
     owner_same_as_landlord: bool | None = None
     owner_name: str | None = None
@@ -133,6 +145,8 @@ class OfficeResponse(BaseModel):
     headcount_capacity: int | None
     current_headcount: int | None
     space_type: str | None
+    gl_account_id: uuid.UUID | None = None
+    gl_account: GLAccountRef | None = None
     # Property owner (may differ from landlord)
     owner_same_as_landlord: bool = False
     owner_name: str | None = None

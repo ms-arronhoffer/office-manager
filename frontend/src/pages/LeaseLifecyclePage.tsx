@@ -276,7 +276,7 @@ const LeaseLifecyclePage: React.FC = () => {
             </FormField>
           </ColumnLayout>
           <FormField label="Effective date">
-            <Input type="date" value={effectiveDate} onChange={({ detail }) => setEffectiveDate(detail.value)} />
+            <Input type={"date" as any} value={effectiveDate} onChange={({ detail }) => setEffectiveDate(detail.value)} />
           </FormField>
 
           {!termination && (

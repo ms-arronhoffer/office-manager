@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime, date
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from openpyxl import load_workbook
@@ -16,6 +17,7 @@ from app.models.lease import Lease
 from app.schemas.lease import normalize_lease_status
 from app.models.landlord import Landlord
 from app.models.vendor import Vendor, vendor_offices
+from app.models.general_ledger import GLAccount
 from app.models.transition import OfficeTransition
 from app.models.hvac_contract import HvacContract
 
@@ -49,6 +51,21 @@ def safe_bool(val: Any) -> bool:
         return False
     s = str(val).strip().lower()
     return s in ("yes", "true", "1", "y")
+
+
+def safe_decimal(val: Any) -> Decimal | None:
+    """Parse a numeric/currency value into a Decimal, tolerating $ and commas."""
+    if val is None:
+        return None
+    if isinstance(val, Decimal):
+        return val
+    s = str(val).strip().replace("$", "").replace(",", "")
+    if not s or s.lower() in _NON_DATE_STRINGS:
+        return None
+    try:
+        return Decimal(s)
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def safe_date(val: Any) -> date | None:
@@ -138,6 +155,13 @@ async def _build_manager_name_map(db: AsyncSession) -> dict[str, uuid.UUID]:
     return {r[0].lower(): r[1] for r in rows}
 
 
+async def _build_gl_account_code_map(db: AsyncSession) -> dict[str, uuid.UUID]:
+    """Map GL account code → id for active chart-of-accounts entries."""
+    stmt = select(GLAccount.code, GLAccount.id).where(GLAccount.is_active.is_(True))
+    rows = (await db.execute(stmt)).all()
+    return {str(r[0]).strip(): r[1] for r in rows}
+
+
 # ── entity importers ────────────────────────────────────────────────
 
 class ImportResult:
@@ -194,6 +218,7 @@ async def import_offices(db: AsyncSession, file_bytes: bytes) -> ImportResult:
     result = ImportResult()
     rows = _read_rows(file_bytes, example_first_cell="101")
     manager_map = await _build_manager_name_map(db)
+    gl_map = await _build_gl_account_code_map(db)
 
     existing_map: dict[int, Office] = {}
     stmt = select(Office).where(Office.is_deleted.is_(False))
@@ -213,6 +238,11 @@ async def import_offices(db: AsyncSession, file_bytes: bytes) -> ImportResult:
         if mgr_name:
             manager_id = manager_map.get(mgr_name.lower())
 
+        gl_account_id = None
+        gl_code = safe_str(row.get("GL Account Code"))
+        if gl_code:
+            gl_account_id = gl_map.get(gl_code.strip())
+
         fields = dict(
             region_number=safe_int(row.get("Region Number")),
             location_type=location_type,
@@ -230,6 +260,26 @@ async def import_offices(db: AsyncSession, file_bytes: bytes) -> ImportResult:
             mail_shipping=safe_str(row.get("Mail/Shipping")),
             sector=safe_str(row.get("Sector")),
             notes=safe_str(row.get("Notes")),
+            other_names=safe_str(row.get("Other Names")),
+            crown_property_on_site=safe_str(row.get("Crown Property On Site")),
+            additional_info=safe_str(row.get("Additional Info")),
+            closing_notes=safe_str(row.get("Closing Notes")),
+            total_sqft=safe_decimal(row.get("Total SqFt")),
+            usable_sqft=safe_decimal(row.get("Usable SqFt")),
+            headcount_capacity=safe_int(row.get("Headcount Capacity")),
+            current_headcount=safe_int(row.get("Current Headcount")),
+            space_type=safe_str(row.get("Space Type")),
+            owner_same_as_landlord=safe_bool(row.get("Owner Same As Landlord")),
+            owner_name=safe_str(row.get("Owner Name")),
+            owner_company=safe_str(row.get("Owner Company")),
+            owner_email=safe_str(row.get("Owner Email")),
+            owner_phone=safe_str(row.get("Owner Phone")),
+            owner_address_line_1=safe_str(row.get("Owner Address Line 1")),
+            owner_address_line_2=safe_str(row.get("Owner Address Line 2")),
+            owner_city=safe_str(row.get("Owner City")),
+            owner_state=safe_str(row.get("Owner State")),
+            owner_zip_code=safe_str(row.get("Owner Zip Code")),
+            gl_account_id=gl_account_id,
         )
 
         if office_number in existing_map:
@@ -286,6 +336,20 @@ async def import_leases(db: AsyncSession, file_bytes: bytes) -> ImportResult:
             notice_given_date=safe_date(row.get("Notice Given Date")),
             status=normalize_lease_status(row.get("Status")),
             expiration_year=exp_year,
+            lease_commencement_date=safe_date(row.get("Lease Commencement Date")),
+            accounting_standard=safe_str(row.get("Accounting Standard")),
+            lease_classification=safe_str(row.get("Lease Classification")),
+            payment_amount=safe_decimal(row.get("Payment Amount")),
+            payment_frequency=safe_str(row.get("Payment Frequency")),
+            annual_escalation_rate=safe_decimal(row.get("Annual Escalation Rate")),
+            incremental_borrowing_rate=safe_decimal(row.get("Incremental Borrowing Rate")),
+            initial_direct_costs=safe_decimal(row.get("Initial Direct Costs")),
+            lease_incentives=safe_decimal(row.get("Lease Incentives")),
+            prepaid_rent=safe_decimal(row.get("Prepaid Rent")),
+            residual_value_guarantee=safe_decimal(row.get("Residual Value Guarantee")),
+            is_short_term_lease=safe_bool(row.get("Short Term Lease")),
+            is_low_value_lease=safe_bool(row.get("Low Value Lease")),
+            currency=safe_str(row.get("Currency")) or "USD",
         )
 
         key = lease_name.lower()
@@ -344,6 +408,25 @@ async def import_landlords(db: AsyncSession, file_bytes: bytes) -> ImportResult:
             online_sign_in=safe_str(row.get("Online Sign In")),
             vendor_id=safe_str(row.get("Vendor ID")),
             notes=safe_str(row.get("Notes")),
+            address=safe_str(row.get("Address")),
+            address_line_1=safe_str(row.get("Address Line 1")),
+            address_line_2=safe_str(row.get("Address Line 2")),
+            city=safe_str(row.get("City")),
+            state=safe_str(row.get("State")),
+            zip_code=safe_str(row.get("Zip Code")),
+            mailing_address_line_1=safe_str(row.get("Mailing Address Line 1")),
+            mailing_address_line_2=safe_str(row.get("Mailing Address Line 2")),
+            mailing_city=safe_str(row.get("Mailing City")),
+            mailing_state=safe_str(row.get("Mailing State")),
+            mailing_zip_code=safe_str(row.get("Mailing Zip Code")),
+            secondary_phone=safe_str(row.get("Secondary Phone")),
+            fax=safe_str(row.get("Fax")),
+            website=safe_str(row.get("Website")),
+            entity_type=safe_str(row.get("Entity Type")),
+            tax_id=safe_str(row.get("Tax ID")),
+            management_company=safe_str(row.get("Management Company")),
+            preferred_payment_method=safe_str(row.get("Preferred Payment Method")),
+            payment_terms=safe_str(row.get("Payment Terms")),
         )
 
         # Match key
@@ -373,6 +456,7 @@ async def import_vendors(db: AsyncSession, file_bytes: bytes) -> ImportResult:
     result = ImportResult()
     rows = _read_rows(file_bytes, example_first_cell="Acme Services")
     office_map = await _build_office_number_map(db)
+    gl_map = await _build_gl_account_code_map(db)
 
     existing_map: dict[str, Vendor] = {}
     stmt = select(Vendor).where(Vendor.is_deleted.is_(False))
@@ -385,6 +469,11 @@ async def import_vendors(db: AsyncSession, file_bytes: bytes) -> ImportResult:
             result.errors.append(f"Row {i}: Company Name is required")
             continue
 
+        default_gl_account_id = None
+        gl_code = safe_str(row.get("Default GL Account Code"))
+        if gl_code:
+            default_gl_account_id = gl_map.get(gl_code.strip())
+
         fields = dict(
             services=safe_str(row.get("Services")),
             contact_name=safe_str(row.get("Contact Name")),
@@ -393,6 +482,18 @@ async def import_vendors(db: AsyncSession, file_bytes: bytes) -> ImportResult:
             address=safe_str(row.get("Address")),
             is_preferred=safe_bool(row.get("Preferred")),
             notes=safe_str(row.get("Notes")),
+            address_line_1=safe_str(row.get("Address Line 1")),
+            address_line_2=safe_str(row.get("Address Line 2")),
+            city=safe_str(row.get("City")),
+            state=safe_str(row.get("State")),
+            zip_code=safe_str(row.get("Zip Code")),
+            is_1099_vendor=safe_bool(row.get("1099 Vendor")),
+            tax_id=safe_str(row.get("Tax ID")),
+            tax_id_type=safe_str(row.get("Tax ID Type")),
+            legal_name=safe_str(row.get("Legal Name")),
+            tax_classification=safe_str(row.get("Tax Classification")),
+            default_tax_box=safe_str(row.get("Default Tax Box")),
+            default_gl_account_id=default_gl_account_id,
         )
 
         key = company_name.lower()

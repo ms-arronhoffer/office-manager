@@ -9,6 +9,34 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+class EmailCategory:
+    """Logical categories that map to distinct From addresses.
+
+    Keeping these as plain string constants (rather than an Enum) means callers
+    can pass the string directly and monkeypatched test doubles that accept
+    ``**kwargs`` keep working unchanged.
+    """
+
+    SYSTEM = "system"
+    NOTIFICATIONS = "notifications"
+    WAIVERS = "waivers"
+
+
+def from_address_for(category: str) -> str:
+    """Resolve the From address for a category, falling back to SMTP_FROM.
+
+    A per-category address is only used when it is explicitly configured;
+    otherwise every category shares the default SMTP_FROM mailbox so existing
+    single-address deployments behave exactly as before.
+    """
+    mapping = {
+        EmailCategory.SYSTEM: settings.SMTP_FROM_SYSTEM,
+        EmailCategory.NOTIFICATIONS: settings.SMTP_FROM_NOTIFICATIONS,
+        EmailCategory.WAIVERS: settings.SMTP_FROM_WAIVERS,
+    }
+    return (mapping.get(category) or "").strip() or settings.SMTP_FROM
+
+
 async def _send(message: MIMEMultipart) -> bool:
     """Send a MIME message via the configured SMTP server."""
     if not settings.SMTP_HOST:
@@ -48,9 +76,16 @@ async def _send(message: MIMEMultipart) -> bool:
         return False
 
 
-async def send_email(to: str, subject: str, html_body: str) -> bool:
+async def send_email(
+    to: str,
+    subject: str,
+    html_body: str,
+    *,
+    category: str = EmailCategory.SYSTEM,
+    from_address: str | None = None,
+) -> bool:
     message = MIMEMultipart("alternative")
-    message["From"] = settings.SMTP_FROM
+    message["From"] = from_address or from_address_for(category)
     message["To"] = to
     message["Subject"] = subject
     message.attach(MIMEText(html_body, "html"))
@@ -64,9 +99,12 @@ async def send_email_with_attachment(
     attachment_bytes: bytes,
     attachment_filename: str,
     attachment_content_type: str = "application/pdf",
+    *,
+    category: str = EmailCategory.SYSTEM,
+    from_address: str | None = None,
 ) -> bool:
     message = MIMEMultipart("mixed")
-    message["From"] = settings.SMTP_FROM
+    message["From"] = from_address or from_address_for(category)
     message["To"] = to
     message["Subject"] = subject
 

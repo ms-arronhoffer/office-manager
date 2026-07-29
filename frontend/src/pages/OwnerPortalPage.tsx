@@ -328,14 +328,14 @@ const OwnerPortalPage: React.FC = () => {
                     <SpaceBetween direction="horizontal" size="s">
                       <FormField label="Start date">
                         <Input
-                          type="date"
+                          type={"date" as any}
                           value={startDate}
                           onChange={({ detail }) => setStartDate(detail.value)}
                         />
                       </FormField>
                       <FormField label="End date">
                         <Input
-                          type="date"
+                          type={"date" as any}
                           value={endDate}
                           onChange={({ detail }) => setEndDate(detail.value)}
                         />

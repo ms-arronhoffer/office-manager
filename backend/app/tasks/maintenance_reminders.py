@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 from app.database import async_session
 from app.models import EmailLog, MaintenanceTask
 from app.models.maintenance import MAINTENANCE_CATEGORIES
-from app.utils.email_client import send_email
+from app.utils.email_client import EmailCategory, send_email
 
 template_env = Environment(loader=FileSystemLoader("app/templates"))
 
@@ -84,7 +84,7 @@ async def check_maintenance_reminders():
                 )
                 if existing.scalar_one_or_none():
                     continue
-                ok = await send_email(recipient, subject, html)
+                ok = await send_email(recipient, subject, html, category=EmailCategory.NOTIFICATIONS)
                 db.add(
                     EmailLog(
                         sent_to=recipient,

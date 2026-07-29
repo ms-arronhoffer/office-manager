@@ -186,19 +186,53 @@ const AIPortfolioAssistant: React.FC = () => {
             <div style={{ paddingTop: '8px', lineHeight: 1.5 }}>{dataResult.answer}</div>
             {dataResult.rows.length > 0 && (
               <Box padding={{ top: 'm' }}>
-                <Table
-                  variant="embedded"
-                  columnDefinitions={dataResult.columns.map((col, i) => ({
-                    id: col,
-                    header: col.replace(/_/g, ' '),
-                    cell: (row: Array<string | number | boolean | null>) => {
-                      const v = row[i];
-                      return v === null || v === undefined ? '' : String(v);
-                    },
-                  }))}
-                  items={dataResult.rows}
-                  empty="No matching records."
-                />
+                {(() => {
+                  const columns = dataResult.columns;
+                  const pres = dataResult.presentation;
+                  const hidden = new Set(pres?.hidden_columns ?? []);
+                  let visible = columns
+                    .map((name, index) => ({ name, index }))
+                    .filter((c) => !hidden.has(c.name));
+                  // Never render an empty table — if hiding GUID columns removed
+                  // everything, fall back to showing all columns.
+                  if (visible.length === 0) {
+                    visible = columns.map((name, index) => ({ name, index }));
+                  }
+                  const route = pres?.route ?? null;
+                  const idIndex = pres?.id_column ? columns.indexOf(pres.id_column) : -1;
+                  const linkName = pres?.link_column ?? null;
+                  const humanize = (s: string) =>
+                    s.replace(/_/g, ' ').replace(/^./, (ch) => ch.toUpperCase());
+                  return (
+                    <Table
+                      variant="embedded"
+                      columnDefinitions={visible.map(({ name, index }) => ({
+                        id: name,
+                        header: humanize(name),
+                        cell: (row: Array<string | number | boolean | null>) => {
+                          const v = row[index];
+                          const text = v === null || v === undefined ? '' : String(v);
+                          const linkable =
+                            name === linkName &&
+                            !!route &&
+                            idIndex >= 0 &&
+                            row[idIndex] != null &&
+                            text !== '';
+                          if (linkable) {
+                            return (
+                              <RouterLink to={`/${route}/${String(row[idIndex])}`}>
+                                {text}
+                              </RouterLink>
+                            );
+                          }
+                          return text;
+                        },
+                      }))}
+                      items={dataResult.rows}
+                      empty="No matching records."
+                    />
+                  );
+                })()}
               </Box>
             )}
             <Box variant="small" color="text-status-inactive" padding={{ top: 's' }}>

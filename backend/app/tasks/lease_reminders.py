@@ -5,7 +5,7 @@ from sqlalchemy.orm import joinedload
 from jinja2 import Environment, FileSystemLoader
 from app.database import async_session
 from app.models import Lease, EmailReminderRule, EmailLog
-from app.utils.email_client import send_email
+from app.utils.email_client import EmailCategory, send_email
 from app.services.webhook_service import dispatch_webhook
 from app.services.email_rule_engine import (
     DigestBuffer,
@@ -118,7 +118,7 @@ async def check_lease_reminders():
                         ))
                 else:
                     for recipient in recipients:
-                        sent = await send_email(recipient, step_subject, html)
+                        sent = await send_email(recipient, step_subject, html, category=EmailCategory.NOTIFICATIONS)
                         db.add(EmailLog(
                             rule_id=rule.id, sent_to=recipient, subject=step_subject,
                             body=html, status="sent" if sent else "failed",

@@ -69,7 +69,7 @@ const MaintenanceTopicsPage: React.FC = () => {
     try {
       const res = await maintenanceApi.updateCategorySubtopics(category, {
         subtopics: (drafts[category] ?? []).map((topic) => ({
-          value: topic.value || undefined,
+          value: topic.value || '',
           label: topic.label,
         })),
       });
