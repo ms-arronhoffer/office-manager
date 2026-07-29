@@ -357,7 +357,7 @@ const LandlordFormPage: React.FC = () => {
                 <Input
                   value={formValues.contact_phone}
                   onChange={({ detail }) => setField('contact_phone', detail.value)}
-                  type="tel"
+                  type={"tel" as any}
                   placeholder="Enter phone number"
                 />
               </FormField>

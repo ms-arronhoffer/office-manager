@@ -24,9 +24,10 @@ from __future__ import annotations
 import json
 import logging
 import math
+import time
 import uuid
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -1606,7 +1607,48 @@ async def reindex_organization(
     return len(chunks)
 
 
-# ── Retrieval ─────────────────────────────────────────────────────────────────
+# In-process guard so a burst of unanswerable questions cannot trigger repeated
+# expensive full reindexes (each rebuild re-embeds every chunk via Gemini).
+# Keyed by organization id; a monotonic timestamp of the last auto-reindex.
+_REINDEX_COOLDOWN_SECONDS = 120.0
+_last_auto_reindex: dict[uuid.UUID, float] = {}
+
+
+async def count_chunks(db: AsyncSession, organization_id: uuid.UUID) -> int:
+    """Return how many knowledge chunks are currently indexed for one org."""
+    if organization_id is None:
+        return 0
+    result = await db.execute(
+        select(func.count())
+        .select_from(KnowledgeChunk)
+        .where(KnowledgeChunk.organization_id == organization_id)
+    )
+    return int(result.scalar_one() or 0)
+
+
+async def ensure_index_fresh(
+    db: AsyncSession, organization_id: uuid.UUID, *, force: bool = False
+) -> int | None:
+    """Rebuild the org's knowledge index on demand, cooldown-gated.
+
+    The scheduler only reindexes nightly, so records created during the day are
+    invisible to the RAG assistant until then — the common cause of a spurious
+    "I couldn't find any information in your records" answer. This lets a live
+    query trigger an immediate rebuild so freshly-added offices, leases, vendors,
+    etc. become retrievable right away.
+
+    An in-process cooldown prevents a barrage of questions from repeatedly
+    running the (embedding-heavy) rebuild. Returns the chunk count when a
+    reindex actually ran, otherwise ``None``.
+    """
+    if organization_id is None:
+        return None
+    now = time.monotonic()
+    last = _last_auto_reindex.get(organization_id)
+    if not force and last is not None and (now - last) < _REINDEX_COOLDOWN_SECONDS:
+        return None
+    _last_auto_reindex[organization_id] = now
+    return await reindex_organization(db, organization_id)
 
 def _normalize_knowledge(score: float, chunk: KnowledgeChunk, mode: str) -> dict:
     return {

@@ -227,6 +227,9 @@ const LeasesPage: React.FC = () => {
               >
                 Export to Calendar (.ics)
               </Button>
+              <Button onClick={() => navigate('/leases/wizard')}>
+                Lease wizard
+              </Button>
               <Button variant="primary" onClick={() => navigate('/leases/new')}>
                 Create Lease
               </Button>
@@ -330,7 +333,10 @@ const LeasesPage: React.FC = () => {
             <Box textAlign="center" color="inherit" padding="l">
               <SpaceBetween size="m">
                 <b>No leases</b>
-                <Button onClick={() => navigate('/leases/new')}>Create lease</Button>
+                <SpaceBetween direction="horizontal" size="xs">
+                  <Button onClick={() => navigate('/leases/wizard')}>Lease wizard</Button>
+                  <Button variant="primary" onClick={() => navigate('/leases/new')}>Create lease</Button>
+                </SpaceBetween>
               </SpaceBetween>
             </Box>
           }

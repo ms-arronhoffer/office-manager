@@ -12,7 +12,7 @@ from app.database import get_db
 from app.auth.dependencies import require_role
 from app.models.email import EmailReminderRule, EmailLog, EmailAcknowledgement, DELIVERY_MODES
 from app.models.user import User
-from app.utils.email_client import send_email
+from app.utils.email_client import EmailCategory, send_email
 from app.utils.tenant_scope import load_or_404
 
 router = APIRouter()
@@ -233,7 +233,7 @@ async def test_rule(
     failed: list[str] = []
     for recipient in recipients:
         try:
-            success = await send_email(recipient, subject, html_body)
+            success = await send_email(recipient, subject, html_body, category=EmailCategory.NOTIFICATIONS)
             if success:
                 sent_to.append(recipient)
             else:

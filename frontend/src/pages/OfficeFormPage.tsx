@@ -17,7 +17,7 @@ import Alert from '@cloudscape-design/components/alert';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
 import Box from '@cloudscape-design/components/box';
 import Modal from '@cloudscape-design/components/modal';
-import { offices as officesApi, managers as managersApi, attachments as attachmentsApi, organizations as organizationsApi, landlords as landlordsApi } from '@/api';
+import { offices as officesApi, managers as managersApi, attachments as attachmentsApi, organizations as organizationsApi, landlords as landlordsApi, gl as glApi } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
 import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
 import { ManagerQuickCreate } from '@/components/common/QuickCreateForms';
@@ -75,6 +75,7 @@ const emptyForm = (): OfficeFormState => ({
   owner_city: '',
   owner_state: '',
   owner_zip_code: '',
+  gl_account_id: undefined,
 });
 
 type FieldErrors = Partial<Record<keyof OfficeFormState, string>>;
@@ -89,6 +90,7 @@ const OfficeFormPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [managers, setManagers] = useState<{ label: string; value: string }[]>([]);
+  const [glAccounts, setGlAccounts] = useState<{ label: string; value: string }[]>([]);
   const [form, setForm] = useState<OfficeFormState>(emptyForm);
   const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
   const [officeLandlord, setOfficeLandlord] = useState<Landlord | null>(null);
@@ -108,6 +110,20 @@ const OfficeFormPage: React.FC = () => {
       )
       .catch(() => {
         // non-critical — form still usable without manager list
+      });
+  }, []);
+
+  // Load GL accounts for the chart-of-accounts Select
+  useEffect(() => {
+    glApi
+      .accountOptions()
+      .then((res) =>
+        setGlAccounts(
+          res.data.map((a) => ({ label: `${a.code} — ${a.name}`, value: String(a.id) }))
+        )
+      )
+      .catch(() => {
+        // non-critical — form still usable without GL account list
       });
   }, []);
 
@@ -151,6 +167,7 @@ const OfficeFormPage: React.FC = () => {
           manager_id: o.manager_id,
           is_active: o.is_active,
           notes: o.notes ?? '',
+          gl_account_id: o.gl_account_id ?? undefined,
           total_sqft: o.total_sqft != null ? String(o.total_sqft) : '',
           usable_sqft: o.usable_sqft != null ? String(o.usable_sqft) : '',
           headcount_capacity: o.headcount_capacity != null ? String(o.headcount_capacity) : '',
@@ -286,6 +303,7 @@ const OfficeFormPage: React.FC = () => {
         fax: form.fax?.trim() || undefined,
         manager_id: form.manager_id,
         is_active: form.is_active,
+        gl_account_id: form.gl_account_id ?? undefined,
         notes: form.notes?.trim() || undefined,
         total_sqft: form.total_sqft?.trim() ? parseFloat(form.total_sqft) : undefined,
         usable_sqft: form.usable_sqft?.trim() ? parseFloat(form.usable_sqft) : undefined,
@@ -502,6 +520,29 @@ const OfficeFormPage: React.FC = () => {
                   />
                 </FormField>
 
+                <FormField
+                  label="GL Account"
+                  description="Default general-ledger account for this office's expenses."
+                >
+                  <Select
+                    selectedOption={
+                      form.gl_account_id
+                        ? glAccounts.find((a) => a.value === String(form.gl_account_id)) ?? null
+                        : null
+                    }
+                    onChange={({ detail }) =>
+                      setField(
+                        'gl_account_id',
+                        detail.selectedOption?.value ? detail.selectedOption.value : undefined
+                      )
+                    }
+                    options={[{ label: '— None —', value: '' }, ...glAccounts]}
+                    placeholder="Select a GL account"
+                    filteringType="auto"
+                    empty="No GL accounts available"
+                  />
+                </FormField>
+
                 <FormField label="Active Status">
                   <Toggle
                     checked={form.is_active ?? true}
@@ -545,7 +586,7 @@ const OfficeFormPage: React.FC = () => {
                     value={form.phone_number ?? ''}
                     onChange={({ detail }) => setField('phone_number', detail.value)}
                     placeholder="(555) 555-5555"
-                    type="tel"
+                    type={"tel" as any}
                   />
                 </FormField>
                 <FormField label="Fax">
@@ -553,7 +594,7 @@ const OfficeFormPage: React.FC = () => {
                     value={form.fax ?? ''}
                     onChange={({ detail }) => setField('fax', detail.value)}
                     placeholder="(555) 555-5556"
-                    type="tel"
+                    type={"tel" as any}
                   />
                 </FormField>
               </SpaceBetween>

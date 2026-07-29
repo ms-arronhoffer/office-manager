@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.auth.dependencies import require_role
+from app.auth.dependencies import require_role, get_current_user
 from app.database import get_db
 from app.models.general_ledger import (
     AccountingPeriod,
@@ -163,6 +163,38 @@ async def list_accounts(
         .order_by(GLAccount.code)
     )
     return [AccountResponse.model_validate(a) for a in result.scalars().all()]
+
+
+class AccountOption(BaseModel):
+    id: uuid.UUID
+    code: str
+    name: str
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/accounts/options", response_model=list[AccountOption])
+async def list_account_options(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Lightweight active-account list for GL dropdowns.
+
+    Unlike ``/accounts`` this is available to any authenticated user (not just
+    finance staff) so office, lease, and expense forms can attribute records to
+    a GL account without exposing the full finance surface. Seeds the default
+    chart of accounts on first use, mirroring ``list_accounts``.
+    """
+    await gl_service.seed_default_accounts(db, current_user.organization_id)
+    result = await db.execute(
+        select(GLAccount)
+        .where(
+            GLAccount.organization_id == current_user.organization_id,
+            GLAccount.is_active.is_(True),
+        )
+        .order_by(GLAccount.code)
+    )
+    return [AccountOption.model_validate(a) for a in result.scalars().all()]
 
 
 @router.post("/accounts", response_model=AccountResponse, status_code=status.HTTP_201_CREATED)

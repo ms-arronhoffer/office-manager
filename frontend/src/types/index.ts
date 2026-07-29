@@ -223,6 +223,8 @@ export interface Office {
   owner_city?: string;
   owner_state?: string;
   owner_zip_code?: string;
+  gl_account_id?: string | null;
+  gl_account?: GLAccountRef | null;
   created_at: string;
   updated_at: string;
 }
@@ -230,6 +232,7 @@ export interface Office {
 export interface OfficeCreate {
   office_number: number;
   region_number?: number;
+  gl_account_id?: string | null;
   location_type: string;
   location_name: string;
   manager_id?: string;
@@ -305,6 +308,7 @@ export interface Lease {
   is_short_term_lease?: boolean;
   is_low_value_lease?: boolean;
   currency?: string;
+  cam_entries?: LeaseCamEntry[];
   created_at: string;
   updated_at: string;
 }
@@ -645,6 +649,7 @@ export interface Vendor {
   zip_code?: string;
   is_preferred: boolean;
   notes?: string;
+  default_gl_account_id?: string | null;
   offices: VendorOfficeRef[];
   created_at: string;
   updated_at: string;
@@ -665,6 +670,7 @@ export interface VendorCreate {
   is_preferred?: boolean;
   notes?: string;
   office_ids?: string[];
+  default_gl_account_id?: string | null;
 }
 
 export interface VendorUpdate extends Partial<VendorCreate> {}
@@ -692,6 +698,8 @@ export interface Transition {
   new_address?: string;
   status: string;
   sheet_name?: string;
+  lease_expiration?: string;
+  estimated_date?: string;
   notes?: string;
   checklist_items?: ChecklistItem[];
   created_at: string;
@@ -844,6 +852,8 @@ export interface HvacContractCreate {
   frequency?: string;
   last_serviced?: string;
   next_service?: string;
+  last_serviced_date?: string;
+  next_service_date?: string;
   manager_id?: string;
   landlord_handles?: boolean;
 }
@@ -970,6 +980,39 @@ export interface GLAccount {
   type: string;
   normal_balance: string;
   is_active: boolean;
+}
+
+/** Slim GL account reference embedded in responses (id/code/name). */
+export interface GLAccountRef {
+  id: string;
+  code: string;
+  name: string;
+}
+
+/** GL account option used to populate dropdowns (any authenticated user). */
+export type GLAccountOption = GLAccountRef;
+
+export type CamChargeType = 'fixed' | 'percent_increase';
+
+export interface LeaseCamEntry {
+  id: string;
+  year: number;
+  charge_type: CamChargeType | string;
+  amount: number | null;
+  percent_increase: number | null;
+  gl_account_id: string | null;
+  gl_account: GLAccountRef | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface LeaseCamEntryInput {
+  year: number;
+  charge_type?: CamChargeType | string;
+  amount?: number | string | null;
+  percent_increase?: number | string | null;
+  gl_account_id?: string | null;
+  notes?: string | null;
 }
 
 export interface GLAccountCreate {
@@ -2271,6 +2314,7 @@ export interface MaintenanceLog {
   status: string | null;
   created_at: string;
   vendor: MaintenanceVendorSummary | null;
+  gl_account_id?: string | null;
 }
 
 export interface MaintenanceOverviewCategoryStat {

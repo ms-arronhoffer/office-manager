@@ -28,6 +28,7 @@ import ActivityTimeline from '@/components/common/ActivityTimeline';
 import ConfirmDeleteModal from '@/components/common/ConfirmDeleteModal';
 import LeaseAbstractSection from '@/components/common/LeaseAbstractSection';
 import LeaseDocumentSearch from '@/components/common/LeaseDocumentSearch';
+import LeaseCamSchedule from '@/components/common/LeaseCamSchedule';
 import type { Lease, LeaseNote, LeaseAccountingResponse, LeaseRenewal, LeaseOption } from '@/types';
 import { leaseStatusLabel } from '@/constants/leaseStatus';
 
@@ -233,7 +234,7 @@ const LeaseDetailPage: React.FC = () => {
     }
   };
 
-  const handleUpdateOptionStatus = async (option: LeaseOption, newStatus: string) => {
+  const handleUpdateOptionStatus = async (option: LeaseOption, newStatus: 'exercised' | 'waived') => {
     if (!id) return;
     setUpdatingOptionId(option.id);
     try {
@@ -464,16 +465,16 @@ const LeaseDetailPage: React.FC = () => {
     return (
       <SpaceBetween direction="horizontal" size="xs">
         {r.status === 'in_progress' && !r.notice_sent_at && (
-          <Button size="small" loading={advancingRenewalId === r.id} onClick={() => handleAdvanceRenewal(r, 'notice')}>Send Notice</Button>
+          <Button loading={advancingRenewalId === r.id} onClick={() => handleAdvanceRenewal(r, 'notice')}>Send Notice</Button>
         )}
         {r.status === 'in_progress' && r.notice_sent_at && (
-          <Button size="small" loading={advancingRenewalId === r.id} onClick={() => handleAdvanceRenewal(r, 'terms')}>Terms Agreed</Button>
+          <Button loading={advancingRenewalId === r.id} onClick={() => handleAdvanceRenewal(r, 'terms')}>Terms Agreed</Button>
         )}
         {r.status === 'terms_agreed' && (
-          <Button size="small" loading={advancingRenewalId === r.id} onClick={() => handleAdvanceRenewal(r, 'execute')}>Mark Executed</Button>
+          <Button loading={advancingRenewalId === r.id} onClick={() => handleAdvanceRenewal(r, 'execute')}>Mark Executed</Button>
         )}
         {user?.role === 'admin' && (
-          <Button size="small" variant="inline-link" loading={advancingRenewalId === r.id} onClick={() => handleAdvanceRenewal(r, 'abandon')}>Abandon</Button>
+          <Button variant="inline-link" loading={advancingRenewalId === r.id} onClick={() => handleAdvanceRenewal(r, 'abandon')}>Abandon</Button>
         )}
       </SpaceBetween>
     );
@@ -532,7 +533,7 @@ const LeaseDetailPage: React.FC = () => {
         <SpaceBetween size="m">
           <FormField label="Target Expiration Date">
             <Input
-              type="date"
+              type={"date" as any}
               value={renewalForm.target_expiration}
               onChange={({ detail }) => setRenewalForm({ ...renewalForm, target_expiration: detail.value })}
             />
@@ -584,11 +585,11 @@ const LeaseDetailPage: React.FC = () => {
             />
           </FormField>
           <FormField label="Exercise Window Start">
-            <Input type="date" value={optionForm.exercise_window_start}
+            <Input type={"date" as any} value={optionForm.exercise_window_start}
               onChange={({ detail }) => setOptionForm({ ...optionForm, exercise_window_start: detail.value })} />
           </FormField>
           <FormField label="Exercise Window End (Deadline)">
-            <Input type="date" value={optionForm.exercise_window_end}
+            <Input type={"date" as any} value={optionForm.exercise_window_end}
               onChange={({ detail }) => setOptionForm({ ...optionForm, exercise_window_end: detail.value })} />
           </FormField>
           <FormField label="Notice Required (days)">
@@ -750,6 +751,9 @@ const LeaseDetailPage: React.FC = () => {
           {/* Document search (keyword / semantic) */}
           {id && <LeaseDocumentSearch leaseId={id} canEdit={canEdit} />}
 
+          {/* CAM schedule (per-year common-area-maintenance) */}
+          {id && <LeaseCamSchedule leaseId={id} canEdit={canEdit} />}
+
           {/* Lease Options */}
           <ExpandableSection
             headerText={`Lease Options${options.length > 0 ? ` (${options.length})` : ''}`}
@@ -793,9 +797,9 @@ const LeaseDetailPage: React.FC = () => {
                       header: 'Actions',
                       cell: (o: LeaseOption) => o.status === 'open' ? (
                         <SpaceBetween direction="horizontal" size="xs">
-                          <Button size="small" loading={updatingOptionId === o.id} onClick={() => handleUpdateOptionStatus(o, 'exercised')}>Exercise</Button>
-                          <Button size="small" loading={updatingOptionId === o.id} onClick={() => handleUpdateOptionStatus(o, 'waived')}>Waive</Button>
-                          <Button size="small" variant="inline-link" loading={updatingOptionId === o.id} onClick={() => handleDeleteOption(o)}>Delete</Button>
+                          <Button loading={updatingOptionId === o.id} onClick={() => handleUpdateOptionStatus(o, 'exercised')}>Exercise</Button>
+                          <Button loading={updatingOptionId === o.id} onClick={() => handleUpdateOptionStatus(o, 'waived')}>Waive</Button>
+                          <Button variant="inline-link" loading={updatingOptionId === o.id} onClick={() => handleDeleteOption(o)}>Delete</Button>
                         </SpaceBetween>
                       ) : null,
                     }] : []),

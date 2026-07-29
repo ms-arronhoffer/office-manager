@@ -145,7 +145,7 @@ const LeaseCalendarPage: React.FC = () => {
                             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
                             onClick={() => navigate(`/leases/${l.id}`)}
                           >
-                            <Box fontSize="body-s" color="text-interactive-default">
+                            <Box fontSize="body-s" color="text-status-info">
                               {l.lease_name}
                             </Box>
                             <Badge color={urgencyBadgeColor(days)}>

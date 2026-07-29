@@ -18,7 +18,7 @@ from sqlalchemy.orm import selectinload
 from app.database import async_session
 from app.models.saved_report import ReportSchedule, SavedReport
 from app.services.report_service import DATASET_CONFIGS, ReportService
-from app.utils.email_client import send_email_with_attachment
+from app.utils.email_client import EmailCategory, send_email_with_attachment
 from app.utils.scheduling import compute_next_run
 
 logger = logging.getLogger(__name__)
@@ -72,6 +72,7 @@ async def _render_and_send(db, schedule: ReportSchedule, report: SavedReport) ->
                 attachment_bytes=artifact,
                 attachment_filename=filename,
                 attachment_content_type=content_type or _CONTENT_TYPES.get(ext, "text/csv"),
+                category=EmailCategory.NOTIFICATIONS,
             )
             if ok:
                 sent_count += 1

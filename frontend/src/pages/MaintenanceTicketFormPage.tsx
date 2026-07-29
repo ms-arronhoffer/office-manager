@@ -571,7 +571,7 @@ const MaintenanceTicketFormPage: React.FC = () => {
 
             <FormField label="Scheduled Date" description="When this work is scheduled to occur">
               <Input
-                type="datetime-local"
+                type={"datetime-local" as any}
                 value={scheduledDate}
                 onChange={({ detail }) => setScheduledDate(detail.value)}
                 disabled={saving}
@@ -601,7 +601,7 @@ const MaintenanceTicketFormPage: React.FC = () => {
             <SpaceBetween direction="horizontal" size="l">
               <FormField label="Actual Start" stretch>
                 <Input
-                  type="datetime-local"
+                  type={"datetime-local" as any}
                   value={actualStart}
                   onChange={({ detail }) => setActualStart(detail.value)}
                   disabled={saving}
@@ -609,7 +609,7 @@ const MaintenanceTicketFormPage: React.FC = () => {
               </FormField>
               <FormField label="Actual End" stretch>
                 <Input
-                  type="datetime-local"
+                  type={"datetime-local" as any}
                   value={actualEnd}
                   onChange={({ detail }) => setActualEnd(detail.value)}
                   disabled={saving}

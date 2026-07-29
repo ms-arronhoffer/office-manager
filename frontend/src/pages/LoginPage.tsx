@@ -751,7 +751,6 @@ const LoginPage: React.FC = () => {
       <div style={{ marginTop: FORM_OVERLAP_OFFSET, padding: '0 24px 64px' }}>
         <Box
           display="block"
-          margin={{ horizontal: 'auto' }}
           padding={{ horizontal: 'xxxl' }}
         >
           <div style={{ borderRadius: '16px', boxShadow: '0 20px 48px rgba(3, 49, 96, 0.18)' }}>

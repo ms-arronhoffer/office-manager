@@ -34,6 +34,7 @@ const statusIndicatorType = (
     case 'in_progress': return 'in-progress';
     case 'planned':     return 'pending';
     case 'cancelled':   return 'error';
+    default:            return 'pending';
   }
 };
 
@@ -62,7 +63,7 @@ const TransitionDetailPage: React.FC = () => {
   const [newItemText, setNewItemText] = useState('');
   const [addingItem, setAddingItem] = useState(false);
 
-  const [togglingItems, setTogglingItems] = useState<Set<number>>(new Set());
+  const [togglingItems, setTogglingItems] = useState<Set<string>>(new Set());
 
   // ─── Fetch ──────────────────────────────────────────────────────────────────
 
@@ -86,7 +87,7 @@ const TransitionDetailPage: React.FC = () => {
 
   // ─── Checklist toggle ───────────────────────────────────────────────────────
 
-  const handleToggleItem = async (itemId: number) => {
+  const handleToggleItem = async (itemId: string) => {
     if (!transition) return;
     setTogglingItems((prev) => new Set(prev).add(itemId));
     try {
@@ -249,9 +250,8 @@ const TransitionDetailPage: React.FC = () => {
                   </StatusIndicator>
                 }
               />
-              <ValuePair label="Start Date" value={transition.start_date} />
-              <ValuePair label="Target Date" value={transition.target_date} />
-              <ValuePair label="Completed Date" value={transition.completed_date} />
+              <ValuePair label="Estimated Date" value={transition.estimated_date} />
+              <ValuePair label="Lease Expiration" value={transition.lease_expiration} />
             </ColumnLayout>
 
             {transition.notes && (

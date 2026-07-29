@@ -5,7 +5,7 @@ from sqlalchemy.orm import joinedload
 from jinja2 import Environment, FileSystemLoader
 from app.database import async_session
 from app.models import HvacContract, HqPmTask, EmailReminderRule, EmailLog
-from app.utils.email_client import send_email
+from app.utils.email_client import EmailCategory, send_email
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ async def check_hvac_reminders():
                     )
 
                     subject = f"[HVAC Service Due] {contract.office_name} - {days_until} days"
-                    sent = await send_email(recipient, subject, html)
+                    sent = await send_email(recipient, subject, html, category=EmailCategory.NOTIFICATIONS)
 
                     log = EmailLog(
                         rule_id=rule.id, sent_to=recipient, subject=subject,
@@ -128,7 +128,7 @@ async def check_hq_pm_reminders():
                     )
 
                     subject = f"[HQ PM Due] {task.equipment_category}: {task.task_description[:40]} - {days_until} days"
-                    sent = await send_email(recipient, subject, html)
+                    sent = await send_email(recipient, subject, html, category=EmailCategory.NOTIFICATIONS)
 
                     log = EmailLog(
                         rule_id=rule.id, sent_to=recipient, subject=subject,

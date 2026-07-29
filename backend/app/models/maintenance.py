@@ -292,6 +292,10 @@ class MaintenanceLog(Base):
     invoice_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # GL account this maintenance expense is attributed to.
+    gl_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("gl_accounts.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
@@ -303,7 +307,9 @@ class MaintenanceLog(Base):
         back_populates="logs", foreign_keys=[asset_id]
     )
     vendor: Mapped["Vendor | None"] = relationship(foreign_keys=[vendor_id])
+    gl_account: Mapped["GLAccount | None"] = relationship("GLAccount")
 
 
 from app.models.vendor import Vendor  # noqa: E402
 from app.models.office import Office  # noqa: E402
+from app.models.general_ledger import GLAccount  # noqa: E402

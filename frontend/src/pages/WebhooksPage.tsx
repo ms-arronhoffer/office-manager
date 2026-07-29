@@ -28,7 +28,7 @@ const EVENT_OPTIONS = [
 const KNOWN_EVENTS = ['ticket.created', 'ticket.status_changed', 'test.ping'];
 
 const WebhooksPage: React.FC = () => {
-  const { addFlashMessage } = useFlashbar();
+  const { addFlash } = useFlashbar();
   const [items, setItems] = useState<Webhook[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -51,11 +51,11 @@ const WebhooksPage: React.FC = () => {
       const res = await webhooksApi.list();
       setItems(res.data);
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to load webhooks.' });
+      addFlash({ type: 'error', content: 'Failed to load webhooks.' });
     } finally {
       setLoading(false);
     }
-  }, [addFlashMessage]);
+  }, [addFlash]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -79,15 +79,15 @@ const WebhooksPage: React.FC = () => {
     try {
       if (editingWebhook) {
         await webhooksApi.update(editingWebhook.id, { url: url.trim(), events: eventsValue });
-        addFlashMessage({ type: 'success', content: 'Webhook updated.' });
+        addFlash({ type: 'success', content: 'Webhook updated.' });
       } else {
         await webhooksApi.create({ url: url.trim(), events: eventsValue });
-        addFlashMessage({ type: 'success', content: 'Webhook created.' });
+        addFlash({ type: 'success', content: 'Webhook created.' });
       }
       setModalOpen(false);
       await load();
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to save webhook.' });
+      addFlash({ type: 'error', content: 'Failed to save webhook.' });
     } finally {
       setSaving(false);
     }
@@ -98,7 +98,7 @@ const WebhooksPage: React.FC = () => {
       await webhooksApi.update(w.id, { is_active: !w.is_active });
       await load();
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to update webhook.' });
+      addFlash({ type: 'error', content: 'Failed to update webhook.' });
     }
   };
 
@@ -106,10 +106,10 @@ const WebhooksPage: React.FC = () => {
     if (!window.confirm(`Delete webhook for ${w.url}?`)) return;
     try {
       await webhooksApi.delete(w.id);
-      addFlashMessage({ type: 'success', content: 'Webhook deleted.' });
+      addFlash({ type: 'success', content: 'Webhook deleted.' });
       await load();
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to delete webhook.' });
+      addFlash({ type: 'error', content: 'Failed to delete webhook.' });
     }
   };
 
@@ -118,13 +118,13 @@ const WebhooksPage: React.FC = () => {
       const res = await webhooksApi.test(w.id);
       const d = res.data;
       if (d.status === 'success') {
-        addFlashMessage({ type: 'success', content: `Test ping delivered — HTTP ${d.response_code}.` });
+        addFlash({ type: 'success', content: `Test ping delivered — HTTP ${d.response_code}.` });
       } else {
-        addFlashMessage({ type: 'warning', content: `Test ping failed — ${d.response_body?.slice(0, 120) ?? 'no response'}.` });
+        addFlash({ type: 'warning', content: `Test ping failed — ${d.response_body?.slice(0, 120) ?? 'no response'}.` });
       }
       await load();
     } catch {
-      addFlashMessage({ type: 'error', content: 'Test delivery failed.' });
+      addFlash({ type: 'error', content: 'Test delivery failed.' });
     }
   };
 
@@ -137,7 +137,7 @@ const WebhooksPage: React.FC = () => {
       const res = await webhooksApi.deliveries(w.id);
       setDeliveries(res.data);
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to load delivery history.' });
+      addFlash({ type: 'error', content: 'Failed to load delivery history.' });
     } finally {
       setDeliveryLoading(false);
     }

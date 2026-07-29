@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import EmailLog, EmailReminderRule
 from app.services import ai_service, report_export
-from app.utils.email_client import send_email, send_email_with_attachment
+from app.utils.email_client import EmailCategory, send_email, send_email_with_attachment
 
 logger = logging.getLogger(__name__)
 
@@ -94,9 +94,10 @@ async def _run(db: AsyncSession) -> None:
                         pdf_bytes,
                         "operations-briefing.pdf",
                         "application/pdf",
+                        category=EmailCategory.NOTIFICATIONS,
                     )
                 else:
-                    sent = await send_email(recipient, subject, html)
+                    sent = await send_email(recipient, subject, html, category=EmailCategory.NOTIFICATIONS)
                 db.add(
                     EmailLog(
                         rule_id=rule.id,

@@ -26,11 +26,17 @@ class OperatingExpense(TimestampMixin, Base):
     budgeted: Mapped[Decimal | None] = mapped_column(Numeric(15, 2), nullable=True)
     actual: Mapped[Decimal | None] = mapped_column(Numeric(15, 2), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # GL account this operating expense is attributed to.
+    gl_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("gl_accounts.id", ondelete="SET NULL"), nullable=True
+    )
     reconciled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
     lease: Mapped["Lease"] = relationship(back_populates="operating_expenses")
+    gl_account: Mapped["GLAccount | None"] = relationship("GLAccount")
 
 
 from app.models.lease import Lease  # noqa: E402
+from app.models.general_ledger import GLAccount  # noqa: E402

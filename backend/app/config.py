@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     SMTP_FROM: str = "noreply@officemanager.local"
+    # Optional per-category From addresses. When set, outbound mail uses the
+    # matching address based on its purpose so system messages, user
+    # notifications, and waiver invitations can come from distinct mailboxes.
+    # Any left blank fall back to SMTP_FROM. See app.utils.email_client.
+    SMTP_FROM_SYSTEM: str = ""
+    SMTP_FROM_NOTIFICATIONS: str = ""
+    SMTP_FROM_WAIVERS: str = ""
     # Address that receives in-app support requests (see app.routers.support_requests).
     # Configured via the environment rather than admin UI so it can't be changed
     # per-tenant or without deploy access.

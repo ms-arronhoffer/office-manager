@@ -515,8 +515,8 @@ const MaintenanceTicketDetailPage: React.FC = () => {
 
           {/* Description */}
           <Container header={<Header variant="h2">Description</Header>}>
-            <Box variant="p" style={{ whiteSpace: 'pre-wrap' }}>
-              {ticket.description || '—'}
+            <Box variant="p">
+              <span style={{ whiteSpace: 'pre-wrap' }}>{ticket.description || '—'}</span>
             </Box>
           </Container>
 
@@ -568,7 +568,7 @@ const MaintenanceTicketDetailPage: React.FC = () => {
                     {ticket.vendor_completion_notes && (
                       <Box>
                         <Box variant="awsui-key-label">Vendor Completion Notes</Box>
-                        <Box style={{ whiteSpace: 'pre-wrap' }}>{ticket.vendor_completion_notes}</Box>
+                        <Box><span style={{ whiteSpace: 'pre-wrap' }}>{ticket.vendor_completion_notes}</span></Box>
                       </Box>
                     )}
                   </SpaceBetween>

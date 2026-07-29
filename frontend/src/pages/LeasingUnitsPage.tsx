@@ -387,7 +387,7 @@ const LeasingUnitsPage: React.FC = () => {
             </FormField>
             <FormField label="Available date">
               <Input
-                type="date"
+                type={"date" as any}
                 value={availableDate}
                 onChange={({ detail }) => setAvailableDate(detail.value)}
               />

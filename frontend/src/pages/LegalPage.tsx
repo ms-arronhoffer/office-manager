@@ -148,7 +148,7 @@ const LegalPage: React.FC = () => {
     <div style={shellStyle}>
       <LegalHeaderBanner />
       <Box padding={{ top: 'xxl', horizontal: 'xxl', bottom: 'xxxl' }}>
-        <Box display="block" margin={{ horizontal: 'auto' }}>
+        <Box display="block">
           {slug ? <LegalDocumentView slug={slug} /> : <LegalList />}
         </Box>
       </Box>

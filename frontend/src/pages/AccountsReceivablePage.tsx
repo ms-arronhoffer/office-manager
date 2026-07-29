@@ -460,10 +460,10 @@ const AccountsReceivablePage: React.FC = () => {
           </FormField>
           <ColumnLayout columns={3}>
             <FormField label="Invoice date">
-              <Input type="date" value={invoiceDate} onChange={({ detail }) => setInvoiceDate(detail.value)} />
+              <Input type={"date" as any} value={invoiceDate} onChange={({ detail }) => setInvoiceDate(detail.value)} />
             </FormField>
             <FormField label="Due date">
-              <Input type="date" value={dueDate} onChange={({ detail }) => setDueDate(detail.value)} />
+              <Input type={"date" as any} value={dueDate} onChange={({ detail }) => setDueDate(detail.value)} />
             </FormField>
             <FormField label="Invoice number">
               <Input value={invoiceNumber} onChange={({ detail }) => setInvoiceNumber(detail.value)} />
@@ -532,7 +532,7 @@ const AccountsReceivablePage: React.FC = () => {
         <SpaceBetween size="m">
           <Box>Outstanding balance: <strong>{fmt(rcptInvoice?.balance_due)}</strong></Box>
           <FormField label="Receipt date">
-            <Input type="date" value={rcptDate} onChange={({ detail }) => setRcptDate(detail.value)} />
+            <Input type={"date" as any} value={rcptDate} onChange={({ detail }) => setRcptDate(detail.value)} />
           </FormField>
           <FormField label="Amount">
             <Input type="number" value={rcptAmount} onChange={({ detail }) => setRcptAmount(detail.value)} />

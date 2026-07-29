@@ -53,6 +53,12 @@ class Lease(SoftDeleteMixin, TimestampMixin, Base):
     operating_expenses: Mapped[list["OperatingExpense"]] = relationship(
         back_populates="lease", cascade="all, delete-orphan", lazy="select"
     )
+    cam_entries: Mapped[list["LeaseCamEntry"]] = relationship(
+        back_populates="lease",
+        cascade="all, delete-orphan",
+        order_by="LeaseCamEntry.year",
+        lazy="select",
+    )
 
 
 class LeaseNote(Base):
@@ -67,4 +73,55 @@ class LeaseNote(Base):
     lease: Mapped["Lease"] = relationship(back_populates="notes")
 
 
+# Charge structure for a CAM (common-area-maintenance) schedule row.
+#   fixed            — ``amount`` is the CAM charge for that year.
+#   percent_increase — ``percent_increase`` is the % increase applied over the
+#                      prior year's CAM charge (e.g. 0.030000 = 3%).
+CAM_CHARGE_TYPES = {"fixed", "percent_increase"}
+
+
+class LeaseCamEntry(TimestampMixin, Base):
+    """A single year's CAM (common-area-maintenance) charge for a lease.
+
+    CAM often varies year to year across the life of a lease and may be quoted
+    either as a fixed dollar amount or as a percentage increase over the prior
+    year. This table lets each lease-year be configured independently. An
+    optional ``gl_account_id`` attributes the CAM expense to a chart-of-accounts
+    entry so it flows into GL reporting.
+    """
+
+    __tablename__ = "lease_cam_entries"
+    __table_args__ = (
+        Index("idx_lease_cam_entries_lease", "lease_id"),
+        Index("idx_lease_cam_entries_gl", "gl_account_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organizations.id"), nullable=True, index=True
+    )
+    lease_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("leases.id", ondelete="CASCADE"), nullable=False
+    )
+    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    # One of CAM_CHARGE_TYPES; defaults to a fixed amount.
+    charge_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="fixed", server_default="fixed"
+    )
+    # Fixed CAM amount for the year (used when charge_type == "fixed").
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(15, 2), nullable=True)
+    # Percentage increase over the prior year (used when
+    # charge_type == "percent_increase"); e.g. 0.030000 = 3%.
+    percent_increase: Mapped[Decimal | None] = mapped_column(Numeric(8, 6), nullable=True)
+    # Optional GL account this CAM expense is attributed to.
+    gl_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("gl_accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+    lease: Mapped["Lease"] = relationship(back_populates="cam_entries")
+    gl_account: Mapped["GLAccount | None"] = relationship("GLAccount")
+
+
 from app.models.office import Office, Manager  # noqa: E402
+from app.models.general_ledger import GLAccount  # noqa: E402

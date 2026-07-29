@@ -14,12 +14,13 @@ import Badge from '@cloudscape-design/components/badge';
 import Box from '@cloudscape-design/components/box';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
-import { maintenance as maintApi } from '@/api';
+import { maintenance as maintApi, gl as glApi } from '@/api';
 import type {
   MaintenanceAsset,
   MaintenanceTask,
   MaintenanceLog,
   MaintenanceCatalogCategory,
+  GLAccountOption,
 } from '@/types';
 
 interface Option { label: string; value: string; }
@@ -98,6 +99,7 @@ const emptyLogForm = () => ({
   vendor_id: NONE,
   cost: '',
   invoice_number: '',
+  gl_account_id: NONE,
   description: '',
 });
 
@@ -115,6 +117,18 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
   const [assets, setAssets] = useState<MaintenanceAsset[]>([]);
   const [loading, setLoading] = useState(true);
+  const [glOptions, setGlOptions] = useState<Option[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    glApi
+      .accountOptions()
+      .then((res) => {
+        if (active) setGlOptions(res.data.map((o) => ({ label: `${o.code} — ${o.name}`, value: o.id })));
+      })
+      .catch(() => { /* GL optional */ });
+    return () => { active = false; };
+  }, []);
 
   const subtopicOptions = useMemo<Option[]>(
     () => category.subtopics.map((s) => ({ label: s.label, value: s.value })),
@@ -369,6 +383,7 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
         vendor_id: logForm.vendor_id || null,
         cost: logForm.cost ? Number(logForm.cost) : null,
         invoice_number: logForm.invoice_number || null,
+        gl_account_id: logForm.gl_account_id || null,
         description: logForm.description.trim(),
       });
       addFlash({ type: 'success', content: 'Service logged.' });
@@ -402,6 +417,18 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
       options={[{ label: 'None', value: NONE }, ...officeOptions]}
       filteringType="auto"
       placeholder="Select a property"
+    />
+  );
+
+  const glSelect = (value: string, onChange: (v: string) => void) => (
+    <Select
+      selectedOption={
+        value ? glOptions.find((o) => o.value === value) ?? null : { label: 'None', value: NONE }
+      }
+      onChange={({ detail }) => onChange(detail.selectedOption.value ?? NONE)}
+      options={[{ label: 'None', value: NONE }, ...glOptions]}
+      filteringType="auto"
+      placeholder="Select GL account"
     />
   );
 
@@ -683,6 +710,7 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
             <FormField label="Vendor">{vendorSelect(logForm.vendor_id, (v) => setLogForm((f) => ({ ...f, vendor_id: v })))}</FormField>
             <FormField label="Cost"><Input type="number" value={logForm.cost} onChange={({ detail }) => setLogForm((f) => ({ ...f, cost: detail.value }))} /></FormField>
             <FormField label="Invoice #"><Input value={logForm.invoice_number} onChange={({ detail }) => setLogForm((f) => ({ ...f, invoice_number: detail.value }))} /></FormField>
+            <FormField label="GL account" description="Attribute this expense to a general-ledger account.">{glSelect(logForm.gl_account_id, (v) => setLogForm((f) => ({ ...f, gl_account_id: v })))}</FormField>
           </ColumnLayout>
           <FormField label="Description" constraintText="Required">
             <Textarea value={logForm.description} onChange={({ detail }) => setLogForm((f) => ({ ...f, description: detail.value }))} />

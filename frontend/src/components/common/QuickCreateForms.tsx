@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
-import { managementCompanies, offices, managers, ticketCategories, selfStorage } from '@/api';
+import { managementCompanies, offices, managers, ticketCategories, selfStorage, landlords } from '@/api';
 import QuickCreateModal from './QuickCreateModal';
 
 export interface QuickCreateOption {
@@ -282,6 +282,102 @@ export const ManagerQuickCreate: React.FC<EntityModalProps> = ({ visible, onClos
         <Input
           value={phone}
           onChange={({ detail }) => setPhone(detail.value)}
+          placeholder="Phone number"
+        />
+      </FormField>
+    </QuickCreateModal>
+  );
+};
+
+/** Quick-create modal for a Landlord (minimal fields). */
+export const LandlordQuickCreate: React.FC<EntityModalProps> = ({ visible, onClose, onCreated }) => {
+  const [company, setCompany] = useState('');
+  const [contactName, setContactName] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = () => {
+    setCompany('');
+    setContactName('');
+    setContactEmail('');
+    setContactPhone('');
+    setError(null);
+  };
+
+  const handleCancel = () => {
+    reset();
+    onClose();
+  };
+
+  // Either a company name or a contact name is enough to identify a landlord.
+  const valid = company.trim() !== '' || contactName.trim() !== '';
+
+  const handleSubmit = async () => {
+    if (!valid) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await landlords.create({
+        landlord_company: company.trim() || undefined,
+        contact_name: contactName.trim() || undefined,
+        contact_email: contactEmail.trim() || undefined,
+        contact_phone: contactPhone.trim() || undefined,
+      });
+      const label =
+        res.data.landlord_company ||
+        res.data.office_name ||
+        res.data.contact_name ||
+        res.data.ern ||
+        'Unnamed landlord';
+      onCreated({ label, value: String(res.data.id) });
+      reset();
+      onClose();
+    } catch (err) {
+      setError(errorMessage(err, 'Failed to create landlord.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <QuickCreateModal
+      visible={visible}
+      title="New Landlord"
+      onSubmit={handleSubmit}
+      onCancel={handleCancel}
+      submitting={submitting}
+      submitDisabled={!valid}
+      error={error}
+      submitLabel="Create Landlord"
+    >
+      <FormField label="Company Name" constraintText="Company or contact name required">
+        <Input
+          value={company}
+          onChange={({ detail }) => setCompany(detail.value)}
+          placeholder="e.g., Acme Properties LLC"
+        />
+      </FormField>
+      <FormField label="Contact Name">
+        <Input
+          value={contactName}
+          onChange={({ detail }) => setContactName(detail.value)}
+          placeholder="Primary contact"
+        />
+      </FormField>
+      <FormField label="Email">
+        <Input
+          value={contactEmail}
+          onChange={({ detail }) => setContactEmail(detail.value)}
+          type="email"
+          placeholder="Email address"
+        />
+      </FormField>
+      <FormField label="Phone">
+        <Input
+          value={contactPhone}
+          onChange={({ detail }) => setContactPhone(detail.value)}
           placeholder="Phone number"
         />
       </FormField>

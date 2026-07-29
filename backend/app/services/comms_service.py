@@ -99,7 +99,10 @@ async def send_announcement(
         )
         if "email" in channels and resident.email:
             if await email_client.send_email(
-                resident.email, announcement.title, _html_body(announcement)
+                resident.email,
+                announcement.title,
+                _html_body(announcement),
+                category=email_client.EmailCategory.NOTIFICATIONS,
             ):
                 recipient.emailed = True
                 emailed += 1

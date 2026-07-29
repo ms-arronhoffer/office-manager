@@ -60,6 +60,8 @@ class TransitionResponse(BaseModel):
     new_address: str | None
     status: str
     sheet_name: str | None
+    lease_expiration: str | None
+    estimated_date: str | None
     notes: str | None
     checklist_items: list[ChecklistItemResponse]
     created_at: datetime

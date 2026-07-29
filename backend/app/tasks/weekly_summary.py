@@ -12,7 +12,7 @@ from app.database import get_db
 from app.models import EmailReminderRule, EmailLog
 from app.models.lease import Lease
 from app.models.maintenance_ticket import MaintenanceTicket
-from app.utils.email_client import send_email
+from app.utils.email_client import EmailCategory, send_email
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ async def _run(db: AsyncSession) -> None:
             try:
                 html = template.render(**context)
                 email_subject = f"Weekly Office Summary — {week_of}"
-                sent = await send_email(recipient, email_subject, html)
+                sent = await send_email(recipient, email_subject, html, category=EmailCategory.NOTIFICATIONS)
                 log = EmailLog(
                     rule_id=rule.id,
                     sent_to=recipient,

@@ -252,7 +252,7 @@ const EmailRulesPage: React.FC = () => {
       header: 'Actions',
       cell: (item: EmailReminderRule) => (
         <SpaceBetween direction="horizontal" size="xs">
-          <Button variant="inline-icon" iconName="envelope" ariaLabel="Send Test" title="Send test email" loading={testSendingId === item.id} onClick={() => handleTestSend(item)} />
+          <Button variant="inline-icon" iconName="envelope" ariaLabel="Send Test" loading={testSendingId === item.id} onClick={() => handleTestSend(item)} />
           <Button variant="inline-icon" iconName="edit" onClick={() => openEditModal(item)} />
           <Button variant="inline-icon" iconName="remove" onClick={() => setDeleteTarget(item)} />
         </SpaceBetween>

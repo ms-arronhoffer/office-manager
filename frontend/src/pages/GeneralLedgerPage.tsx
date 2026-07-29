@@ -446,7 +446,7 @@ const GeneralLedgerPage: React.FC = () => {
         <SpaceBetween size="m">
           <ColumnLayout columns={2}>
             <FormField label="Date">
-              <Input type="date" value={jeDate} onChange={({ detail }) => setJeDate(detail.value)} />
+              <Input type={"date" as any} value={jeDate} onChange={({ detail }) => setJeDate(detail.value)} />
             </FormField>
             <FormField label="Memo">
               <Input value={jeMemo} onChange={({ detail }) => setJeMemo(detail.value)} placeholder="Optional" />

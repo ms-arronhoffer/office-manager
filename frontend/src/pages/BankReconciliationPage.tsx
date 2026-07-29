@@ -652,7 +652,7 @@ const BankReconciliationPage: React.FC = () => {
       >
         <SpaceBetween size="m">
           <FormField label="Date">
-            <Input type="date" value={txnDate} onChange={({ detail }) => setTxnDate(detail.value)} />
+            <Input type={"date" as any} value={txnDate} onChange={({ detail }) => setTxnDate(detail.value)} />
           </FormField>
           <FormField label="Amount" description="Positive for deposits, negative for withdrawals.">
             <Input type="number" value={txnAmount} onChange={({ detail }) => setTxnAmount(detail.value)} placeholder="0.00" />
@@ -682,7 +682,7 @@ const BankReconciliationPage: React.FC = () => {
       >
         <SpaceBetween size="m">
           <FormField label="Statement date">
-            <Input type="date" value={stmtDate} onChange={({ detail }) => setStmtDate(detail.value)} />
+            <Input type={"date" as any} value={stmtDate} onChange={({ detail }) => setStmtDate(detail.value)} />
           </FormField>
           <FormField
             label="Beginning balance (optional)"

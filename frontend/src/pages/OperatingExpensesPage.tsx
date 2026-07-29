@@ -31,7 +31,7 @@ const varianceBadge = (v: number | null) => {
 interface LeaseOption { label: string; value: string; }
 
 const OperatingExpensesPage: React.FC = () => {
-  const { addFlashMessage } = useFlashbar();
+  const { addFlash } = useFlashbar();
   const [items, setItems] = useState<OperatingExpense[]>([]);
   const [variance, setVariance] = useState<OperatingExpenseVariance[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,11 +64,11 @@ const OperatingExpensesPage: React.FC = () => {
       setItems(itemsRes.data);
       setVariance(varRes.data);
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to load operating expenses.' });
+      addFlash({ type: 'error', content: 'Failed to load operating expenses.' });
     } finally {
       setLoading(false);
     }
-  }, [filterLeaseId, filterYear, addFlashMessage]);
+  }, [filterLeaseId, filterYear, addFlash]);
 
   useEffect(() => {
     load();
@@ -113,15 +113,15 @@ const OperatingExpensesPage: React.FC = () => {
       };
       if (editingId) {
         await opexApi.update(editingId, payload);
-        addFlashMessage({ type: 'success', content: 'Expense updated.' });
+        addFlash({ type: 'success', content: 'Expense updated.' });
       } else {
         await opexApi.create(payload);
-        addFlashMessage({ type: 'success', content: 'Expense added.' });
+        addFlash({ type: 'success', content: 'Expense added.' });
       }
       setModalOpen(false);
       await load();
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to save expense.' });
+      addFlash({ type: 'error', content: 'Failed to save expense.' });
     } finally {
       setSaving(false);
     }
@@ -131,10 +131,10 @@ const OperatingExpensesPage: React.FC = () => {
     if (!window.confirm('Delete this expense record?')) return;
     try {
       await opexApi.delete(id);
-      addFlashMessage({ type: 'success', content: 'Expense deleted.' });
+      addFlash({ type: 'success', content: 'Expense deleted.' });
       await load();
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to delete expense.' });
+      addFlash({ type: 'error', content: 'Failed to delete expense.' });
     }
   };
 

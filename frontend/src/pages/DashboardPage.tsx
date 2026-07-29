@@ -441,7 +441,7 @@ const DashboardPage: React.FC = () => {
               {
                 id: 'type',
                 header: 'Type',
-                cell: (item) => <Box textTransform="capitalize">{item.transition_type.replace('_', ' ')}</Box>,
+                cell: (item) => <Box><span style={{ textTransform: 'capitalize' }}>{item.transition_type.replace('_', ' ')}</span></Box>,
               },
               {
                 id: 'status',

@@ -167,6 +167,9 @@ const OfficesPage: React.FC = () => {
               />
               <Button onClick={refresh} iconName="refresh" />
               <Button iconName="upload" onClick={() => setShowImport(true)}>Import</Button>
+              <Button onClick={() => navigate('/offices/wizard')}>
+                Guided setup
+              </Button>
               <Button variant="primary" onClick={() => navigate('/offices/new')}>
                 Create Office
               </Button>
@@ -246,7 +249,10 @@ const OfficesPage: React.FC = () => {
             <Box textAlign="center" color="inherit" padding="l">
               <SpaceBetween size="m">
                 <b>No offices</b>
-                <Button onClick={() => navigate('/offices/new')}>Create office</Button>
+                <SpaceBetween direction="horizontal" size="xs">
+                  <Button onClick={() => navigate('/offices/wizard')}>Guided setup</Button>
+                  <Button variant="primary" onClick={() => navigate('/offices/new')}>Create office</Button>
+                </SpaceBetween>
               </SpaceBetween>
             </Box>
           }

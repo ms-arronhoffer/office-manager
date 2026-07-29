@@ -17,7 +17,7 @@ import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import Toggle from '@cloudscape-design/components/toggle';
 import { useFlashbar } from '@/context/FlashbarContext';
 import AIDocumentPrefill from '@/components/common/AIDocumentPrefill';
-import { insuranceCertificates as certsApi, leases as leasesApi, vendors as vendorsApi, ai as aiApi } from '@/api';
+import { insuranceCertificates as certsApi, leases as leasesApi, vendors as vendorsApi, landlords as landlordsApi, ai as aiApi } from '@/api';
 import type { InsuranceCertificate, InsuranceCertComplianceSummary } from '@/types';
 
 const CERT_TYPES = [
@@ -38,7 +38,7 @@ const statusBadge = (s: string) => {
 interface EntityOption { label: string; value: string; kind: 'vendor' | 'landlord'; }
 
 const InsuranceCertificatesPage: React.FC = () => {
-  const { addFlashMessage } = useFlashbar();
+  const { addFlash } = useFlashbar();
   const [items, setItems] = useState<InsuranceCertificate[]>([]);
   const [compliance, setCompliance] = useState<InsuranceCertComplianceSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,22 +79,30 @@ const InsuranceCertificatesPage: React.FC = () => {
       setItems(certsRes.data);
       setCompliance(compRes.data);
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to load insurance certificates.' });
+      addFlash({ type: 'error', content: 'Failed to load insurance certificates.' });
     } finally {
       setLoading(false);
     }
-  }, [filterExpired, filterExpiring, addFlashMessage]);
+  }, [filterExpired, filterExpiring, addFlash]);
 
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    vendorsApi.list({ page_size: 500 }).then((res) => {
-      const opts: EntityOption[] = res.data.items.map((v) => ({
+    Promise.all([
+      vendorsApi.list({ page_size: 500 }),
+      landlordsApi.list({ page_size: 500 }),
+    ]).then(([vRes, lRes]) => {
+      const vendorOpts: EntityOption[] = vRes.data.items.map((v) => ({
         label: `${v.company_name} (Vendor)`,
         value: v.id,
         kind: 'vendor' as const,
       }));
-      setEntityOptions((prev) => [...opts, ...prev.filter((o) => o.kind === 'landlord')]);
+      const landlordOpts: EntityOption[] = lRes.data.items.map((l) => ({
+        label: `${l.landlord_company || l.contact_name || l.office_name || 'Unnamed landlord'} (Landlord)`,
+        value: l.id,
+        kind: 'landlord' as const,
+      }));
+      setEntityOptions([...vendorOpts, ...landlordOpts]);
     }).catch(() => {});
   }, []);
 
@@ -122,6 +130,7 @@ const InsuranceCertificatesPage: React.FC = () => {
       certificate_holder: c.certificate_holder ?? '',
       notes: c.notes ?? '',
       is_verified: c.is_verified,
+      file: null,
     });
     setModalOpen(true);
   };
@@ -146,15 +155,15 @@ const InsuranceCertificatesPage: React.FC = () => {
       };
       if (editingId) {
         await certsApi.update(editingId, payload);
-        addFlashMessage({ type: 'success', content: 'Certificate updated.' });
+        addFlash({ type: 'success', content: 'Certificate updated.' });
       } else {
         await certsApi.create(payload);
-        addFlashMessage({ type: 'success', content: 'Certificate added.' });
+        addFlash({ type: 'success', content: 'Certificate added.' });
       }
       setModalOpen(false);
       await load();
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to save certificate.' });
+      addFlash({ type: 'error', content: 'Failed to save certificate.' });
     } finally {
       setSaving(false);
     }
@@ -193,10 +202,10 @@ const InsuranceCertificatesPage: React.FC = () => {
     if (!window.confirm('Delete this certificate?')) return;
     try {
       await certsApi.delete(id);
-      addFlashMessage({ type: 'success', content: 'Certificate deleted.' });
+      addFlash({ type: 'success', content: 'Certificate deleted.' });
       await load();
     } catch {
-      addFlashMessage({ type: 'error', content: 'Failed to delete certificate.' });
+      addFlash({ type: 'error', content: 'Failed to delete certificate.' });
     }
   };
 
@@ -226,7 +235,7 @@ const InsuranceCertificatesPage: React.FC = () => {
               ].map(([label, count, color]) => (
                 <Box textAlign="center" key={label as string}>
                   <Box fontWeight="bold" fontSize="body-s" color="text-body-secondary">{label}</Box>
-                  <Box fontSize="heading-xl" color={(color as string) || undefined}>{count}</Box>
+                  <Box fontSize="heading-xl" color={(color as any) || undefined}>{count}</Box>
                 </Box>
               ))}
             </ColumnLayout>
@@ -374,14 +383,14 @@ const InsuranceCertificatesPage: React.FC = () => {
               <Input
                 value={form.effective_date}
                 onChange={({ detail }) => setForm((f) => ({ ...f, effective_date: detail.value }))}
-                type="date"
+                type={"date" as any}
               />
             </FormField>
             <FormField label="Expiration date">
               <Input
                 value={form.expiration_date}
                 onChange={({ detail }) => setForm((f) => ({ ...f, expiration_date: detail.value }))}
-                type="date"
+                type={"date" as any}
               />
             </FormField>
           </SpaceBetween>
