@@ -12,6 +12,7 @@ import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { ai, leaseTemplates } from '@/api';
+import { aiUploadErrorMessage } from '@/utils/aiUpload';
 import type { LeaseTemplate } from '@/types';
 
 // Merge fields available in the backend's build_lease_merge_context()
@@ -127,11 +128,8 @@ const LeaseTemplatesPage: React.FC = () => {
         type: 'success',
         content: 'Draft template generated from document. Review and save.',
       });
-    } catch {
-      addFlash({
-        type: 'error',
-        content: 'Could not draft a template from that document.',
-      });
+    } catch (err: unknown) {
+      addFlash({ type: 'error', content: aiUploadErrorMessage(err) });
     } finally {
       setDrafting(false);
     }

@@ -8,6 +8,7 @@ import Alert from '@cloudscape-design/components/alert';
 import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import { ai as aiApi } from '@/api';
+import { aiUploadErrorMessage } from '@/utils/aiUpload';
 import type { DocumentClassifyResult } from '@/types';
 
 interface AIDocumentClassifyProps {
@@ -72,9 +73,11 @@ const AIDocumentClassify: React.FC<AIDocumentClassifyProps> = ({
       // dropzone is ready for the next document.
       setFiles([]);
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 503) {
+      const response = (err as { response?: { status?: number } })?.response;
+      if (response?.status === 503) {
         setError('AI assist is not configured on the server. You can still attach documents manually.');
+      } else if (response?.status === 413) {
+        setError(aiUploadErrorMessage(err));
       } else {
         setError('Could not identify the document. You can still attach it manually.');
       }
