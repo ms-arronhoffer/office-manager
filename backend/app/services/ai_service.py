@@ -466,22 +466,33 @@ async def _document_segments(
         if not chunks:
             raise AIRequestError("The document did not contain any readable text.")
     elif content:
+        is_pdf = "pdf" in (mime_type or "").lower()
+        if is_pdf:
+            # Compressed byte size is not a reliable measure of document length:
+            # a text-heavy, multi-hundred-page PDF can still fit below the inline
+            # byte ceiling. Prefer its text layer whenever usable so it can be
+            # segmented instead of asking the model to digest the entire PDF in
+            # one request.
+            extracted = await _extract_pdf_text(content)
+            if len(extracted.strip()) >= MIN_USABLE_PDF_TEXT_CHARS:
+                chunks = _split_text(extracted)
+                if chunks:
+                    total = len(chunks)
+                    return [
+                        [{"text": _segment_label(document_label, i, total) + chunk}]
+                        for i, chunk in enumerate(chunks)
+                    ]
+            if len(content) <= MAX_DOCUMENT_BYTES:
+                return [[_document_part(content, mime_type)]]
+            return await _split_large_pdf(content, mime_type)
         if len(content) <= MAX_DOCUMENT_BYTES:
             return [[_document_part(content, mime_type)]]
-        if "pdf" not in (mime_type or "").lower():
-            raise AIDocumentError(
-                f"This file is too large for AI processing "
-                f"(over {MAX_DOCUMENT_BYTES // (1024 * 1024)} MB of image data). "
-                "Convert it to a PDF or a text document, or split it into "
-                "smaller files."
-            )
-        # Prefer the (much cheaper) text layer; fall back to splitting pages.
-        extracted = await _extract_pdf_text(content)
-        if len(extracted) < MIN_USABLE_PDF_TEXT_CHARS:
-            return await _split_large_pdf(content, mime_type)
-        chunks = _split_text(extracted)
-        if not chunks:
-            return await _split_large_pdf(content, mime_type)
+        raise AIDocumentError(
+            f"This file is too large for AI processing "
+            f"(over {MAX_DOCUMENT_BYTES // (1024 * 1024)} MB of image data). "
+            "Convert it to a PDF or a text document, or split it into "
+            "smaller files."
+        )
     else:
         return []
 
