@@ -890,6 +890,10 @@ async def delete_cam_entry(
 _MAX_CAM_CSV_BYTES = 2 * 1024 * 1024
 
 
+def _str_or_none(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
 @router.post(
     "/{lease_id}/cam-entries/parse-csv", response_model=CamHistoryParseResponse
 )
@@ -1039,10 +1043,11 @@ async def promote_cam_entry(
     lease = await _load_lease(db, lease_id, current_user.organization_id)
     entry = await _load_cam_entry(db, lease_id, entry_id)
     def _financials(target: Lease) -> dict:
+        # Stringified so the activity log's JSONB payload stays serializable.
         return {
-            "payment_amount": target.payment_amount,
+            "payment_amount": _str_or_none(target.payment_amount),
             "payment_frequency": target.payment_frequency,
-            "annual_escalation_rate": target.annual_escalation_rate,
+            "annual_escalation_rate": _str_or_none(target.annual_escalation_rate),
         }
 
     before = _financials(lease)
