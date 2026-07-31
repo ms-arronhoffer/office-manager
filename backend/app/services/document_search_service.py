@@ -38,6 +38,18 @@ CHUNK_OVERLAP = 200
 MAX_CHUNKS_PER_DOCUMENT = 400
 
 
+async def _extract_searchable_text(content: bytes, filename: str) -> str:
+    """Extract text locally, using the AI assistant for image-only PDFs."""
+    text = document_extraction.extract_text(content, filename)
+    if text.strip() or not filename.lower().endswith(".pdf") or not ai_service.is_configured():
+        return text
+    try:
+        return await ai_service.extract_pdf_text_with_ai(content)
+    except ai_service.AIError as exc:
+        logger.warning("AI PDF text extraction failed for %s: %s", filename, exc)
+        return ""
+
+
 def chunk_text(text: str) -> list[str]:
     """Split ``text`` into overlapping, non-empty chunks."""
     text = (text or "").strip()
@@ -170,7 +182,7 @@ async def index_document(
     if not document_extraction.is_text_extractable(attachment.original_filename):
         return 0
     try:
-        text = document_extraction.extract_text(content, attachment.original_filename)
+        text = await _extract_searchable_text(content, attachment.original_filename)
     except document_extraction.DocumentExtractionError as exc:
         logger.info("Skipping document index for %s: %s", attachment.original_filename, exc)
         return 0
@@ -458,7 +470,7 @@ async def get_document_text(
 
     try:
         content = file_storage.read_file(attachment.entity_type, attachment.stored_filename)
-        text = document_extraction.extract_text(content, attachment.original_filename)
+        text = await _extract_searchable_text(content, attachment.original_filename)
     except (FileNotFoundError, OSError, document_extraction.DocumentExtractionError) as exc:
         logger.info("Could not extract preview text for %s: %s", attachment.original_filename, exc)
         return {**base, "text": None, "extractable": False}

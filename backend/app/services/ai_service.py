@@ -437,6 +437,45 @@ async def _split_large_pdf(content: bytes, mime_type: str) -> list[list[dict[str
     return [[_document_part(blob, mime_type)] for blob in blobs]
 
 
+async def extract_pdf_text_with_ai(content: bytes) -> str:
+    """Transcribe an image-only PDF with the configured multimodal model."""
+    if not content:
+        return ""
+    if len(content) <= MAX_DOCUMENT_BYTES:
+        segments = [[_document_part(content, "application/pdf")]]
+    else:
+        segments = await _split_large_pdf(content, "application/pdf")
+
+    prompt = {
+        "text": (
+            "Extract all readable text from this PDF in natural reading order. "
+            "Preserve headings, paragraphs, table rows, dates, amounts, and clause "
+            "labels. Return only the transcription, without commentary or Markdown "
+            "code fences. Do not infer text that is not visible."
+        )
+    }
+    semaphore = asyncio.Semaphore(MAX_SEGMENT_CONCURRENCY)
+
+    async def _transcribe(segment: list[dict[str, Any]]) -> str:
+        async with semaphore:
+            return await _generate([prompt, *segment], temperature=0.0)
+
+    outcomes = await asyncio.gather(
+        *(_transcribe(segment) for segment in segments), return_exceptions=True
+    )
+    transcriptions: list[str] = []
+    first_error: BaseException | None = None
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            first_error = first_error or outcome
+            logger.warning("AI PDF transcription segment failed: %s", outcome)
+        elif outcome.strip():
+            transcriptions.append(outcome.strip())
+    if not transcriptions and first_error:
+        raise first_error
+    return "\n\n".join(transcriptions)[:MAX_AI_EXTRACTED_CHARS].strip()
+
+
 def _segment_label(document_label: str, index: int, total: int) -> str:
     if total <= 1:
         return f"\n\n{document_label}:\n"
