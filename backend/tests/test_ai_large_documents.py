@@ -89,21 +89,21 @@ async def test_small_text_pdf_prefers_extracted_text(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_small_scanned_pdf_stays_inline(monkeypatch):
+async def test_small_scanned_pdf_uses_ai_transcription(monkeypatch):
     async def fake_text(content):
         return ""
 
     monkeypatch.setattr(ai_service, "_extract_pdf_text", fake_text)
 
-    async def _fail(*args, **kwargs):  # pragma: no cover - must not be reached
-        raise AssertionError("small scanned PDFs should remain inline")
+    async def fake_transcription(content):
+        return "Transcribed lease text"
 
-    monkeypatch.setattr(ai_service, "_split_large_pdf", _fail)
+    monkeypatch.setattr(ai_service, "extract_pdf_text_with_ai", fake_transcription)
     segments = await ai_service._document_segments(
         b"%PDF-1.4 scan", "application/pdf", None, document_label="DOC"
     )
     assert len(segments) == 1
-    assert "inlineData" in segments[0][0]
+    assert "Transcribed lease text" in segments[0][0]["text"]
 
 
 @pytest.mark.asyncio
@@ -146,14 +146,25 @@ async def test_large_scanned_pdf_falls_back_to_page_split(monkeypatch):
         return ""
 
     monkeypatch.setattr(ai_service, "_extract_pdf_text", fake_text)
-    monkeypatch.setattr(
-        de, "split_pdf", lambda content, *, max_bytes, max_parts: [b"a", b"b"]
-    )
+    async def fake_transcription(content):
+        return "Text from all scanned pages"
+
+    monkeypatch.setattr(ai_service, "extract_pdf_text_with_ai", fake_transcription)
     segments = await ai_service._document_segments(
         oversized, "application/pdf", None, document_label="DOC"
     )
-    assert len(segments) == 2
-    assert all("inlineData" in seg[0] for seg in segments)
+    assert len(segments) == 1
+    assert "Text from all scanned pages" in segments[0][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_extract_pdf_text_rejects_sparse_page_coverage(monkeypatch):
+    monkeypatch.setattr(
+        de,
+        "extract_pdf_pages",
+        lambda content: ["\x11\x16\x15", "", "Readable lease clause " * 40],
+    )
+    assert await ai_service._extract_pdf_text(b"%PDF mixed") == ""
 
 
 # ── PDF splitting ────────────────────────────────────────────────────────────

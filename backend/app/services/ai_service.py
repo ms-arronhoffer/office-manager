@@ -70,10 +70,12 @@ MAX_AI_EXTRACTED_CHARS = MAX_DOCUMENT_SEGMENTS * MAX_TEXT_CHARS
 # Below this many characters a PDF is treated as having no usable text layer
 # (i.e. scanned images) and its pages are sent to the model instead.
 MIN_USABLE_PDF_TEXT_CHARS = 500
+MIN_USABLE_PDF_PAGE_ALNUM_CHARS = 50
+MIN_USABLE_PDF_PAGE_COVERAGE = 0.75
 
 # Bump whenever a parse prompt/field-spec changes so cached results from an
 # older prompt version are invalidated rather than served stale.
-PROMPT_VERSION = "2"
+PROMPT_VERSION = "3"
 
 # ── Per-request token accounting ──────────────────────────────────────────────
 #
@@ -400,7 +402,7 @@ def _split_text(text: str) -> list[str]:
 
 
 async def _extract_pdf_text(content: bytes) -> str:
-    """Best-effort local text extraction from PDF bytes (empty when scanned).
+    """Best-effort local text extraction (empty for scanned or sparse layers).
 
     Runs in a worker thread: parsing a multi-hundred-page PDF is CPU-bound and
     must not block the event loop.
@@ -408,15 +410,29 @@ async def _extract_pdf_text(content: bytes) -> str:
     from app.services import document_extraction
 
     try:
-        return await asyncio.to_thread(
-            document_extraction.extract_text,
-            content,
-            "document.pdf",
-            max_chars=MAX_AI_EXTRACTED_CHARS,
-        )
+        pages = await asyncio.to_thread(document_extraction.extract_pdf_pages, content)
     except document_extraction.DocumentExtractionError as exc:
         logger.info("PDF text extraction failed, falling back to page split: %s", exc)
         return ""
+    usable_pages = sum(
+        1
+        for page in pages
+        if sum(character.isalnum() for character in page)
+        >= MIN_USABLE_PDF_PAGE_ALNUM_CHARS
+    )
+    coverage = usable_pages / len(pages) if pages else 0.0
+    text = "\n\n".join(page for page in pages if page.strip())
+    if (
+        len(text.strip()) < MIN_USABLE_PDF_TEXT_CHARS
+        or coverage < MIN_USABLE_PDF_PAGE_COVERAGE
+    ):
+        logger.info(
+            "PDF has no usable text layer (%d/%d readable pages); using AI transcription",
+            usable_pages,
+            len(pages),
+        )
+        return ""
+    return text[:MAX_AI_EXTRACTED_CHARS].strip()
 
 
 async def _split_large_pdf(content: bytes, mime_type: str) -> list[list[dict[str, Any]]]:
@@ -521,9 +537,17 @@ async def _document_segments(
                         [{"text": _segment_label(document_label, i, total) + chunk}]
                         for i, chunk in enumerate(chunks)
                     ]
-            if len(content) <= MAX_DOCUMENT_BYTES:
-                return [[_document_part(content, mime_type)]]
-            return await _split_large_pdf(content, mime_type)
+            transcribed = await extract_pdf_text_with_ai(content)
+            chunks = _split_text(transcribed)
+            if not chunks:
+                raise AIDocumentError(
+                    "The AI assistant could not find readable text in this PDF."
+                )
+            total = len(chunks)
+            return [
+                [{"text": _segment_label(document_label, i, total) + chunk}]
+                for i, chunk in enumerate(chunks)
+            ]
         if len(content) <= MAX_DOCUMENT_BYTES:
             return [[_document_part(content, mime_type)]]
         raise AIDocumentError(

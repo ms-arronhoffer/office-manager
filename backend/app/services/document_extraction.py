@@ -74,6 +74,11 @@ def extract_text(content: bytes, filename: str, *, max_chars: int | None = None)
 
 
 def _extract_pdf(content: bytes) -> str:
+    return "\n\n".join(p for p in extract_pdf_pages(content) if p.strip())
+
+
+def extract_pdf_pages(content: bytes) -> list[str]:
+    """Return text extracted from each PDF page, preserving page boundaries."""
     try:
         from pypdf import PdfReader
     except ImportError as exc:  # pragma: no cover - dependency guard
@@ -83,7 +88,7 @@ def _extract_pdf(content: bytes) -> str:
         pages = [(page.extract_text() or "") for page in reader.pages]
     except Exception as exc:
         raise DocumentExtractionError(f"Could not read PDF: {exc}") from exc
-    return "\n\n".join(p for p in pages if p.strip())
+    return pages
 
 
 def split_pdf(content: bytes, *, max_bytes: int, max_parts: int) -> list[bytes]:
