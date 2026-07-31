@@ -370,8 +370,35 @@ def _ensure_proxy_host(base_url: str, token: str, route: Route, email: str) -> N
         print(f"    created proxy host #{host_id}")
 
 
+# RFC 2606 / RFC 6761 reserve these TLDs and second-level domains for
+# documentation and examples, so a value using them is a placeholder (e.g. an
+# optional route left "unset" with a sentinel like ``null.example``) rather than
+# a real public hostname. Along with a handful of literal sentinels they are
+# treated as unset so bootstrap.py never provisions an unreachable proxy host —
+# one that can never obtain a Let's Encrypt certificate and would show up
+# "Offline" in the NPM UI.
+_RESERVED_DOMAIN_SUFFIXES = (".example", ".invalid", ".test")
+_RESERVED_DOMAINS = {"example", "example.com", "example.net", "example.org"}
+_PLACEHOLDER_DOMAINS = {"null", "none", "nil", "changeme"}
+
+
+def _is_placeholder_domain(domain: str) -> bool:
+    """Return ``True`` for sentinel/reserved domains that must not be provisioned."""
+
+    value = domain.strip().lower().rstrip(".")
+    if not value:
+        return True
+    if value in _PLACEHOLDER_DOMAINS or value in _RESERVED_DOMAINS:
+        return True
+    if value.endswith(_RESERVED_DOMAIN_SUFFIXES):
+        return True
+    if value.endswith((".example.com", ".example.net", ".example.org")):
+        return True
+    return False
+
+
 def _build_routes() -> list[Route]:
-    """Collect the routes whose domain env vars are set."""
+    """Collect the routes whose domain env vars are set to a real hostname."""
 
     specs = [
         ("frontend", "NPM_FRONTEND_DOMAIN", "frontend", 80),
@@ -382,8 +409,12 @@ def _build_routes() -> list[Route]:
     routes: list[Route] = []
     for name, env_var, host, port in specs:
         domain = _env(env_var)
-        if domain:
-            routes.append(Route(name=name, domain=domain, forward_host=host, forward_port=port))
+        if not domain:
+            continue
+        if _is_placeholder_domain(domain):
+            print(f"  skipping {name} route: {domain!r} is a placeholder/reserved domain (not provisioned).")
+            continue
+        routes.append(Route(name=name, domain=domain, forward_host=host, forward_port=port))
     return routes
 
 
