@@ -62,7 +62,45 @@ async def test_document_segments_labels_parts():
 @pytest.mark.asyncio
 async def test_document_segments_inline_for_small_binary():
     segments = await ai_service._document_segments(
-        b"%PDF-1.4 tiny", "application/pdf", None, document_label="DOC"
+        b"tiny image", "image/png", None, document_label="DOC"
+    )
+    assert len(segments) == 1
+    assert "inlineData" in segments[0][0]
+
+
+@pytest.mark.asyncio
+async def test_small_text_pdf_prefers_extracted_text(monkeypatch):
+    extracted = "R" * (ai_service.MAX_TEXT_CHARS + 10)
+
+    async def fake_text(content):
+        return extracted
+
+    monkeypatch.setattr(ai_service, "_extract_pdf_text", fake_text)
+
+    async def _fail(*args, **kwargs):  # pragma: no cover - must not be reached
+        raise AssertionError("page splitting should not run when text exists")
+
+    monkeypatch.setattr(ai_service, "_split_large_pdf", _fail)
+    segments = await ai_service._document_segments(
+        b"%PDF-1.4 small", "application/pdf", None, document_label="DOC"
+    )
+    assert len(segments) == 2
+    assert "R" * 100 in segments[0][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_small_scanned_pdf_stays_inline(monkeypatch):
+    async def fake_text(content):
+        return ""
+
+    monkeypatch.setattr(ai_service, "_extract_pdf_text", fake_text)
+
+    async def _fail(*args, **kwargs):  # pragma: no cover - must not be reached
+        raise AssertionError("small scanned PDFs should remain inline")
+
+    monkeypatch.setattr(ai_service, "_split_large_pdf", _fail)
+    segments = await ai_service._document_segments(
+        b"%PDF-1.4 scan", "application/pdf", None, document_label="DOC"
     )
     assert len(segments) == 1
     assert "inlineData" in segments[0][0]
