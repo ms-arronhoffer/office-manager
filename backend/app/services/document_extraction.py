@@ -42,8 +42,12 @@ def is_text_extractable(filename: str) -> bool:
     return Path(filename).suffix.lower() in TEXT_EXTRACTABLE_EXTENSIONS
 
 
-def extract_text(content: bytes, filename: str) -> str:
+def extract_text(content: bytes, filename: str, *, max_chars: int | None = None) -> str:
     """Extract plain text from ``content`` based on ``filename``'s extension.
+
+    ``max_chars`` overrides the default :data:`MAX_EXTRACTED_CHARS` ceiling —
+    the AI document pipeline raises it so a large document can be segmented and
+    processed in full instead of being silently truncated.
 
     Raises :class:`UnsupportedDocumentError` for unsupported types (including the
     legacy binary ``.doc`` format) and :class:`DocumentExtractionError` when a
@@ -65,7 +69,8 @@ def extract_text(content: bytes, filename: str) -> str:
         raise UnsupportedDocumentError(
             f"Cannot extract text from '{ext}' files. Supported: .pdf, .docx, .txt."
         )
-    return text[:MAX_EXTRACTED_CHARS].strip()
+    limit = MAX_EXTRACTED_CHARS if max_chars is None else max(1, max_chars)
+    return text[:limit].strip()
 
 
 def _extract_pdf(content: bytes) -> str:
@@ -79,6 +84,64 @@ def _extract_pdf(content: bytes) -> str:
     except Exception as exc:
         raise DocumentExtractionError(f"Could not read PDF: {exc}") from exc
     return "\n\n".join(p for p in pages if p.strip())
+
+
+def split_pdf(content: bytes, *, max_bytes: int, max_parts: int) -> list[bytes]:
+    """Split a PDF into page-range PDFs that each fit within ``max_bytes``.
+
+    Used for documents (typically scanned/image-only PDFs) that are too large to
+    hand to the model in one piece and have no text layer to extract. Pages are
+    grouped in reading order so every page appears in exactly one part and no
+    content is dropped. At most ``max_parts`` parts are returned; anything beyond
+    that is left out rather than producing an unbounded number of model calls.
+
+    Raises :class:`DocumentExtractionError` when the PDF cannot be read or when a
+    single page still exceeds ``max_bytes``.
+    """
+    if max_bytes <= 0 or max_parts <= 0:
+        raise DocumentExtractionError("Invalid PDF split bounds")
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except ImportError as exc:  # pragma: no cover - dependency guard
+        raise DocumentExtractionError("pypdf is not installed") from exc
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        page_count = len(reader.pages)
+    except Exception as exc:
+        raise DocumentExtractionError(f"Could not read PDF: {exc}") from exc
+    if page_count == 0:
+        raise DocumentExtractionError("The PDF did not contain any pages")
+
+    def _serialize(start: int, end: int) -> bytes:
+        writer = PdfWriter()
+        for index in range(start, end):
+            writer.add_page(reader.pages[index])
+        buffer = io.BytesIO()
+        try:
+            writer.write(buffer)
+        except Exception as exc:
+            raise DocumentExtractionError(f"Could not split PDF: {exc}") from exc
+        return buffer.getvalue()
+
+    # Start from a size-proportional page group and shrink it if pypdf's output
+    # (which re-embeds shared resources per part) overshoots the byte ceiling.
+    pages_per_part = max(1, int(page_count * max_bytes / max(len(content), 1) * 0.9))
+    parts: list[bytes] = []
+    start = 0
+    while start < page_count and len(parts) < max_parts:
+        end = min(start + pages_per_part, page_count)
+        blob = _serialize(start, end)
+        while len(blob) > max_bytes and end - start > 1:
+            end = start + max(1, (end - start) // 2)
+            blob = _serialize(start, end)
+        if len(blob) > max_bytes:
+            raise DocumentExtractionError(
+                "A single page of this PDF is too large for AI processing."
+            )
+        parts.append(blob)
+        pages_per_part = max(1, end - start)
+        start = end
+    return parts
 
 
 def _extract_docx(content: bytes) -> str:

@@ -23,6 +23,7 @@ AI output.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import contextvars
 import hashlib
@@ -38,8 +39,37 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 # Hard caps to protect against oversized prompts / documents.
-MAX_DOCUMENT_BYTES = 15 * 1024 * 1024  # 15 MB of raw document bytes
+MAX_DOCUMENT_BYTES = 15 * 1024 * 1024  # 15 MB of raw document bytes per call
 MAX_TEXT_CHARS = 200_000
+
+# ── Large-document strategy ──────────────────────────────────────────────────
+#
+# Uploads are accepted up to ``settings.AI_MAX_FILE_SIZE_MB`` (75 MB by default)
+# — far more than a single Gemini request can carry inline. Anything above the
+# per-call ceilings above is therefore processed as an ordered series of
+# *segments*:
+#
+# 1. **Text-bearing documents** (Word/text, and PDFs with a text layer) are
+#    extracted to plain text locally and split into overlapping chunks of
+#    ``MAX_TEXT_CHARS``. Text is dramatically cheaper and faster than shipping
+#    raw bytes, so this is always preferred when a usable text layer exists.
+# 2. **Scanned / image-only PDFs** have no text to extract, so the PDF itself is
+#    split into page ranges that each fit inside ``MAX_DOCUMENT_BYTES`` and sent
+#    inline.
+#
+# Each segment is sent to the model with the same instructions, and the
+# per-segment results are merged (see ``_merge_segment_results``) so a value that
+# only appears on page 180 still lands in the populated output. Segment count is
+# bounded so one upload can never fan out into unbounded provider spend.
+MAX_DOCUMENT_SEGMENTS = 8
+SEGMENT_OVERLAP_CHARS = 2_000
+MAX_SEGMENT_CONCURRENCY = 3
+# Ceiling on locally extracted text for the AI pipeline — enough to fill every
+# segment, and far above document_extraction's default (search-index) limit.
+MAX_AI_EXTRACTED_CHARS = MAX_DOCUMENT_SEGMENTS * MAX_TEXT_CHARS
+# Below this many characters a PDF is treated as having no usable text layer
+# (i.e. scanned images) and its pages are sent to the model instead.
+MIN_USABLE_PDF_TEXT_CHARS = 500
 
 # Bump whenever a parse prompt/field-spec changes so cached results from an
 # older prompt version are invalidated rather than served stale.
@@ -154,6 +184,15 @@ class AIUnavailableError(AIError):
 
 class AIRequestError(AIError):
     """Raised when the provider call fails or returns an unusable response."""
+
+
+class AIDocumentError(AIError):
+    """Raised when the *uploaded document itself* cannot be processed.
+
+    Unlike :class:`AIRequestError` (an upstream failure) this is a client-side
+    problem — e.g. an image far larger than a single model call can carry, or a
+    PDF that cannot be split — so the router surfaces it as a ``400``.
+    """
 
 
 def is_configured() -> bool:
@@ -338,6 +377,226 @@ def _document_part(content: bytes, mime_type: str) -> dict[str, Any]:
     }
 
 
+# ── Large-document segmentation ──────────────────────────────────────────────
+
+def _split_text(text: str) -> list[str]:
+    """Split document text into ordered, slightly overlapping model-sized chunks.
+
+    Consecutive chunks overlap by ``SEGMENT_OVERLAP_CHARS`` so a clause that
+    straddles a boundary is still seen whole by at least one call.
+    """
+    clean = (text or "").strip()
+    if not clean:
+        return []
+    if len(clean) <= MAX_TEXT_CHARS:
+        return [clean]
+    step = MAX_TEXT_CHARS - SEGMENT_OVERLAP_CHARS
+    chunks: list[str] = []
+    start = 0
+    while start < len(clean) and len(chunks) < MAX_DOCUMENT_SEGMENTS:
+        chunks.append(clean[start : start + MAX_TEXT_CHARS])
+        start += step
+    return chunks
+
+
+async def _extract_pdf_text(content: bytes) -> str:
+    """Best-effort local text extraction from PDF bytes (empty when scanned).
+
+    Runs in a worker thread: parsing a multi-hundred-page PDF is CPU-bound and
+    must not block the event loop.
+    """
+    from app.services import document_extraction
+
+    try:
+        return await asyncio.to_thread(
+            document_extraction.extract_text,
+            content,
+            "document.pdf",
+            max_chars=MAX_AI_EXTRACTED_CHARS,
+        )
+    except document_extraction.DocumentExtractionError as exc:
+        logger.info("PDF text extraction failed, falling back to page split: %s", exc)
+        return ""
+
+
+async def _split_large_pdf(content: bytes, mime_type: str) -> list[list[dict[str, Any]]]:
+    """Segment an oversized PDF into inline page-range parts (off the event loop)."""
+    from app.services import document_extraction
+
+    try:
+        blobs = await asyncio.to_thread(
+            document_extraction.split_pdf,
+            content,
+            max_bytes=MAX_DOCUMENT_BYTES,
+            max_parts=MAX_DOCUMENT_SEGMENTS,
+        )
+    except document_extraction.DocumentExtractionError as exc:
+        raise AIDocumentError(f"Could not process this large PDF: {exc}") from exc
+    if not blobs:
+        raise AIDocumentError("The document did not contain any readable pages.")
+    return [[_document_part(blob, mime_type)] for blob in blobs]
+
+
+def _segment_label(document_label: str, index: int, total: int) -> str:
+    if total <= 1:
+        return f"\n\n{document_label}:\n"
+    return (
+        f"\n\nThis is PART {index + 1} OF {total} of a single large document. "
+        "Base your answer only on what appears in this part; leave anything not "
+        f"present here unset.\n{document_label} (part {index + 1} of {total}):\n"
+    )
+
+
+async def _document_segments(
+    content: bytes,
+    mime_type: str,
+    text_content: str | None,
+    *,
+    document_label: str,
+) -> list[list[dict[str, Any]]]:
+    """Build the ordered document parts for each model call.
+
+    Returns one list of Gemini content parts per segment: a single segment for
+    ordinary documents, several for large ones (see the module-level
+    *Large-document strategy* notes). Returns an empty list when there is no
+    document at all (callers that treat the document as optional).
+    """
+    if text_content is not None:
+        chunks = _split_text(text_content)
+        if not chunks:
+            raise AIRequestError("The document did not contain any readable text.")
+    elif content:
+        if len(content) <= MAX_DOCUMENT_BYTES:
+            return [[_document_part(content, mime_type)]]
+        if "pdf" not in (mime_type or "").lower():
+            raise AIDocumentError(
+                f"This file is too large for AI processing "
+                f"(over {MAX_DOCUMENT_BYTES // (1024 * 1024)} MB of image data). "
+                "Convert it to a PDF or a text document, or split it into "
+                "smaller files."
+            )
+        # Prefer the (much cheaper) text layer; fall back to splitting pages.
+        extracted = await _extract_pdf_text(content)
+        if len(extracted) < MIN_USABLE_PDF_TEXT_CHARS:
+            return await _split_large_pdf(content, mime_type)
+        chunks = _split_text(extracted)
+        if not chunks:
+            return await _split_large_pdf(content, mime_type)
+    else:
+        return []
+
+    total = len(chunks)
+    return [
+        [{"text": _segment_label(document_label, i, total) + chunk}]
+        for i, chunk in enumerate(chunks)
+    ]
+
+
+async def _generate_over_segments(
+    prompt_parts: list[dict[str, Any]],
+    segments: list[list[dict[str, Any]]],
+    *,
+    system_instruction: str | None = None,
+    temperature: float = 0.2,
+) -> list[str]:
+    """Run the same prompt against every document segment, in order.
+
+    Segments run with bounded concurrency to keep large-document latency
+    reasonable without stampeding the provider. A segment that fails is skipped
+    so one bad chunk cannot discard the rest of the document; if *every* segment
+    fails the underlying error is raised.
+    """
+    if len(segments) <= 1:
+        parts = prompt_parts + (segments[0] if segments else [])
+        return [
+            await _generate(
+                parts,
+                system_instruction=system_instruction,
+                json_response=True,
+                temperature=temperature,
+            )
+        ]
+
+    semaphore = asyncio.Semaphore(MAX_SEGMENT_CONCURRENCY)
+
+    async def _run(segment: list[dict[str, Any]]) -> str:
+        async with semaphore:
+            return await _generate(
+                prompt_parts + segment,
+                system_instruction=system_instruction,
+                json_response=True,
+                temperature=temperature,
+            )
+
+    outcomes = await asyncio.gather(
+        *(_run(segment) for segment in segments), return_exceptions=True
+    )
+    texts: list[str] = []
+    first_error: BaseException | None = None
+    for outcome in outcomes:
+        if isinstance(outcome, BaseException):
+            first_error = first_error or outcome
+            logger.warning("AI segment failed: %s", outcome)
+        else:
+            texts.append(outcome)
+    if not texts:
+        raise first_error if first_error else AIRequestError(
+            "AI provider returned no usable response"
+        )
+    return texts
+
+
+def _is_empty(value: Any) -> bool:
+    return value is None or value == "" or value == [] or value == {}
+
+
+def _merge_segment_results(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge per-segment JSON objects into one, earlier segments winning.
+
+    Keys populated by an earlier segment are kept (documents state their key
+    terms up front); keys still empty are filled from later segments, so values
+    that only appear deep in a large document are not lost. Nested objects are
+    merged recursively with the same rule.
+    """
+    merged: dict[str, Any] = {}
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        for key, value in result.items():
+            if _is_empty(value):
+                merged.setdefault(key, value)
+                continue
+            current = merged.get(key)
+            if isinstance(current, dict) and isinstance(value, dict):
+                merged[key] = _merge_segment_results([current, value])
+            elif key not in merged or _is_empty(current):
+                merged[key] = value
+    return merged
+
+
+async def _generate_json_over_segments(
+    prompt_parts: list[dict[str, Any]],
+    segments: list[list[dict[str, Any]]],
+    *,
+    system_instruction: str | None = None,
+) -> dict[str, Any]:
+    """Run a JSON prompt across every segment and merge the parsed objects."""
+    texts = await _generate_over_segments(
+        prompt_parts, segments, system_instruction=system_instruction
+    )
+    if len(texts) == 1:
+        return _parse_json_object(texts[0])
+    parsed: list[dict[str, Any]] = []
+    for text in texts:
+        try:
+            parsed.append(_parse_json_object(text))
+        except AIRequestError as exc:  # tolerate one malformed segment
+            logger.warning("Discarding unparseable AI segment: %s", exc)
+    if not parsed:
+        raise AIRequestError("AI provider did not return valid JSON")
+    return _merge_segment_results(parsed)
+
+
 # ── Public helpers ────────────────────────────────────────────────────────────
 
 LEASE_PARSE_SYSTEM = (
@@ -404,7 +663,9 @@ async def _parse_fields_from_document(
     Shared engine behind the per-entity ``parse_*`` helpers. For PDFs and images
     the raw bytes are sent inline (Gemini reads them natively); for formats
     Gemini cannot parse directly (e.g. Word documents) the caller extracts plain
-    text first and passes it as ``text_content``.
+    text first and passes it as ``text_content``. Documents too large for a
+    single call are segmented and the per-segment field sets merged, so a value
+    that only appears late in the document is still populated.
 
     Identical (parser, prompt version, model, document) calls are served from a
     small in-process cache to cut latency and provider spend.
@@ -417,20 +678,12 @@ async def _parse_fields_from_document(
 
     field_spec = "\n".join(f"- {k}: {v}" for k, v in field_spec_map.items())
     prompt = f"{intro}\n{field_spec}\n"
-    if text_content is not None:
-        document = text_content[:MAX_TEXT_CHARS].strip()
-        if not document:
-            raise AIRequestError("The document did not contain any readable text.")
-        parts = [
-            {"text": prompt},
-            {"text": f"\n\n{document_label}:\n" + document},
-        ]
-    else:
-        parts = [{"text": prompt}, _document_part(content, mime_type)]
-    text = await _generate(
-        parts, system_instruction=system_instruction, json_response=True
+    segments = await _document_segments(
+        content, mime_type, text_content, document_label=document_label
     )
-    result = _parse_json_object(text)
+    result = await _generate_json_over_segments(
+        [{"text": prompt}], segments, system_instruction=system_instruction
+    )
     _cache_put(key, result)
     return result
 
@@ -668,7 +921,9 @@ async def draft_lease_template_from_document(
     """Turn a lease document into a reusable lease-template ``{name, description, body}``.
 
     For PDFs/images the raw bytes are sent inline; for Word/text documents the
-    caller extracts plain text first and passes it as ``text_content``.
+    caller extracts plain text first and passes it as ``text_content``. A lease
+    too large for one call is templated segment by segment and the bodies are
+    concatenated in document order.
     """
     payload = _cache_payload(content, text_content)
     key = _cache_key("lease_template", payload)
@@ -684,28 +939,34 @@ async def draft_lease_template_from_document(
         "Use only these merge fields where a tenant/unit/term-specific value "
         "appears:\n" + merge_spec + "\n"
     )
-    if text_content is not None:
-        document = text_content[:MAX_TEXT_CHARS].strip()
-        if not document:
-            raise AIRequestError("The document did not contain any readable text.")
-        parts = [
-            {"text": prompt},
-            {"text": "\n\nLEASE DOCUMENT TEXT:\n" + document},
-        ]
-    else:
-        parts = [{"text": prompt}, _document_part(content, mime_type)]
-
-    text = await _generate(
-        parts, system_instruction=LEASE_TEMPLATE_SYSTEM, json_response=True
+    segments = await _document_segments(
+        content, mime_type, text_content, document_label="LEASE DOCUMENT TEXT"
     )
-    result = _parse_json_object(text)
-    body = result.get("body")
-    if not isinstance(body, str) or not body.strip():
+    texts = await _generate_over_segments(
+        [{"text": prompt}], segments, system_instruction=LEASE_TEMPLATE_SYSTEM
+    )
+    name = ""
+    description = None
+    bodies: list[str] = []
+    for text in texts:
+        try:
+            result = _parse_json_object(text)
+        except AIRequestError as exc:  # tolerate one malformed segment
+            logger.warning("Discarding unparseable lease-template segment: %s", exc)
+            continue
+        body = result.get("body")
+        if not isinstance(body, str) or not body.strip():
+            continue
+        bodies.append(body.strip())
+        if not name:
+            name = str(result.get("name") or "").strip()
+            description = result.get("description") or None
+    if not bodies:
         raise AIRequestError("AI provider did not return a template body")
     normalized = {
-        "name": (result.get("name") or "Lease Template").strip()[:255],
-        "description": (result.get("description") or None),
-        "body": body,
+        "name": (name or "Lease Template")[:255],
+        "description": description,
+        "body": "\n\n".join(bodies),
     }
     _cache_put(key, normalized)
     return normalized
@@ -927,21 +1188,12 @@ async def suggest_abstract_clauses(
         "return a JSON object per category keyed by those field keys:\n"
         f"{cat_spec}\n"
     )
-    if text_content is not None:
-        document = text_content[:MAX_TEXT_CHARS].strip()
-        if not document:
-            raise AIRequestError("The document did not contain any readable text.")
-        parts = [
-            {"text": prompt},
-            {"text": "\n\nLEASE DOCUMENT TEXT:\n" + document},
-        ]
-    else:
-        parts = [{"text": prompt}, _document_part(content, mime_type)]
-    text = await _generate(
-        parts, system_instruction=ABSTRACT_SUGGEST_SYSTEM, json_response=True
+    segments = await _document_segments(
+        content, mime_type, text_content, document_label="LEASE DOCUMENT TEXT"
     )
-    return _parse_json_object(text)
-
+    return await _generate_json_over_segments(
+        [{"text": prompt}], segments, system_instruction=ABSTRACT_SUGGEST_SYSTEM
+    )
 
 # ── Lease abstract gap-detection (QA pass) ───────────────────────────────────
 
@@ -1031,17 +1283,59 @@ async def detect_abstract_gaps(
         f"{chr(10).join(blocks)}\n"
     )
     parts: list[dict[str, Any]] = [{"text": prompt}]
-    if text_content is not None:
-        document = text_content[:MAX_TEXT_CHARS].strip()
-        if document:
-            parts.append({"text": "\n\nLEASE DOCUMENT TEXT:\n" + document})
-    elif content:
-        parts.append(_document_part(content, mime_type))
-    raw = await _generate(
-        parts, system_instruction=ABSTRACT_GAP_SYSTEM, json_response=True
+    segments = await _document_segments(
+        content, mime_type, text_content, document_label="LEASE DOCUMENT TEXT"
     )
-    parsed = _parse_json_object(raw)
-    return _normalize_gaps(parsed.get("gaps"), {c["key"] for c in categories})
+    raws = await _generate_over_segments(
+        parts, segments, system_instruction=ABSTRACT_GAP_SYSTEM
+    )
+    valid_keys = {c["key"] for c in categories}
+    per_segment: list[list[dict[str, Any]]] = []
+    for raw in raws:
+        try:
+            parsed = _parse_json_object(raw)
+        except AIRequestError as exc:  # tolerate one malformed segment
+            logger.warning("Discarding unparseable gap segment: %s", exc)
+            continue
+        per_segment.append(_normalize_gaps(parsed.get("gaps"), valid_keys))
+    if not per_segment:
+        raise AIRequestError("AI provider did not return valid JSON")
+    return _merge_gap_findings(per_segment)
+
+
+def _merge_gap_findings(per_segment: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Combine gap findings from each segment of a large document.
+
+    Each segment only sees part of the lease, so a ``missing`` finding is only
+    trustworthy when *every* segment reported it — otherwise the clause was
+    simply in another part. ``ambiguous``/``incomplete`` findings are genuine
+    local observations and are unioned, deduplicated by (category, gap type)
+    keeping the highest severity.
+    """
+    if len(per_segment) == 1:
+        return per_segment[0]
+
+    severity_rank = {sev: i for i, sev in enumerate(_GAP_SEVERITIES)}
+    merged: dict[tuple[str, str], dict[str, Any]] = {}
+    seen_missing: dict[str, int] = {}
+    for findings in per_segment:
+        for finding in findings:
+            key = (finding["category_key"], finding["gap_type"])
+            if finding["gap_type"] == "missing":
+                seen_missing[finding["category_key"]] = (
+                    seen_missing.get(finding["category_key"], 0) + 1
+                )
+            existing = merged.get(key)
+            if existing is None or severity_rank.get(
+                finding["severity"], 99
+            ) < severity_rank.get(existing["severity"], 99):
+                merged[key] = finding
+    total = len(per_segment)
+    return [
+        finding
+        for (category_key, gap_type), finding in merged.items()
+        if gap_type != "missing" or seen_missing.get(category_key, 0) == total
+    ]
 
 
 def _normalize_gaps(gaps: Any, valid_keys: set[str]) -> list[dict[str, Any]]:
@@ -1302,21 +1596,43 @@ async def classify_document(
         "DOCUMENT TYPES AND THEIR FIELDS:\n"
         f"{_format_classify_fields()}\n"
     )
-    if text_content is not None:
-        document = text_content[:MAX_TEXT_CHARS].strip()
-        if not document:
-            raise AIRequestError("The document did not contain any readable text.")
-        parts = [
-            {"text": prompt},
-            {"text": "\n\nDOCUMENT TEXT:\n" + document},
-        ]
-    else:
-        parts = [{"text": prompt}, _document_part(content, mime_type)]
-    text = await _generate(
-        parts, system_instruction=INBOUND_CLASSIFY_SYSTEM, json_response=True
+    segments = await _document_segments(
+        content, mime_type, text_content, document_label="DOCUMENT TEXT"
     )
-    return _normalize_classification(_parse_json_object(text))
+    texts = await _generate_over_segments(
+        [{"text": prompt}], segments, system_instruction=INBOUND_CLASSIFY_SYSTEM
+    )
+    results = []
+    for text in texts:
+        try:
+            results.append(_normalize_classification(_parse_json_object(text)))
+        except AIRequestError as exc:  # tolerate one malformed segment
+            logger.warning("Discarding unparseable classification segment: %s", exc)
+    if not results:
+        raise AIRequestError("AI provider did not return valid JSON")
+    return _merge_classifications(results)
 
+
+def _merge_classifications(results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Pick the best-supported classification and merge its fields.
+
+    The document type is decided by the segment that identified a known type
+    with the highest confidence (documents lead with their identifying header),
+    and fields from every segment agreeing on that type are merged so values
+    that only appear later in a large document are still populated.
+    """
+    if len(results) == 1:
+        return results[0]
+    order = {conf: i for i, conf in enumerate(_CLASSIFY_CONFIDENCES)}
+    known = [r for r in results if r["document_type"] != "unknown"] or results
+    best = min(known, key=lambda r: order.get(r["confidence"], 99))
+    same_type = [r for r in results if r["document_type"] == best["document_type"]]
+    return {
+        "document_type": best["document_type"],
+        "confidence": best["confidence"],
+        "reasoning": best["reasoning"],
+        "fields": _merge_segment_results([r["fields"] for r in same_type]),
+    }
 
 def _normalize_classification(parsed: dict[str, Any]) -> dict[str, Any]:
     """Coerce raw model output into a clean classification result.

@@ -7,6 +7,7 @@ import FileUpload from '@cloudscape-design/components/file-upload';
 import Alert from '@cloudscape-design/components/alert';
 import Box from '@cloudscape-design/components/box';
 import { ai } from '@/api';
+import { aiUploadErrorMessage } from '@/utils/aiUpload';
 
 interface AILeasePrefillProps {
   /** Called with the model's suggested field map for the form to apply. */
@@ -43,12 +44,7 @@ const AILeasePrefill: React.FC<AILeasePrefillProps> = ({ onSuggested, onFileExtr
       onFileExtracted?.(files[0]);
       setDone(true);
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 503) {
-        setError('AI assist is not configured on the server. Add a Gemini API key to enable this.');
-      } else {
-        setError('Could not read the document. Please enter the details manually.');
-      }
+      setError(aiUploadErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -81,7 +77,7 @@ const AILeasePrefill: React.FC<AILeasePrefillProps> = ({ onSuggested, onFileExtr
             limitShowMore: 'Show more',
             errorIconAriaLabel: 'Error',
           }}
-          constraintText="PDF, image, or text. The extracted values are suggestions — confirm before saving."
+          constraintText="PDF, image, or text. Large documents are read in sections, so they can take a little longer. The extracted values are suggestions — confirm before saving."
         />
         <SpaceBetween direction="horizontal" size="xs">
           <Button onClick={run} loading={loading} disabled={files.length === 0}>

@@ -23,6 +23,7 @@ Gating:
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -328,7 +329,14 @@ def _allowed_extensions() -> set[str]:
 
 
 async def _read_document(file: UploadFile) -> tuple[bytes, str]:
-    """Validate and read an uploaded document, returning (bytes, mime_type)."""
+    """Validate and read an uploaded document, returning (bytes, mime_type).
+
+    AI documents are processed in memory (extracted, segmented, sent to the
+    model) rather than stored, so they use the larger
+    ``AI_MAX_FILE_SIZE_MB`` ceiling. The upload is read in bounded chunks and
+    rejected as soon as it exceeds that ceiling, so an oversized (or
+    mis-declared) upload can never be buffered in full.
+    """
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No filename provided")
     ext = Path(file.filename).suffix.lower()
@@ -337,17 +345,29 @@ async def _read_document(file: UploadFile) -> tuple[bytes, str]:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File type '{ext}' is not allowed. Allowed: {settings.ALLOWED_EXTENSIONS}",
         )
-    content = await file.read()
-    max_bytes = settings.MAX_FILE_SIZE_MB * 1024 * 1024
-    if len(content) > max_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File too large. Maximum size is {settings.MAX_FILE_SIZE_MB} MB.",
-        )
+    max_bytes = settings.AI_MAX_FILE_SIZE_MB * 1024 * 1024
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File too large. Maximum size is {settings.AI_MAX_FILE_SIZE_MB} MB.",
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
     if not content:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
     mime_type = file.content_type or _MIME_BY_EXT.get(ext, "application/octet-stream")
     return content, mime_type
+
+
+# Upload read granularity (1 MB) — keeps peak memory bounded while streaming.
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 
 _MIME_BY_EXT = {
@@ -366,19 +386,26 @@ _MIME_BY_EXT = {
 _TEXT_EXTRACT_EXTS = {".docx", ".doc", ".txt"}
 
 
-def _maybe_extract_text(filename: str | None, content: bytes) -> str | None:
+async def _maybe_extract_text(filename: str | None, content: bytes) -> str | None:
     """Extract plain text for formats Gemini cannot read inline.
 
     Word/text documents (``_TEXT_EXTRACT_EXTS``) must be converted to text
     before being sent to the model — passing their raw bytes inline yields an
-    empty/garbage response. PDFs and images return ``None`` so the caller sends
-    the bytes inline instead.
+    empty/garbage response. PDFs and images return ``None``; ``ai_service``
+    then decides whether the bytes fit inline or the document must be
+    text-extracted / split into segments.
     """
     ext = Path(filename or "").suffix.lower()
     if ext not in _TEXT_EXTRACT_EXTS:
         return None
     try:
-        text_content = document_extraction.extract_text(content, filename or "")
+        # Parsing a large document is CPU-bound; keep it off the event loop.
+        text_content = await asyncio.to_thread(
+            document_extraction.extract_text,
+            content,
+            filename or "",
+            max_chars=ai_service.MAX_AI_EXTRACTED_CHARS,
+        )
     except (
         document_extraction.UnsupportedDocumentError,
         document_extraction.DocumentExtractionError,
@@ -395,6 +422,9 @@ def _maybe_extract_text(filename: str | None, content: bytes) -> str | None:
 def _ai_error_response(exc: ai_service.AIError) -> HTTPException:
     if isinstance(exc, ai_service.AIUnavailableError):
         return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    if isinstance(exc, ai_service.AIDocumentError):
+        # The document itself is the problem — tell the user, don't blame upstream.
+        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
 
@@ -451,7 +481,7 @@ async def parse_lease(
     intentionally **not** gated behind ``ai_assist``.
     """
     content, mime_type = await _read_document(file)
-    text_content = _maybe_extract_text(file.filename, content)
+    text_content = await _maybe_extract_text(file.filename, content)
 
     try:
         suggested = await ai_service.parse_lease_document(
@@ -574,7 +604,7 @@ async def classify_document(
     returned for human review — nothing is auto-committed.
     """
     content, mime_type = await _read_document(file)
-    text_content = _maybe_extract_text(file.filename, content)
+    text_content = await _maybe_extract_text(file.filename, content)
 
     try:
         result = await ai_service.classify_document(
@@ -612,7 +642,7 @@ async def _parse_document_with(
 ) -> DocumentParseResponse:
     """Shared body for the per-entity document-extraction endpoints."""
     content, mime_type = await _read_document(file)
-    text_content = _maybe_extract_text(file.filename, content)
+    text_content = await _maybe_extract_text(file.filename, content)
     try:
         suggested = await parser(content, mime_type, text_content=text_content)
     except ai_service.AIError as exc:
@@ -699,7 +729,7 @@ async def draft_lease_template(
     through the lease-templates API.
     """
     content, mime_type = await _read_document(file)
-    text_content = _maybe_extract_text(file.filename, content)
+    text_content = await _maybe_extract_text(file.filename, content)
     try:
         suggested = await ai_service.draft_lease_template_from_document(
             content, mime_type, text_content=text_content
@@ -996,7 +1026,7 @@ async def suggest_abstract(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
 
     content, mime_type = await _read_document(file)
-    text_content = _maybe_extract_text(file.filename, content)
+    text_content = await _maybe_extract_text(file.filename, content)
     categories = [
         {"key": c["key"], "name": c["name"], "fields": c["fields"]}
         for c in CLAUSE_CATEGORIES
@@ -1056,7 +1086,7 @@ async def detect_abstract_gaps(
     text_content: str | None = None
     if file is not None and file.filename:
         content, mime_type = await _read_document(file)
-        text_content = _maybe_extract_text(file.filename, content)
+        text_content = await _maybe_extract_text(file.filename, content)
 
     categories = [
         {"key": c["key"], "name": c["name"], "fields": c["fields"]}
