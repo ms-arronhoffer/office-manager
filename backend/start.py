@@ -153,6 +153,27 @@ _RECONCILE_COLUMNS: dict[str, list[str]] = {
         "pet_deposit numeric(15, 2)",
         "renewal_option boolean NOT NULL DEFAULT false",
     ],
+    # Migration 109 widened the CAM schedule so a row can describe a prior
+    # (historical) period of an existing tenancy and carry its provenance. A DB
+    # create_all-stamped at an older head never runs that migration, and every
+    # ``/leases/{id}/cam-entries`` SELECT then 500s on the missing columns.
+    "lease_cam_entries": [
+        "period_start date",
+        "period_end date",
+        "period_status varchar(20) NOT NULL DEFAULT 'current'",
+        "base_rent_amount numeric(15, 2)",
+        "base_rent_frequency varchar(20)",
+        "base_rent_escalation_rate numeric(8, 6)",
+        "operating_expense_amount numeric(15, 2)",
+        "cam_psf numeric(12, 4)",
+        "reconciliation_true_up numeric(15, 2)",
+        "source varchar(20) NOT NULL DEFAULT 'manual'",
+        "source_document_id uuid",
+        "import_batch_id uuid",
+        "extraction_confidence numeric(4, 3)",
+        "review_status varchar(20) NOT NULL DEFAULT 'accepted'",
+        "imported_at timestamptz",
+    ],
     # Self storage gained its own Property (facility) and Manager data sets in
     # migrations 100/101. A DB that was create_all-stamped at an older head has
     # ``alembic upgrade`` as a no-op, so these facility/manager link columns can

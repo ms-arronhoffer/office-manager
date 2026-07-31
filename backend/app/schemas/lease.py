@@ -223,15 +223,70 @@ class _LeaseBoundedTextMixin(BaseModel):
 
 
 CAM_CHARGE_TYPES = {"fixed", "percent_increase"}
+CAM_PERIOD_STATUSES = {"historical", "current", "projected"}
+CAM_SOURCES = {"manual", "ai_import", "csv_import", "reconciliation"}
+CAM_REVIEW_STATUSES = {"pending", "accepted", "rejected"}
 
 
-class LeaseCamEntryBase(BaseModel):
+class _CamFinancialFields(BaseModel):
+    """Period, financial and provenance fields shared by CAM schedule rows.
+
+    These describe a single lease-year: the CAM charge itself plus the base
+    rent, operating expenses and reconciliation settlement of that year, so a
+    prior (historical) year imported from old lease documents is more than a
+    CAM number. All are optional — a plain per-year CAM schedule never sets
+    them.
+    """
+
+    period_start: date | None = None
+    period_end: date | None = None
+    base_rent_amount: Decimal | None = None
+    base_rent_frequency: str | None = None      # monthly | quarterly | annually
+    base_rent_escalation_rate: Decimal | None = None  # 0.030000 = 3 %
+    operating_expense_amount: Decimal | None = None
+    cam_psf: Decimal | None = None
+    reconciliation_true_up: Decimal | None = None
+
+    @field_validator(
+        "base_rent_amount",
+        "operating_expense_amount",
+        "reconciliation_true_up",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_money(cls, value: object) -> Decimal | None:
+        return _coerce_decimal(value, integer_digits=13, scale=2)
+
+    @field_validator("base_rent_escalation_rate", mode="before")
+    @classmethod
+    def _coerce_rate(cls, value: object) -> Decimal | None:
+        return _coerce_decimal(value, integer_digits=2, scale=6)
+
+    @field_validator("cam_psf", mode="before")
+    @classmethod
+    def _coerce_psf(cls, value: object) -> Decimal | None:
+        return _coerce_decimal(value, integer_digits=8, scale=4)
+
+    @field_validator("base_rent_frequency", mode="before")
+    @classmethod
+    def _normalize_rent_frequency(cls, value: object) -> str | None:
+        return _coerce_enum(value, _PAYMENT_FREQUENCIES)
+
+
+class LeaseCamEntryBase(_CamFinancialFields):
     year: int
     charge_type: str = "fixed"          # 'fixed' | 'percent_increase'
     amount: Decimal | None = None       # used when charge_type == 'fixed'
     percent_increase: Decimal | None = None  # e.g. 0.030000 = 3 % over prior year
     gl_account_id: uuid.UUID | None = None
     notes: str | None = None
+    # historical | current | projected; manual rows default to the active schedule.
+    period_status: str = "current"
+
+    @field_validator("period_status", mode="before", check_fields=False)
+    @classmethod
+    def _normalize_base_period_status(cls, value: object) -> str:
+        return _coerce_enum(value, CAM_PERIOD_STATUSES) or "current"
 
     @field_validator("charge_type", mode="before")
     @classmethod
@@ -259,13 +314,19 @@ class LeaseCamEntryCreate(LeaseCamEntryBase):
     pass
 
 
-class LeaseCamEntryUpdate(BaseModel):
+class LeaseCamEntryUpdate(_CamFinancialFields):
     year: int | None = None
     charge_type: str | None = None
+    period_status: str | None = None
     amount: Decimal | None = None
     percent_increase: Decimal | None = None
     gl_account_id: uuid.UUID | None = None
     notes: str | None = None
+
+    @field_validator("period_status", mode="before")
+    @classmethod
+    def _normalize_period_status(cls, value: object) -> str | None:
+        return _coerce_enum(value, CAM_PERIOD_STATUSES)
 
     @field_validator("charge_type", mode="before")
     @classmethod
@@ -299,7 +360,142 @@ class LeaseCamEntryResponse(BaseModel):
     notes: str | None
     created_at: datetime
 
+    # Period / scope
+    period_start: date | None = None
+    period_end: date | None = None
+    period_status: str = "current"
+
+    # Financial breadth
+    base_rent_amount: Decimal | None = None
+    base_rent_frequency: str | None = None
+    base_rent_escalation_rate: Decimal | None = None
+    operating_expense_amount: Decimal | None = None
+    cam_psf: Decimal | None = None
+    reconciliation_true_up: Decimal | None = None
+
+    # Provenance
+    source: str = "manual"
+    source_document_id: uuid.UUID | None = None
+    import_batch_id: uuid.UUID | None = None
+    extraction_confidence: Decimal | None = None
+    review_status: str = "accepted"
+    imported_at: datetime | None = None
+
+    # Resolved CAM charge for the year: ``amount`` for a fixed row, or the
+    # prior year's resolved charge grown by ``percent_increase``. Computed by
+    # ``app.services.cam_schedule_service`` per period group, so historical
+    # rows never re-base the active schedule's chain.
+    effective_amount: Decimal | None = None
+
     model_config = {"from_attributes": True}
+
+
+# ── Historical financial import (parse → review → import) ────────────────────
+
+# How an import treats a lease-year that already has a row of the same period
+# status: keep the existing row, replace it, or add another alongside it.
+CAM_IMPORT_MODES = {"skip_existing", "overwrite", "append"}
+
+
+class CamHistoryRow(LeaseCamEntryBase):
+    """One proposed lease-year of financials awaiting review.
+
+    Produced by AI document extraction or CSV parsing and posted back — after
+    the user has reviewed and edited it — to the CAM import endpoint. Nothing
+    is written to the database until that explicit import call.
+    """
+
+    extraction_confidence: Decimal | None = None
+    # Optional per-row override of the request-level period status.
+    period_status: str | None = None
+
+    @field_validator("extraction_confidence", mode="before")
+    @classmethod
+    def _coerce_confidence(cls, value: object) -> Decimal | None:
+        coerced = _coerce_decimal(value, integer_digits=1, scale=3)
+        if coerced is None:
+            return None
+        if coerced < 0 or coerced > 1:
+            return None
+        return coerced
+
+    # Overrides the base validator (same name) so an unset period status stays
+    # None and the import request's period status applies instead.
+    @field_validator("period_status", mode="before")
+    @classmethod
+    def _normalize_base_period_status(cls, value: object) -> str | None:
+        return _coerce_enum(value, CAM_PERIOD_STATUSES)
+
+
+class CamHistoryParseResponse(BaseModel):
+    """Proposed rows extracted from a document. No database writes occur."""
+
+    periods: list[CamHistoryRow] = []
+    # Overall period the source document appears to cover, when detectable.
+    period_start: date | None = None
+    period_end: date | None = None
+    warnings: list[str] = []
+    model: str | None = None
+
+
+class CamHistoryImportRequest(BaseModel):
+    """Reviewed rows to persist onto the lease's CAM schedule."""
+
+    rows: list[CamHistoryRow]
+    mode: str = "skip_existing"
+    # Period status applied to rows that do not carry their own. ``auto``
+    # derives it from each row's year relative to today.
+    period_status: str = "historical"
+    source: str = "ai_import"
+    source_document_id: uuid.UUID | None = None
+    # Historical rows overlapping the active lease term are reported as
+    # conflicts unless the caller explicitly opts in.
+    allow_active_period_overlap: bool = False
+    # Present so the intent is explicit and auditable: importing history must
+    # never touch the lease's live financial terms, so only ``False`` is
+    # accepted (use the promote endpoint for that).
+    apply_to_lease: bool = False
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _normalize_mode(cls, value: object) -> str:
+        return _coerce_enum(value, CAM_IMPORT_MODES) or "skip_existing"
+
+    @field_validator("period_status", mode="before")
+    @classmethod
+    def _normalize_period_status(cls, value: object) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized == "auto":
+            return "auto"
+        return _coerce_enum(value, CAM_PERIOD_STATUSES) or "historical"
+
+    @field_validator("source", mode="before")
+    @classmethod
+    def _normalize_source(cls, value: object) -> str:
+        return _coerce_enum(value, CAM_SOURCES) or "ai_import"
+
+
+class CamHistoryImportRowResult(BaseModel):
+    """Outcome for a single imported row."""
+
+    year: int
+    # created | updated | skipped | conflict
+    status: str
+    entry_id: uuid.UUID | None = None
+    reason: str | None = None
+
+
+class CamHistoryImportResponse(BaseModel):
+    import_batch_id: uuid.UUID
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    conflicts: int = 0
+    results: list[CamHistoryImportRowResult] = []
+
+
+class CamImportBatchDeleteResponse(BaseModel):
+    deleted: int
 
 
 class LeaseCreate(_LeaseAccountingFields, _LeaseBoundedTextMixin):

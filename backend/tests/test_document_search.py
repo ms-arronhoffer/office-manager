@@ -221,6 +221,27 @@ async def test_index_attachment_keyword_only(db_session, monkeypatch):
     assert results and results[0]["lease_id"] == str(lease.id)
 
 
+@pytest.mark.asyncio
+async def test_image_only_pdf_uses_ai_text_fallback(monkeypatch):
+    monkeypatch.setattr(ai_service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        document_search_service.document_extraction,
+        "extract_text",
+        lambda content, filename: "",
+    )
+
+    async def fake_ai_extract(content):
+        assert content == b"%PDF scanned"
+        return "Scanned lease base rent is $4,200 per month."
+
+    monkeypatch.setattr(ai_service, "extract_pdf_text_with_ai", fake_ai_extract)
+
+    text = await document_search_service._extract_searchable_text(
+        b"%PDF scanned", "lease.pdf"
+    )
+    assert text == "Scanned lease base rent is $4,200 per month."
+
+
 def test_snippet_returns_full_paragraph_single_newline():
     """Word-style text (paragraphs joined by single newlines) returns the whole
     matched paragraph, not a truncated window."""

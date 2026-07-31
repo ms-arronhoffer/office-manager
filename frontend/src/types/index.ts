@@ -993,6 +993,9 @@ export interface GLAccountRef {
 export type GLAccountOption = GLAccountRef;
 
 export type CamChargeType = 'fixed' | 'percent_increase';
+export type CamPeriodStatus = 'historical' | 'current' | 'projected';
+export type CamSource = 'manual' | 'ai_import' | 'csv_import' | 'reconciliation';
+export type CamImportMode = 'skip_existing' | 'overwrite' | 'append';
 
 export interface LeaseCamEntry {
   id: string;
@@ -1004,6 +1007,26 @@ export interface LeaseCamEntry {
   gl_account: GLAccountRef | null;
   notes: string | null;
   created_at: string;
+  // Period / scope
+  period_start: string | null;
+  period_end: string | null;
+  period_status: CamPeriodStatus | string;
+  // Financial breadth
+  base_rent_amount: number | null;
+  base_rent_frequency: 'monthly' | 'quarterly' | 'annually' | null;
+  base_rent_escalation_rate: number | null;
+  operating_expense_amount: number | null;
+  cam_psf: number | null;
+  reconciliation_true_up: number | null;
+  // Provenance
+  source: CamSource | string;
+  source_document_id: string | null;
+  import_batch_id: string | null;
+  extraction_confidence: number | null;
+  review_status: string;
+  imported_at: string | null;
+  // Resolved charge
+  effective_amount: number | null;
 }
 
 export interface LeaseCamEntryInput {
@@ -1013,6 +1036,64 @@ export interface LeaseCamEntryInput {
   percent_increase?: number | string | null;
   gl_account_id?: string | null;
   notes?: string | null;
+  // Period / scope
+  period_start?: string | null;
+  period_end?: string | null;
+  period_status?: CamPeriodStatus | string | null;
+  // Financial breadth
+  base_rent_amount?: number | string | null;
+  base_rent_frequency?: 'monthly' | 'quarterly' | 'annually' | null;
+  base_rent_escalation_rate?: number | string | null;
+  operating_expense_amount?: number | string | null;
+  cam_psf?: number | string | null;
+  reconciliation_true_up?: number | string | null;
+}
+
+export interface CamHistoryRow {
+  year: number;
+  charge_type?: CamChargeType | string | null;
+  amount?: number | null;
+  percent_increase?: number | null;
+  gl_account_id?: string | null;
+  notes?: string | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  period_status?: CamPeriodStatus | string | null;
+  base_rent_amount?: number | null;
+  base_rent_frequency?: 'monthly' | 'quarterly' | 'annually' | null;
+  base_rent_escalation_rate?: number | null;
+  operating_expense_amount?: number | null;
+  cam_psf?: number | null;
+  reconciliation_true_up?: number | null;
+  extraction_confidence?: number | null;
+}
+
+export interface CamHistoryParseResult {
+  periods: CamHistoryRow[];
+  period_start: string | null;
+  period_end: string | null;
+  warnings: string[];
+  model: string | null;
+}
+
+export interface CamImportRowResult {
+  year: number;
+  status: 'created' | 'updated' | 'skipped' | 'conflict';
+  entry_id: string | null;
+  reason: string | null;
+}
+
+export interface CamImportResult {
+  import_batch_id: string;
+  created: number;
+  updated: number;
+  skipped: number;
+  conflicts: number;
+  results: CamImportRowResult[];
+}
+
+export interface CamImportBatchDeleteResult {
+  deleted: number;
 }
 
 export interface GLAccountCreate {

@@ -7,6 +7,10 @@ Gating:
 
 * ``POST /ai/leases/parse`` — **basic lease detail ingestion**, available on all
   tiers (not gated by ``ai_assist``).
+* ``POST /ai/leases/parse-history`` — **year-by-year financial history
+  ingestion** for onboarding an existing tenancy, all tiers. Returns proposed
+  rows only; they are persisted (as historical CAM schedule rows) solely by the
+  explicit ``POST /leases/{id}/cam-entries/import`` call.
 * ``POST /ai/ap/parse`` — **vendor bill / invoice ingestion**, all tiers.
 * ``POST /ai/insurance/parse`` — **certificate-of-insurance ingestion**, all tiers.
 * ``POST /ai/hvac-contracts/parse`` — **HVAC contract ingestion**, all tiers.
@@ -23,6 +27,7 @@ Gating:
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -49,6 +54,7 @@ from app.models.vendor_bill import VendorBill
 from app.services import (
     ai_service,
     ap_service,
+    cam_schedule_service,
     data_query_service,
     document_extraction,
     document_search_service,
@@ -59,6 +65,7 @@ from app.services import (
     usage_service,
 )
 from app.services.lease_abstract_catalog import CATEGORY_BY_KEY, CLAUSE_CATEGORIES
+from app.schemas.lease import CamHistoryParseResponse, CamHistoryRow
 from app.schemas.saved_report import ReportBuildRequest, ReportBuildResponse
 
 router = APIRouter()
@@ -328,7 +335,14 @@ def _allowed_extensions() -> set[str]:
 
 
 async def _read_document(file: UploadFile) -> tuple[bytes, str]:
-    """Validate and read an uploaded document, returning (bytes, mime_type)."""
+    """Validate and read an uploaded document, returning (bytes, mime_type).
+
+    AI documents are processed in memory (extracted, segmented, sent to the
+    model) rather than stored, so they use the larger
+    ``AI_MAX_FILE_SIZE_MB`` ceiling. The upload is read in bounded chunks and
+    rejected as soon as it exceeds that ceiling, so an oversized (or
+    mis-declared) upload can never be buffered in full.
+    """
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No filename provided")
     ext = Path(file.filename).suffix.lower()
@@ -337,17 +351,29 @@ async def _read_document(file: UploadFile) -> tuple[bytes, str]:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File type '{ext}' is not allowed. Allowed: {settings.ALLOWED_EXTENSIONS}",
         )
-    content = await file.read()
-    max_bytes = settings.MAX_FILE_SIZE_MB * 1024 * 1024
-    if len(content) > max_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File too large. Maximum size is {settings.MAX_FILE_SIZE_MB} MB.",
-        )
+    max_bytes = settings.AI_MAX_FILE_SIZE_MB * 1024 * 1024
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File too large. Maximum size is {settings.AI_MAX_FILE_SIZE_MB} MB.",
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
     if not content:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
     mime_type = file.content_type or _MIME_BY_EXT.get(ext, "application/octet-stream")
     return content, mime_type
+
+
+# Upload read granularity (1 MB) — keeps peak memory bounded while streaming.
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 
 _MIME_BY_EXT = {
@@ -366,19 +392,26 @@ _MIME_BY_EXT = {
 _TEXT_EXTRACT_EXTS = {".docx", ".doc", ".txt"}
 
 
-def _maybe_extract_text(filename: str | None, content: bytes) -> str | None:
+async def _maybe_extract_text(filename: str | None, content: bytes) -> str | None:
     """Extract plain text for formats Gemini cannot read inline.
 
     Word/text documents (``_TEXT_EXTRACT_EXTS``) must be converted to text
     before being sent to the model — passing their raw bytes inline yields an
-    empty/garbage response. PDFs and images return ``None`` so the caller sends
-    the bytes inline instead.
+    empty/garbage response. PDFs and images return ``None``; ``ai_service``
+    then decides whether the bytes fit inline or the document must be
+    text-extracted / split into segments.
     """
     ext = Path(filename or "").suffix.lower()
     if ext not in _TEXT_EXTRACT_EXTS:
         return None
     try:
-        text_content = document_extraction.extract_text(content, filename or "")
+        # Parsing a large document is CPU-bound; keep it off the event loop.
+        text_content = await asyncio.to_thread(
+            document_extraction.extract_text,
+            content,
+            filename or "",
+            max_chars=ai_service.MAX_AI_EXTRACTED_CHARS,
+        )
     except (
         document_extraction.UnsupportedDocumentError,
         document_extraction.DocumentExtractionError,
@@ -395,6 +428,9 @@ def _maybe_extract_text(filename: str | None, content: bytes) -> str | None:
 def _ai_error_response(exc: ai_service.AIError) -> HTTPException:
     if isinstance(exc, ai_service.AIUnavailableError):
         return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
+    if isinstance(exc, ai_service.AIDocumentError):
+        # The document itself is the problem — tell the user, don't blame upstream.
+        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
 
@@ -451,7 +487,7 @@ async def parse_lease(
     intentionally **not** gated behind ``ai_assist``.
     """
     content, mime_type = await _read_document(file)
-    text_content = _maybe_extract_text(file.filename, content)
+    text_content = await _maybe_extract_text(file.filename, content)
 
     try:
         suggested = await ai_service.parse_lease_document(
@@ -461,6 +497,55 @@ async def parse_lease(
         raise _ai_error_response(exc)
     await _log_ai_usage(db, current_user.organization_id, "ai_lease_parse")
     return LeaseParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+
+
+# ── Historical lease financial ingestion (all tiers) ─────────────────────────
+
+@router.post(
+    "/leases/parse-history",
+    response_model=CamHistoryParseResponse,
+    dependencies=[Depends(enforce_ai_token_budget)],
+)
+async def parse_lease_history(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Extract a document's year-by-year lease financials for review.
+
+    Used when onboarding a tenancy that has been running for years: prior
+    leases, amendments and reconciliation statements are read into per-year
+    rows (base rent, CAM, opex, true-up) that the user reviews and then imports
+    onto the lease's CAM schedule as *historical* rows.
+
+    **This endpoint writes nothing.** In particular it never touches the active
+    lease's financial terms — those change only through an explicit lease edit
+    or the CAM schedule promote action.
+    """
+    content, mime_type = await _read_document(file)
+    text_content = await _maybe_extract_text(file.filename, content)
+
+    try:
+        extracted = await ai_service.parse_lease_financial_history(
+            content, mime_type, text_content=text_content
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+    await _log_ai_usage(db, current_user.organization_id, "ai_lease_history_parse")
+
+    rows = cam_schedule_service.normalize_history_rows(extracted.get("periods"))
+    warnings: list[str] = []
+    if not rows:
+        warnings.append(
+            "No year-by-year financials were found in this document."
+        )
+    return CamHistoryParseResponse(
+        periods=[CamHistoryRow.model_validate(row) for row in rows],
+        period_start=cam_schedule_service.coerce_date(extracted.get("period_start")),
+        period_end=cam_schedule_service.coerce_date(extracted.get("period_end")),
+        warnings=warnings,
+        model=settings.GEMINI_MODEL,
+    )
 
 
 # ── Inbound document classification & routing (Pro+) ──────────────────────────
@@ -574,7 +659,7 @@ async def classify_document(
     returned for human review — nothing is auto-committed.
     """
     content, mime_type = await _read_document(file)
-    text_content = _maybe_extract_text(file.filename, content)
+    text_content = await _maybe_extract_text(file.filename, content)
 
     try:
         result = await ai_service.classify_document(
@@ -612,7 +697,7 @@ async def _parse_document_with(
 ) -> DocumentParseResponse:
     """Shared body for the per-entity document-extraction endpoints."""
     content, mime_type = await _read_document(file)
-    text_content = _maybe_extract_text(file.filename, content)
+    text_content = await _maybe_extract_text(file.filename, content)
     try:
         suggested = await parser(content, mime_type, text_content=text_content)
     except ai_service.AIError as exc:
@@ -699,7 +784,7 @@ async def draft_lease_template(
     through the lease-templates API.
     """
     content, mime_type = await _read_document(file)
-    text_content = _maybe_extract_text(file.filename, content)
+    text_content = await _maybe_extract_text(file.filename, content)
     try:
         suggested = await ai_service.draft_lease_template_from_document(
             content, mime_type, text_content=text_content
@@ -996,7 +1081,7 @@ async def suggest_abstract(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lease not found")
 
     content, mime_type = await _read_document(file)
-    text_content = _maybe_extract_text(file.filename, content)
+    text_content = await _maybe_extract_text(file.filename, content)
     categories = [
         {"key": c["key"], "name": c["name"], "fields": c["fields"]}
         for c in CLAUSE_CATEGORIES
@@ -1056,7 +1141,7 @@ async def detect_abstract_gaps(
     text_content: str | None = None
     if file is not None and file.filename:
         content, mime_type = await _read_document(file)
-        text_content = _maybe_extract_text(file.filename, content)
+        text_content = await _maybe_extract_text(file.filename, content)
 
     categories = [
         {"key": c["key"], "name": c["name"], "fields": c["fields"]}

@@ -6,7 +6,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.lease import Lease
+from app.models.lease import Lease, LeaseCamEntry
 from app.models.operating_expense import OperatingExpense
 from app.services.cam_service import compute_cam_reconciliation
 from tests.conftest import auth_headers
@@ -466,16 +466,32 @@ async def test_ai_review_cross_references_prior_year_and_clauses(
         content={"recoverable_expenses": "CAM and taxes only; no marketing."},
     )
     db_session.add(clause)
+    # Imported history gives the reviewer a multi-year baseline beyond the one
+    # prior reconciliation statement in the system.
+    db_session.add(
+        LeaseCamEntry(
+            lease_id=cam_lease.id,
+            organization_id=None,
+            year=2023,
+            charge_type="fixed",
+            amount=Decimal("90000"),
+            period_status="historical",
+            source="ai_import",
+        )
+    )
     await db_session.commit()
 
     captured: dict = {}
 
-    async def fake_review(*, year, lines, prior_year, prior_lines, lease_clauses):
+    async def fake_review(
+        *, year, lines, prior_year, prior_lines, lease_clauses, historical_periods=None
+    ):
         captured["year"] = year
         captured["lines"] = lines
         captured["prior_year"] = prior_year
         captured["prior_lines"] = prior_lines
         captured["lease_clauses"] = lease_clauses
+        captured["historical_periods"] = historical_periods
         return {
             "summary": "1 anomaly found.",
             "anomalies": [
@@ -506,6 +522,7 @@ async def test_ai_review_cross_references_prior_year_and_clauses(
     assert {l["category"] for l in captured["prior_lines"]} == {"cam"}
     assert {l["category"] for l in captured["lines"]} == {"cam", "marketing"}
     assert "Expense/Recoverables" in captured["lease_clauses"]
+    assert [row["year"] for row in captured["historical_periods"]] == [2023]
 
 
 @pytest.mark.asyncio

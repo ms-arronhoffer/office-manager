@@ -97,6 +97,11 @@ import type {
   LeaseOption,
   LeaseCamEntry,
   LeaseCamEntryInput,
+  CamHistoryRow,
+  CamHistoryParseResult,
+  CamImportMode,
+  CamImportResult,
+  CamImportBatchDeleteResult,
   GLAccountOption,
   LeaseAbstractResponse,
   AbstractClause,
@@ -411,6 +416,33 @@ export const leases = {
 
   deleteCamEntry: (leaseId: string, entryId: string) =>
     client.delete(`/leases/${leaseId}/cam-entries/${entryId}`),
+
+  parseCamHistoryCsv: (leaseId: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post<CamHistoryParseResult>(`/leases/${leaseId}/cam-entries/parse-csv`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  importCamHistory: (
+    leaseId: string,
+    payload: {
+      rows: CamHistoryRow[];
+      mode?: CamImportMode;
+      period_status?: string;
+      source?: string;
+      source_document_id?: string | null;
+      allow_active_period_overlap?: boolean;
+      apply_to_lease: false;
+    },
+  ) => client.post<CamImportResult>(`/leases/${leaseId}/cam-entries/import`, payload),
+
+  revertCamHistoryImport: (leaseId: string, batchId: string) =>
+    client.delete<CamImportBatchDeleteResult>(`/leases/${leaseId}/cam-entries/import/${batchId}`),
+
+  promoteCamEntry: (leaseId: string, entryId: string) =>
+    client.post(`/leases/${leaseId}/cam-entries/${entryId}/promote`),
 
   rentRoll: (params?: Record<string, unknown>) =>
     client.get<RentRollResponse>('/leases/rent-roll', { params }),
@@ -1971,6 +2003,7 @@ export const financials = {
 import type {
   AIStatus,
   LeaseParseResult,
+  CamHistoryParseResult as AICamHistoryParseResult,
   AbstractSuggestResult,
   DocumentClassifyResult,
   DocumentParseResult,
@@ -2002,6 +2035,14 @@ export const ai = {
     const form = new FormData();
     form.append('file', file);
     return client.post<LeaseParseResult>('/ai/leases/parse', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  parseLeaseHistory: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return client.post<AICamHistoryParseResult>('/ai/leases/parse-history', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
