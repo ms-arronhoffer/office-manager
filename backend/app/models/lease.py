@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from sqlalchemy import String, Integer, Date, Text, ForeignKey, Index, Numeric, Boolean
+from sqlalchemy import String, Integer, Date, DateTime, Text, ForeignKey, Index, Numeric, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 from app.models.mixins import SoftDeleteMixin
@@ -79,6 +79,23 @@ class LeaseNote(Base):
 #                      prior year's CAM charge (e.g. 0.030000 = 3%).
 CAM_CHARGE_TYPES = {"fixed", "percent_increase"}
 
+# Which part of the lease's life a CAM schedule row describes.
+#   historical — a closed prior period imported for reference. Never used to
+#                generate charges, GL postings or AR; never re-bases the current
+#                schedule's percent-increase chain.
+#   current    — the period the active lease is billing today.
+#   projected  — a future period of the active lease.
+CAM_PERIOD_STATUSES = {"historical", "current", "projected"}
+
+# Where a CAM schedule row came from (provenance for imported history).
+CAM_SOURCES = {"manual", "ai_import", "csv_import", "reconciliation"}
+
+# Review state of an imported row.
+CAM_REVIEW_STATUSES = {"pending", "accepted", "rejected"}
+
+# Billing cadence of a row's base rent (mirrors ``Lease.payment_frequency``).
+CAM_RENT_FREQUENCIES = {"monthly", "quarterly", "annually"}
+
 
 class LeaseCamEntry(TimestampMixin, Base):
     """A single year's CAM (common-area-maintenance) charge for a lease.
@@ -88,12 +105,23 @@ class LeaseCamEntry(TimestampMixin, Base):
     year. This table lets each lease-year be configured independently. An
     optional ``gl_account_id`` attributes the CAM expense to a chart-of-accounts
     entry so it flows into GL reporting.
+
+    Rows also carry the *historical* financials of an existing tenancy. When an
+    organization onboards a lease that has been running for years, the prior
+    years' base rent, CAM and reconciliation true-ups are imported here as
+    ``period_status='historical'`` rows tagged with their provenance
+    (``source``, ``source_document_id``, ``import_batch_id``). Those rows are
+    reference data only: the *active* lease record remains the single source of
+    truth for the current financial terms, and history is never allowed to
+    overwrite it (see ``app.services.cam_schedule_service``).
     """
 
     __tablename__ = "lease_cam_entries"
     __table_args__ = (
         Index("idx_lease_cam_entries_lease", "lease_id"),
         Index("idx_lease_cam_entries_gl", "gl_account_id"),
+        Index("idx_lease_cam_entries_lease_year", "lease_id", "year"),
+        Index("idx_lease_cam_entries_batch", "import_batch_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -118,6 +146,54 @@ class LeaseCamEntry(TimestampMixin, Base):
         ForeignKey("gl_accounts.id", ondelete="SET NULL"), nullable=True
     )
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+    # ── Period / scope ───────────────────────────────────────────────────────
+    # Explicit period bounds for partial or off-calendar lease years; ``year``
+    # remains the row's key so a calendar-year schedule needs neither.
+    period_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    period_end: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # One of CAM_PERIOD_STATUSES. Existing rows are the active schedule.
+    period_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="current", server_default="current"
+    )
+
+    # ── Financial breadth (a historical year is more than just CAM) ──────────
+    base_rent_amount: Mapped[Decimal | None] = mapped_column(Numeric(15, 2), nullable=True)
+    # One of CAM_RENT_FREQUENCIES; the cadence base_rent_amount is quoted in.
+    base_rent_frequency: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Rent escalation applied for the period, as a fraction (0.03 = 3%).
+    base_rent_escalation_rate: Mapped[Decimal | None] = mapped_column(
+        Numeric(8, 6), nullable=True
+    )
+    operating_expense_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(15, 2), nullable=True
+    )
+    cam_psf: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    # Year-end reconciliation settlement: positive => tenant owed a true-up.
+    reconciliation_true_up: Mapped[Decimal | None] = mapped_column(
+        Numeric(15, 2), nullable=True
+    )
+
+    # ── Provenance ───────────────────────────────────────────────────────────
+    source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="manual", server_default="manual"
+    )
+    # Document the row was extracted from, when it was kept as an attachment.
+    source_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("attachments.id", ondelete="SET NULL"), nullable=True
+    )
+    # Shared by every row written by one import so a bad batch can be reverted.
+    import_batch_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    # Model confidence for an AI-extracted row, 0..1.
+    extraction_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(4, 3), nullable=True
+    )
+    review_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="accepted", server_default="accepted"
+    )
+    imported_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     lease: Mapped["Lease"] = relationship(back_populates="cam_entries")
     gl_account: Mapped["GLAccount | None"] = relationship("GLAccount")

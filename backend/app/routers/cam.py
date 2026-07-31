@@ -28,10 +28,10 @@ from app.auth.dependencies import require_feature, require_role
 from app.config import settings
 from app.database import get_db
 from app.models.cam_reconciliation import CamReconciliation
-from app.models.lease import Lease
+from app.models.lease import Lease, LeaseCamEntry
 from app.models.lease_abstract import LeaseAbstractClause
 from app.models.user import User
-from app.services import ai_service, cam_service
+from app.services import ai_service, cam_schedule_service, cam_service
 from app.services.cam_service import CamError
 from app.services.lease_abstract_catalog import CATEGORY_BY_KEY
 from app.utils.tenant_scope import load_or_404
@@ -610,6 +610,19 @@ async def ai_review_reconciliation(
             entry["notes"] = clause.notes
         lease_clauses[category["name"]] = entry
 
+    # Imported historical CAM schedule rows give the reviewer a multi-year
+    # baseline even when only one prior reconciliation statement exists.
+    history_rows = (
+        await db.execute(
+            select(LeaseCamEntry).where(
+                LeaseCamEntry.lease_id == recon.lease_id,
+                LeaseCamEntry.organization_id == org_id,
+                LeaseCamEntry.year < recon.year,
+            )
+        )
+    ).scalars().all()
+    historical_periods = cam_schedule_service.historical_comparatives(history_rows)
+
     try:
         review = await ai_service.review_cam_reconciliation(
             year=recon.year,
@@ -617,6 +630,7 @@ async def ai_review_reconciliation(
             prior_year=prior.year if prior else None,
             prior_lines=_review_lines(prior) if prior else None,
             lease_clauses=lease_clauses,
+            historical_periods=historical_periods,
         )
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)

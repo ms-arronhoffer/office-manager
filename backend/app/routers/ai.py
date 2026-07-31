@@ -7,6 +7,10 @@ Gating:
 
 * ``POST /ai/leases/parse`` — **basic lease detail ingestion**, available on all
   tiers (not gated by ``ai_assist``).
+* ``POST /ai/leases/parse-history`` — **year-by-year financial history
+  ingestion** for onboarding an existing tenancy, all tiers. Returns proposed
+  rows only; they are persisted (as historical CAM schedule rows) solely by the
+  explicit ``POST /leases/{id}/cam-entries/import`` call.
 * ``POST /ai/ap/parse`` — **vendor bill / invoice ingestion**, all tiers.
 * ``POST /ai/insurance/parse`` — **certificate-of-insurance ingestion**, all tiers.
 * ``POST /ai/hvac-contracts/parse`` — **HVAC contract ingestion**, all tiers.
@@ -50,6 +54,7 @@ from app.models.vendor_bill import VendorBill
 from app.services import (
     ai_service,
     ap_service,
+    cam_schedule_service,
     data_query_service,
     document_extraction,
     document_search_service,
@@ -60,6 +65,7 @@ from app.services import (
     usage_service,
 )
 from app.services.lease_abstract_catalog import CATEGORY_BY_KEY, CLAUSE_CATEGORIES
+from app.schemas.lease import CamHistoryParseResponse, CamHistoryRow
 from app.schemas.saved_report import ReportBuildRequest, ReportBuildResponse
 
 router = APIRouter()
@@ -491,6 +497,55 @@ async def parse_lease(
         raise _ai_error_response(exc)
     await _log_ai_usage(db, current_user.organization_id, "ai_lease_parse")
     return LeaseParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+
+
+# ── Historical lease financial ingestion (all tiers) ─────────────────────────
+
+@router.post(
+    "/leases/parse-history",
+    response_model=CamHistoryParseResponse,
+    dependencies=[Depends(enforce_ai_token_budget)],
+)
+async def parse_lease_history(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Extract a document's year-by-year lease financials for review.
+
+    Used when onboarding a tenancy that has been running for years: prior
+    leases, amendments and reconciliation statements are read into per-year
+    rows (base rent, CAM, opex, true-up) that the user reviews and then imports
+    onto the lease's CAM schedule as *historical* rows.
+
+    **This endpoint writes nothing.** In particular it never touches the active
+    lease's financial terms — those change only through an explicit lease edit
+    or the CAM schedule promote action.
+    """
+    content, mime_type = await _read_document(file)
+    text_content = await _maybe_extract_text(file.filename, content)
+
+    try:
+        extracted = await ai_service.parse_lease_financial_history(
+            content, mime_type, text_content=text_content
+        )
+    except ai_service.AIError as exc:
+        raise _ai_error_response(exc)
+    await _log_ai_usage(db, current_user.organization_id, "ai_lease_history_parse")
+
+    rows = cam_schedule_service.normalize_history_rows(extracted.get("periods"))
+    warnings: list[str] = []
+    if not rows:
+        warnings.append(
+            "No year-by-year financials were found in this document."
+        )
+    return CamHistoryParseResponse(
+        periods=[CamHistoryRow.model_validate(row) for row in rows],
+        period_start=cam_schedule_service.coerce_date(extracted.get("period_start")),
+        period_end=cam_schedule_service.coerce_date(extracted.get("period_end")),
+        warnings=warnings,
+        model=settings.GEMINI_MODEL,
+    )
 
 
 # ── Inbound document classification & routing (Pro+) ──────────────────────────
