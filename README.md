@@ -256,8 +256,9 @@ server {
         proxy_busy_buffers_size 32k;
     }
 
-    # Larger body size for file uploads (must exceed AI_MAX_FILE_SIZE_MB, 75 MB
-    # by default, so large documents reach the AI endpoints)
+    # Larger body size for file uploads (must exceed AI_MAX_FILE_SIZE_MB and
+    # MAX_FILE_SIZE_MB, both 75 MB by default, so large documents reach the AI
+    # endpoints and large attachments can be stored)
     client_max_body_size 80M;
 }
 ```

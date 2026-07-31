@@ -290,9 +290,9 @@ async def test_generate_over_segments_raises_when_all_fail(monkeypatch):
 
 # ── Upload ceiling ───────────────────────────────────────────────────────────
 
-def test_ai_upload_ceiling_is_larger_than_attachment_ceiling():
+def test_ai_upload_ceiling_is_at_least_attachment_ceiling():
     assert settings.AI_MAX_FILE_SIZE_MB >= 75
-    assert settings.AI_MAX_FILE_SIZE_MB > settings.MAX_FILE_SIZE_MB
+    assert settings.AI_MAX_FILE_SIZE_MB >= settings.MAX_FILE_SIZE_MB
 
 
 @pytest.mark.asyncio

@@ -68,11 +68,11 @@ class Settings(BaseSettings):
 
     # File uploads
     UPLOAD_DIR: str = "/app/uploads"
-    MAX_FILE_SIZE_MB: int = 25
+    MAX_FILE_SIZE_MB: int = 75
     # Documents handed to the AI assistant are processed in-memory (extracted,
-    # segmented, sent to Gemini) rather than stored, so they get their own,
-    # larger ceiling than stored attachments. Keep any reverse proxy's
-    # ``client_max_body_size`` at or above this value.
+    # segmented, sent to Gemini) rather than stored, so they get their own
+    # ceiling, independent of stored attachments. Keep any reverse proxy's
+    # ``client_max_body_size`` at or above both values.
     AI_MAX_FILE_SIZE_MB: int = 75
     ALLOWED_EXTENSIONS: str = ".pdf,.doc,.docx,.xls,.xlsx,.csv,.png,.jpg,.jpeg,.tif,.tiff,.txt"
     # Storage backend for uploaded files: "local" (default, UPLOAD_DIR on disk;
