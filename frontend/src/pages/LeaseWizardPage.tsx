@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
@@ -35,7 +35,9 @@ import { wizardI18nStrings } from '@/components/common/wizardI18n';
 import { LEASE_STATUS_OPTIONS } from '@/constants/leaseStatus';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
 import AILeasePrefill from '@/components/common/AILeasePrefill';
-import type { LeaseCreate, Office, Manager } from '@/types';
+import CamHistoryReviewModal from '@/components/common/CamHistoryReviewModal';
+import type { LeaseCreate, Office, Manager, CamHistoryRow, CamHistoryParseResult } from '@/types';
+import type { CamHistoryConfirmOptions } from '@/components/common/CamHistoryReviewModal';
 
 const ACCOUNTING_STD_OPTIONS: QuickCreateOption[] = [
   { label: 'ASC 842 (US GAAP)', value: 'asc842' },
@@ -122,6 +124,14 @@ const LeaseWizardPage: React.FC = () => {
 
   // Step 5 — history / renewals
   const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
+
+  // Staged CAM history rows from AI extraction (review modal)
+  const [stagedCamRows, setStagedCamRows] = useState<CamHistoryRow[]>([]);
+  const [stagedCamMeta, setStagedCamMeta] = useState<CamHistoryParseResult | null>(null);
+  const [stagedCamPeriodStatus, setStagedCamPeriodStatus] = useState<'auto' | 'historical'>('historical');
+  const [camReviewVisible, setCamReviewVisible] = useState(false);
+  // Confirmed rows to import after lease is created
+  const pendingCamRef = useRef<{ rows: CamHistoryRow[]; options: CamHistoryConfirmOptions } | null>(null);
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
@@ -291,6 +301,25 @@ const LeaseWizardPage: React.FC = () => {
     }
   };
 
+  const handleCamHistoryParsed = (
+    rows: CamHistoryRow[],
+    meta: CamHistoryParseResult,
+    periodStatus: 'auto' | 'historical',
+  ) => {
+    setStagedCamRows(rows);
+    setStagedCamMeta(meta);
+    setStagedCamPeriodStatus(periodStatus);
+    setCamReviewVisible(true);
+  };
+
+  const handleCamHistoryConfirmed = (
+    rows: CamHistoryRow[],
+    options: CamHistoryConfirmOptions,
+  ) => {
+    pendingCamRef.current = { rows, options };
+    setCamReviewVisible(false);
+  };
+
   const buildPayload = (): LeaseCreate => {
     const standard = accountingStandard?.value;
     return {
@@ -407,6 +436,25 @@ const LeaseWizardPage: React.FC = () => {
         warnings.push(`${attachmentFailures} document${attachmentFailures === 1 ? '' : 's'} could not be uploaded.`);
       }
 
+      // Import confirmed historical CAM rows (best-effort).
+      const pendingCam = pendingCamRef.current;
+      if (pendingCam && pendingCam.rows.length > 0) {
+        try {
+          await leasesApi.importCamHistory(newId, {
+            rows: pendingCam.rows,
+            mode: pendingCam.options.mode,
+            period_status: pendingCam.options.period_status,
+            source: 'ai_import',
+            source_document_id: pendingCam.options.source_document_id ?? null,
+            allow_active_period_overlap: pendingCam.options.allow_active_period_overlap,
+            apply_to_lease: false,
+          });
+        } catch {
+          warnings.push("Historical CAM rows could not be imported — open the lease's CAM schedule to retry.");
+        }
+        pendingCamRef.current = null;
+      }
+
       if (warnings.length > 0) {
         setError(`Lease created. ${warnings.join(' ')}`);
       }
@@ -447,7 +495,11 @@ const LeaseWizardPage: React.FC = () => {
                   ]}
                 />
               </FormField>
-              <AILeasePrefill onSuggested={applyAISuggestions} onFileExtracted={queueExtractedFile} />
+              <AILeasePrefill
+                onSuggested={applyAISuggestions}
+                onFileExtracted={queueExtractedFile}
+                onHistoryParsed={handleCamHistoryParsed}
+              />
               <FormField label="Lease name" constraintText="Required" errorText={fieldErrors.lease_name || undefined}>
                 <Input
                   value={leaseName}
@@ -810,46 +862,57 @@ const LeaseWizardPage: React.FC = () => {
   );
 
   return (
-    <ContentLayout
-      header={
-        <SpaceBetween size="m">
-          <BreadcrumbGroup
-            items={[
-              { text: 'Leases', href: '/leases' },
-              { text: 'New lease wizard', href: '#' },
-            ]}
-            onFollow={(e) => {
-              e.preventDefault();
-              if (e.detail.href === '/leases') navigate('/leases');
-            }}
-          />
-          <Header
-            variant="h1"
-            description="A guided walkthrough to enter a new or legacy lease and link all related records."
-          >
-            New lease wizard
-          </Header>
-        </SpaceBetween>
-      }
-    >
-      <Wizard
-        steps={steps}
-        activeStepIndex={activeStepIndex}
-        i18nStrings={wizardI18nStrings('Create lease')}
-        isLoadingNextStep={saving}
-        onNavigate={({ detail }) => {
-          if (activeStepIndex === 0 && detail.requestedStepIndex > 0 && !validateTypeAndName()) {
-            return;
-          }
-          if (activeStepIndex === 2 && detail.requestedStepIndex > 2 && !validateTerm()) {
-            return;
-          }
-          setActiveStepIndex(detail.requestedStepIndex);
-        }}
-        onCancel={() => navigate('/leases')}
-        onSubmit={handleSubmit}
+    <>
+      <CamHistoryReviewModal
+        visible={camReviewVisible}
+        rows={stagedCamRows}
+        warnings={stagedCamMeta?.warnings}
+        defaultPeriodStatus={stagedCamPeriodStatus}
+        source="ai_import"
+        onDismiss={() => setCamReviewVisible(false)}
+        onConfirm={handleCamHistoryConfirmed}
       />
-    </ContentLayout>
+      <ContentLayout
+        header={
+          <SpaceBetween size="m">
+            <BreadcrumbGroup
+              items={[
+                { text: 'Leases', href: '/leases' },
+                { text: 'New lease wizard', href: '#' },
+              ]}
+              onFollow={(e) => {
+                e.preventDefault();
+                if (e.detail.href === '/leases') navigate('/leases');
+              }}
+            />
+            <Header
+              variant="h1"
+              description="A guided walkthrough to enter a new or legacy lease and link all related records."
+            >
+              New lease wizard
+            </Header>
+          </SpaceBetween>
+        }
+      >
+        <Wizard
+          steps={steps}
+          activeStepIndex={activeStepIndex}
+          i18nStrings={wizardI18nStrings('Create lease')}
+          isLoadingNextStep={saving}
+          onNavigate={({ detail }) => {
+            if (activeStepIndex === 0 && detail.requestedStepIndex > 0 && !validateTypeAndName()) {
+              return;
+            }
+            if (activeStepIndex === 2 && detail.requestedStepIndex > 2 && !validateTerm()) {
+              return;
+            }
+            setActiveStepIndex(detail.requestedStepIndex);
+          }}
+          onCancel={() => navigate('/leases')}
+          onSubmit={handleSubmit}
+        />
+      </ContentLayout>
+    </>
   );
 };
 

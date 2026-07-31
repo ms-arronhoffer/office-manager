@@ -561,13 +561,54 @@ def _is_empty(value: Any) -> bool:
     return value is None or value == "" or value == [] or value == {}
 
 
+# Keys (in priority order) that identify the same record across segments when
+# merging list-shaped results such as a year-by-year rent/CAM schedule.
+_LIST_ITEM_KEYS = ("year", "period", "period_start", "category", "name", "id")
+
+
+def _list_item_key(item: Any) -> str:
+    """A stable identity for a list element, used to dedupe across segments."""
+    if isinstance(item, dict):
+        for key in _LIST_ITEM_KEYS:
+            value = item.get(key)
+            if not _is_empty(value):
+                return f"{key}={str(value).strip().lower()}"
+        return json.dumps(item, sort_keys=True, default=str)
+    return json.dumps(item, sort_keys=True, default=str)
+
+
+def _merge_segment_lists(current: list[Any], value: list[Any]) -> list[Any]:
+    """Concatenate two per-segment lists, deduping and merging by item identity.
+
+    A rent or CAM schedule split across the segments of a large document arrives
+    as a list per segment; concatenating them (rather than letting the first
+    segment win) is what keeps the later years. Elements identifying the same
+    record — the same ``year``, say — are merged field-by-field with the same
+    earlier-wins rule used for objects.
+    """
+    merged: list[Any] = []
+    index: dict[str, int] = {}
+    for item in [*current, *value]:
+        if _is_empty(item):
+            continue
+        key = _list_item_key(item)
+        position = index.get(key)
+        if position is None:
+            index[key] = len(merged)
+            merged.append(item)
+        elif isinstance(merged[position], dict) and isinstance(item, dict):
+            merged[position] = _merge_segment_results([merged[position], item])
+    return merged
+
+
 def _merge_segment_results(results: list[dict[str, Any]]) -> dict[str, Any]:
     """Merge per-segment JSON objects into one, earlier segments winning.
 
     Keys populated by an earlier segment are kept (documents state their key
     terms up front); keys still empty are filled from later segments, so values
     that only appear deep in a large document are not lost. Nested objects are
-    merged recursively with the same rule.
+    merged recursively with the same rule, and lists are unioned by item
+    identity so multi-row results (e.g. a rent schedule) survive segmentation.
     """
     merged: dict[str, Any] = {}
     for result in results:
@@ -580,6 +621,8 @@ def _merge_segment_results(results: list[dict[str, Any]]) -> dict[str, Any]:
             current = merged.get(key)
             if isinstance(current, dict) and isinstance(value, dict):
                 merged[key] = _merge_segment_results([current, value])
+            elif isinstance(current, list) and isinstance(value, list):
+                merged[key] = _merge_segment_lists(current, value)
             elif key not in merged or _is_empty(current):
                 merged[key] = value
     return merged
@@ -727,6 +770,96 @@ async def parse_lease_document(
         mime_type=mime_type,
         text_content=text_content,
     )
+
+
+# ── Historical lease financials (per-year rent / CAM schedule) ───────────────
+
+LEASE_HISTORY_SYSTEM = (
+    "You are a commercial real-estate lease abstraction assistant. The supplied "
+    "document may be a current lease, an expired/prior lease, an amendment, a "
+    "rent or CAM schedule, or a year-end operating-expense reconciliation "
+    "statement. Extract the YEAR-BY-YEAR financial history it states.\n"
+    "\n"
+    "Respond ONLY with a JSON object of the form "
+    '{"period_start": "YYYY-MM-DD"|null, "period_end": "YYYY-MM-DD"|null, '
+    '"periods": [{...}]}. One element of \'periods\' per lease year the '
+    "document states figures for.\n"
+    "\n"
+    "Each period object uses exactly these keys:\n"
+    "- year: the calendar or lease year as an integer, e.g. 2019\n"
+    "- period_start / period_end: the period's bounds (YYYY-MM-DD) when the "
+    "year is partial or does not follow the calendar; null otherwise\n"
+    "- base_rent_amount: base rent for ONE base_rent_frequency period\n"
+    "- base_rent_frequency: monthly, quarterly or annually\n"
+    "- base_rent_escalation_rate: that year's rent escalation as a decimal "
+    "fraction\n"
+    "- amount: the year's total CAM / common-area-maintenance charge\n"
+    "- percent_increase: the year's CAM increase over the prior year as a "
+    "decimal fraction, when CAM is quoted as an increase rather than an amount\n"
+    "- cam_psf: CAM expressed per rentable square foot, when stated\n"
+    "- operating_expense_amount: the year's operating-expense / opex total\n"
+    "- reconciliation_true_up: the year-end reconciliation settlement; positive "
+    "when the tenant owed a true-up, negative for a credit to the tenant\n"
+    "- notes: a short note on what the figures came from\n"
+    "- confidence: your confidence in this row from 0 to 1\n"
+    "\n"
+    "Rules:\n"
+    "- Return all monetary amounts as plain numbers (no currency symbols, "
+    'commas, or thousands separators), e.g. 12500.50 not "$12,500.50".\n'
+    "- Express every percentage as a decimal fraction: 3% becomes 0.03.\n"
+    "- Never mix cadences: if a figure is annual, set base_rent_frequency to "
+    "annually rather than dividing it yourself.\n"
+    "- Use null for anything the document does not state. Do NOT invent, "
+    "interpolate or extrapolate values for years the document is silent on.\n"
+    "- Return an empty 'periods' list when the document states no year-by-year "
+    "figures at all."
+)
+
+
+async def parse_lease_financial_history(
+    content: bytes,
+    mime_type: str,
+    *,
+    text_content: str | None = None,
+) -> dict[str, Any]:
+    """Extract a document's year-by-year lease financials.
+
+    Used to onboard an existing tenancy: prior leases, amendments and
+    reconciliation statements are read into per-year rows that a human reviews
+    before they are saved onto the lease's CAM schedule as *historical*
+    reference data. Nothing here writes to the database, and the values are
+    never applied to the active lease's own financial terms.
+
+    Returns ``{"period_start", "period_end", "periods": [...]}``. Large
+    documents are segmented and the per-segment ``periods`` lists merged by
+    year, so a rent schedule spanning many pages is not truncated to whatever
+    the first segment happened to contain.
+    """
+    payload = _cache_payload(content, text_content)
+    key = _cache_key("lease_history", payload)
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+
+    prompt = (
+        "Extract the year-by-year financial history stated by this document and "
+        "return a single JSON object with the keys 'period_start', 'period_end' "
+        "and 'periods'.\n"
+    )
+    segments = await _document_segments(
+        content, mime_type, text_content, document_label="LEASE DOCUMENT TEXT"
+    )
+    result = await _generate_json_over_segments(
+        [{"text": prompt}], segments, system_instruction=LEASE_HISTORY_SYSTEM
+    )
+    periods = result.get("periods")
+    normalized = {
+        "period_start": result.get("period_start"),
+        "period_end": result.get("period_end"),
+        "periods": periods if isinstance(periods, list) else [],
+    }
+    _cache_put(key, normalized)
+    return normalized
 
 
 # ── Vendor bill / AP invoice extraction (maps onto BillCreate) ────────────────
@@ -1392,7 +1525,10 @@ CAM_REVIEW_SYSTEM = (
     "\n"
     "Look for:\n"
     "- year_over_year: a line whose amount changed materially versus the prior "
-    "year, or a category that newly appeared or disappeared.\n"
+    "year, or a category that newly appeared or disappeared. When "
+    "'historical_periods' is supplied it holds the lease's imported prior-year "
+    "financials (CAM, operating expenses, base rent, true-ups); use it as the "
+    "multi-year trend baseline.\n"
     "- not_permitted: a charged category that is not within the expenses the "
     "lease permits the landlord to recover, or that the lease excludes.\n"
     "- cap_or_term: a charge that appears to conflict with a lease term such as a "
@@ -1424,13 +1560,17 @@ async def review_cam_reconciliation(
     prior_year: int | None = None,
     prior_lines: list[dict[str, Any]] | None = None,
     lease_clauses: dict[str, Any] | None = None,
+    historical_periods: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Flag anomalous CAM reconciliation line items for human review.
 
     ``lines`` (and ``prior_lines``) are line dicts with at least ``category`` and
     ``actual_amount``/``grossed_up_amount``. ``lease_clauses`` maps a clause label
     to the abstracted content that constrains recoveries (permitted categories,
-    caps, gross-up, base year, etc). Returns ``{"summary", "anomalies"}`` where
+    caps, gross-up, base year, etc). ``historical_periods`` carries the lease's
+    imported prior-year financials (base rent, CAM, opex, true-up), which give
+    the reviewer a multi-year baseline even when only one prior reconciliation
+    statement exists in the system. Returns ``{"summary", "anomalies"}`` where
     each anomaly is ``{"category", "anomaly_type", "severity", "message",
     "recommendation"}``.
     """
@@ -1440,6 +1580,7 @@ async def review_cam_reconciliation(
         "prior_year": prior_year,
         "prior_lines": prior_lines or [],
         "lease_clauses": lease_clauses or {},
+        "historical_periods": historical_periods or [],
     }
     blob = json.dumps(payload, default=str)
     if len(blob) > MAX_TEXT_CHARS:

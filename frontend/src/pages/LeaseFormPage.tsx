@@ -25,9 +25,10 @@ import {
 } from '@/api';
 import FileQueueField, { type QueuedFile } from '@/components/common/FileQueueField';
 import AILeasePrefill from '@/components/common/AILeasePrefill';
+import CamHistoryReviewModal from '@/components/common/CamHistoryReviewModal';
 import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
 import { OfficeQuickCreate, ManagerQuickCreate } from '@/components/common/QuickCreateForms';
-import type { LeaseCreate, Office, Manager, AbstractFieldSchema } from '@/types';
+import type { LeaseCreate, Office, Manager, AbstractFieldSchema, CamHistoryRow, CamHistoryParseResult } from '@/types';
 import { LEASE_STATUS_OPTIONS } from '@/constants/leaseStatus';
 
 type SelectOption = { label: string; value: string };
@@ -219,6 +220,16 @@ const LeaseFormPage: React.FC = () => {
   // The document the user ran AI extraction on; reused to pre-fill the lease
   // abstract after the lease is created (best-effort, Pro+ only).
   const [aiDocument, setAiDocument] = useState<File | null>(null);
+  // Staged historical CAM rows from AI extraction, pending the review modal
+  const [stagedHistoryRows, setStagedHistoryRows] = useState<CamHistoryRow[]>([]);
+  const [stagedHistoryMeta, setStagedHistoryMeta] = useState<CamHistoryParseResult | null>(null);
+  const [stagedHistoryPeriodStatus, setStagedHistoryPeriodStatus] = useState<'auto' | 'historical'>('historical');
+  const [historyReviewVisible, setHistoryReviewVisible] = useState(false);
+  // Confirmed rows that should be imported after the lease is created
+  const pendingHistoryRef = React.useRef<{
+    rows: CamHistoryRow[];
+    options: import('@/components/common/CamHistoryReviewModal').CamHistoryConfirmOptions;
+  } | null>(null);
 
   // Accounting / Financial Terms
   const [accountingStandard, setAccountingStandard] = useState<SelectOption | null>(null);
@@ -382,7 +393,45 @@ const LeaseFormPage: React.FC = () => {
       }
     }
 
+    // Import staged historical CAM rows if the user reviewed and confirmed them.
+    const pending = pendingHistoryRef.current;
+    if (pending && pending.rows.length > 0) {
+      try {
+        await leasesApi.importCamHistory(newId, {
+          rows: pending.rows,
+          mode: pending.options.mode,
+          period_status: pending.options.period_status,
+          source: 'ai_import',
+          source_document_id: pending.options.source_document_id ?? null,
+          allow_active_period_overlap: pending.options.allow_active_period_overlap,
+          apply_to_lease: false,
+        });
+      } catch {
+        warnings.push("Historical CAM rows could not be imported — open the lease's CAM schedule to retry.");
+      }
+      pendingHistoryRef.current = null;
+    }
+
     return warnings;
+  };
+
+  const handleHistoryParsed = (
+    rows: CamHistoryRow[],
+    meta: CamHistoryParseResult,
+    periodStatus: 'auto' | 'historical',
+  ) => {
+    setStagedHistoryRows(rows);
+    setStagedHistoryMeta(meta);
+    setStagedHistoryPeriodStatus(periodStatus);
+    setHistoryReviewVisible(true);
+  };
+
+  const handleHistoryConfirmed = (
+    rows: CamHistoryRow[],
+    options: import('@/components/common/CamHistoryReviewModal').CamHistoryConfirmOptions,
+  ) => {
+    pendingHistoryRef.current = { rows, options };
+    setHistoryReviewVisible(false);
   };
 
   const handleSubmit = async () => {
@@ -602,7 +651,22 @@ const LeaseFormPage: React.FC = () => {
         }
       >
         <SpaceBetween size="l">
-        {!isEditing && <AILeasePrefill onSuggested={applyAISuggestions} onFileExtracted={queueExtractedFile} />}
+        {!isEditing && (
+          <AILeasePrefill
+            onSuggested={applyAISuggestions}
+            onFileExtracted={queueExtractedFile}
+            onHistoryParsed={handleHistoryParsed}
+          />
+        )}
+        <CamHistoryReviewModal
+          visible={historyReviewVisible}
+          rows={stagedHistoryRows}
+          warnings={stagedHistoryMeta?.warnings}
+          defaultPeriodStatus={stagedHistoryPeriodStatus}
+          source="ai_import"
+          onDismiss={() => setHistoryReviewVisible(false)}
+          onConfirm={handleHistoryConfirmed}
+        />
         <Container header={<Header variant="h2">Lease Information</Header>}>
           <SpaceBetween size="l">
             <FormField label="Lease Name" constraintText="Required">

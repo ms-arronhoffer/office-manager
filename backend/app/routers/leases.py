@@ -4,7 +4,15 @@ import csv
 import io
 from datetime import date, timedelta, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from icalendar import Calendar, Event
 from sqlalchemy import select
@@ -22,6 +30,11 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.common import PaginatedResponse
 from app.schemas.lease import (
+    CamHistoryImportRequest,
+    CamHistoryImportResponse,
+    CamHistoryParseResponse,
+    CamHistoryRow,
+    CamImportBatchDeleteResponse,
     LeaseCreate,
     LeaseAccountingResponse,
     LeaseCamEntryCreate,
@@ -34,7 +47,7 @@ from app.schemas.lease import (
 )
 from app.services.activity_service import log_activity, compute_changes
 from app.services.lease_accounting import compute_lease_accounting
-from app.services import lease_limits
+from app.services import cam_schedule_service, lease_limits
 from app.utils.tenant_scope import load_or_404
 from app.utils.search_vectors import update_search_vector
 from app.utils.sorting import apply_sorting
@@ -767,6 +780,31 @@ async def _load_cam_entry(
     return entry
 
 
+def _cam_entry_responses(
+    entries: list[LeaseCamEntry],
+) -> list[LeaseCamEntryResponse]:
+    """Serialize CAM rows with their period-aware resolved charge."""
+    resolved = cam_schedule_service.resolve_schedule(entries)
+    responses = []
+    for entry in entries:
+        response = LeaseCamEntryResponse.model_validate(entry, from_attributes=True)
+        response.effective_amount = resolved.get(entry.id)
+        responses.append(response)
+    return responses
+
+
+async def _list_cam_entries(
+    db: AsyncSession, lease_id: uuid.UUID
+) -> list[LeaseCamEntry]:
+    result = await db.execute(
+        select(LeaseCamEntry)
+        .options(joinedload(LeaseCamEntry.gl_account))
+        .where(LeaseCamEntry.lease_id == lease_id)
+        .order_by(LeaseCamEntry.year)
+    )
+    return list(result.scalars().unique().all())
+
+
 @router.get("/{lease_id}/cam-entries", response_model=list[LeaseCamEntryResponse])
 async def list_cam_entries(
     lease_id: uuid.UUID,
@@ -774,16 +812,7 @@ async def list_cam_entries(
     current_user: User = Depends(get_current_user),
 ):
     await _load_lease(db, lease_id, current_user.organization_id)
-    result = await db.execute(
-        select(LeaseCamEntry)
-        .options(joinedload(LeaseCamEntry.gl_account))
-        .where(LeaseCamEntry.lease_id == lease_id)
-        .order_by(LeaseCamEntry.year)
-    )
-    return [
-        LeaseCamEntryResponse.model_validate(e, from_attributes=True)
-        for e in result.scalars().unique().all()
-    ]
+    return _cam_entry_responses(await _list_cam_entries(db, lease_id))
 
 
 @router.post(
@@ -843,6 +872,219 @@ async def delete_cam_entry(
     entry = await _load_cam_entry(db, lease_id, entry_id)
     await db.delete(entry)
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# CAM schedule — historical financial import
+#
+# Onboarding an existing tenancy means importing the prior years' financials
+# (base rent, CAM, opex, reconciliation true-ups) that live in old leases,
+# amendments and reconciliation statements. They are stored as *historical* CAM
+# schedule rows: reference data that never becomes the lease's live numbers.
+# The active lease record stays the source of truth for the current period, and
+# the only way a schedule row's figures reach it is the explicit promote action
+# below.
+# ---------------------------------------------------------------------------
+
+# Bound the CSV upload: history files are a few hundred rows of text at most.
+_MAX_CAM_CSV_BYTES = 2 * 1024 * 1024
+
+
+def _str_or_none(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+@router.post(
+    "/{lease_id}/cam-entries/parse-csv", response_model=CamHistoryParseResponse
+)
+async def parse_cam_history_csv(
+    lease_id: uuid.UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    """Parse a spreadsheet of per-year financials into proposed rows.
+
+    The staging counterpart of ``/ai/leases/parse-history`` for organizations
+    whose history lives in a spreadsheet rather than in PDFs. Writes nothing:
+    the rows go back to the user for review and are persisted only by the
+    import endpoint.
+    """
+    await _load_lease(db, lease_id, current_user.organization_id)
+    content = await file.read()
+    if len(content) > _MAX_CAM_CSV_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File too large. Maximum size is 2 MB.",
+        )
+    try:
+        rows, warnings = cam_schedule_service.parse_history_csv(content)
+    except cam_schedule_service.CamImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        )
+    return CamHistoryParseResponse(
+        periods=[CamHistoryRow.model_validate(row) for row in rows],
+        warnings=warnings,
+    )
+
+
+@router.post(
+    "/{lease_id}/cam-entries/import",
+    response_model=CamHistoryImportResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def import_cam_history(
+    lease_id: uuid.UUID,
+    payload: CamHistoryImportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    """Persist reviewed history rows onto the lease's CAM schedule.
+
+    Rows are deduplicated per ``(year, period_status)``; ``mode`` decides
+    whether an existing row is kept, overwritten or appended to. Historical
+    rows that overlap the active lease term are reported as conflicts unless
+    the caller explicitly allows the overlap. Every row written shares one
+    ``import_batch_id`` so a bad import can be reverted wholesale.
+
+    This endpoint never writes to the lease's financial columns.
+    """
+    lease = await _load_lease(db, lease_id, current_user.organization_id)
+    if payload.apply_to_lease:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Importing history cannot change the lease's current financial "
+                "terms. Promote a specific schedule row instead."
+            ),
+        )
+    try:
+        outcome = await cam_schedule_service.import_history_rows(
+            db,
+            lease=lease,
+            rows=[row.model_dump() for row in payload.rows],
+            mode=payload.mode,
+            period_status=payload.period_status,
+            source=payload.source,
+            source_document_id=payload.source_document_id,
+            allow_active_period_overlap=payload.allow_active_period_overlap,
+            organization_id=current_user.organization_id,
+        )
+    except cam_schedule_service.CamImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        )
+    await db.commit()
+    await log_activity(
+        db,
+        user=current_user,
+        action="updated",
+        entity_type="lease",
+        entity_id=lease_id,
+        entity_label=lease.lease_name,
+        changes={
+            "cam_history_import": {
+                "old": None,
+                "new": (
+                    f"{outcome['created']} created, {outcome['updated']} updated, "
+                    f"{outcome['skipped']} skipped, {outcome['conflicts']} conflicts"
+                ),
+            }
+        },
+    )
+    return CamHistoryImportResponse(**outcome)
+
+
+@router.delete(
+    "/{lease_id}/cam-entries/import/{batch_id}",
+    response_model=CamImportBatchDeleteResponse,
+)
+async def revert_cam_history_import(
+    lease_id: uuid.UUID,
+    batch_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    """Delete every CAM schedule row written by one import batch."""
+    await _load_lease(db, lease_id, current_user.organization_id)
+    result = await db.execute(
+        select(LeaseCamEntry).where(
+            LeaseCamEntry.lease_id == lease_id,
+            LeaseCamEntry.import_batch_id == batch_id,
+        )
+    )
+    entries = list(result.scalars().all())
+    if not entries:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Import batch not found"
+        )
+    for entry in entries:
+        await db.delete(entry)
+    await db.commit()
+    return CamImportBatchDeleteResponse(deleted=len(entries))
+
+
+@router.post(
+    "/{lease_id}/cam-entries/{entry_id}/promote", response_model=LeaseResponse
+)
+async def promote_cam_entry(
+    lease_id: uuid.UUID,
+    entry_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    """Copy a schedule row's figures onto the lease's live financial terms.
+
+    The only path by which an imported (or manually entered) CAM schedule row
+    changes the active lease's ``payment_amount`` / ``payment_frequency`` /
+    ``annual_escalation_rate``. Always an explicit, audited user action.
+    """
+    lease = await _load_lease(db, lease_id, current_user.organization_id)
+    entry = await _load_cam_entry(db, lease_id, entry_id)
+    def _financials(target: Lease) -> dict:
+        # Stringified so the activity log's JSONB payload stays serializable.
+        return {
+            "payment_amount": _str_or_none(target.payment_amount),
+            "payment_frequency": target.payment_frequency,
+            "annual_escalation_rate": _str_or_none(target.annual_escalation_rate),
+        }
+
+    before = _financials(lease)
+    changed = cam_schedule_service.promote_entry_to_lease(entry, lease)
+    if not changed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This schedule row has no base rent or escalation to promote.",
+        )
+    lease.updated_at = _utcnow()
+    await db.commit()
+    result = await db.execute(
+        select(Lease)
+        .options(
+            joinedload(Lease.office),
+            joinedload(Lease.manager),
+            joinedload(Lease.notes),
+            selectinload(Lease.cam_entries).joinedload(LeaseCamEntry.gl_account),
+        )
+        .where(Lease.id == lease_id)
+    )
+    response = LeaseResponse.model_validate(
+        result.unique().scalar_one(), from_attributes=True
+    )
+    await log_activity(
+        db,
+        user=current_user,
+        action="updated",
+        entity_type="lease",
+        entity_id=lease_id,
+        entity_label=lease.lease_name,
+        changes={
+            **(compute_changes(before, _financials(lease)) or {}),
+            "promoted_cam_entry": {"old": None, "new": str(entry.year)},
+        },
+    )
+    return response
 
 
 # ---------------------------------------------------------------------------
