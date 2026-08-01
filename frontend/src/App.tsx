@@ -79,10 +79,13 @@ const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const DashboardHubPage = lazy(() => import('@/pages/DashboardHubPage'));
 const FinancePage = lazy(() => import('@/pages/FinancePage'));
 const ResidentialPage = lazy(() => import('@/pages/ResidentialPage'));
+const ResidentDetailPage = lazy(() => import('@/pages/ResidentDetailPage'));
+const UnitDetailPage = lazy(() => import('@/pages/UnitDetailPage'));
 const SelfStoragePage = lazy(() => import('@/pages/SelfStoragePage'));
 const CategorySettingsPage = lazy(() => import('@/pages/CategorySettingsPage'));
 const HvacPage = lazy(() => import('@/pages/HvacPage'));
 const MaintenancePage = lazy(() => import('@/pages/MaintenancePage'));
+const AssetDetailPage = lazy(() => import('@/pages/AssetDetailPage'));
 const AdministrationPage = lazy(() => import('@/pages/AdministrationPage'));
 const PlatformAdminPage = lazy(() => import('@/pages/PlatformAdminPage'));
 const VerifyEmailPage = lazy(() => import('@/pages/VerifyEmailPage'));
@@ -162,6 +165,8 @@ const App: React.FC = () => {
                         <Route path="finance/lease-lifecycle" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="residential" element={<ResidentialPage />} />
                         <Route path="residential/residents" element={<ResidentialPage />} />
+                        <Route path="residential/residents/:id" element={<ResidentDetailPage />} />
+                        <Route path="residential/units/:id" element={<UnitDetailPage />} />
                         <Route path="residential/leases" element={<ResidentialPage />} />
                         <Route path="residential/templates" element={<ResidentialPage />} />
                         <Route path="residential/application-templates" element={<ResidentialPage />} />
@@ -202,6 +207,7 @@ const App: React.FC = () => {
                         <Route path="hvac" element={<HvacPage />} />
                         <Route path="hvac/contracts" element={<HvacPage />} />
                         <Route path="maintenance" element={<MaintenancePage />} />
+                        <Route path="maintenance/assets/:id" element={<AssetDetailPage />} />
                         <Route path="maintenance/:category" element={<MaintenancePage />} />
                         <Route path="hvac-contracts/new" element={<HvacContractFormPage />} />
                         <Route path="hvac-contracts/:id" element={<HvacContractDetailPage />} />

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
@@ -9,6 +10,7 @@ import Textarea from '@cloudscape-design/components/textarea';
 import Select from '@cloudscape-design/components/select';
 import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
+import Link from '@cloudscape-design/components/link';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useAuth } from '@/auth/AuthContext';
@@ -31,6 +33,8 @@ interface Opt { label: string; value: string; }
 const ResidentsPage: React.FC = () => {
   const { addFlash } = useFlashbar();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const canEditDocuments = user?.role === 'admin' || user?.role === 'editor';
   const [residents, setResidents] = useState<Resident[]>([]);
   const [loading, setLoading] = useState(true);
@@ -117,6 +121,19 @@ const ResidentsPage: React.FC = () => {
     setQueuedFiles([]);
     setModalOpen(true);
   };
+
+  // Lets the resident master record hand editing back to this list via ?edit=<id>.
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId || loading) return;
+    const match = residents.find((r) => r.id === editId);
+    if (match) {
+      openEdit(match);
+      searchParams.delete('edit');
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, residents, loading]);
 
   const save = async () => {
     if (!firstName.trim() || !lastName.trim()) {
@@ -218,7 +235,17 @@ const ResidentsPage: React.FC = () => {
           {
             id: 'name',
             header: 'Name',
-            cell: (r) => `${r.first_name} ${r.last_name}`,
+            cell: (r) => (
+              <Link
+                onFollow={(e) => {
+                  e.preventDefault();
+                  navigate(`/residential/residents/${r.id}`);
+                }}
+                href={`/residential/residents/${r.id}`}
+              >
+                {`${r.first_name} ${r.last_name}`}
+              </Link>
+            ),
           },
           { id: 'email', header: 'Email', cell: (r) => r.email ?? '—' },
           { id: 'phone', header: 'Phone', cell: (r) => r.phone ?? '—' },

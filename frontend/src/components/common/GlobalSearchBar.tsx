@@ -14,6 +14,9 @@ const ENTITY_ROUTES: Record<string, string> = {
   hvac_contract: '/hvac-contracts',
   management_company: '/management-companies',
   waiver: '/waivers',
+  resident: '/residential/residents',
+  rental_unit: '/residential/units',
+  property_owner: '/residential/owners',
 };
 
 const GlobalSearchBar: React.FC = () => {

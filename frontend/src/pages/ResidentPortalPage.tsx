@@ -1,5 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import React, { useCallback, useState } from 'react';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Container from '@cloudscape-design/components/container';
@@ -14,10 +13,11 @@ import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
 import Select from '@cloudscape-design/components/select';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
-import Alert from '@cloudscape-design/components/alert';
 import Spinner from '@cloudscape-design/components/spinner';
 import Flashbar from '@cloudscape-design/components/flashbar';
 import Tabs from '@cloudscape-design/components/tabs';
+import PortalAccessDenied from '@/components/portal/PortalAccessDenied';
+import usePortalSession from '@/hooks/usePortalSession';
 import { residentPortal } from '@/api';
 import type {
   Attachment,
@@ -62,26 +62,12 @@ const formatBytes = (bytes: number) => {
 const formatDate = (d: string | null | undefined) => (d ? d.slice(0, 10) : '—');
 
 const ResidentPortalPage: React.FC = () => {
-  const [searchParams] = useSearchParams();
-  const location = useLocation();
-  const navigate = useNavigate();
-  // The single-use invite lands on /resident-portal/signup?token=...; the
-  // persistent portal link is /resident-portal?token=...
-  const isSignupRoute = location.pathname.endsWith('/signup');
-  const urlToken = searchParams.get('token') ?? '';
-  const signupToken = isSignupRoute ? urlToken : '';
-  const tokenParam = isSignupRoute ? '' : urlToken;
-
-  const [token, setToken] = useState(tokenParam);
   const [profile, setProfile] = useState<ResidentPortalProfile | null>(null);
   const [leases, setLeases] = useState<ResidentPortalLease[]>([]);
   const [balance, setBalance] = useState<ResidentPortalBalance | null>(null);
   const [tickets, setTickets] = useState<ResidentPortalTicket[]>([]);
   const [documents, setDocuments] = useState<Attachment[]>([]);
   const [announcements, setAnnouncements] = useState<ResidentPortalAnnouncement[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [authError, setAuthError] = useState(false);
-  const [flash, setFlash] = useState<{ type: 'success' | 'error'; content: string } | null>(null);
 
   // Maintenance request modal
   const [requestModal, setRequestModal] = useState(false);
@@ -92,68 +78,28 @@ const ResidentPortalPage: React.FC = () => {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const redeemSignup = useCallback(async () => {
-    try {
-      const res = await residentPortal.signup(signupToken);
-      const newToken = res.data.portal_token;
-      setToken(newToken);
-      navigate(`/resident-portal?token=${newToken}`, { replace: true });
-      return newToken;
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 400) {
-        setFlash({ type: 'error', content: 'This signup link has expired. Please request a new one.' });
-      }
-      setAuthError(true);
-      return '';
-    }
-  }, [signupToken, navigate]);
-
   const loadData = useCallback(async (activeToken: string) => {
-    try {
-      const [profileRes, leasesRes, balanceRes, ticketsRes, docsRes, annRes] = await Promise.all([
-        residentPortal.getProfile(activeToken),
-        residentPortal.listLeases(activeToken),
-        residentPortal.getBalance(activeToken),
-        residentPortal.listMaintenanceRequests(activeToken),
-        residentPortal.listDocuments(activeToken),
-        residentPortal.listAnnouncements(activeToken),
-      ]);
-      setProfile(profileRes.data);
-      setLeases(leasesRes.data);
-      setBalance(balanceRes.data);
-      setTickets(ticketsRes.data);
-      setDocuments(docsRes.data);
-      setAnnouncements(annRes.data);
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 401) {
-        setAuthError(true);
-      } else {
-        setFlash({ type: 'error', content: 'Failed to load portal data.' });
-      }
-    }
+    const [profileRes, leasesRes, balanceRes, ticketsRes, docsRes, annRes] = await Promise.all([
+      residentPortal.getProfile(activeToken),
+      residentPortal.listLeases(activeToken),
+      residentPortal.getBalance(activeToken),
+      residentPortal.listMaintenanceRequests(activeToken),
+      residentPortal.listDocuments(activeToken),
+      residentPortal.listAnnouncements(activeToken),
+    ]);
+    setProfile(profileRes.data);
+    setLeases(leasesRes.data);
+    setBalance(balanceRes.data);
+    setTickets(ticketsRes.data);
+    setDocuments(docsRes.data);
+    setAnnouncements(annRes.data);
   }, []);
 
-  const init = useCallback(async () => {
-    setLoading(true);
-    let activeToken = tokenParam;
-    if (signupToken) {
-      activeToken = await redeemSignup();
-    }
-    if (!activeToken) {
-      setAuthError(true);
-      setLoading(false);
-      return;
-    }
-    await loadData(activeToken);
-    setLoading(false);
-  }, [tokenParam, signupToken, redeemSignup, loadData]);
-
-  useEffect(() => {
-    init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const { token, loading, authError, flash, setFlash } = usePortalSession({
+    portalPath: '/resident-portal',
+    signup: residentPortal.signup,
+    load: loadData,
+  });
 
   const openRequest = () => {
     setRequestForm({ subject: '', description: '', priority: 'medium' });
@@ -193,14 +139,7 @@ const ResidentPortalPage: React.FC = () => {
   }
 
   if (authError || !token) {
-    return (
-      <Box padding="xxl">
-        <Alert type="error" header="Access denied">
-          This portal link is invalid or has expired. Please contact your property manager for a new
-          link.
-        </Alert>
-      </Box>
-    );
+    return <PortalAccessDenied />;
   }
 
   const residentName = profile ? `${profile.first_name} ${profile.last_name}`.trim() : '…';

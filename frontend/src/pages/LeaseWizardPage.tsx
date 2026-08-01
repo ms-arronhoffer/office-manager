@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
@@ -78,6 +78,7 @@ function newHistoryRow(): HistoryRow {
 
 const LeaseWizardPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -166,6 +167,14 @@ const LeaseWizardPage: React.FC = () => {
       )
       .catch(() => undefined);
   }, []);
+
+  // Carry office context from "Add lease" on an office record into the wizard.
+  useEffect(() => {
+    const officeId = searchParams.get('office_id');
+    if (!officeId || office) return;
+    const match = officeOptions.find((o) => o.value === officeId);
+    if (match) setOffice(match);
+  }, [searchParams, officeOptions, office]);
 
   const validateTypeAndName = (): boolean => {
     const errs: Record<string, string> = {};

@@ -1655,6 +1655,8 @@ export const maintenance = {
   listAssets: (params?: { category?: string; office_id?: string }) =>
     client.get<MaintenanceAsset[]>('/maintenance/assets', { params }),
 
+  getAsset: (id: string) => client.get<MaintenanceAsset>(`/maintenance/assets/${id}`),
+
   createAsset: (data: Partial<MaintenanceAsset>) =>
     client.post<MaintenanceAsset>('/maintenance/assets', data),
 

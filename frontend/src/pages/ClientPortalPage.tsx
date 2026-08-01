@@ -1,6 +1,5 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { useConfirmDelete } from '@/hooks/useConfirmDelete';
-import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Container from '@cloudscape-design/components/container';
@@ -20,6 +19,8 @@ import Flashbar from '@cloudscape-design/components/flashbar';
 import Tabs from '@cloudscape-design/components/tabs';
 import type { InputProps } from '@cloudscape-design/components/input';
 import { clientPortal } from '@/api';
+import PortalAccessDenied from '@/components/portal/PortalAccessDenied';
+import usePortalSession from '@/hooks/usePortalSession';
 import type {
   ClientPortalProfile,
   ClientPortalChangeRequest,
@@ -90,17 +91,6 @@ const emptyContactForm: ContactForm = {
 };
 
 const ClientPortalPage: React.FC = () => {
-  const [searchParams] = useSearchParams();
-  const location = useLocation();
-  const navigate = useNavigate();
-  // The single-use invite lands on /client-portal/signup?token=...; the
-  // persistent portal link is /client-portal?token=...
-  const isSignupRoute = location.pathname.endsWith('/signup');
-  const urlToken = searchParams.get('token') ?? '';
-  const signupToken = isSignupRoute ? urlToken : '';
-  const tokenParam = isSignupRoute ? '' : urlToken;
-
-  const [token, setToken] = useState(tokenParam);
   const [profile, setProfile] = useState<ClientPortalProfile | null>(null);
   const [contacts, setContacts] = useState<EntityContact[]>([]);
   const [documents, setDocuments] = useState<Attachment[]>([]);
@@ -109,9 +99,6 @@ const ClientPortalPage: React.FC = () => {
   const [offices, setOffices] = useState<ClientPortalOffice[]>([]);
   const [leases, setLeases] = useState<ClientPortalLease[]>([]);
   const [tickets, setTickets] = useState<ClientPortalTicket[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [authError, setAuthError] = useState(false);
-  const [flash, setFlash] = useState<{ type: 'success' | 'error'; content: string } | null>(null);
 
   // Contact modal
   const [contactModal, setContactModal] = useState(false);
@@ -132,74 +119,32 @@ const ClientPortalPage: React.FC = () => {
   const [crMessage, setCrMessage] = useState('');
   const [savingCr, setSavingCr] = useState(false);
 
-  // Redeem a one-time signup token (if present) before loading data.
-  const redeemSignup = useCallback(async () => {
-    try {
-      const res = await clientPortal.signup(signupToken);
-      const newToken = res.data.portal_token;
-      setToken(newToken);
-      // Swap the single-use signup link for the persistent portal link.
-      navigate(`/client-portal?token=${newToken}`, { replace: true });
-      return newToken;
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 410) {
-        setFlash({ type: 'error', content: 'This signup link has expired. Please request a new one.' });
-      }
-      setAuthError(true);
-      return '';
-    }
-  }, [signupToken, navigate]);
-
   const loadData = useCallback(async (activeToken: string) => {
-    try {
-      const [profileRes, contactsRes, docsRes, crRes, summaryRes, officesRes, leasesRes, ticketsRes] = await Promise.all([
-        clientPortal.getProfile(activeToken),
-        clientPortal.listContacts(activeToken),
-        clientPortal.listDocuments(activeToken),
-        clientPortal.listChangeRequests(activeToken),
-        clientPortal.summary(activeToken),
-        clientPortal.listOffices(activeToken),
-        clientPortal.listLeases(activeToken),
-        clientPortal.listMaintenance(activeToken),
-      ]);
-      setProfile(profileRes.data);
-      setContacts(contactsRes.data);
-      setDocuments(docsRes.data);
-      setChangeRequests(crRes.data);
-      setSummary(summaryRes.data);
-      setOffices(officesRes.data);
-      setLeases(leasesRes.data);
-      setTickets(ticketsRes.data);
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 401) {
-        setAuthError(true);
-      } else {
-        setFlash({ type: 'error', content: 'Failed to load portal data.' });
-      }
-    }
+    const [profileRes, contactsRes, docsRes, crRes, summaryRes, officesRes, leasesRes, ticketsRes] = await Promise.all([
+      clientPortal.getProfile(activeToken),
+      clientPortal.listContacts(activeToken),
+      clientPortal.listDocuments(activeToken),
+      clientPortal.listChangeRequests(activeToken),
+      clientPortal.summary(activeToken),
+      clientPortal.listOffices(activeToken),
+      clientPortal.listLeases(activeToken),
+      clientPortal.listMaintenance(activeToken),
+    ]);
+    setProfile(profileRes.data);
+    setContacts(contactsRes.data);
+    setDocuments(docsRes.data);
+    setChangeRequests(crRes.data);
+    setSummary(summaryRes.data);
+    setOffices(officesRes.data);
+    setLeases(leasesRes.data);
+    setTickets(ticketsRes.data);
   }, []);
 
-  const init = useCallback(async () => {
-    setLoading(true);
-    let activeToken = tokenParam;
-    if (signupToken) {
-      activeToken = await redeemSignup();
-    }
-    if (!activeToken) {
-      setAuthError(true);
-      setLoading(false);
-      return;
-    }
-    await loadData(activeToken);
-    setLoading(false);
-  }, [tokenParam, signupToken, redeemSignup, loadData]);
-
-  useEffect(() => {
-    init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const { token, loading, authError, flash, setFlash } = usePortalSession({
+    portalPath: '/client-portal',
+    signup: clientPortal.signup,
+    load: loadData,
+  });
 
   const openCreateContact = () => {
     setEditingContact(null);
@@ -364,13 +309,7 @@ const ClientPortalPage: React.FC = () => {
   }
 
   if (authError || !token) {
-    return (
-      <Box padding="xxl">
-        <Alert type="error" header="Access denied">
-          This portal link is invalid or has expired. Please contact your property manager for a new link.
-        </Alert>
-      </Box>
-    );
+    return <PortalAccessDenied />;
   }
 
   return (

@@ -429,7 +429,7 @@ const OfficeDetailPage: React.FC = () => {
                       <Header
                         counter={`(${leases.length})`}
                         actions={
-                          <Button onClick={() => navigate(`/leases/new?office_id=${id}`)}>
+                          <Button onClick={() => navigate(`/leases/wizard?office_id=${id}`)}>
                             Add Lease
                           </Button>
                         }
@@ -441,7 +441,7 @@ const OfficeDetailPage: React.FC = () => {
                       <Box textAlign="center" color="inherit" padding="l">
                         <SpaceBetween size="m">
                           <b>No leases for this office</b>
-                          <Button onClick={() => navigate(`/leases/new?office_id=${id}`)}>
+                          <Button onClick={() => navigate(`/leases/wizard?office_id=${id}`)}>
                             Add lease
                           </Button>
                         </SpaceBetween>

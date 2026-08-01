@@ -701,6 +701,26 @@ async def list_assets(
     return [AssetResponse.model_validate(a) for a in result.scalars().all()]
 
 
+@router.get("/assets/{asset_id}", response_model=AssetResponse)
+async def get_asset(
+    asset_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(MaintenanceAsset)
+        .options(*_ASSET_OPTS)
+        .where(
+            MaintenanceAsset.id == asset_id,
+            MaintenanceAsset.organization_id == current_user.organization_id,
+        )
+    )
+    asset = result.scalar_one_or_none()
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+    return AssetResponse.model_validate(asset)
+
+
 @router.post("/assets", response_model=AssetResponse, status_code=status.HTTP_201_CREATED)
 async def create_asset(
     payload: AssetCreate,

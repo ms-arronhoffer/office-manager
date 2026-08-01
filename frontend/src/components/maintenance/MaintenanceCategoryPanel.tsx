@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import Link from '@cloudscape-design/components/link';
 import Container from '@cloudscape-design/components/container';
 import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
@@ -114,6 +116,7 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
   onChanged,
 }) => {
   const { addFlash } = useFlashbar();
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
   const [assets, setAssets] = useState<MaintenanceAsset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -527,7 +530,21 @@ const MaintenanceCategoryPanel: React.FC<Props> = ({
           items={assets}
           empty={<Box textAlign="center" color="inherit" padding="m">No assets yet.</Box>}
           columnDefinitions={[
-            { id: 'name', header: 'Name', cell: (r) => r.name },
+            {
+              id: 'name',
+              header: 'Name',
+              cell: (r) => (
+                <Link
+                  onFollow={(e) => {
+                    e.preventDefault();
+                    navigate(`/maintenance/assets/${r.id}`);
+                  }}
+                  href={`/maintenance/assets/${r.id}`}
+                >
+                  {r.name}
+                </Link>
+              ),
+            },
             { id: 'subtopic', header: 'Topic', cell: (r) => subtopicLabel(r.subtopic) },
             { id: 'office', header: 'Property', cell: (r) => r.office?.location_name ?? '—' },
             { id: 'location', header: 'Location', cell: (r) => r.location_desc ?? '—' },

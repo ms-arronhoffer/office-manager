@@ -17,6 +17,8 @@ interface TabbedPageProps {
   tabs: TabbedPageTab[];
   /** Optional aria label for the tab strip. */
   ariaLabel?: string;
+  /** Rendered when every tab has been filtered out by role or plan. */
+  emptyState?: React.ReactNode;
 }
 
 /**
@@ -27,7 +29,7 @@ interface TabbedPageProps {
  * tab navigates to that tab's href rather than swapping local state, keeping
  * the URL the single source of truth.
  */
-const TabbedPage: React.FC<TabbedPageProps> = ({ tabs, ariaLabel }) => {
+const TabbedPage: React.FC<TabbedPageProps> = ({ tabs, ariaLabel, emptyState }) => {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -46,7 +48,7 @@ const TabbedPage: React.FC<TabbedPageProps> = ({ tabs, ariaLabel }) => {
   );
 
   if (tabs.length === 0 || !active) {
-    return null;
+    return <>{emptyState ?? null}</>;
   }
 
   return (

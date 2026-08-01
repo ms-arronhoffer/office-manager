@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Header from '@cloudscape-design/components/header';
 import Container from '@cloudscape-design/components/container';
 import SpaceBetween from '@cloudscape-design/components/space-between';
@@ -10,6 +11,7 @@ import Textarea from '@cloudscape-design/components/textarea';
 import Select from '@cloudscape-design/components/select';
 import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
+import Link from '@cloudscape-design/components/link';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useAuth } from '@/auth/AuthContext';
@@ -36,6 +38,8 @@ interface Opt { label: string; value: string; }
 const LeasingUnitsPage: React.FC = () => {
   const { addFlash } = useFlashbar();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const canEditDocuments = user?.role === 'admin' || user?.role === 'editor';
   const [units, setUnits] = useState<RentalUnit[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
@@ -171,6 +175,19 @@ const LeasingUnitsPage: React.FC = () => {
     setModalOpen(true);
   };
 
+  // Lets the unit master record hand editing back to this list via ?edit=<id>.
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId || loading) return;
+    const match = units.find((u) => u.id === editId);
+    if (match) {
+      openEdit(match);
+      searchParams.delete('edit');
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, units, loading]);
+
   const save = async () => {
     if (!unitNumber.trim()) {
       setError('Unit number is required.');
@@ -292,7 +309,21 @@ const LeasingUnitsPage: React.FC = () => {
           </Header>
         }
         columnDefinitions={[
-          { id: 'unit', header: 'Unit', cell: (u) => u.unit_number },
+          {
+            id: 'unit',
+            header: 'Unit',
+            cell: (u) => (
+              <Link
+                onFollow={(e) => {
+                  e.preventDefault();
+                  navigate(`/residential/units/${u.id}`);
+                }}
+                href={`/residential/units/${u.id}`}
+              >
+                {u.unit_number}
+              </Link>
+            ),
+          },
           { id: 'name', header: 'Name', cell: (u) => u.name ?? '—' },
           { id: 'office', header: 'Property', cell: (u) => officeLabel(u.office_id) },
           { id: 'beds', header: 'Beds', cell: (u) => u.bedrooms ?? '—' },

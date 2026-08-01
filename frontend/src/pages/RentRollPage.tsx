@@ -14,6 +14,7 @@ import ColumnLayout from '@cloudscape-design/components/column-layout';
 import Select from '@cloudscape-design/components/select';
 import FormField from '@cloudscape-design/components/form-field';
 import Link from '@cloudscape-design/components/link';
+import { useAuth } from '@/auth/AuthContext';
 import { leases as leasesApi, managers as managersApi } from '@/api';
 import type { RentRollRow, RentRollResponse, Manager } from '@/types';
 
@@ -68,6 +69,8 @@ function downloadCsv(rows: RentRollRow[], total_monthly: number, total_annual: n
 
 const RentRollPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isFinance = user?.role === 'admin' || user?.role === 'accountant';
   const [data, setData] = useState<RentRollResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -113,13 +116,20 @@ const RentRollPage: React.FC = () => {
         <Header
           variant="h1"
           actions={
-            <Button
-              iconName="download"
-              disabled={!data || data.rows.length === 0}
-              onClick={() => data && downloadCsv(data.rows, data.total_monthly, data.total_annual)}
-            >
-              Export CSV
-            </Button>
+            <SpaceBetween direction="horizontal" size="xs">
+              {isFinance && (
+                <Button onClick={() => navigate('/finance/accounts-receivable')}>
+                  Accounts receivable
+                </Button>
+              )}
+              <Button
+                iconName="download"
+                disabled={!data || data.rows.length === 0}
+                onClick={() => data && downloadCsv(data.rows, data.total_monthly, data.total_annual)}
+              >
+                Export CSV
+              </Button>
+            </SpaceBetween>
           }
         >
           Rent Roll
