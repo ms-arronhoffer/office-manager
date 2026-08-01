@@ -218,7 +218,7 @@ const LeaseFormPage: React.FC = () => {
   const [selectedManager, setSelectedManager] = useState<SelectOption | null>(null);
   const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
   // The document the user ran AI extraction on; reused to pre-fill the lease
-  // abstract after the lease is created (best-effort, Pro+ only).
+  // abstract after the lease is created (best-effort, Operations+ only).
   const [aiDocument, setAiDocument] = useState<File | null>(null);
   // Staged historical CAM rows from AI extraction, pending the review modal
   const [stagedHistoryRows, setStagedHistoryRows] = useState<CamHistoryRow[]>([]);
@@ -338,7 +338,7 @@ const LeaseFormPage: React.FC = () => {
     }
 
     // Pre-fill the lease abstract from the AI-analysed document. This requires
-    // the AI assist entitlement (Pro+) and a configured provider, so any
+    // the AI assist entitlement (Operations+) and a configured provider, so any
     // failure here is silently tolerated and never blocks lease creation.
     if (aiDocument) {
       try {

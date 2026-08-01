@@ -260,7 +260,7 @@ const WaiversPage: React.FC = () => {
     return (
       <ContentLayout header={<Header variant="h1">Digital Waivers</Header>}>
         <Alert type="info" header="Upgrade required">
-          Digital Waivers &amp; e-signatures are available on the Pro and Enterprise plans. Upgrade
+          Digital Waivers &amp; e-signatures are available on the Operations and Enterprise plans. Upgrade
           your plan to send waivers and collect legally defensible electronic signatures.
         </Alert>
       </ContentLayout>
@@ -274,7 +274,7 @@ const WaiversPage: React.FC = () => {
         header={
           <Header
             variant="h1"
-            description="Send pre-built or custom waivers to any contact or visitor and collect ESIGN/UETA-compliant electronic signatures."
+            description="Send pre-built or custom waivers to any contact or visitor and collect attributed electronic signatures with a tamper-evident audit record."
             actions={
               <SpaceBetween direction="horizontal" size="xs">
                 <Button onClick={openNewTemplate}>New template</Button>

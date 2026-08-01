@@ -232,7 +232,7 @@ const MaintenanceTicketFormPage: React.FC = () => {
       if (code === 503) {
         setTriageError('AI assist is not configured on the server.');
       } else if (code === 402) {
-        setTriageError('AI triage is available on the Pro plan and above.');
+        setTriageError('AI triage is available on the Operations plan and above.');
       } else {
         setTriageError('Could not generate suggestions. Please set the fields manually.');
       }

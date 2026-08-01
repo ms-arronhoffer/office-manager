@@ -145,10 +145,14 @@ def test_plan_from_price_maps_starter_pro_and_enterprise_product():
     cfg = StripeSettings(
         secret_key="sk", webhook_secret="wh",
         price_id_starter="price_starter", price_id_pro="price_pro",
+        price_id_starter_annual="price_starter_annual",
+        price_id_pro_annual="price_pro_annual",
         product_id_enterprise="prod_ent",
     )
     assert _plan_from_price({"id": "price_starter", "product": "prod_x"}, cfg) == "starter"
     assert _plan_from_price({"id": "price_pro", "product": "prod_x"}, cfg) == "pro"
+    assert _plan_from_price("price_starter_annual", cfg) == "starter"
+    assert _plan_from_price("price_pro_annual", cfg) == "pro"
     # Any bespoke enterprise price under the enterprise product resolves to enterprise.
     assert _plan_from_price({"id": "price_custom_123", "product": "prod_ent"}, cfg) == "enterprise"
     # Expanded product objects are supported too.

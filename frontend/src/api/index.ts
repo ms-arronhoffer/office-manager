@@ -1081,10 +1081,18 @@ export const recurringTicketRules = {
 export const billing = {
   getSubscription: () => client.get<BillingSubscription>('/billing/subscription'),
 
-  createCheckout: (plan: 'starter' | 'pro' | 'enterprise', enterpriseCode?: string) =>
+  createCheckout: (
+    plan: 'starter' | 'pro' | 'enterprise',
+    enterpriseCode?: string,
+    billingInterval: 'monthly' | 'annual' = 'monthly',
+  ) =>
     client.post<{ checkout_url: string | null; plan?: string; payment_status?: string }>(
       '/billing/checkout',
-      { plan, ...(enterpriseCode ? { enterprise_code: enterpriseCode } : {}) }
+      {
+        plan,
+        billing_interval: billingInterval,
+        ...(enterpriseCode ? { enterprise_code: enterpriseCode } : {}),
+      }
     ),
 
   confirmCheckout: (sessionId: string) =>

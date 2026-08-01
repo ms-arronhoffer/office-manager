@@ -26,6 +26,8 @@ class StripeSettings:
     webhook_secret: str
     price_id_starter: str
     price_id_pro: str
+    price_id_starter_annual: str
+    price_id_pro_annual: str
     # Enterprise is custom-priced per subscriber, so we track its Stripe Product
     # (which owns every subscriber's bespoke price) rather than a single price id.
     product_id_enterprise: str
@@ -48,6 +50,8 @@ async def resolve_stripe_settings(db: AsyncSession) -> StripeSettings:
     webhook_secret = ""
     price_starter = ""
     price_pro = ""
+    price_starter_annual = ""
+    price_pro_annual = ""
     product_enterprise = ""
 
     if cfg is not None and cfg.is_enabled:
@@ -57,6 +61,8 @@ async def resolve_stripe_settings(db: AsyncSession) -> StripeSettings:
             webhook_secret = decrypt_secret(cfg.webhook_secret_encrypted)
         price_starter = cfg.price_id_starter or ""
         price_pro = cfg.price_id_pro or ""
+        price_starter_annual = cfg.price_id_starter_annual or ""
+        price_pro_annual = cfg.price_id_pro_annual or ""
         product_enterprise = cfg.product_id_enterprise or ""
 
     return StripeSettings(
@@ -64,6 +70,10 @@ async def resolve_stripe_settings(db: AsyncSession) -> StripeSettings:
         webhook_secret=webhook_secret or env_settings.STRIPE_WEBHOOK_SECRET,
         price_id_starter=price_starter or env_settings.STRIPE_PRICE_ID_STARTER,
         price_id_pro=price_pro or env_settings.STRIPE_PRICE_ID_PRO,
+        price_id_starter_annual=(
+            price_starter_annual or env_settings.STRIPE_PRICE_ID_STARTER_ANNUAL
+        ),
+        price_id_pro_annual=price_pro_annual or env_settings.STRIPE_PRICE_ID_PRO_ANNUAL,
         product_id_enterprise=product_enterprise or env_settings.STRIPE_PRODUCT_ID_ENTERPRISE,
     )
 

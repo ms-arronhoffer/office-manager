@@ -19,7 +19,7 @@ interface AITicketAssistProps {
 }
 
 /**
- * AI-assist for maintenance tickets (Pro+ ``ai_assist``). On demand it asks
+ * AI-assist for maintenance tickets (Operations+ ``ai_assist``). On demand it asks
  * Gemini to triage the request — suggesting a category, priority, and vendor —
  * and surfaces similar open tickets to catch duplicates before submission. All
  * output is a suggestion for human review; nothing is applied without the user

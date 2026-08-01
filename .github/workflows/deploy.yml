@@ -137,6 +137,13 @@ jobs:
           LANDING_PORT: ${{ secrets.LANDING_PORT }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}	
           GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_PRICE_ID_STARTER: ${{ secrets.STRIPE_PRICE_ID_STARTER }}
+          STRIPE_PRICE_ID_STARTER_ANNUAL: ${{ secrets.STRIPE_PRICE_ID_STARTER_ANNUAL }}
+          STRIPE_PRICE_ID_PRO: ${{ secrets.STRIPE_PRICE_ID_PRO }}
+          STRIPE_PRICE_ID_PRO_ANNUAL: ${{ secrets.STRIPE_PRICE_ID_PRO_ANNUAL }}
+          STRIPE_PRODUCT_ID_ENTERPRISE: ${{ secrets.STRIPE_PRODUCT_ID_ENTERPRISE }}
         run: |
           # Recreate every service (backend, frontend, admin-frontend, landing, db)
           # using docker-compose_local.yml, which binds the host ports to all

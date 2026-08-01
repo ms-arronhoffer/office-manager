@@ -1,7 +1,7 @@
 ---
 const plans = [
   {
-    name: 'Starter',
+    name: 'Core',
     price: '$99',
     annualPrice: '$79',
     per: '/mo',
@@ -13,20 +13,22 @@ const plans = [
       'Up to 10 offices',
       'Up to 100 active leases',
       'Unlimited users',
-      'Lease management & alerts',
+      'Commercial & residential lease records',
+      'Critical-date alerts',
       'Maintenance ticket tracking',
-      'Vendor management',
-      'Email notifications',
+      'Resident, owner & vendor portals',
+      'Vendor & insurance certificate tracking',
       'Basic reporting & CSV export',
       'AI lease detail extraction',
-      'Monthly AI token allowance',
+      'Included monthly AI allowance',
       '90-day audit log',
+      'Email support',
     ],
   },
   {
-    name: 'Pro',
-    price: '$399',
-    annualPrice: '$319',
+    name: 'Operations',
+    price: '$299',
+    annualPrice: '$249',
     per: '/mo',
     tagline: 'For growing portfolios up to 50 offices',
     cta: 'Start Free Trial',
@@ -36,24 +38,27 @@ const plans = [
       'Up to 50 offices',
       'Up to 500 active leases',
       'Unlimited users',
-      'Everything in Starter, plus:',
-      'HVAC & equipment tracking',
-      'Advanced SLA rules & escalations',
+      'Everything in Core, plus:',
+      'Full maintenance, HVAC & inspections',
+      'SLA rules & escalations',
       'Transition project management',
+      'Commercial client portal',
       'AI abstracts & summary reports',
-      'Higher monthly AI token allowance',
+      'Expanded monthly AI allowance',
       'Digital waivers & e-signatures',
+      'CAM reconciliation & advanced accounting',
       'Advanced analytics dashboard',
       'PDF report export',
+      'Guided Buildium migration',
       'Full audit log (unlimited)',
       'Priority support',
     ],
   },
   {
     name: 'Enterprise',
-    price: 'Custom',
-    annualPrice: 'Custom',
-    per: '',
+    price: '$750+',
+    annualPrice: '$625+',
+    per: '/mo',
     tagline: 'For large portfolios & complex requirements',
     cta: 'Contact Sales',
     ctaHref: null,
@@ -63,15 +68,15 @@ const plans = [
       'Unlimited offices',
       'Unlimited active leases',
       'Unlimited users',
-      'Everything in Pro, plus:',
-      'SSO / SAML integration',
+      'Everything in Operations, plus:',
       'API access & webhooks',
-      'Custom fields & workflows',
-      'Unlimited AI token usage',
-      'Dedicated success manager',
-      'Custom data retention policies',
-      'SLA-backed uptime guarantee',
-      'Phone & Slack support',
+      'Custom portfolio limits & retention',
+      'High-volume AI allowance',
+      'Dedicated onboarding',
+      'Migration assistance',
+      'Contractual support response times',
+      'Private or customer-managed deployment',
+      'Custom contract & support package',
     ],
   },
 ];
@@ -81,7 +86,7 @@ const plans = [
     <div class="text-center max-w-2xl mx-auto mb-4">
       <p class="text-sm font-semibold text-blue-600 uppercase tracking-widest mb-3">Pricing</p>
       <h2 class="text-4xl lg:text-5xl font-extrabold text-slate-900">Simple, transparent pricing</h2>
-      <p class="mt-4 text-lg text-slate-500">No per-seat nonsense. No hidden fees. One price covers your whole team.</p>
+      <p class="mt-4 text-lg text-slate-500">One platform price covers your whole team. Onboarding and migration services are shown below.</p>
     </div>
 
     <p class="text-center text-sm text-slate-400 mb-8">All plans include a 14-day free trial. No credit card required.</p>
@@ -95,7 +100,7 @@ const plans = [
       </button>
       <span id="bill-annual-label" class="text-sm font-semibold text-slate-400">
         Annual
-        <span class="ml-1 inline-flex items-center rounded-full bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5">Save ~20%</span>
+        <span class="ml-1 inline-flex items-center rounded-full bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5">Save up to 20%</span>
       </span>
     </div>
 
@@ -152,14 +157,18 @@ const plans = [
       ))}
     </div>
 
+    <p class="mt-8 text-center text-sm text-slate-500">
+      Standard onboarding is $750. Data migration starts at $2,500. Standard onboarding may be waived with an annual Operations agreement.
+    </p>
+
     <!-- Risk reversal / guarantee -->
     <div class="mt-12 max-w-3xl mx-auto rounded-2xl border border-slate-200 bg-slate-50 px-6 py-5 flex items-start gap-4">
       <svg class="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M12 3l7 4v5c0 5-3.5 7.5-7 9-3.5-1.5-7-4-7-9V7l7-4z"/></svg>
       <div>
         <div class="font-semibold text-slate-900">Cancel anytime — your data is always yours.</div>
         <p class="text-sm text-slate-500 mt-1">
-          Not the right fit? Cancel with one click and we'll email you a full export of your data,
-          no questions asked and no lock-in. The 14-day trial needs no credit card up front.
+          Not the right fit? Export your records before canceling, then cancel through the billing portal.
+          There is no software lock-in, and the 14-day trial needs no credit card up front.
         </p>
       </div>
     </div>

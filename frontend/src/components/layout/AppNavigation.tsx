@@ -15,6 +15,7 @@ import AIPortfolioAssistant from '@/components/common/AIPortfolioAssistant';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useInstallPrompt } from '@/hooks/useInstallPrompt';
 import { useCategories } from '@/hooks/useCategories';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import type { PrimaryCategory } from '@/types';
 import './AppNavigation.css';
 
@@ -62,6 +63,12 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
   const pinnedOffices = getPinnedOffices();
 
   const { isEnabled: isCategoryEnabled, loading: categoriesLoading } = useCategories();
+  const { hasFeature } = useEntitlements();
+  const hasMaintenance = hasFeature('maintenance');
+  const hasInspections = hasFeature('inspections');
+  const hasAdvancedAccounting = hasFeature('advanced_accounting');
+  const hasTransitions = hasFeature('transitions');
+  const hasDigitalWaivers = hasFeature('digital_waivers');
   // Until the category config loads, fall back to the historical always-on
   // categories (commercial + residential) so the primary nav never flickers
   // empty; self_storage stays hidden until we know it is enabled.
@@ -149,14 +156,14 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       defaultExpanded: false,
       items: [
         { type: 'link' as const, text: 'Maintenance Tickets', href: '/maintenance-tickets' },
-        { type: 'link' as const, text: 'Inspections', href: '/inspections' },
+        ...(hasInspections ? [{ type: 'link' as const, text: 'Inspections', href: '/inspections' }] : []),
         { type: 'link' as const, text: 'Vendors', href: '/vendors' },
-        { type: 'link' as const, text: 'Transitions', href: '/transitions' },
+        ...(hasTransitions ? [{ type: 'link' as const, text: 'Transitions', href: '/transitions' }] : []),
         ...(isEditorOrAdmin ? [{ type: 'link' as const, text: 'Insurance Certificates', href: '/insurance-certificates' }] : []),
-        ...(isEditorOrAdmin ? [{ type: 'link' as const, text: 'Digital Waivers', href: '/waivers' }] : []),
+        ...(isEditorOrAdmin && hasDigitalWaivers ? [{ type: 'link' as const, text: 'Digital Waivers', href: '/waivers' }] : []),
       ],
     },
-    {
+    ...(hasMaintenance ? [{
       type: 'section' as const,
       text: 'Maintenance',
       defaultExpanded: false,
@@ -169,7 +176,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
         { type: 'link' as const, text: 'Exterior & Structural', href: '/maintenance/exterior_structural' },
         { type: 'link' as const, text: 'Elevators & Lifts', href: '/maintenance/elevators_lifts' },
       ],
-    },
+    }] : []),
     {
       type: 'section' as const,
       text: 'Finance',
@@ -177,7 +184,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       items: [
         { type: 'link' as const, text: 'Rent Roll', href: '/finance' },
         ...(isEditorOrAdmin ? [{ type: 'link' as const, text: 'Operating Expenses', href: '/finance/operating-expenses' }] : []),
-        ...(isFinance ? [
+        ...(isFinance && hasAdvancedAccounting ? [
           { type: 'link' as const, text: 'General Ledger', href: '/finance/general-ledger' },
           { type: 'link' as const, text: 'Financial Statements', href: '/finance/financial-statements' },
           { type: 'link' as const, text: 'CAM', href: '/finance/cam' },
@@ -200,7 +207,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       text: 'Help',
       href: '/help',
     },
-  ], [isEditorOrAdmin, isFinance, pinnedOffices, showCategory]);
+  ], [hasAdvancedAccounting, hasDigitalWaivers, hasInspections, hasMaintenance, hasTransitions, isEditorOrAdmin, isFinance, pinnedOffices, showCategory]);
 
   return (
     <>

@@ -172,7 +172,7 @@ Portfolio Desk is architected for multi-tenant SaaS from the ground up. Every pi
 Manage your subscription directly from the application. Upgrade, downgrade, or update payment information without talking to anyone. Powered by Stripe.
 
 - Monthly and annual billing options
-- Starter / Pro / Enterprise plans based on seat count and feature access
+- Core / Operations / Enterprise plans based on portfolio size and feature access
 - Stripe Customer Portal for self-service billing management
 - Automatic dunning on failed payments with grace period before read-only mode
 
@@ -180,13 +180,13 @@ Manage your subscription directly from the application. Upgrade, downgrade, or u
 
 ## Pricing (Example Tiers)
 
-| Plan       | Seats   | Key Features                                                  | Price/mo |
-|------------|---------|---------------------------------------------------------------|----------|
-| Starter    | Up to 5 | All core features, email alerts, reports                      | $99      |
-| Pro        | Up to 25| + API access, webhooks, vendor portal, analytics              | $299     |
-| Enterprise | Unlimited| + SSO, custom SLA rules, dedicated onboarding, priority support| Contact us |
+| Plan       | Portfolio limit | Key Features                                             | Price/mo |
+|------------|-----------------|----------------------------------------------------------|----------|
+| Core       | 10 locations / 100 active leases | Lease records, alerts, tickets, CSV, AI extraction | $99 |
+| Operations | 50 locations / 500 active leases | + facilities, portals, accounting, analytics, AI | $299 |
+| Enterprise | Custom | + API/webhooks, custom limits, onboarding, private deployment | From $750 |
 
-*30-day free trial on all plans. No credit card required to start.*
+*14-day free trial on all plans. No credit card required to start. Standard onboarding is $750; scoped data migration starts at $2,500.*
 
 ---
 
@@ -240,7 +240,7 @@ Manage your subscription directly from the application. Upgrade, downgrade, or u
 
 **Ready to see the difference?**
 
-Start a free 30-day trial — no credit card required. Import your existing data from Excel in minutes.
+Start a free 14-day trial — no credit card required. Import your existing data from Excel in minutes.
 
 **[Start Free Trial]** | **[Schedule a Demo]** | **[View Documentation]**
 
@@ -249,10 +249,10 @@ Start a free 30-day trial — no credit card required. Import your existing data
 ## Social / Short-Form Copy
 
 **LinkedIn post:**
-If your lease portfolio lives in Excel, you're one missed formula update away from a material deadline surprise. Portfolio Desk automates every alert, tracks every vendor, and generates board-ready reports on demand. 30-day trial, no card required.
+If your lease portfolio lives in Excel, you're one missed formula update away from a material deadline surprise. Portfolio Desk automates every alert, tracks every vendor, and generates board-ready reports on demand. 14-day trial, no card required.
 
 **Twitter/X:**
-Stop tracking lease expirations in spreadsheets. Portfolio Desk: lease management, HVAC, maintenance, vendors, and reporting — in one platform. 30-day free trial.
+Stop tracking lease expirations in spreadsheets. Portfolio Desk: lease management, HVAC, maintenance, vendors, and reporting — in one platform. 14-day free trial.
 
 **Email subject lines:**
 - "Your leases have deadlines. Your spreadsheet doesn't care."

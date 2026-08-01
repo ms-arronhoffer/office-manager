@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_PRICE_ID_STARTER: str = ""
     STRIPE_PRICE_ID_PRO: str = ""
+    STRIPE_PRICE_ID_STARTER_ANNUAL: str = ""
+    STRIPE_PRICE_ID_PRO_ANNUAL: str = ""
     # Enterprise is custom-priced per subscriber, so there is no shared price id.
     # Instead we identify Enterprise subscriptions by their Stripe Product, under
     # which each subscriber's bespoke price is created.
