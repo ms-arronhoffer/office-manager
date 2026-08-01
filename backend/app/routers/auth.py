@@ -218,7 +218,7 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
         if await _sso_enforced(db, user.organization_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Your organization requires single sign-on. Use 'Sign in with SSO'.",
+                detail="Your organization requires single sign-on. Use the 'Use single sign-on' option.",
             )
     # Deliberately do not hard-block unverified email addresses here. The
     # frontend uses ``email_verified`` from /auth/me for a softer rollout that
