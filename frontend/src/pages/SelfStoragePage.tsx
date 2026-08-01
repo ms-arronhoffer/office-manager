@@ -16,9 +16,10 @@ import { useAuth } from '@/auth/AuthContext';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useConfirmDelete } from '@/hooks/useConfirmDelete';
 import TabbedPage, { TabbedPageTab } from '@/components/layout/TabbedPage';
-import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import { StorageManagerQuickCreate } from '@/components/common/QuickCreateForms';
 import { selfStorage as api, leasing as leasingApi } from '@/api';
+import EmptyState from '@/components/common/EmptyState';
 import type {
   StorageFacility,
   StorageFacilityCreate,
@@ -276,6 +277,149 @@ const FacilitiesTab: React.FC<{
       },
     });
 
+  const identityFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="Name" constraintText="Required">
+        <Input value={name} onChange={(e) => setName(e.detail.value)} placeholder="Downtown Storage" />
+      </FormField>
+      <FormField label="Code">
+        <Input value={code} onChange={(e) => setCode(e.detail.value)} placeholder="DTS" />
+      </FormField>
+      <FormField label="Facility number">
+        <Input
+          value={facilityNumber}
+          onChange={(e) => setFacilityNumber(e.detail.value)}
+          type="number"
+          inputMode="numeric"
+        />
+      </FormField>
+      <FormField label="Active">
+        <Toggle checked={isActive} onChange={(e) => setIsActive(e.detail.checked)}>
+          {isActive ? 'Active' : 'Inactive'}
+        </Toggle>
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const addressFields = (
+    <SpaceBetween size="m">
+      <FormField label="Address line 1">
+        <Input
+          value={addressLine1}
+          onChange={(e) => setAddressLine1(e.detail.value)}
+          placeholder="123 Main St"
+        />
+      </FormField>
+      <FormField label="Address line 2">
+        <Input
+          value={addressLine2}
+          onChange={(e) => setAddressLine2(e.detail.value)}
+          placeholder="Suite 100"
+        />
+      </FormField>
+      <ColumnLayout columns={3}>
+        <FormField label="City">
+          <Input value={city} onChange={(e) => setCity(e.detail.value)} />
+        </FormField>
+        <FormField label="State">
+          <Input value={stateVal} onChange={(e) => setStateVal(e.detail.value)} placeholder="CO" />
+        </FormField>
+        <FormField label="ZIP code">
+          <Input value={zipCode} onChange={(e) => setZipCode(e.detail.value)} placeholder="80202" />
+        </FormField>
+      </ColumnLayout>
+    </SpaceBetween>
+  );
+
+  const contactFields = (
+    <SpaceBetween size="m">
+      <ColumnLayout columns={2}>
+        <FormField label="Phone">
+          <Input value={phone} onChange={(e) => setPhone(e.detail.value)} placeholder="555-1000" />
+        </FormField>
+        <FormField label="Email">
+          <Input
+            value={email}
+            onChange={(e) => setEmail(e.detail.value)}
+            type="email"
+            placeholder="ops@example.com"
+          />
+        </FormField>
+      </ColumnLayout>
+      <FormField
+        label="Manager"
+        description="Managers are their own self-storage data set. Pick one or add a new manager."
+      >
+        <Select
+          selectedOption={
+            managerId
+              ? {
+                  value: managerId,
+                  label: managers.find((m) => m.id === managerId)?.name || 'Manager',
+                }
+              : { value: '', label: '— None —' }
+          }
+          onChange={(e) => {
+            const value = e.detail.selectedOption.value || '';
+            if (value === '__add__') {
+              setManagerModalOpen(true);
+              return;
+            }
+            setManagerId(value);
+          }}
+          options={[
+            { value: '', label: '— None —' },
+            ...managers.map((m) => ({ value: m.id, label: m.name })),
+            { value: '__add__', label: '+ Add new manager…' },
+          ]}
+          placeholder="Select a manager"
+        />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const operationsFields = (
+    <SpaceBetween size="m">
+      <ColumnLayout columns={2}>
+        <FormField label="Gate hours">
+          <Input value={gateHours} onChange={(e) => setGateHours(e.detail.value)} placeholder="6am–10pm" />
+        </FormField>
+        <FormField label="Access hours">
+          <Input value={accessHours} onChange={(e) => setAccessHours(e.detail.value)} placeholder="24/7" />
+        </FormField>
+        <FormField label="Total units">
+          <Input
+            value={totalUnits}
+            onChange={(e) => setTotalUnits(e.detail.value)}
+            type="number"
+            inputMode="numeric"
+          />
+        </FormField>
+      </ColumnLayout>
+      <FormField label="Notes">
+        <Textarea value={notes} onChange={(e) => setNotes(e.detail.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const createDirty = Boolean(
+    name ||
+      code ||
+      facilityNumber ||
+      addressLine1 ||
+      addressLine2 ||
+      city ||
+      stateVal ||
+      zipCode ||
+      phone ||
+      email ||
+      managerId ||
+      gateHours ||
+      accessHours ||
+      totalUnits ||
+      notes,
+  );
+
   return (
     <>
       <Table
@@ -324,138 +468,83 @@ const FacilitiesTab: React.FC<{
               ]
             : []),
         ]}
-        empty={<Box textAlign="center">No properties yet.</Box>}
+        empty={
+          <EmptyState
+            title="No properties yet"
+            description="Add a storage facility before creating units and agreements."
+            actionLabel={canEdit ? 'Add your first property' : undefined}
+            onAction={() => setOpen(true)}
+          />
+        }
       />
-      <EntityFormModal
+      <CreateWizardModal
         visible={open}
-        title="Add property"
-        submitLabel="Create"
+        entityLabel="property"
         submitting={saving}
-        submitDisabled={!name.trim()}
         error={error}
+        dirty={createDirty}
         onSubmit={submit}
         onCancel={() => {
           setOpen(false);
           resetForm();
         }}
-      >
-        <SpaceBetween size="l">
-          <Box variant="h4">Identity</Box>
-          <ColumnLayout columns={2}>
-            <FormField label="Name" constraintText="Required">
-              <Input value={name} onChange={(e) => setName(e.detail.value)} placeholder="Downtown Storage" />
-            </FormField>
-            <FormField label="Code">
-              <Input value={code} onChange={(e) => setCode(e.detail.value)} placeholder="DTS" />
-            </FormField>
-            <FormField label="Facility number">
-              <Input
-                value={facilityNumber}
-                onChange={(e) => setFacilityNumber(e.detail.value)}
-                type="number"
-                inputMode="numeric"
-              />
-            </FormField>
-            <FormField label="Active">
-              <Toggle checked={isActive} onChange={(e) => setIsActive(e.detail.checked)}>
-                {isActive ? 'Active' : 'Inactive'}
-              </Toggle>
-            </FormField>
-          </ColumnLayout>
-
-          <Box variant="h4">Address</Box>
-          <FormField label="Address line 1">
-            <Input
-              value={addressLine1}
-              onChange={(e) => setAddressLine1(e.detail.value)}
-              placeholder="123 Main St"
-            />
-          </FormField>
-          <FormField label="Address line 2">
-            <Input
-              value={addressLine2}
-              onChange={(e) => setAddressLine2(e.detail.value)}
-              placeholder="Suite 100"
-            />
-          </FormField>
-          <ColumnLayout columns={3}>
-            <FormField label="City">
-              <Input value={city} onChange={(e) => setCity(e.detail.value)} />
-            </FormField>
-            <FormField label="State">
-              <Input value={stateVal} onChange={(e) => setStateVal(e.detail.value)} placeholder="CO" />
-            </FormField>
-            <FormField label="ZIP code">
-              <Input value={zipCode} onChange={(e) => setZipCode(e.detail.value)} placeholder="80202" />
-            </FormField>
-          </ColumnLayout>
-
-          <Box variant="h4">Contact &amp; management</Box>
-          <ColumnLayout columns={2}>
-            <FormField label="Phone">
-              <Input value={phone} onChange={(e) => setPhone(e.detail.value)} placeholder="555-1000" />
-            </FormField>
-            <FormField label="Email">
-              <Input
-                value={email}
-                onChange={(e) => setEmail(e.detail.value)}
-                type="email"
-                placeholder="ops@example.com"
-              />
-            </FormField>
-          </ColumnLayout>
-          <FormField
-            label="Manager"
-            description="Managers are their own self-storage data set. Pick one or add a new manager."
-          >
-            <Select
-              selectedOption={
-                managerId
-                  ? {
-                      value: managerId,
-                      label: managers.find((m) => m.id === managerId)?.name || 'Manager',
-                    }
-                  : { value: '', label: '— None —' }
-              }
-              onChange={(e) => {
-                const value = e.detail.selectedOption.value || '';
-                if (value === '__add__') {
-                  setManagerModalOpen(true);
-                  return;
-                }
-                setManagerId(value);
-              }}
-              options={[
-                { value: '', label: '— None —' },
-                ...managers.map((m) => ({ value: m.id, label: m.name })),
-                { value: '__add__', label: '+ Add new manager…' },
-              ]}
-              placeholder="Select a manager"
-            />
-          </FormField>
-
-          <Box variant="h4">Operations</Box>
-          <ColumnLayout columns={2}>
-            <FormField label="Gate hours">
-              <Input value={gateHours} onChange={(e) => setGateHours(e.detail.value)} placeholder="6am–10pm" />
-            </FormField>
-            <FormField label="Access hours">
-              <Input value={accessHours} onChange={(e) => setAccessHours(e.detail.value)} placeholder="24/7" />
-            </FormField>
-            <FormField label="Total units">
-              <Input
-                value={totalUnits}
-                onChange={(e) => setTotalUnits(e.detail.value)}
-                type="number"
-                inputMode="numeric"
-              />
-            </FormField>
-          </ColumnLayout>
-          <FormField label="Notes">
-            <Textarea value={notes} onChange={(e) => setNotes(e.detail.value)} />
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
+        onBulkComplete={reload}
+        bulk={{
+          columns: [
+            { key: 'name', label: 'Name', required: true },
+            { key: 'code', label: 'Code' },
+            { key: 'city', label: 'City' },
+            { key: 'state', label: 'State' },
+            { key: 'zip_code', label: 'ZIP code' },
+            { key: 'phone', label: 'Phone' },
+            { key: 'email', label: 'Email' },
+          ],
+          onSubmitRow: async (row) => {
+            await api.createFacility({
+              name: row.name.trim(),
+              code: row.code?.trim() || null,
+              city: row.city?.trim() || null,
+              state: row.state?.trim() || null,
+              zip_code: row.zip_code?.trim() || null,
+              phone: row.phone?.trim() || null,
+              email: row.email?.trim() || null,
+              is_active: true,
+            });
+          },
+        }}
+        steps={[
+          {
+            title: 'Identity',
+            description: 'Name the property and how it is referenced.',
+            content: identityFields,
+            validate: () => {
+              if (!name.trim()) return 'Property name is required.';
+              if (facilityNumber.trim() && Number.isNaN(Number(facilityNumber)))
+                return 'Facility number must be a number.';
+              return null;
+            },
+          },
+          {
+            title: 'Address',
+            description: 'Where is the property located?',
+            content: addressFields,
+          },
+          {
+            title: 'Contact & management',
+            description: 'Who runs the site and how do tenants reach it?',
+            content: contactFields,
+          },
+          {
+            title: 'Operations',
+            description: 'Access hours, capacity, and any internal notes.',
+            content: operationsFields,
+            validate: () =>
+              totalUnits.trim() && Number.isNaN(Number(totalUnits))
+                ? 'Total units must be a number.'
+                : null,
+          },
+        ]}
+      />
       <StorageManagerQuickCreate
         visible={managerModalOpen}
         onClose={() => setManagerModalOpen(false)}
@@ -564,6 +653,75 @@ const UnitsTab: React.FC<{ canEdit: boolean; facilities: StorageFacility[] }> = 
       },
     });
 
+  const locationFields = (
+    <SpaceBetween size="m">
+      <FormField
+        label="Property"
+        description="The facility this unit belongs to. Unit numbers are unique within a facility, so the same number can be reused across different facilities."
+      >
+        <Select
+          selectedOption={
+            facilityId
+              ? { value: facilityId, label: facilityById.get(facilityId) || 'Facility' }
+              : { value: '', label: 'Unassigned' }
+          }
+          onChange={(e) => setFacilityId(e.detail.selectedOption.value || '')}
+          options={[
+            { value: '', label: 'Unassigned' },
+            ...facilities.map((f) => ({ value: f.id, label: facilityLabel(f) })),
+          ]}
+          placeholder="Select a facility"
+        />
+      </FormField>
+      <ColumnLayout columns={2}>
+        <FormField label="Unit number">
+          <Input
+            value={unitNumber}
+            onChange={(e) => setUnitNumber(e.detail.value)}
+            placeholder="A-101"
+          />
+        </FormField>
+        <FormField label="Size label">
+          <Input
+            value={sizeLabel}
+            onChange={(e) => setSizeLabel(e.detail.value)}
+            placeholder="10x10"
+          />
+        </FormField>
+      </ColumnLayout>
+    </SpaceBetween>
+  );
+
+  const pricingFields = (
+    <SpaceBetween size="m">
+      <ColumnLayout columns={2}>
+        <FormField label="Unit type">
+          <Select
+            selectedOption={{ value: unitType, label: unitType }}
+            onChange={(e) => setUnitType(e.detail.selectedOption.value as StorageUnitType)}
+            options={UNIT_TYPES.map((t) => ({ value: t, label: t }))}
+          />
+        </FormField>
+        <FormField label="Street rate">
+          <Input
+            value={streetRate}
+            onChange={(e) => setStreetRate(e.detail.value)}
+            type="number"
+            inputMode="decimal"
+            placeholder="0.00"
+          />
+        </FormField>
+      </ColumnLayout>
+      <FormField label="Climate controlled">
+        <Toggle checked={climate} onChange={(e) => setClimate(e.detail.checked)}>
+          Climate controlled
+        </Toggle>
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const createDirty = Boolean(unitNumber || sizeLabel || streetRate || climate);
+
   return (
     <>
       <Table
@@ -629,77 +787,62 @@ const UnitsTab: React.FC<{ canEdit: boolean; facilities: StorageFacility[] }> = 
               ]
             : []),
         ]}
-        empty={<Box textAlign="center">No storage units yet.</Box>}
+        empty={
+          <EmptyState
+            title="No storage units yet"
+            description="Units are the individual spaces you rent out at a property."
+            actionLabel={canEdit ? 'Add your first unit' : undefined}
+            onAction={openCreate}
+          />
+        }
       />
-      <EntityFormModal
+      <CreateWizardModal
         visible={open}
-        title="Add storage unit"
-        submitLabel="Create"
+        entityLabel="storage unit"
         submitting={saving}
-        submitDisabled={!unitNumber.trim()}
         error={error}
+        dirty={createDirty}
         onSubmit={submit}
         onCancel={() => {
           setOpen(false);
           resetForm();
         }}
-      >
-        <SpaceBetween size="m">
-          <FormField
-            label="Property"
-            description="The facility this unit belongs to. Unit numbers are unique within a facility, so the same number can be reused across different facilities."
-          >
-            <Select
-              selectedOption={
-                facilityId
-                  ? { value: facilityId, label: facilityById.get(facilityId) || 'Facility' }
-                  : { value: '', label: 'Unassigned' }
-              }
-              onChange={(e) => setFacilityId(e.detail.selectedOption.value || '')}
-              options={[
-                { value: '', label: 'Unassigned' },
-                ...facilities.map((f) => ({ value: f.id, label: facilityLabel(f) })),
-              ]}
-              placeholder="Select a facility"
-            />
-          </FormField>
-          <FormField label="Unit number">
-            <Input
-              value={unitNumber}
-              onChange={(e) => setUnitNumber(e.detail.value)}
-              placeholder="A-101"
-            />
-          </FormField>
-          <FormField label="Size label">
-            <Input
-              value={sizeLabel}
-              onChange={(e) => setSizeLabel(e.detail.value)}
-              placeholder="10x10"
-            />
-          </FormField>
-          <FormField label="Unit type">
-            <Select
-              selectedOption={{ value: unitType, label: unitType }}
-              onChange={(e) => setUnitType(e.detail.selectedOption.value as StorageUnitType)}
-              options={UNIT_TYPES.map((t) => ({ value: t, label: t }))}
-            />
-          </FormField>
-          <FormField label="Street rate">
-            <Input
-              value={streetRate}
-              onChange={(e) => setStreetRate(e.detail.value)}
-              type="number"
-              inputMode="decimal"
-              placeholder="0.00"
-            />
-          </FormField>
-          <FormField label="Climate controlled">
-            <Toggle checked={climate} onChange={(e) => setClimate(e.detail.checked)}>
-              Climate controlled
-            </Toggle>
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
+        onBulkComplete={load}
+        bulk={{
+          columns: [
+            { key: 'unit_number', label: 'Unit number', required: true },
+            { key: 'size_label', label: 'Size label' },
+            { key: 'unit_type', label: 'Unit type' },
+            { key: 'street_rate', label: 'Street rate' },
+          ],
+          onSubmitRow: async (row) => {
+            const type = UNIT_TYPES.includes(row.unit_type?.trim() as StorageUnitType)
+              ? (row.unit_type.trim() as StorageUnitType)
+              : 'interior';
+            await api.createUnit({
+              // Bulk rows inherit the facility currently being viewed.
+              facility_id: facilityFilter || null,
+              unit_number: row.unit_number.trim(),
+              size_label: row.size_label?.trim() || null,
+              unit_type: type,
+              street_rate: row.street_rate?.trim() || null,
+            });
+          },
+        }}
+        steps={[
+          {
+            title: 'Location & number',
+            description: 'Where the unit lives and how it is identified.',
+            content: locationFields,
+            validate: () => (!unitNumber.trim() ? 'Unit number is required.' : null),
+          },
+          {
+            title: 'Type & pricing',
+            description: 'Configuration and the rate you advertise.',
+            content: pricingFields,
+          },
+        ]}
+      />
       {deleteModal}
     </>
   );
@@ -797,6 +940,83 @@ const AgreementsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
   const residentLabel = (r: Resident) =>
     [r.first_name, r.last_name].filter(Boolean).join(' ') || r.email || 'Resident';
 
+  const partiesFields = (
+    <SpaceBetween size="m">
+      <FormField label="Unit" description="The storage unit this agreement rents.">
+        <Select
+          selectedOption={
+            unitId
+              ? {
+                  value: unitId,
+                  label: units.find((u) => u.id === unitId)?.unit_number || 'Unit',
+                }
+              : null
+          }
+          onChange={(e) => setUnitId(e.detail.selectedOption.value || '')}
+          options={units.map((u) => ({ value: u.id, label: u.unit_number }))}
+          placeholder="Select a unit"
+          empty="No units available"
+        />
+      </FormField>
+      <FormField label="Primary tenant" description="Optional; add or change occupants later.">
+        <Select
+          selectedOption={
+            residentId
+              ? {
+                  value: residentId,
+                  label:
+                    residents.find((r) => r.id === residentId)
+                      ? residentLabel(residents.find((r) => r.id === residentId)!)
+                      : 'Resident',
+                }
+              : { value: '', label: 'None' }
+          }
+          onChange={(e) => setResidentId(e.detail.selectedOption.value || '')}
+          options={[
+            { value: '', label: 'None' },
+            ...residents.map((r) => ({ value: r.id, label: residentLabel(r) })),
+          ]}
+        />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const termsFields = (
+    <SpaceBetween size="m">
+      <FormField label="Name">
+        <Input value={name} onChange={(e) => setName(e.detail.value)} placeholder="Smith — Unit A-101" />
+      </FormField>
+      <ColumnLayout columns={2}>
+        <FormField label="Rent">
+          <Input
+            value={rent}
+            onChange={(e) => setRent(e.detail.value)}
+            type="number"
+            inputMode="decimal"
+            placeholder="0.00"
+          />
+        </FormField>
+        <FormField label="Status">
+          <Select
+            selectedOption={{ value: statusVal, label: statusVal }}
+            onChange={(e) => setStatusVal(e.detail.selectedOption.value as StorageAgreementStatus)}
+            options={AGREEMENT_CREATE_STATUSES.map((s) => ({ value: s, label: s }))}
+          />
+        </FormField>
+        <FormField label="Move-in date">
+          <Input
+            value={moveInDate}
+            onChange={(e) => setMoveInDate(e.detail.value)}
+            type={"date" as any}
+            placeholder="YYYY-MM-DD"
+          />
+        </FormField>
+      </ColumnLayout>
+    </SpaceBetween>
+  );
+
+  const createDirty = Boolean(unitId || residentId || name || rent || moveInDate);
+
   return (
     <>
       <Table
@@ -829,87 +1049,40 @@ const AgreementsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
           },
           { id: 'autopay', header: 'Autopay', cell: (a) => (a.autopay_enabled ? 'Yes' : 'No') },
         ]}
-        empty={<Box textAlign="center">No agreements yet.</Box>}
+        empty={
+          <EmptyState
+            title="No agreements yet"
+            description="Agreements tie a tenant to a unit and drive billing."
+            actionLabel={canEdit ? 'Add your first agreement' : undefined}
+            onAction={openCreate}
+          />
+        }
       />
-      <EntityFormModal
+      <CreateWizardModal
         visible={open}
-        title="Add rental agreement"
-        submitLabel="Create"
+        entityLabel="rental agreement"
         submitting={saving}
-        submitDisabled={!unitId}
         error={error}
+        dirty={createDirty}
         onSubmit={submit}
         onCancel={() => {
           setOpen(false);
           resetForm();
         }}
-      >
-        <SpaceBetween size="m">
-          <FormField label="Unit" description="The storage unit this agreement rents.">
-            <Select
-              selectedOption={
-                unitId
-                  ? {
-                      value: unitId,
-                      label: units.find((u) => u.id === unitId)?.unit_number || 'Unit',
-                    }
-                  : null
-              }
-              onChange={(e) => setUnitId(e.detail.selectedOption.value || '')}
-              options={units.map((u) => ({ value: u.id, label: u.unit_number }))}
-              placeholder="Select a unit"
-              empty="No units available"
-            />
-          </FormField>
-          <FormField label="Name">
-            <Input value={name} onChange={(e) => setName(e.detail.value)} placeholder="Smith — Unit A-101" />
-          </FormField>
-          <FormField label="Primary tenant" description="Optional; add or change occupants later.">
-            <Select
-              selectedOption={
-                residentId
-                  ? {
-                      value: residentId,
-                      label:
-                        residents.find((r) => r.id === residentId)
-                          ? residentLabel(residents.find((r) => r.id === residentId)!)
-                          : 'Resident',
-                    }
-                  : { value: '', label: 'None' }
-              }
-              onChange={(e) => setResidentId(e.detail.selectedOption.value || '')}
-              options={[
-                { value: '', label: 'None' },
-                ...residents.map((r) => ({ value: r.id, label: residentLabel(r) })),
-              ]}
-            />
-          </FormField>
-          <FormField label="Rent">
-            <Input
-              value={rent}
-              onChange={(e) => setRent(e.detail.value)}
-              type="number"
-              inputMode="decimal"
-              placeholder="0.00"
-            />
-          </FormField>
-          <FormField label="Status">
-            <Select
-              selectedOption={{ value: statusVal, label: statusVal }}
-              onChange={(e) => setStatusVal(e.detail.selectedOption.value as StorageAgreementStatus)}
-              options={AGREEMENT_CREATE_STATUSES.map((s) => ({ value: s, label: s }))}
-            />
-          </FormField>
-          <FormField label="Move-in date">
-            <Input
-              value={moveInDate}
-              onChange={(e) => setMoveInDate(e.detail.value)}
-              type={"date" as any}
-              placeholder="YYYY-MM-DD"
-            />
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
+        steps={[
+          {
+            title: 'Unit & tenant',
+            description: 'Which unit is being rented, and by whom.',
+            content: partiesFields,
+            validate: () => (!unitId ? 'Select the unit this agreement rents.' : null),
+          },
+          {
+            title: 'Terms',
+            description: 'Rent, status, and when the tenant moves in.',
+            content: termsFields,
+          },
+        ]}
+      />
     </>
   );
 };
@@ -984,6 +1157,35 @@ const ReservationsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
       },
     });
 
+  const prospectFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="Prospect name">
+        <Input value={name} onChange={(e) => setName(e.detail.value)} />
+      </FormField>
+      <FormField label="Prospect email">
+        <Input value={email} onChange={(e) => setEmail(e.detail.value)} type="email" />
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const holdFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="Size tier">
+        <Input value={sizeTier} onChange={(e) => setSizeTier(e.detail.value)} />
+      </FormField>
+      <FormField label="Quoted rate">
+        <Input
+          value={quotedRate}
+          onChange={(e) => setQuotedRate(e.detail.value)}
+          type="number"
+          inputMode="decimal"
+        />
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const createDirty = Boolean(name || email || sizeTier || quotedRate);
+
   return (
     <>
       <Table
@@ -1025,37 +1227,36 @@ const ReservationsTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
               ]
             : []),
         ]}
-        empty={<Box textAlign="center">No reservations yet.</Box>}
+        empty={
+          <EmptyState
+            title="No reservations yet"
+            description="Hold a unit for a prospect before their agreement starts."
+            actionLabel={canEdit ? 'Add your first reservation' : undefined}
+            onAction={() => setOpen(true)}
+          />
+        }
       />
-      <EntityFormModal
+      <CreateWizardModal
         visible={open}
-        title="Add reservation"
-        submitLabel="Create"
+        entityLabel="reservation"
         submitting={saving}
         error={error}
+        dirty={createDirty}
         onSubmit={submit}
         onCancel={() => setOpen(false)}
-      >
-        <SpaceBetween size="m">
-          <FormField label="Prospect name">
-            <Input value={name} onChange={(e) => setName(e.detail.value)} />
-          </FormField>
-          <FormField label="Prospect email">
-            <Input value={email} onChange={(e) => setEmail(e.detail.value)} type="email" />
-          </FormField>
-          <FormField label="Size tier">
-            <Input value={sizeTier} onChange={(e) => setSizeTier(e.detail.value)} />
-          </FormField>
-          <FormField label="Quoted rate">
-            <Input
-              value={quotedRate}
-              onChange={(e) => setQuotedRate(e.detail.value)}
-              type="number"
-              inputMode="decimal"
-            />
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
+        steps={[
+          {
+            title: 'Prospect',
+            description: 'Who is holding the unit?',
+            content: prospectFields,
+          },
+          {
+            title: 'Hold details',
+            description: 'What size did you quote, and at what rate?',
+            content: holdFields,
+          },
+        ]}
+      />
       {deleteModal}
     </>
   );
@@ -1131,6 +1332,40 @@ const RatePlansTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
       },
     });
 
+  const planFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="Size tier">
+        <Input value={sizeTier} onChange={(e) => setSizeTier(e.detail.value)} placeholder="10x10" />
+      </FormField>
+      <FormField label="Name">
+        <Input value={name} onChange={(e) => setName(e.detail.value)} />
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const rateFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="Street rate">
+        <Input
+          value={streetRate}
+          onChange={(e) => setStreetRate(e.detail.value)}
+          type="number"
+          inputMode="decimal"
+        />
+      </FormField>
+      <FormField label="Standard rate">
+        <Input
+          value={standardRate}
+          onChange={(e) => setStandardRate(e.detail.value)}
+          type="number"
+          inputMode="decimal"
+        />
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const createDirty = Boolean(sizeTier || name || streetRate || standardRate);
+
   return (
     <>
       <Table
@@ -1175,43 +1410,55 @@ const RatePlansTab: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
               ]
             : []),
         ]}
-        empty={<Box textAlign="center">No rate plans yet.</Box>}
+        empty={
+          <EmptyState
+            title="No rate plans yet"
+            description="Rate plans set the pricing applied to units of a given size."
+            actionLabel={canEdit ? 'Add your first rate plan' : undefined}
+            onAction={() => setOpen(true)}
+          />
+        }
       />
-      <EntityFormModal
+      <CreateWizardModal
         visible={open}
-        title="Add rate plan"
-        submitLabel="Create"
+        entityLabel="rate plan"
         submitting={saving}
-        submitDisabled={!sizeTier.trim()}
         error={error}
+        dirty={createDirty}
         onSubmit={submit}
         onCancel={() => setOpen(false)}
-      >
-        <SpaceBetween size="m">
-          <FormField label="Size tier">
-            <Input value={sizeTier} onChange={(e) => setSizeTier(e.detail.value)} placeholder="10x10" />
-          </FormField>
-          <FormField label="Name">
-            <Input value={name} onChange={(e) => setName(e.detail.value)} />
-          </FormField>
-          <FormField label="Street rate">
-            <Input
-              value={streetRate}
-              onChange={(e) => setStreetRate(e.detail.value)}
-              type="number"
-              inputMode="decimal"
-            />
-          </FormField>
-          <FormField label="Standard rate">
-            <Input
-              value={standardRate}
-              onChange={(e) => setStandardRate(e.detail.value)}
-              type="number"
-              inputMode="decimal"
-            />
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
+        onBulkComplete={load}
+        bulk={{
+          columns: [
+            { key: 'size_tier', label: 'Size tier', required: true },
+            { key: 'name', label: 'Name' },
+            { key: 'street_rate', label: 'Street rate' },
+            { key: 'standard_rate', label: 'Standard rate' },
+          ],
+          onSubmitRow: async (row) => {
+            await api.createRatePlan({
+              size_tier: row.size_tier.trim(),
+              name: row.name?.trim() || null,
+              street_rate: row.street_rate?.trim() || null,
+              standard_rate: row.standard_rate?.trim() || null,
+              active: true,
+            });
+          },
+        }}
+        steps={[
+          {
+            title: 'Plan',
+            description: 'The unit size this pricing applies to.',
+            content: planFields,
+            validate: () => (!sizeTier.trim() ? 'Size tier is required.' : null),
+          },
+          {
+            title: 'Rates',
+            description: 'What you advertise and what you charge.',
+            content: rateFields,
+          },
+        ]}
+      />
       {deleteModal}
     </>
   );

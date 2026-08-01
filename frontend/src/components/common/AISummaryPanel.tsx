@@ -25,7 +25,7 @@ const PRIORITY_BADGE: Record<string, 'red' | 'blue' | 'grey'> = {
 };
 
 /**
- * AI-generated operations briefing (Pro+). Summarizes upcoming lease
+ * AI-generated operations briefing (Operations+). Summarizes upcoming lease
  * notice/notification deadlines, expirations and maintenance load into a
  * written narrative. Locked with an upgrade prompt when the org lacks the
  * ``ai_assist`` entitlement, and degrades gracefully when Gemini is not
@@ -57,7 +57,7 @@ const AISummaryPanel: React.FC = () => {
       if (status === 503) {
         setError('AI assist is not configured on the server. Add a Gemini API key to enable summaries.');
       } else if (status === 402) {
-        setError('AI summaries require the Pro plan or higher.');
+        setError('AI summaries require the Operations plan or higher.');
       } else {
         setError('Failed to generate the AI summary. Please try again.');
       }

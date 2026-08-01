@@ -12,12 +12,13 @@ import Header from '@cloudscape-design/components/header';
 import Input from '@cloudscape-design/components/input';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Spinner from '@cloudscape-design/components/spinner';
+import SegmentedControl from '@cloudscape-design/components/segmented-control';
 import { billing as billingApi } from '@/api';
 import type { BillingSubscription } from '@/types';
 
 const PLAN_LABELS: Record<string, string> = {
-  starter: 'Starter',
-  pro: 'Pro',
+  starter: 'Core',
+  pro: 'Operations',
   enterprise: 'Enterprise',
 };
 
@@ -30,6 +31,7 @@ const PLAN_COLOR: Record<string, 'grey' | 'blue' | 'green'> = {
 interface PlanCard {
   plan: 'starter' | 'pro' | 'enterprise';
   price: string;
+  annualPrice?: string;
   features: string[];
   cta: string | null;
 }
@@ -38,19 +40,21 @@ const PLANS: PlanCard[] = [
   {
     plan: 'starter',
     price: '$99 / month',
-    features: ['Up to 10 offices', 'Up to 100 active leases', 'Unlimited users', 'Maintenance ticket tracking', 'Basic reporting & CSV export', '90-day audit log'],
-    cta: 'Subscribe to Starter',
+    annualPrice: '$79 / month, billed annually',
+    features: ['Up to 10 offices', 'Up to 100 active leases', 'Unlimited users', 'Lease management & critical-date alerts', 'Maintenance ticket tracking', 'Resident, owner & vendor portals', 'AI lease detail extraction', 'Basic reporting & CSV export', '90-day audit log'],
+    cta: 'Subscribe to Core',
   },
   {
     plan: 'pro',
-    price: '$399 / month',
-    features: ['Up to 50 offices', 'Up to 500 active leases', 'Unlimited users', 'HVAC & advanced SLA rules', 'Advanced analytics & PDF export', 'AI abstracts & digital waivers', 'Full audit log (unlimited)'],
-    cta: 'Upgrade to Pro',
+    price: '$299 / month',
+    annualPrice: '$249 / month, billed annually',
+    features: ['Up to 50 offices', 'Up to 500 active leases', 'Unlimited users', 'Full maintenance, HVAC & inspections', 'SLA rules & escalations', 'Commercial client portal', 'Advanced analytics & PDF export', 'AI abstracts & digital waivers', 'CAM reconciliation & advanced accounting', 'Guided Buildium migration', 'Full audit log (unlimited)'],
+    cta: 'Upgrade to Operations',
   },
   {
     plan: 'enterprise',
-    price: 'Contact us',
-    features: ['Everything in Pro', 'SSO / SAML', 'Custom fields', 'API access', 'Dedicated support', 'Custom contracts'],
+    price: 'From $750 / month',
+    features: ['Everything in Operations', 'API access & webhooks', 'Custom limits & retention', 'High-volume AI allowance', 'Dedicated onboarding', 'Migration assistance', 'Contractual support response times', 'Private deployment options'],
     cta: null,
   },
 ];
@@ -63,6 +67,7 @@ const BillingPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isChangingPlan, setIsChangingPlan] = useState<string | null>(null);
+  const [billingInterval, setBillingInterval] = useState<'monthly' | 'annual'>('monthly');
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [isReactivating, setIsReactivating] = useState(false);
@@ -112,7 +117,7 @@ const BillingPage: React.FC = () => {
     setIsChangingPlan(plan);
     setError(null);
     try {
-      const { data } = await billingApi.createCheckout(plan);
+      const { data } = await billingApi.createCheckout(plan, undefined, billingInterval);
       if (data.checkout_url) {
         // No existing subscription yet — redirect to Stripe Checkout.
         window.location.href = data.checkout_url;
@@ -216,7 +221,7 @@ const BillingPage: React.FC = () => {
   // The org has a live paid subscription only once Stripe has one on file and it
   // hasn't been canceled. Until then (including the whole free-trial window) the
   // customer should be able to subscribe to *either* Starter or Pro — even to the
-  // Starter plan they are currently trialing on.
+  // Core plan they are currently trialing on.
   const hasPaidSubscription = !!sub?.stripe_subscription_id && sub?.payment_status !== 'canceled';
 
   return (
@@ -389,7 +394,27 @@ const BillingPage: React.FC = () => {
         )}
 
         {/* Plan comparison */}
-        <Container header={<Header variant="h2">Plans</Header>}>
+        <Container
+          header={
+            <Header
+              variant="h2"
+              actions={
+                <SegmentedControl
+                  selectedId={billingInterval}
+                  onChange={({ detail }) =>
+                    setBillingInterval(detail.selectedId as 'monthly' | 'annual')
+                  }
+                  options={[
+                    { id: 'monthly', text: 'Monthly' },
+                    { id: 'annual', text: 'Annual, save up to 20%' },
+                  ]}
+                />
+              }
+            >
+              Plans
+            </Header>
+          }
+        >
           <Cards
             items={PLANS}
             cardDefinition={{
@@ -405,7 +430,9 @@ const BillingPage: React.FC = () => {
                   header: 'Price',
                   content: item => (
                     <Box variant="h3" color="text-status-info">
-                      {item.price}
+                      {billingInterval === 'annual' && item.annualPrice
+                        ? item.annualPrice
+                        : item.price}
                     </Box>
                   ),
                 },

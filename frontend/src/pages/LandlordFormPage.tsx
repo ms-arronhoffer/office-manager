@@ -5,6 +5,7 @@ import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Container from '@cloudscape-design/components/container';
 import Form from '@cloudscape-design/components/form';
+import Wizard from '@cloudscape-design/components/wizard';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import type { InputProps } from '@cloudscape-design/components/input';
@@ -26,6 +27,7 @@ import {
   OfficeQuickCreate,
 } from '@/components/common/QuickCreateForms';
 import AddressFields, { type StructuredAddress } from '@/components/common/AddressFields';
+import { wizardI18nStrings } from '@/components/common/wizardI18n';
 import type { LandlordCreate, Office } from '@/types';
 
 interface SelectOption {
@@ -102,6 +104,7 @@ const LandlordFormPage: React.FC = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | undefined>(undefined);
   const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
+  const [activeStepIndex, setActiveStepIndex] = useState(0);
   const contactNameRef = React.useRef<InputProps.Ref>(null);
 
   useEffect(() => {
@@ -291,42 +294,9 @@ const LandlordFormPage: React.FC = () => {
 
   const pageTitle = isEdit ? 'Edit Landlord' : 'Create Landlord';
 
-  return (
-    <ContentLayout
-      header={
-        <SpaceBetween size="m">
-          <BreadcrumbGroup
-            items={[
-              { text: 'Home', href: '/' },
-              { text: 'Landlords', href: '/landlords' },
-              { text: pageTitle, href: isEdit ? `/landlords/${id}/edit` : '/landlords/new' },
-            ]}
-            onFollow={(e) => {
-              e.preventDefault();
-              navigate(e.detail.href);
-            }}
-          />
-          <Header variant="h1">{pageTitle}</Header>
-        </SpaceBetween>
-      }
-    >
-      <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
-        <Form
-          actions={
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => navigate(-1)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={submitting} onClick={handleSubmit}>
-                {isEdit ? 'Save changes' : 'Create landlord'}
-              </Button>
-            </SpaceBetween>
-          }
-          errorText={submitError ?? undefined}
-        >
-          <Container header={<Header variant="h2">Landlord details</Header>}>
-            <SpaceBetween size="l">
-              <FormField label="Contact Name" errorText={nameError} constraintText="Required">
+  const contactFields = (
+    <SpaceBetween size="l">
+      <FormField label="Contact Name" errorText={nameError} constraintText="Required">
                 <Input
                   ref={contactNameRef}
                   value={formValues.contact_name}
@@ -386,7 +356,11 @@ const LandlordFormPage: React.FC = () => {
                   placeholder="https://example.com"
                 />
               </FormField>
+    </SpaceBetween>
+  );
 
+  const businessFields = (
+    <SpaceBetween size="l">
               <Header variant="h3">Business Details</Header>
 
               <FormField label="Entity Type">
@@ -453,7 +427,11 @@ const LandlordFormPage: React.FC = () => {
                   }}
                 />
               </FormField>
+    </SpaceBetween>
+  );
 
+  const billingFields = (
+    <SpaceBetween size="l">
               <Header variant="h3">Billing</Header>
 
               <FormField label="Preferred Payment Method">
@@ -472,7 +450,11 @@ const LandlordFormPage: React.FC = () => {
                   placeholder="e.g., Net 30"
                 />
               </FormField>
+    </SpaceBetween>
+  );
 
+  const addressFields = (
+    <SpaceBetween size="l">
               <Header variant="h3">Property Address</Header>
               <AddressFields
                 value={propertyAddress}
@@ -488,7 +470,11 @@ const LandlordFormPage: React.FC = () => {
                 disabled={submitting}
                 legacyAddress={legacyMailing}
               />
+    </SpaceBetween>
+  );
 
+  const notesFields = (
+    <SpaceBetween size="l">
               <FormField label="Notes">
                 <Textarea
                   value={formValues.notes}
@@ -501,6 +487,113 @@ const LandlordFormPage: React.FC = () => {
               {!isEdit && (
                 <FileQueueField files={queuedFiles} onChange={setQueuedFiles} disabled={submitting} />
               )}
+    </SpaceBetween>
+  );
+
+  const pageHeader = (
+    <SpaceBetween size="m">
+      <BreadcrumbGroup
+        items={[
+          { text: 'Home', href: '/' },
+          { text: 'Landlords', href: '/landlords' },
+          { text: pageTitle, href: isEdit ? `/landlords/${id}/edit` : '/landlords/new' },
+        ]}
+        onFollow={(e) => {
+          e.preventDefault();
+          navigate(e.detail.href);
+        }}
+      />
+      <Header variant="h1">{pageTitle}</Header>
+    </SpaceBetween>
+  );
+
+  if (!isEdit) {
+    return (
+      <ContentLayout header={pageHeader}>
+        <SpaceBetween size="m">
+          {submitError && <Alert type="error">{submitError}</Alert>}
+          <Wizard
+            i18nStrings={wizardI18nStrings('Create landlord')}
+            activeStepIndex={activeStepIndex}
+            isLoadingNextStep={submitting}
+            onNavigate={({ detail }) => {
+              // Contact name is the only required field; guard leaving its step.
+              if (activeStepIndex === 0 && detail.requestedStepIndex > 0 && !validate()) return;
+              setActiveStepIndex(detail.requestedStepIndex);
+            }}
+            onCancel={() => navigate(-1)}
+            onSubmit={handleSubmit}
+            steps={[
+              {
+                title: 'Contact details',
+                description: 'Who is the primary contact for this landlord?',
+                content: (
+                  <Container header={<Header variant="h2">Contact details</Header>}>
+                    {contactFields}
+                  </Container>
+                ),
+              },
+              {
+                title: 'Business & billing',
+                description: 'Entity, management company, owned offices, and payment preferences.',
+                isOptional: true,
+                content: (
+                  <Container header={<Header variant="h2">Business &amp; billing</Header>}>
+                    <SpaceBetween size="l">
+                      {businessFields}
+                      {billingFields}
+                    </SpaceBetween>
+                  </Container>
+                ),
+              },
+              {
+                title: 'Addresses',
+                description: 'Property and mailing addresses.',
+                isOptional: true,
+                content: (
+                  <Container header={<Header variant="h2">Addresses</Header>}>{addressFields}</Container>
+                ),
+              },
+              {
+                title: 'Notes & attachments',
+                description: 'Anything else worth recording.',
+                isOptional: true,
+                content: (
+                  <Container header={<Header variant="h2">Notes &amp; attachments</Header>}>
+                    {notesFields}
+                  </Container>
+                ),
+              },
+            ]}
+          />
+        </SpaceBetween>
+      </ContentLayout>
+    );
+  }
+
+  return (
+    <ContentLayout header={pageHeader}>
+      <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+        <Form
+          actions={
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => navigate(-1)}>
+                Cancel
+              </Button>
+              <Button variant="primary" loading={submitting} onClick={handleSubmit}>
+                {isEdit ? 'Save changes' : 'Create landlord'}
+              </Button>
+            </SpaceBetween>
+          }
+          errorText={submitError ?? undefined}
+        >
+          <Container header={<Header variant="h2">Landlord details</Header>}>
+            <SpaceBetween size="l">
+              {contactFields}
+              {businessFields}
+              {billingFields}
+              {addressFields}
+              {notesFields}
             </SpaceBetween>
           </Container>
         </Form>

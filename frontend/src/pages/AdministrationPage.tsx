@@ -1,9 +1,14 @@
-import React from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Cards from '@cloudscape-design/components/cards';
 import Link from '@cloudscape-design/components/link';
 import Box from '@cloudscape-design/components/box';
+import ContentLayout from '@cloudscape-design/components/content-layout';
+import Header from '@cloudscape-design/components/header';
+import SpaceBetween from '@cloudscape-design/components/space-between';
+import TextFilter from '@cloudscape-design/components/text-filter';
 import { useAuth } from '@/auth/AuthContext';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import TabbedPage, { TabbedPageTab } from '@/components/layout/TabbedPage';
 
 interface AdminLink {
@@ -12,6 +17,7 @@ interface AdminLink {
   description: string;
   /** Roles allowed to see this link. */
   roles: Array<'admin' | 'editor'>;
+  feature?: string;
 }
 
 interface AdminGroup {
@@ -39,7 +45,7 @@ const GROUPS: AdminGroup[] = [
     href: '/administration/automation',
     links: [
       { text: 'Ticket Categories', href: '/ticket-categories', description: 'Define maintenance ticket categories.', roles: ['admin'] },
-      { text: 'Maintenance Topics', href: '/maintenance-topics', description: 'Configure maintenance asset and task topics by category.', roles: ['admin', 'editor'] },
+      { text: 'Maintenance Topics', href: '/maintenance-topics', description: 'Configure maintenance asset and task topics by category.', roles: ['admin', 'editor'], feature: 'maintenance' },
       { text: 'Ticket Templates', href: '/ticket-templates', description: 'Reusable templates for common tickets.', roles: ['admin', 'editor'] },
       { text: 'Recurring Tickets', href: '/recurring-ticket-rules', description: 'Schedule tickets that repeat automatically.', roles: ['admin', 'editor'] },
       { text: 'Email Rules', href: '/email-rules', description: 'Route inbound email into tickets.', roles: ['admin'] },
@@ -50,8 +56,8 @@ const GROUPS: AdminGroup[] = [
     label: 'Integrations',
     href: '/administration/integrations',
     links: [
-      { text: 'API Keys', href: '/api-keys', description: 'Programmatic access credentials.', roles: ['admin'] },
-      { text: 'Webhooks', href: '/webhooks', description: 'Outbound event notifications.', roles: ['admin'] },
+      { text: 'API Keys', href: '/api-keys', description: 'Programmatic access credentials.', roles: ['admin'], feature: 'api_access' },
+      { text: 'Webhooks', href: '/webhooks', description: 'Outbound event notifications.', roles: ['admin'], feature: 'webhooks' },
       { text: 'Billing', href: '/billing', description: 'Subscription plan and invoices.', roles: ['admin'] },
     ],
   },
@@ -67,7 +73,7 @@ const GROUPS: AdminGroup[] = [
       { text: 'Data Dictionary', href: '/data-dictionary', description: 'Reference for data fields and meanings.', roles: ['admin'] },
       { text: 'Audit Log', href: '/activity-log', description: 'Review system and user activity.', roles: ['admin'] },
       { text: 'Trash', href: '/trash', description: 'Restore or purge deleted records.', roles: ['admin'] },
-      { text: 'Buildium Migration', href: '/buildium', description: 'Configure and run the Buildium data migration connector.', roles: ['admin'] },
+      { text: 'Buildium Migration', href: '/buildium', description: 'Configure and run the Buildium data migration connector.', roles: ['admin'], feature: 'buildium_migration' },
     ],
   },
 ];
@@ -104,17 +110,44 @@ const AdminLinkCards: React.FC<{ links: AdminLink[] }> = ({ links }) => {
 };
 
 /**
- * Administration hub — replaces the former 14-item Administration nav group
- * with a single destination organized into four tabbed buckets of link cards.
- * The underlying admin pages keep their existing routes.
+ * Administration hub — four tabbed buckets of link cards over the existing
+ * admin routes, plus a search box so a setting can be found by name without
+ * knowing which bucket it lives in.
  */
 const AdministrationPage: React.FC = () => {
   const { user } = useAuth();
+  const { hasFeature } = useEntitlements();
   const role = user?.role;
+  const [query, setQuery] = useState('');
+
+  const visibleLinks = useCallback(
+    (group: AdminGroup) =>
+      group.links.filter(
+        (link) =>
+          role &&
+          (link.roles as string[]).includes(role) &&
+          (!link.feature || hasFeature(link.feature)),
+      ),
+    [role, hasFeature],
+  );
+
+  // Searching spans every bucket, so a setting is reachable by name alone.
+  const searchResults = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+    return GROUPS.flatMap((group) =>
+      visibleLinks(group).map((link) => ({ ...link, groupLabel: group.label })),
+    ).filter(
+      (link) =>
+        link.text.toLowerCase().includes(q) ||
+        link.description.toLowerCase().includes(q) ||
+        link.groupLabel.toLowerCase().includes(q),
+    );
+  }, [query, visibleLinks]);
 
   const tabs: TabbedPageTab[] = GROUPS.map((group) => ({
     group,
-    visible: group.links.filter((l) => role && (l.roles as string[]).includes(role)),
+    visible: visibleLinks(group),
   }))
     .filter(({ visible }) => visible.length > 0)
     .map(({ group, visible }) => ({
@@ -124,7 +157,40 @@ const AdministrationPage: React.FC = () => {
       content: <AdminLinkCards links={visible} />,
     }));
 
-  return <TabbedPage ariaLabel="Administration" tabs={tabs} />;
+  return (
+    <ContentLayout
+      header={
+        <Header variant="h1" description="Manage people, automation, integrations and organization settings.">
+          Administration
+        </Header>
+      }
+    >
+      <SpaceBetween size="l">
+        <TextFilter
+          filteringText={query}
+          filteringPlaceholder="Search settings"
+          filteringAriaLabel="Search administration settings"
+          onChange={({ detail }) => setQuery(detail.filteringText)}
+          countText={
+            searchResults
+              ? `${searchResults.length} match${searchResults.length === 1 ? '' : 'es'}`
+              : ''
+          }
+        />
+        {searchResults ? (
+          searchResults.length > 0 ? (
+            <AdminLinkCards links={searchResults} />
+          ) : (
+            <Box textAlign="center" padding="l" color="text-body-secondary">
+              No settings match “{query}”.
+            </Box>
+          )
+        ) : (
+          <TabbedPage ariaLabel="Administration" tabs={tabs} />
+        )}
+      </SpaceBetween>
+    </ContentLayout>
+  );
 };
 
 export default AdministrationPage;

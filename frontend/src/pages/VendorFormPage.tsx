@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import useFormDirty from '@/hooks/useFormDirty';
+import useUnsavedChangesWarning from '@/hooks/useUnsavedChangesWarning';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Form from '@cloudscape-design/components/form';
+import Wizard from '@cloudscape-design/components/wizard';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import type { InputProps } from '@cloudscape-design/components/input';
@@ -21,6 +24,7 @@ import { vendors as vendorsApi, offices as officesApi, attachments as attachment
 import AddressFields, { type StructuredAddress } from '@/components/common/AddressFields';
 import { EntityQuickCreateMultiselect } from '@/components/common/EntityQuickCreateSelect';
 import { OfficeQuickCreate } from '@/components/common/QuickCreateForms';
+import { wizardI18nStrings } from '@/components/common/wizardI18n';
 import type { VendorCreate, Office, TicketCategory } from '@/types';
 
 type PendingAttachment = { file: File; description: string };
@@ -43,6 +47,7 @@ const VendorFormPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | undefined>(undefined);
+  const [activeStepIndex, setActiveStepIndex] = useState(0);
   const companyNameRef = React.useRef<InputProps.Ref>(null);
 
   const [officeOptions, setOfficeOptions] = useState<SelectOption[]>([]);
@@ -62,6 +67,8 @@ const VendorFormPage: React.FC = () => {
     notes: '',
   });
   const [address, setAddress] = useState<StructuredAddress>({});
+  const { dirty } = useFormDirty({ form, address }, !loading);
+  useUnsavedChangesWarning(dirty && !saving);
   // Legacy free-form address from existing records, kept for the "Use this" banner.
   const [legacyAddress, setLegacyAddress] = useState<string | undefined>(undefined);
 
@@ -125,11 +132,18 @@ const VendorFormPage: React.FC = () => {
     fetchVendor();
   }, [id, isEdit]);
 
-  const handleSubmit = async () => {
+  const validateBasics = (): boolean => {
     if (!form.company_name.trim()) {
       setNameError('Company Name is required.');
       setError('Company Name is required.');
       companyNameRef.current?.focus();
+      return false;
+    }
+    return true;
+  };
+
+  const handleSubmit = async () => {
+    if (!validateBasics()) {
       return;
     }
     setSaving(true);
@@ -203,51 +217,8 @@ const VendorFormPage: React.FC = () => {
 
   const pageTitle = isEdit ? 'Edit Vendor' : 'New Vendor';
 
-  return (
-    <ContentLayout
-      header={
-        <SpaceBetween size="m">
-          <BreadcrumbGroup
-            items={[
-              { text: 'Vendors', href: '/vendors' },
-              isEdit
-                ? { text: 'Edit Vendor', href: `/vendors/${id}/edit` }
-                : { text: 'New Vendor', href: '/vendors/new' },
-            ]}
-            onFollow={(e) => {
-              e.preventDefault();
-              navigate(e.detail.href);
-            }}
-          />
-          <Header variant="h1">{pageTitle}</Header>
-        </SpaceBetween>
-      }
-    >
-      {error && (
-        <Alert type="error" dismissible onDismiss={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-      {warning && (
-        <Alert type="warning" dismissible onDismiss={() => setWarning(null)}>
-          {warning}
-        </Alert>
-      )}
-      <Form
-        actions={
-          <SpaceBetween direction="horizontal" size="xs">
-            <Button onClick={() => navigate(isEdit ? `/vendors/${id}` : '/vendors')}>
-              Cancel
-            </Button>
-            <Button variant="primary" loading={saving} onClick={handleSubmit}>
-              {isEdit ? 'Save Changes' : 'Create Vendor'}
-            </Button>
-          </SpaceBetween>
-        }
-      >
-        <SpaceBetween size="l">
-        <Container header={<Header variant="h2">Vendor Information</Header>}>
-          <SpaceBetween size="l">
+  const basicsFields = (
+    <SpaceBetween size="l">
             <FormField label="Company Name" errorText={nameError} constraintText="Required">
               <Input
                 ref={companyNameRef}
@@ -313,7 +284,11 @@ const VendorFormPage: React.FC = () => {
                 }}
               />
             </FormField>
+    </SpaceBetween>
+  );
 
+  const contactFields = (
+    <SpaceBetween size="l">
             <SpaceBetween direction="horizontal" size="l">
               <FormField label="Contact Name" stretch>
                 <Input
@@ -345,7 +320,11 @@ const VendorFormPage: React.FC = () => {
               disabled={saving}
               legacyAddress={legacyAddress}
             />
+    </SpaceBetween>
+  );
 
+  const notesFields = (
+    <SpaceBetween size="l">
             <FormField label="Notes">
               <Textarea
                 value={form.notes}
@@ -354,10 +333,10 @@ const VendorFormPage: React.FC = () => {
                 rows={4}
               />
             </FormField>
-          </SpaceBetween>
-        </Container>
+    </SpaceBetween>
+  );
 
-        {!isEdit && (
+  const attachmentsPanel = !isEdit && (
           <Container
             header={
               <Header
@@ -427,7 +406,117 @@ const VendorFormPage: React.FC = () => {
               )}
             </SpaceBetween>
           </Container>
-        )}
+        );
+
+  const pageHeader = (
+    <SpaceBetween size="m">
+      <BreadcrumbGroup
+        items={[
+          { text: 'Vendors', href: '/vendors' },
+          isEdit
+            ? { text: 'Edit Vendor', href: `/vendors/${id}/edit` }
+            : { text: 'New Vendor', href: '/vendors/new' },
+        ]}
+        onFollow={(e) => {
+          e.preventDefault();
+          navigate(e.detail.href);
+        }}
+      />
+      <Header variant="h1">{pageTitle}</Header>
+    </SpaceBetween>
+  );
+
+  const alerts = (
+    <>
+      {error && (
+        <Alert type="error" dismissible onDismiss={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+      {warning && (
+        <Alert type="warning" dismissible onDismiss={() => setWarning(null)}>
+          {warning}
+        </Alert>
+      )}
+    </>
+  );
+
+  if (!isEdit) {
+    return (
+      <ContentLayout header={pageHeader}>
+        {alerts}
+        <Wizard
+          i18nStrings={wizardI18nStrings('Create Vendor')}
+          activeStepIndex={activeStepIndex}
+          isLoadingNextStep={saving}
+          onNavigate={({ detail }) => {
+            // Company Name is the only required field; guard leaving its step.
+            if (activeStepIndex === 0 && detail.requestedStepIndex > 0 && !validateBasics()) return;
+            setActiveStepIndex(detail.requestedStepIndex);
+          }}
+          onCancel={() => navigate('/vendors')}
+          onSubmit={handleSubmit}
+          steps={[
+            {
+              title: 'Vendor information',
+              description: 'Identify the vendor and the services they provide.',
+              content: (
+                <Container header={<Header variant="h2">Vendor Information</Header>}>
+                  {basicsFields}
+                </Container>
+              ),
+            },
+            {
+              title: 'Contact & address',
+              description: 'How do you reach this vendor?',
+              isOptional: true,
+              content: (
+                <Container header={<Header variant="h2">Contact &amp; address</Header>}>
+                  {contactFields}
+                </Container>
+              ),
+            },
+            {
+              title: 'Notes & attachments',
+              description: 'Anything else worth recording.',
+              isOptional: true,
+              content: (
+                <SpaceBetween size="l">
+                  <Container header={<Header variant="h2">Notes</Header>}>{notesFields}</Container>
+                  {attachmentsPanel}
+                </SpaceBetween>
+              ),
+            },
+          ]}
+        />
+      </ContentLayout>
+    );
+  }
+
+  return (
+    <ContentLayout header={pageHeader}>
+      {alerts}
+      <Form
+        actions={
+          <SpaceBetween direction="horizontal" size="xs">
+            <Button onClick={() => navigate(isEdit ? `/vendors/${id}` : '/vendors')}>
+              Cancel
+            </Button>
+            <Button variant="primary" loading={saving} onClick={handleSubmit}>
+              {isEdit ? 'Save Changes' : 'Create Vendor'}
+            </Button>
+          </SpaceBetween>
+        }
+      >
+        <SpaceBetween size="l">
+          <Container header={<Header variant="h2">Vendor Information</Header>}>
+            <SpaceBetween size="l">
+              {basicsFields}
+              {contactFields}
+              {notesFields}
+            </SpaceBetween>
+          </Container>
+          {attachmentsPanel}
         </SpaceBetween>
       </Form>
     </ContentLayout>

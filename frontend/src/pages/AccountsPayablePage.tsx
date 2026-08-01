@@ -5,7 +5,7 @@ import Container from '@cloudscape-design/components/container';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
-import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -225,6 +225,117 @@ const AccountsPayablePage: React.FC = () => {
   const deletePayment = (paymentId: string) =>
     runAction('Payment removed.', () => apApi.deletePayment(paymentId));
 
+  const billVendorFields = (
+    <SpaceBetween size="m">
+      <FormField label="Vendor">
+        <Select
+          selectedOption={vendorId ? vendorOpts.find((o) => o.value === vendorId) ?? null : null}
+          options={vendorOpts}
+          onChange={({ detail }) => setVendorId(detail.selectedOption.value ?? '')}
+          filteringType="auto"
+          placeholder="Select a vendor"
+          empty="No vendors"
+        />
+      </FormField>
+      <ColumnLayout columns={3}>
+        <FormField label="Bill date">
+          <Input type={"date" as any} value={billDate} onChange={({ detail }) => setBillDate(detail.value)} />
+        </FormField>
+        <FormField label="Due date">
+          <Input type={"date" as any} value={dueDate} onChange={({ detail }) => setDueDate(detail.value)} />
+        </FormField>
+        <FormField label="Bill number">
+          <Input value={billNumber} onChange={({ detail }) => setBillNumber(detail.value)} />
+        </FormField>
+      </ColumnLayout>
+    </SpaceBetween>
+  );
+
+  const billLineFields = (
+    <SpaceBetween size="m">
+      <FormField label="Memo">
+        <Input value={memo} onChange={({ detail }) => setMemo(detail.value)} />
+      </FormField>
+
+      <FormField label="Expense lines">
+        <SpaceBetween size="xs">
+          {lines.map((line, idx) => (
+            <ColumnLayout key={idx} columns={3}>
+              <Select
+                selectedOption={line.account_id ? accountOptions.find((o) => o.value === line.account_id) ?? null : null}
+                options={accountOptions}
+                onChange={({ detail }) => updateLine(idx, { account_id: detail.selectedOption.value ?? '' })}
+                filteringType="auto"
+                placeholder="Expense account"
+                empty="No accounts"
+              />
+              <Input
+                type="number"
+                value={line.amount}
+                placeholder="Amount"
+                onChange={({ detail }) => updateLine(idx, { amount: detail.value })}
+              />
+              <SpaceBetween direction="horizontal" size="xs">
+                <Input
+                  value={line.description}
+                  placeholder="Description"
+                  onChange={({ detail }) => updateLine(idx, { description: detail.value })}
+                />
+                {lines.length > 1 && (
+                  <Button
+                    iconName="remove"
+                    variant="icon"
+                    ariaLabel="Remove line"
+                    onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx))}
+                  />
+                )}
+              </SpaceBetween>
+            </ColumnLayout>
+          ))}
+          <Button
+            iconName="add-plus"
+            onClick={() => setLines((prev) => [...prev, { account_id: '', amount: '', description: '' }])}
+          >
+            Add line
+          </Button>
+          <Box textAlign="right" fontWeight="bold">Total: {fmt(billTotal)}</Box>
+        </SpaceBetween>
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const paymentFields = (
+    <SpaceBetween size="m">
+      <Box>Outstanding balance: <strong>{fmt(payBill?.balance_due)}</strong></Box>
+      <FormField label="Payment date">
+        <Input type={"date" as any} value={payDate} onChange={({ detail }) => setPayDate(detail.value)} />
+      </FormField>
+      <FormField label="Amount">
+        <Input type="number" value={payAmount} onChange={({ detail }) => setPayAmount(detail.value)} />
+      </FormField>
+      <ColumnLayout columns={2}>
+        <FormField label="Method">
+          <Input value={payMethod} onChange={({ detail }) => setPayMethod(detail.value)} placeholder="check, ACH…" />
+        </FormField>
+        <FormField label="Reference">
+          <Input value={payReference} onChange={({ detail }) => setPayReference(detail.value)} />
+        </FormField>
+      </ColumnLayout>
+    </SpaceBetween>
+  );
+
+  const billDirty = Boolean(
+    vendorId ||
+      dueDate ||
+      billNumber ||
+      memo ||
+      lines.some((l) => l.account_id || l.amount || l.description),
+  );
+
+  const paymentDirty = Boolean(
+    payMethod || payReference || (payBill && payAmount !== String(payBill.balance_due)),
+  );
+
   return (
     <ContentLayout
       header={
@@ -332,116 +443,55 @@ const AccountsPayablePage: React.FC = () => {
         )}
       </SpaceBetween>
 
-      {/* New bill modal */}
-      <EntityFormModal
+      {/* New bill wizard */}
+      <CreateWizardModal
         visible={billModalOpen}
-        title="New vendor bill"
+        entityLabel="vendor bill"
         onCancel={() => setBillModalOpen(false)}
         onSubmit={submitBill}
         submitting={savingBill}
-        submitLabel="Create"
+        dirty={billDirty}
         size="large"
-      >
-        <SpaceBetween size="m">
-          <FormField label="Vendor">
-            <Select
-              selectedOption={vendorId ? vendorOpts.find((o) => o.value === vendorId) ?? null : null}
-              options={vendorOpts}
-              onChange={({ detail }) => setVendorId(detail.selectedOption.value ?? '')}
-              filteringType="auto"
-              placeholder="Select a vendor"
-              empty="No vendors"
-            />
-          </FormField>
-          <ColumnLayout columns={3}>
-            <FormField label="Bill date">
-              <Input type={"date" as any} value={billDate} onChange={({ detail }) => setBillDate(detail.value)} />
-            </FormField>
-            <FormField label="Due date">
-              <Input type={"date" as any} value={dueDate} onChange={({ detail }) => setDueDate(detail.value)} />
-            </FormField>
-            <FormField label="Bill number">
-              <Input value={billNumber} onChange={({ detail }) => setBillNumber(detail.value)} />
-            </FormField>
-          </ColumnLayout>
-          <FormField label="Memo">
-            <Input value={memo} onChange={({ detail }) => setMemo(detail.value)} />
-          </FormField>
+        steps={[
+          {
+            title: 'Vendor & dates',
+            description: 'Who billed you, and when it is due.',
+            content: billVendorFields,
+            validate: () => (!vendorId ? 'A vendor is required.' : null),
+          },
+          {
+            title: 'Expense lines',
+            description: 'Code the bill to expense accounts.',
+            content: billLineFields,
+            validate: () =>
+              lines.filter((l) => l.account_id && parseFloat(l.amount) > 0).length === 0
+                ? 'Add at least one expense line with an account and amount.'
+                : null,
+          },
+        ]}
+      />
 
-          <FormField label="Expense lines">
-            <SpaceBetween size="xs">
-              {lines.map((line, idx) => (
-                <ColumnLayout key={idx} columns={3}>
-                  <Select
-                    selectedOption={line.account_id ? accountOptions.find((o) => o.value === line.account_id) ?? null : null}
-                    options={accountOptions}
-                    onChange={({ detail }) => updateLine(idx, { account_id: detail.selectedOption.value ?? '' })}
-                    filteringType="auto"
-                    placeholder="Expense account"
-                    empty="No accounts"
-                  />
-                  <Input
-                    type="number"
-                    value={line.amount}
-                    placeholder="Amount"
-                    onChange={({ detail }) => updateLine(idx, { amount: detail.value })}
-                  />
-                  <SpaceBetween direction="horizontal" size="xs">
-                    <Input
-                      value={line.description}
-                      placeholder="Description"
-                      onChange={({ detail }) => updateLine(idx, { description: detail.value })}
-                    />
-                    {lines.length > 1 && (
-                      <Button
-                        iconName="remove"
-                        variant="icon"
-                        ariaLabel="Remove line"
-                        onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx))}
-                      />
-                    )}
-                  </SpaceBetween>
-                </ColumnLayout>
-              ))}
-              <Button
-                iconName="add-plus"
-                onClick={() => setLines((prev) => [...prev, { account_id: '', amount: '', description: '' }])}
-              >
-                Add line
-              </Button>
-              <Box textAlign="right" fontWeight="bold">Total: {fmt(billTotal)}</Box>
-            </SpaceBetween>
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
-
-      {/* Payment modal */}
-      <EntityFormModal
+      {/* Payment wizard */}
+      <CreateWizardModal
         visible={payModalOpen}
-        title="Record payment"
+        entityLabel="payment"
         onCancel={() => setPayModalOpen(false)}
         onSubmit={submitPayment}
         submitting={savingPay}
-        submitLabel="Record"
-      >
-        <SpaceBetween size="m">
-          <Box>Outstanding balance: <strong>{fmt(payBill?.balance_due)}</strong></Box>
-          <FormField label="Payment date">
-            <Input type={"date" as any} value={payDate} onChange={({ detail }) => setPayDate(detail.value)} />
-          </FormField>
-          <FormField label="Amount">
-            <Input type="number" value={payAmount} onChange={({ detail }) => setPayAmount(detail.value)} />
-          </FormField>
-          <ColumnLayout columns={2}>
-            <FormField label="Method">
-              <Input value={payMethod} onChange={({ detail }) => setPayMethod(detail.value)} placeholder="check, ACH…" />
-            </FormField>
-            <FormField label="Reference">
-              <Input value={payReference} onChange={({ detail }) => setPayReference(detail.value)} />
-            </FormField>
-          </ColumnLayout>
-        </SpaceBetween>
-      </EntityFormModal>
+        dirty={paymentDirty}
+        size="medium"
+        steps={[
+          {
+            title: 'Payment details',
+            description: 'Record a payment against this bill.',
+            content: paymentFields,
+            validate: () =>
+              !(parseFloat(payAmount) > 0)
+                ? 'Payment amount must be greater than zero.'
+                : null,
+          },
+        ]}
+      />
     </ContentLayout>
   );
 };

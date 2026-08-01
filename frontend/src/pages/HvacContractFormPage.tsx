@@ -5,6 +5,7 @@ import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Container from '@cloudscape-design/components/container';
 import Form from '@cloudscape-design/components/form';
+import Wizard from '@cloudscape-design/components/wizard';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
@@ -28,6 +29,7 @@ import AIDocumentPrefill from '@/components/common/AIDocumentPrefill';
 import { EntityQuickCreateSelect } from '@/components/common/EntityQuickCreateSelect';
 import { OfficeQuickCreate, ManagerQuickCreate } from '@/components/common/QuickCreateForms';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
+import { wizardI18nStrings } from '@/components/common/wizardI18n';
 import type { HvacContractCreate, Office, Manager } from '@/types';
 
 type SelectOption = { label: string; value: string };
@@ -83,6 +85,7 @@ const HvacContractFormPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [companyError, setCompanyError] = useState<string | undefined>(undefined);
+  const [activeStepIndex, setActiveStepIndex] = useState(0);
   const [dirty, setDirty] = useState(false);
 
   useUnsavedChangesWarning(dirty && !saving);
@@ -263,48 +266,7 @@ const HvacContractFormPage: React.FC = () => {
 
   const pageTitle = isEdit ? 'Edit HVAC Contract' : 'Create HVAC Contract';
 
-  return (
-    <ContentLayout
-      header={
-        <SpaceBetween size="m">
-          <BreadcrumbGroup
-            items={[
-              { text: 'Home', href: '/' },
-              { text: 'HVAC Contracts', href: '/hvac-contracts' },
-              {
-                text: pageTitle,
-                href: isEdit ? `/hvac-contracts/${id}/edit` : '/hvac-contracts/new',
-              },
-            ]}
-            onFollow={(e) => {
-              e.preventDefault();
-              navigate(e.detail.href);
-            }}
-          />
-          <Header variant="h1">{pageTitle}</Header>
-        </SpaceBetween>
-      }
-    >
-      {error && (
-        <Alert type="error" dismissible onDismiss={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-      <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
-        <Form
-          actions={
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => navigate(-1)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={saving} onClick={handleSubmit}>
-                {isEdit ? 'Save changes' : 'Create contract'}
-              </Button>
-            </SpaceBetween>
-          }
-        >
-          <SpaceBetween size="l">
-            {!isEdit && (
+  const aiPrefillPanel = !isEdit && (
               <AIDocumentPrefill
                 title="AI assist — extract from document"
                 description="Upload an HVAC service contract and let AI pre-fill the fields below for your review."
@@ -313,9 +275,10 @@ const HvacContractFormPage: React.FC = () => {
                 onSuggested={applyAISuggestions}
                 onFileExtracted={queueAIDocument}
               />
-            )}
-            <Container header={<Header variant="h2">Contract details</Header>}>
-              <SpaceBetween size="l">
+  );
+
+  const basicsFields = (
+    <SpaceBetween size="l">
                 <FormField
                   label="HVAC Company"
                   errorText={companyError}
@@ -374,7 +337,11 @@ const HvacContractFormPage: React.FC = () => {
                     />
                   </FormField>
                 </SpaceBetween>
+    </SpaceBetween>
+  );
 
+  const serviceFields = (
+    <SpaceBetween size="l">
                 <FormField label="Manager">
                   <EntityQuickCreateSelect
                     selectedOption={selectedManager}
@@ -452,7 +419,11 @@ const HvacContractFormPage: React.FC = () => {
                     {form.landlord_handles ? 'Yes' : 'No'}
                   </Toggle>
                 </FormField>
+    </SpaceBetween>
+  );
 
+  const commentsFields = (
+    <SpaceBetween size="l">
                 <FormField label="Comments">
                   <Textarea
                     value={form.comments}
@@ -469,6 +440,112 @@ const HvacContractFormPage: React.FC = () => {
                     disabled={saving}
                   />
                 )}
+    </SpaceBetween>
+  );
+
+  const pageHeader = (
+    <SpaceBetween size="m">
+      <BreadcrumbGroup
+        items={[
+          { text: 'Home', href: '/' },
+          { text: 'HVAC Contracts', href: '/hvac-contracts' },
+          {
+            text: pageTitle,
+            href: isEdit ? `/hvac-contracts/${id}/edit` : '/hvac-contracts/new',
+          },
+        ]}
+        onFollow={(e) => {
+          e.preventDefault();
+          navigate(e.detail.href);
+        }}
+      />
+      <Header variant="h1">{pageTitle}</Header>
+    </SpaceBetween>
+  );
+
+  const errorAlert = error && (
+    <Alert type="error" dismissible onDismiss={() => setError(null)}>
+      {error}
+    </Alert>
+  );
+
+  if (!isEdit) {
+    return (
+      <ContentLayout header={pageHeader}>
+        {errorAlert}
+        <Wizard
+          i18nStrings={wizardI18nStrings('Create contract')}
+          activeStepIndex={activeStepIndex}
+          isLoadingNextStep={saving}
+          onNavigate={({ detail }) => {
+            // HVAC Company is the only required field; guard leaving its step.
+            if (activeStepIndex === 0 && detail.requestedStepIndex > 0 && !validate()) return;
+            setActiveStepIndex(detail.requestedStepIndex);
+          }}
+          onCancel={() => navigate('/hvac-contracts')}
+          onSubmit={handleSubmit}
+          steps={[
+            {
+              title: 'Contract details',
+              description: 'Who services this office, and which office is it?',
+              content: (
+                <SpaceBetween size="l">
+                  {aiPrefillPanel}
+                  <Container header={<Header variant="h2">Contract details</Header>}>
+                    {basicsFields}
+                  </Container>
+                </SpaceBetween>
+              ),
+            },
+            {
+              title: 'Service schedule',
+              description: 'Manager, frequency, and service dates.',
+              isOptional: true,
+              content: (
+                <Container header={<Header variant="h2">Service schedule</Header>}>
+                  {serviceFields}
+                </Container>
+              ),
+            },
+            {
+              title: 'Comments & attachments',
+              description: 'Anything else worth recording.',
+              isOptional: true,
+              content: (
+                <Container header={<Header variant="h2">Comments &amp; attachments</Header>}>
+                  {commentsFields}
+                </Container>
+              ),
+            },
+          ]}
+        />
+      </ContentLayout>
+    );
+  }
+
+  return (
+    <ContentLayout header={pageHeader}>
+      {errorAlert}
+      <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+        <Form
+          actions={
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => navigate(-1)}>
+                Cancel
+              </Button>
+              <Button variant="primary" loading={saving} onClick={handleSubmit}>
+                {isEdit ? 'Save changes' : 'Create contract'}
+              </Button>
+            </SpaceBetween>
+          }
+        >
+          <SpaceBetween size="l">
+            {aiPrefillPanel}
+            <Container header={<Header variant="h2">Contract details</Header>}>
+              <SpaceBetween size="l">
+                {basicsFields}
+                {serviceFields}
+                {commentsFields}
               </SpaceBetween>
             </Container>
           </SpaceBetween>

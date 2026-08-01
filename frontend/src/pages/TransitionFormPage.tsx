@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import useFormDirty from '@/hooks/useFormDirty';
+import useUnsavedChangesWarning from '@/hooks/useUnsavedChangesWarning';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Form from '@cloudscape-design/components/form';
+import Wizard from '@cloudscape-design/components/wizard';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -23,6 +26,7 @@ import AddressFields, {
   parseUsAddress,
   formatAddress,
 } from '@/components/common/AddressFields';
+import { wizardI18nStrings } from '@/components/common/wizardI18n';
 import type { TransitionCreate, Office } from '@/types';
 
 type SelectOption = { label: string; value: string };
@@ -64,6 +68,8 @@ const TransitionFormPage: React.FC = () => {
   });
 
   const [selectedOffice, setSelectedOffice] = useState<SelectOption | null>(null);
+  const { dirty } = useFormDirty(form, !loading);
+  useUnsavedChangesWarning(dirty && !saving);
   const [currentAddr, setCurrentAddr] = useState<StructuredAddress>({});
   const [newAddr, setNewAddr] = useState<StructuredAddress>({});
   // Original free-form text values are kept so the legacy banner has something to show
@@ -74,6 +80,7 @@ const TransitionFormPage: React.FC = () => {
     STATUS_OPTIONS.find((o) => o.value === 'in_progress') || null,
   );
   const [selectedType, setSelectedType] = useState<SelectOption | null>(null);
+  const [activeStepIndex, setActiveStepIndex] = useState(0);
 
   // Load office options
   useEffect(() => {
@@ -124,6 +131,14 @@ const TransitionFormPage: React.FC = () => {
     };
     fetchTransition();
   }, [id, isEditing]);
+
+  const validateBasics = (): boolean => {
+    if (!selectedType) {
+      setError('Transition Type is required.');
+      return false;
+    }
+    return true;
+  };
 
   const handleSubmit = async () => {
     if (!selectedType) {
@@ -188,45 +203,8 @@ const TransitionFormPage: React.FC = () => {
     );
   }
 
-  return (
-    <ContentLayout
-      header={
-        <SpaceBetween size="m">
-          <BreadcrumbGroup
-            items={[
-              { text: 'Transitions', href: '/transitions' },
-              isEditing
-                ? { text: 'Edit Transition', href: `/transitions/${id}/edit` }
-                : { text: 'New Transition', href: '/transitions/new' },
-            ]}
-            onFollow={(e) => {
-              e.preventDefault();
-              navigate(e.detail.href);
-            }}
-          />
-          <Header variant="h1">{isEditing ? 'Edit Transition' : 'New Transition'}</Header>
-        </SpaceBetween>
-      }
-    >
-      {error && (
-        <Alert type="error" dismissible onDismiss={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-      <Form
-        actions={
-          <SpaceBetween direction="horizontal" size="xs">
-            <Button onClick={() => navigate(isEditing ? `/transitions/${id}` : '/transitions')}>
-              Cancel
-            </Button>
-            <Button variant="primary" loading={saving} onClick={handleSubmit}>
-              {isEditing ? 'Save Changes' : 'Create Transition'}
-            </Button>
-          </SpaceBetween>
-        }
-      >
-        <Container header={<Header variant="h2">Transition Information</Header>}>
-          <SpaceBetween size="l">
+  const basicsFields = (
+    <SpaceBetween size="l">
             <SpaceBetween direction="horizontal" size="l">
               <FormField label="Transition Type" constraintText="Required" stretch>
                 <Select
@@ -278,7 +256,11 @@ const TransitionFormPage: React.FC = () => {
                 placeholder="e.g., 101"
               />
             </FormField>
+    </SpaceBetween>
+  );
 
+  const addressFields = (
+    <SpaceBetween size="l">
             <FormField label="Current Address" description="Address of the existing office.">
               <AddressFields
                 value={currentAddr}
@@ -296,7 +278,11 @@ const TransitionFormPage: React.FC = () => {
                 legacyAddress={legacyNewAddr}
               />
             </FormField>
+    </SpaceBetween>
+  );
 
+  const notesFields = (
+    <SpaceBetween size="l">
             <FormField label="Notes">
               <Textarea
                 value={form.notes || ''}
@@ -309,6 +295,102 @@ const TransitionFormPage: React.FC = () => {
             {!isEditing && (
               <FileQueueField files={queuedFiles} onChange={setQueuedFiles} disabled={saving} />
             )}
+    </SpaceBetween>
+  );
+
+  const pageHeader = (
+    <SpaceBetween size="m">
+      <BreadcrumbGroup
+        items={[
+          { text: 'Transitions', href: '/transitions' },
+          isEditing
+            ? { text: 'Edit Transition', href: `/transitions/${id}/edit` }
+            : { text: 'New Transition', href: '/transitions/new' },
+        ]}
+        onFollow={(e) => {
+          e.preventDefault();
+          navigate(e.detail.href);
+        }}
+      />
+      <Header variant="h1">{isEditing ? 'Edit Transition' : 'New Transition'}</Header>
+    </SpaceBetween>
+  );
+
+  const errorAlert = error && (
+    <Alert type="error" dismissible onDismiss={() => setError(null)}>
+      {error}
+    </Alert>
+  );
+
+  if (!isEditing) {
+    return (
+      <ContentLayout header={pageHeader}>
+        {errorAlert}
+        <Wizard
+          i18nStrings={wizardI18nStrings('Create Transition')}
+          activeStepIndex={activeStepIndex}
+          isLoadingNextStep={saving}
+          onNavigate={({ detail }) => {
+            // Transition Type is the only required field; guard leaving its step.
+            if (activeStepIndex === 0 && detail.requestedStepIndex > 0 && !validateBasics()) return;
+            setActiveStepIndex(detail.requestedStepIndex);
+          }}
+          onCancel={() => navigate('/transitions')}
+          onSubmit={handleSubmit}
+          steps={[
+            {
+              title: 'Transition information',
+              description: 'What kind of transition is this, and which office does it affect?',
+              content: (
+                <Container header={<Header variant="h2">Transition Information</Header>}>
+                  {basicsFields}
+                </Container>
+              ),
+            },
+            {
+              title: 'Addresses',
+              description: 'Where the office is today and where it is going.',
+              isOptional: true,
+              content: (
+                <Container header={<Header variant="h2">Addresses</Header>}>{addressFields}</Container>
+              ),
+            },
+            {
+              title: 'Notes & attachments',
+              description: 'Anything else worth recording.',
+              isOptional: true,
+              content: (
+                <Container header={<Header variant="h2">Notes &amp; attachments</Header>}>
+                  {notesFields}
+                </Container>
+              ),
+            },
+          ]}
+        />
+      </ContentLayout>
+    );
+  }
+
+  return (
+    <ContentLayout header={pageHeader}>
+      {errorAlert}
+      <Form
+        actions={
+          <SpaceBetween direction="horizontal" size="xs">
+            <Button onClick={() => navigate(isEditing ? `/transitions/${id}` : '/transitions')}>
+              Cancel
+            </Button>
+            <Button variant="primary" loading={saving} onClick={handleSubmit}>
+              {isEditing ? 'Save Changes' : 'Create Transition'}
+            </Button>
+          </SpaceBetween>
+        }
+      >
+        <Container header={<Header variant="h2">Transition Information</Header>}>
+          <SpaceBetween size="l">
+            {basicsFields}
+            {addressFields}
+            {notesFields}
           </SpaceBetween>
         </Container>
       </Form>

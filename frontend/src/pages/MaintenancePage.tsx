@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Container from '@cloudscape-design/components/container';
@@ -6,6 +7,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Box from '@cloudscape-design/components/box';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import Spinner from '@cloudscape-design/components/spinner';
+import Button from '@cloudscape-design/components/button';
 import Link from '@cloudscape-design/components/link';
 import TabbedPage from '@/components/layout/TabbedPage';
 import MaintenanceCategoryPanel from '@/components/maintenance/MaintenanceCategoryPanel';
@@ -101,6 +103,7 @@ const OverviewTab: React.FC<{
 
 const MaintenancePage: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const canEdit = user?.role === 'admin' || user?.role === 'editor';
 
   const [catalog, setCatalog] = useState<MaintenanceCatalog | null>(null);
@@ -186,7 +189,17 @@ const MaintenancePage: React.FC = () => {
   return (
     <ContentLayout
       header={
-        <Header variant="h1" description="Track recurring upkeep, assign vendors, and schedule reminders across your portfolio.">
+        <Header
+          variant="h1"
+          description="Track recurring upkeep, assign vendors, and schedule reminders across your portfolio."
+          actions={
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button onClick={() => navigate('/maintenance-tickets')}>Work orders</Button>
+              <Button onClick={() => navigate('/inspections')}>Inspections</Button>
+              <Button onClick={() => navigate('/hvac/contracts')}>Service contracts</Button>
+            </SpaceBetween>
+          }
+        >
           Maintenance
         </Header>
       }

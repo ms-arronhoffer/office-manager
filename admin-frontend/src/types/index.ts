@@ -336,6 +336,8 @@ export interface StripeConfig {
   publishable_key: string | null
   price_id_starter: string | null
   price_id_pro: string | null
+  price_id_starter_annual: string | null
+  price_id_pro_annual: string | null
   product_id_enterprise: string | null
   secret_key_from_env: boolean
   last_verified_at: string | null
@@ -349,6 +351,8 @@ export interface StripeConfigInput {
   publishable_key?: string
   price_id_starter?: string
   price_id_pro?: string
+  price_id_starter_annual?: string
+  price_id_pro_annual?: string
   product_id_enterprise?: string
   is_enabled?: boolean
 }

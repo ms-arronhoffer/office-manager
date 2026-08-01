@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Header from '@cloudscape-design/components/header';
 import Container from '@cloudscape-design/components/container';
 import SpaceBetween from '@cloudscape-design/components/space-between';
@@ -10,12 +11,17 @@ import Textarea from '@cloudscape-design/components/textarea';
 import Select from '@cloudscape-design/components/select';
 import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
+import Link from '@cloudscape-design/components/link';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useAuth } from '@/auth/AuthContext';
 import { leasing, offices as officesApi, attachments as attachmentsApi } from '@/api';
+import useListCollection from '@/hooks/useListCollection';
+import { exportRowsToCsv } from '@/lib/csv';
+import type { CsvColumn } from '@/lib/csv';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FileUploadField, { type QueuedFile } from '@/components/common/FileUploadField';
 import type { RentalUnit, UnitStatus, Office, OccupancySummary } from '@/types';
 
@@ -25,6 +31,16 @@ const fmtMoney = (v: string | null) =>
     : '—';
 
 const UNIT_STATUSES: UnitStatus[] = ['available', 'occupied', 'unavailable'];
+
+const UNIT_CSV_COLUMNS: CsvColumn<RentalUnit>[] = [
+  { header: 'Unit', value: (u) => u.unit_number },
+  { header: 'Name', value: (u) => u.name },
+  { header: 'Address', value: (u) => u.address_line_1 },
+  { header: 'City', value: (u) => u.city },
+  { header: 'Type', value: (u) => u.property_type },
+  { header: 'Status', value: (u) => u.status },
+  { header: 'Market rent', value: (u) => u.market_rent },
+];
 
 const unitBadge = (s: UnitStatus) => {
   const color = s === 'available' ? 'green' : s === 'occupied' ? 'blue' : 'grey';
@@ -36,6 +52,8 @@ interface Opt { label: string; value: string; }
 const LeasingUnitsPage: React.FC = () => {
   const { addFlash } = useFlashbar();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const canEditDocuments = user?.role === 'admin' || user?.role === 'editor';
   const [units, setUnits] = useState<RentalUnit[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
@@ -171,6 +189,19 @@ const LeasingUnitsPage: React.FC = () => {
     setModalOpen(true);
   };
 
+  // Lets the unit master record hand editing back to this list via ?edit=<id>.
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (!editId || loading) return;
+    const match = units.find((u) => u.id === editId);
+    if (match) {
+      openEdit(match);
+      searchParams.delete('edit');
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, units, loading]);
+
   const save = async () => {
     if (!unitNumber.trim()) {
       setError('Unit number is required.');
@@ -244,6 +275,152 @@ const LeasingUnitsPage: React.FC = () => {
     }
   };
 
+  const collection = useListCollection(units, {
+    entity: 'rental-units',
+    filterPlaceholder: 'Search units',
+    searchText: (u) =>
+      [u.unit_number, u.name, u.address_line_1, u.city, u.property_type, u.status]
+        .filter(Boolean)
+        .join(' '),
+    empty: (
+      <Box textAlign="center" padding="m">
+        <SpaceBetween size="xs">
+          <Box>No rental units yet.</Box>
+          <Button onClick={openCreate}>Add your first unit</Button>
+        </SpaceBetween>
+      </Box>
+    ),
+  });
+
+  const identityFields = (
+    <SpaceBetween size="m">
+      <FormField label="Property">
+        <Select
+          selectedOption={officeOptions.find((o) => o.value === officeId) ?? officeOptions[0]}
+          onChange={({ detail }) => setOfficeId(detail.selectedOption.value ?? '')}
+          options={officeOptions}
+          filteringType="auto"
+        />
+      </FormField>
+      <ColumnLayout columns={2}>
+        <FormField label="Unit number">
+          <Input value={unitNumber} onChange={({ detail }) => setUnitNumber(detail.value)} />
+        </FormField>
+        <FormField label="Name">
+          <Input value={name} onChange={({ detail }) => setName(detail.value)} />
+        </FormField>
+        <FormField label="Floor">
+          <Input value={floor} onChange={({ detail }) => setFloor(detail.value)} />
+        </FormField>
+        <FormField label="Status">
+          <Select
+            selectedOption={{ label: statusValue, value: statusValue }}
+            onChange={({ detail }) => setStatusValue(detail.selectedOption.value as UnitStatus)}
+            options={UNIT_STATUSES.map((s) => ({ label: s, value: s }))}
+          />
+        </FormField>
+      </ColumnLayout>
+    </SpaceBetween>
+  );
+
+  const specFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="Bedrooms">
+        <Input
+          type="number"
+          value={bedrooms}
+          onChange={({ detail }) => setBedrooms(detail.value)}
+        />
+      </FormField>
+      <FormField label="Bathrooms">
+        <Input
+          type="number"
+          value={bathrooms}
+          onChange={({ detail }) => setBathrooms(detail.value)}
+        />
+      </FormField>
+      <FormField label="Square feet">
+        <Input
+          type="number"
+          value={squareFeet}
+          onChange={({ detail }) => setSquareFeet(detail.value)}
+        />
+      </FormField>
+      <FormField label="Market rent">
+        <Input
+          type="number"
+          value={marketRent}
+          onChange={({ detail }) => setMarketRent(detail.value)}
+        />
+      </FormField>
+      <FormField label="Property type">
+        <Input value={propertyType} onChange={({ detail }) => setPropertyType(detail.value)} />
+      </FormField>
+      <FormField label="Year built">
+        <Input
+          type="number"
+          value={yearBuilt}
+          onChange={({ detail }) => setYearBuilt(detail.value)}
+        />
+      </FormField>
+      <FormField label="Available date">
+        <Input
+          type={'date' as any}
+          value={availableDate}
+          onChange={({ detail }) => setAvailableDate(detail.value)}
+        />
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const addressFields = (
+    <SpaceBetween size="m">
+      <FormField label="Address line 1">
+        <Input value={addr1} onChange={({ detail }) => setAddr1(detail.value)} />
+      </FormField>
+      <FormField label="Address line 2">
+        <Input value={addr2} onChange={({ detail }) => setAddr2(detail.value)} />
+      </FormField>
+      <ColumnLayout columns={3}>
+        <FormField label="City">
+          <Input value={city} onChange={({ detail }) => setCity(detail.value)} />
+        </FormField>
+        <FormField label="State">
+          <Input value={stateVal} onChange={({ detail }) => setStateVal(detail.value)} />
+        </FormField>
+        <FormField label="ZIP code">
+          <Input value={zip} onChange={({ detail }) => setZip(detail.value)} />
+        </FormField>
+      </ColumnLayout>
+    </SpaceBetween>
+  );
+
+  const marketingFields = (
+    <SpaceBetween size="m">
+      <FormField label="Description">
+        <Textarea value={description} onChange={({ detail }) => setDescription(detail.value)} />
+      </FormField>
+      <FormField label="Amenities">
+        <Textarea value={amenities} onChange={({ detail }) => setAmenities(detail.value)} />
+      </FormField>
+      <FormField label="Notes">
+        <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const createDirty = Boolean(
+    officeId ||
+      unitNumber ||
+      name ||
+      marketRent ||
+      addr1 ||
+      city ||
+      description ||
+      notes ||
+      queuedFiles.length,
+  );
+
   return (
     <SpaceBetween size="l">
       {occupancy && (
@@ -266,9 +443,13 @@ const LeasingUnitsPage: React.FC = () => {
       )}
 
       <Table<RentalUnit>
+        {...collection.collectionProps}
         loading={loading}
-        items={units}
+        items={collection.items}
         variant="container"
+        selectionType="multi"
+        filter={collection.filter}
+        pagination={collection.pagination}
         header={
           <Header
             counter={`(${units.length})`}
@@ -282,6 +463,14 @@ const LeasingUnitsPage: React.FC = () => {
                     ...UNIT_STATUSES.map((s) => ({ label: s, value: s })),
                   ]}
                 />
+                <Button
+                  disabled={collection.selectedItems.length === 0}
+                  onClick={() =>
+                    exportRowsToCsv('rental-units.csv', UNIT_CSV_COLUMNS, collection.selectedItems)
+                  }
+                >
+                  Export selected
+                </Button>
                 <Button variant="primary" onClick={openCreate}>
                   Add unit
                 </Button>
@@ -292,7 +481,21 @@ const LeasingUnitsPage: React.FC = () => {
           </Header>
         }
         columnDefinitions={[
-          { id: 'unit', header: 'Unit', cell: (u) => u.unit_number },
+          {
+            id: 'unit',
+            header: 'Unit',
+            cell: (u) => (
+              <Link
+                onFollow={(e) => {
+                  e.preventDefault();
+                  navigate(`/residential/units/${u.id}`);
+                }}
+                href={`/residential/units/${u.id}`}
+              >
+                {u.unit_number}
+              </Link>
+            ),
+          },
           { id: 'name', header: 'Name', cell: (u) => u.name ?? '—' },
           { id: 'office', header: 'Property', cell: (u) => officeLabel(u.office_id) },
           { id: 'beds', header: 'Beds', cell: (u) => u.bedrooms ?? '—' },
@@ -313,132 +516,90 @@ const LeasingUnitsPage: React.FC = () => {
             ),
           },
         ]}
-        empty={<Box textAlign="center">No rental units yet.</Box>}
+      />
+
+      <CreateWizardModal
+        visible={modalOpen && !editing}
+        entityLabel="rental unit"
+        onCancel={() => setModalOpen(false)}
+        onSubmit={save}
+        submitting={saving}
+        error={error}
+        dirty={createDirty}
+        onBulkComplete={load}
+        bulk={{
+          columns: [
+            { key: 'unit_number', label: 'Unit number', required: true },
+            { key: 'name', label: 'Name' },
+            { key: 'address_line_1', label: 'Address line 1' },
+            { key: 'city', label: 'City' },
+            { key: 'market_rent', label: 'Market rent' },
+            { key: 'status', label: 'Status' },
+          ],
+          onSubmitRow: async (row) => {
+            const status = UNIT_STATUSES.includes(row.status as UnitStatus)
+              ? (row.status as UnitStatus)
+              : 'available';
+            await leasing.createUnit({
+              unit_number: row.unit_number.trim(),
+              name: row.name?.trim() || null,
+              address_line_1: row.address_line_1?.trim() || null,
+              city: row.city?.trim() || null,
+              market_rent: row.market_rent?.trim() || null,
+              status,
+            });
+          },
+        }}
+        steps={[
+          {
+            title: 'Identity',
+            description: 'Which property is this unit part of, and how is it labelled?',
+            content: identityFields,
+            validate: () => (!unitNumber.trim() ? 'Unit number is required.' : null),
+          },
+          {
+            title: 'Specifications',
+            description: 'Size, rent, and availability.',
+            content: specFields,
+          },
+          {
+            title: 'Address',
+            description: 'Where is the unit located?',
+            content: addressFields,
+          },
+          {
+            title: 'Marketing & files',
+            description: 'Listing copy, internal notes, and any documents to attach.',
+            content: (
+              <SpaceBetween size="m">
+                {marketingFields}
+                <FileUploadField files={queuedFiles} onChange={setQueuedFiles} disabled={saving} />
+              </SpaceBetween>
+            ),
+          },
+        ]}
       />
 
       <EntityFormModal
-        visible={modalOpen}
+        visible={modalOpen && Boolean(editing)}
         onCancel={() => setModalOpen(false)}
-        title={editing ? 'Edit unit' : 'Add unit'}
+        title="Edit unit"
         size="large"
         onSubmit={save}
         submitting={saving}
         error={error}
       >
         <SpaceBetween size="m">
-          <FormField label="Property">
-            <Select
-              selectedOption={officeOptions.find((o) => o.value === officeId) ?? officeOptions[0]}
-              onChange={({ detail }) => setOfficeId(detail.selectedOption.value ?? '')}
-              options={officeOptions}
-              filteringType="auto"
-            />
-          </FormField>
-          <ColumnLayout columns={2}>
-            <FormField label="Unit number">
-              <Input value={unitNumber} onChange={({ detail }) => setUnitNumber(detail.value)} />
-            </FormField>
-            <FormField label="Name">
-              <Input value={name} onChange={({ detail }) => setName(detail.value)} />
-            </FormField>
-            <FormField label="Floor">
-              <Input value={floor} onChange={({ detail }) => setFloor(detail.value)} />
-            </FormField>
-            <FormField label="Bedrooms">
-              <Input
-                type="number"
-                value={bedrooms}
-                onChange={({ detail }) => setBedrooms(detail.value)}
-              />
-            </FormField>
-            <FormField label="Bathrooms">
-              <Input
-                type="number"
-                value={bathrooms}
-                onChange={({ detail }) => setBathrooms(detail.value)}
-              />
-            </FormField>
-            <FormField label="Square feet">
-              <Input
-                type="number"
-                value={squareFeet}
-                onChange={({ detail }) => setSquareFeet(detail.value)}
-              />
-            </FormField>
-            <FormField label="Market rent">
-              <Input
-                type="number"
-                value={marketRent}
-                onChange={({ detail }) => setMarketRent(detail.value)}
-              />
-            </FormField>
-            <FormField label="Property type">
-              <Input
-                value={propertyType}
-                onChange={({ detail }) => setPropertyType(detail.value)}
-              />
-            </FormField>
-            <FormField label="Year built">
-              <Input
-                type="number"
-                value={yearBuilt}
-                onChange={({ detail }) => setYearBuilt(detail.value)}
-              />
-            </FormField>
-            <FormField label="Available date">
-              <Input
-                type={"date" as any}
-                value={availableDate}
-                onChange={({ detail }) => setAvailableDate(detail.value)}
-              />
-            </FormField>
-            <FormField label="Status">
-              <Select
-                selectedOption={{ label: statusValue, value: statusValue }}
-                onChange={({ detail }) =>
-                  setStatusValue(detail.selectedOption.value as UnitStatus)
-                }
-                options={UNIT_STATUSES.map((s) => ({ label: s, value: s }))}
-              />
-            </FormField>
-          </ColumnLayout>
-          <FormField label="Address line 1">
-            <Input value={addr1} onChange={({ detail }) => setAddr1(detail.value)} />
-          </FormField>
-          <FormField label="Address line 2">
-            <Input value={addr2} onChange={({ detail }) => setAddr2(detail.value)} />
-          </FormField>
-          <ColumnLayout columns={3}>
-            <FormField label="City">
-              <Input value={city} onChange={({ detail }) => setCity(detail.value)} />
-            </FormField>
-            <FormField label="State">
-              <Input value={stateVal} onChange={({ detail }) => setStateVal(detail.value)} />
-            </FormField>
-            <FormField label="ZIP code">
-              <Input value={zip} onChange={({ detail }) => setZip(detail.value)} />
-            </FormField>
-          </ColumnLayout>
-          <FormField label="Description">
-            <Textarea
-              value={description}
-              onChange={({ detail }) => setDescription(detail.value)}
-            />
-          </FormField>
-          <FormField label="Amenities">
-            <Textarea value={amenities} onChange={({ detail }) => setAmenities(detail.value)} />
-          </FormField>
-          <FormField label="Notes">
-            <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
-          </FormField>
-          {editing ? (
+          {identityFields}
+          {specFields}
+          {addressFields}
+          {marketingFields}
+          {editing && (
             <AttachmentsPanel
               entityType="rental_unit"
               entityId={editing.id}
               canEdit={canEditDocuments}
             />
-          ) : (
-            <FileUploadField files={queuedFiles} onChange={setQueuedFiles} disabled={saving} />
           )}
         </SpaceBetween>
       </EntityFormModal>

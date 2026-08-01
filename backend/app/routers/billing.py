@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 
 from datetime import datetime, timezone
+from typing import Literal
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -153,9 +154,12 @@ def _plan_from_price(price: dict | str, stripe_cfg: "StripeSettings") -> str:
         price_id = price
         product_id = None
 
-    if stripe_cfg.price_id_starter and price_id == stripe_cfg.price_id_starter:
+    if price_id in {
+        stripe_cfg.price_id_starter,
+        stripe_cfg.price_id_starter_annual,
+    } - {""}:
         return "starter"
-    if stripe_cfg.price_id_pro and price_id == stripe_cfg.price_id_pro:
+    if price_id in {stripe_cfg.price_id_pro, stripe_cfg.price_id_pro_annual} - {""}:
         return "pro"
     if stripe_cfg.product_id_enterprise and product_id == stripe_cfg.product_id_enterprise:
         return "enterprise"
@@ -292,6 +296,7 @@ async def get_subscription(
 
 class CheckoutRequest(BaseModel):
     plan: str  # "starter", "pro", or "enterprise"
+    billing_interval: Literal["monthly", "annual"] = "monthly"
     # For the custom-priced Enterprise tier the org admin supplies a "custom ID":
     # either an internal activation code minted by sales, or the bespoke Stripe
     # Price ID provisioned under the Enterprise Product. Ignored for Starter/Pro.
@@ -433,14 +438,19 @@ async def create_checkout_session(
         )
     else:
         price_map = {
-            "starter": stripe_cfg.price_id_starter,
-            "pro": stripe_cfg.price_id_pro,
+            ("starter", "monthly"): stripe_cfg.price_id_starter,
+            ("starter", "annual"): stripe_cfg.price_id_starter_annual,
+            ("pro", "monthly"): stripe_cfg.price_id_pro,
+            ("pro", "annual"): stripe_cfg.price_id_pro_annual,
         }
-        price_id = price_map.get(payload.plan)
+        price_id = price_map.get((payload.plan, payload.billing_interval))
         if not price_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unknown plan '{payload.plan}' or price not configured.",
+                detail=(
+                    f"Unknown plan '{payload.plan}' or its "
+                    f"{payload.billing_interval} price is not configured."
+                ),
             )
 
     if org.stripe_subscription_id and org.payment_status != "canceled":

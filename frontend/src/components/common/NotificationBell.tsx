@@ -7,11 +7,66 @@ import { notifications as notificationsApi } from '@/api';
 import { useWS } from '@/context/WSContext';
 import type { NotificationItem } from '@/types';
 
-const ENTITY_PATHS: Record<string, string> = {
+/**
+ * Entity types that have a dedicated detail route accepting `/:id`.
+ * A notification carrying one of these plus an `entity_id` deep-links straight
+ * to the record.
+ */
+const ENTITY_DETAIL_PATHS: Record<string, string> = {
   ticket: '/maintenance-tickets',
+  maintenance_ticket: '/maintenance-tickets',
   lease: '/leases',
+  lease_abstract: '/leases',
   hvac_contract: '/hvac-contracts',
+  office: '/offices',
+  vendor: '/vendors',
+  landlord: '/landlords',
+  transition: '/transitions',
+  management_company: '/management-companies',
+  resident: '/residential/residents',
+  rental_unit: '/residential/units',
+  asset: '/maintenance/assets',
 };
+
+/**
+ * Entity types with no detail page yet. These land on the owning list so the
+ * notification is still actionable instead of being a dead click.
+ */
+const ENTITY_LIST_PATHS: Record<string, string> = {
+  insurance_certificate: '/insurance-certificates',
+  inspection: '/inspections',
+  support_request: '/support-requests',
+  owner: '/residential/owners',
+  property_owner: '/residential/owners',
+  resident_lease: '/residential/leases',
+  waiver: '/waivers',
+  organization: '/platform/orgs',
+  user: '/users',
+};
+
+/**
+ * Last-resort routing by notification `kind`, for alerts that carry no linkable
+ * entity at all (billing webhooks, for example).
+ */
+const KIND_PATHS: Record<string, string> = {
+  billing_alert: '/billing',
+  subscription_past_due: '/billing',
+  subscription_canceled: '/billing',
+  payment_failed: '/billing',
+};
+
+/**
+ * Resolve the in-app route a notification should open, or `null` when the
+ * notification is purely informational.
+ */
+export function resolveNotificationPath(item: NotificationItem): string | null {
+  const type = item.entity_type ?? '';
+  const detail = ENTITY_DETAIL_PATHS[type];
+  if (detail) return item.entity_id ? `${detail}/${item.entity_id}` : detail;
+  const list = ENTITY_LIST_PATHS[type];
+  if (list) return list;
+  return KIND_PATHS[item.kind] ?? null;
+}
 
 /**
  * aria-label used by the notification trigger button. The panel uses it to
@@ -115,9 +170,9 @@ export function useNotifications(): UseNotifications {
         setItems((prev) => prev.map((n) => (n.id === item.id ? { ...n, is_read: true } : n)));
       } catch { /* silent */ }
     }
-    const path = item.entity_type ? ENTITY_PATHS[item.entity_type] : null;
-    if (path && item.entity_id) {
-      navigate(`${path}/${item.entity_id}`);
+    const path = resolveNotificationPath(item);
+    if (path) {
+      navigate(path);
       setPanelOpen(false);
     }
   }, [navigate]);
@@ -248,8 +303,7 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
             style={{
               padding: '10px 14px',
               borderBottom: '1px solid var(--color-border-divider-default, #eee)',
-              cursor:
-                item.entity_type && ENTITY_PATHS[item.entity_type] ? 'pointer' : 'default',
+              cursor: resolveNotificationPath(item) ? 'pointer' : 'default',
               background: item.is_read
                 ? 'transparent'
                 : 'var(--color-background-notification-default, #f0f7ff)',

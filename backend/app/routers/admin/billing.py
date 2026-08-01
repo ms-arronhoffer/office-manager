@@ -513,6 +513,8 @@ class StripeConfigOut(BaseModel):
     publishable_key: str | None = None
     price_id_starter: str | None = None
     price_id_pro: str | None = None
+    price_id_starter_annual: str | None = None
+    price_id_pro_annual: str | None = None
     product_id_enterprise: str | None = None
     # True when the effective value comes from an environment variable rather
     # than the stored config (helps the console explain where creds originate).
@@ -530,6 +532,8 @@ class StripeConfigIn(BaseModel):
     publishable_key: str | None = None
     price_id_starter: str | None = None
     price_id_pro: str | None = None
+    price_id_starter_annual: str | None = None
+    price_id_pro_annual: str | None = None
     product_id_enterprise: str | None = None
     is_enabled: bool | None = None
 
@@ -552,6 +556,8 @@ async def _stripe_config_out(db: AsyncSession) -> StripeConfigOut:
         publishable_key=cfg.publishable_key if cfg else None,
         price_id_starter=resolved.price_id_starter or None,
         price_id_pro=resolved.price_id_pro or None,
+        price_id_starter_annual=resolved.price_id_starter_annual or None,
+        price_id_pro_annual=resolved.price_id_pro_annual or None,
         product_id_enterprise=resolved.product_id_enterprise or None,
         secret_key_from_env=bool(resolved.secret_key) and not (cfg and cfg.is_enabled and stored_secret),
         last_verified_at=cfg.last_verified_at if cfg else None,
@@ -600,6 +606,10 @@ async def save_stripe_config(
         cfg.price_id_starter = payload.price_id_starter.strip() or None
     if payload.price_id_pro is not None:
         cfg.price_id_pro = payload.price_id_pro.strip() or None
+    if payload.price_id_starter_annual is not None:
+        cfg.price_id_starter_annual = payload.price_id_starter_annual.strip() or None
+    if payload.price_id_pro_annual is not None:
+        cfg.price_id_pro_annual = payload.price_id_pro_annual.strip() or None
     if payload.product_id_enterprise is not None:
         cfg.product_id_enterprise = payload.product_id_enterprise.strip() or None
     if payload.is_enabled is not None:

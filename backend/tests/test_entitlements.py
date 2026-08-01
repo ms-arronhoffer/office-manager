@@ -40,6 +40,42 @@ def test_plan_active_lease_limits_per_tier():
     assert ent.plan_entitlements("enterprise")["max_active_leases"] is None
 
 
+def test_plan_prices_match_public_monthly_floor():
+    assert ent.PLAN_PRICE_CENTS == {
+        "starter": 9_900,
+        "pro": 29_900,
+        "enterprise": 75_000,
+    }
+
+
+def test_plan_feature_matrix_matches_public_packaging():
+    starter = ent.plan_entitlements("starter")
+    pro = ent.plan_entitlements("pro")
+    enterprise = ent.plan_entitlements("enterprise")
+
+    assert starter["maintenance"] is False
+    assert starter["ai_assist"] is False
+    assert starter["advanced_accounting"] is False
+    assert starter["inspections"] is False
+    assert starter["buildium_migration"] is False
+    assert pro["maintenance"] is True
+    assert pro["ai_assist"] is True
+    assert pro["advanced_accounting"] is True
+    assert pro["inspections"] is True
+    assert pro["buildium_migration"] is True
+    assert pro["api_access"] is False
+    assert enterprise["api_access"] is True
+    assert enterprise["webhooks"] is True
+    assert enterprise["sso"] is False
+    assert enterprise["custom_fields"] is False
+
+
+def test_every_plan_has_finite_ai_allowances():
+    for plan in ("starter", "pro", "enterprise"):
+        assert ent.PLAN_CATALOG[plan]["monthly_ai_input_tokens"] is not None
+        assert ent.PLAN_CATALOG[plan]["monthly_ai_output_tokens"] is not None
+
+
 def test_plan_entitlements_unknown_plan_falls_back_to_default():
     assert ent.plan_entitlements("does-not-exist") == ent.PLAN_CATALOG[ent.DEFAULT_PLAN]
     assert ent.plan_entitlements(None) == ent.PLAN_CATALOG[ent.DEFAULT_PLAN]

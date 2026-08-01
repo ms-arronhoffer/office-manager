@@ -40,6 +40,8 @@ class PlatformStripeConfig(TimestampMixin, Base):
     publishable_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     price_id_starter: Mapped[str | None] = mapped_column(String(255), nullable=True)
     price_id_pro: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    price_id_starter_annual: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    price_id_pro_annual: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Enterprise is custom-priced per subscriber; there is no shared price id.
     # Enterprise subscriptions are identified by their Stripe Product, under which
     # each subscriber's bespoke price is created.

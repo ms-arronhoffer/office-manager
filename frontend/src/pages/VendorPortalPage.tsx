@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
@@ -19,6 +19,8 @@ import Spinner from '@cloudscape-design/components/spinner';
 import Flashbar from '@cloudscape-design/components/flashbar';
 import Tabs from '@cloudscape-design/components/tabs';
 import { vendorPortal } from '@/api';
+import PortalAccessDenied from '@/components/portal/PortalAccessDenied';
+import usePortalSession from '@/hooks/usePortalSession';
 import type { PortalTicket, VendorPortalProfile, VendorPortalCOI, EntityContact, EntityContactCreate } from '@/types';
 
 const priorityColor = (p: string) =>
@@ -48,16 +50,12 @@ const COI_TYPES = [
 
 const VendorPortalPage: React.FC = () => {
   const [searchParams] = useSearchParams();
-  const token = searchParams.get('token') ?? '';
 
   const [profile, setProfile] = useState<VendorPortalProfile | null>(null);
   const [tickets, setTickets] = useState<PortalTicket[]>([]);
   const [contacts, setContacts] = useState<EntityContact[]>([]);
   const [cois, setCois] = useState<VendorPortalCOI[]>([]);
   const [activeTabId, setActiveTabId] = useState<string>(searchParams.get('tab') ?? 'tickets');
-  const [loading, setLoading] = useState(true);
-  const [authError, setAuthError] = useState(false);
-  const [flash, setFlash] = useState<{ type: 'success' | 'error'; content: string } | null>(null);
 
   // Complete modal
   const [completeTicket, setCompleteTicket] = useState<PortalTicket | null>(null);
@@ -123,38 +121,23 @@ const VendorPortalPage: React.FC = () => {
   });
   const [savingCoi, setSavingCoi] = useState(false);
 
-  const load = useCallback(async () => {
-    if (!token) {
-      setAuthError(true);
-      setLoading(false);
-      return;
-    }
-    try {
-      const [profileRes, ticketsRes, contactsRes, coisRes] = await Promise.all([
-        vendorPortal.getProfile(token),
-        vendorPortal.listTickets(token),
-        vendorPortal.listContacts(token),
-        vendorPortal.listInsurance(token),
-      ]);
-      setProfile(profileRes.data);
-      setTickets(ticketsRes.data);
-      setContacts(contactsRes.data);
-      setCois(coisRes.data);
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 401) {
-        setAuthError(true);
-      } else {
-        setFlash({ type: 'error', content: 'Failed to load portal data.' });
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
+  const loadData = useCallback(async (activeToken: string) => {
+    const [profileRes, ticketsRes, contactsRes, coisRes] = await Promise.all([
+      vendorPortal.getProfile(activeToken),
+      vendorPortal.listTickets(activeToken),
+      vendorPortal.listContacts(activeToken),
+      vendorPortal.listInsurance(activeToken),
+    ]);
+    setProfile(profileRes.data);
+    setTickets(ticketsRes.data);
+    setContacts(contactsRes.data);
+    setCois(coisRes.data);
+  }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { token, loading, authError, flash, setFlash, reload: load } = usePortalSession({
+    portalPath: '/vendor-portal',
+    load: loadData,
+  });
 
   const handleComplete = async () => {
     if (!completeTicket || !completionNotes.trim()) return;
@@ -352,11 +335,7 @@ const VendorPortalPage: React.FC = () => {
 
   if (authError || !token) {
     return (
-      <Box padding="xxl">
-        <Alert type="error" header="Access denied">
-          This vendor portal link is invalid or has expired. Please contact your client for a new link.
-        </Alert>
-      </Box>
+      <PortalAccessDenied description="This vendor portal link is invalid or has expired. Please contact your client for a new link." />
     );
   }
 

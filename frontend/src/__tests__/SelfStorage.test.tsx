@@ -110,16 +110,35 @@ describe('SelfStoragePage', () => {
     renderWithProviders(<SelfStoragePage />);
     await user.click(await screen.findByRole('tab', { name: 'Properties' }));
     await user.click(await screen.findByRole('button', { name: /add property/i }));
-    // Robust address + operations fields are present (not just a few basics).
+
+    // Creation is a guided wizard, so the fields are spread across steps.
+    await waitFor(() => {
+      expect(screen.getByText('Facility number')).toBeInTheDocument();
+    });
+    await user.type(screen.getByPlaceholderText('Downtown Storage'), 'Test Property');
+
+    const next = () => user.click(screen.getByRole('button', { name: /^next$/i }));
+
+    // Step 2 — robust address fields (not just a few basics).
+    await next();
     await waitFor(() => {
       expect(screen.getByText('Address line 1')).toBeInTheDocument();
     });
     expect(screen.getByText('ZIP code')).toBeInTheDocument();
-    expect(screen.getByText('Gate hours')).toBeInTheDocument();
+
+    // Step 3 — manager is its own category, offered as a drop-down.
+    await next();
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Managers are their own self-storage data set/i),
+      ).toBeInTheDocument();
+    });
+
+    // Step 4 — operations.
+    await next();
+    await waitFor(() => {
+      expect(screen.getByText('Gate hours')).toBeInTheDocument();
+    });
     expect(screen.getByText('Total units')).toBeInTheDocument();
-    // Manager is its own category, offered as a drop-down with an add option.
-    expect(
-      screen.getByText(/Managers are their own self-storage data set/i),
-    ).toBeInTheDocument();
   });
 });

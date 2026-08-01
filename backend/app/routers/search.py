@@ -14,6 +14,8 @@ from app.models.management_company import ManagementCompany
 from app.models.hvac_contract import HvacContract
 from app.models.transition import OfficeTransition
 from app.models.waiver import WaiverRequest
+from app.models.resident import RentalUnit, Resident
+from app.models.owner import PropertyOwner
 from app.models.user import User
 
 router = APIRouter()
@@ -30,13 +32,19 @@ ENTITY_ROUTE_PREFIXES = {
     "hvac_contract": "/hvac-contracts",
     "transition": "/transitions",
     "waiver": "/waivers",
+    "resident": "/residential/residents",
+    "rental_unit": "/residential/units",
+    "property_owner": "/residential/owners",
 }
+
+
+# Entity types with no per-id detail page; deep-link to their list instead.
+LIST_ONLY_ENTITY_TYPES = {"waiver", "property_owner"}
 
 
 def _route_for(entity_type: str, entity_id: str) -> str:
     prefix = ENTITY_ROUTE_PREFIXES.get(entity_type, "")
-    # Waivers have no per-id detail page; deep-link to the list (filtered client-side).
-    if entity_type == "waiver":
+    if entity_type in LIST_ONLY_ENTITY_TYPES:
         return prefix
     return f"{prefix}/{entity_id}" if prefix else ""
 
@@ -257,6 +265,68 @@ async def global_search(
             "entity_id": str(row.id),
             "label": row.title,
             "sublabel": row.recipient_name or "Waiver",
+        })
+
+    # Residents
+    resident_rows = await db.execute(
+        select(Resident.id, Resident.first_name, Resident.last_name, Resident.email)
+        .where(
+            Resident.is_deleted.is_(False),
+            Resident.organization_id == org_id,
+            or_(
+                Resident.first_name.ilike(term),
+                Resident.last_name.ilike(term),
+                Resident.email.ilike(term),
+            ),
+        )
+        .limit(limit)
+    )
+    for row in resident_rows.all():
+        results.append({
+            "entity_type": "resident",
+            "entity_id": str(row.id),
+            "label": f"{row.first_name} {row.last_name}".strip(),
+            "sublabel": row.email or "Resident",
+        })
+
+    # Rental units
+    unit_rows = await db.execute(
+        select(RentalUnit.id, RentalUnit.unit_number, RentalUnit.name, RentalUnit.city)
+        .where(
+            RentalUnit.is_deleted.is_(False),
+            RentalUnit.organization_id == org_id,
+            or_(
+                RentalUnit.unit_number.ilike(term),
+                RentalUnit.name.ilike(term),
+                RentalUnit.address_line_1.ilike(term),
+            ),
+        )
+        .limit(limit)
+    )
+    for row in unit_rows.all():
+        results.append({
+            "entity_type": "rental_unit",
+            "entity_id": str(row.id),
+            "label": row.name or f"Unit {row.unit_number}",
+            "sublabel": row.city or "Rental unit",
+        })
+
+    # Property owners
+    owner_rows = await db.execute(
+        select(PropertyOwner.id, PropertyOwner.name, PropertyOwner.email)
+        .where(
+            PropertyOwner.is_deleted.is_(False),
+            PropertyOwner.organization_id == org_id,
+            or_(PropertyOwner.name.ilike(term), PropertyOwner.email.ilike(term)),
+        )
+        .limit(limit)
+    )
+    for row in owner_rows.all():
+        results.append({
+            "entity_type": "property_owner",
+            "entity_id": str(row.id),
+            "label": row.name,
+            "sublabel": row.email or "Property owner",
         })
 
     # Phase (b): attach a deep-link route to every result so the client can

@@ -31,6 +31,7 @@ interface HvacDueItem {
 }
 
 const DASHBOARD_WIDGETS = [
+  { id: 'my_work', label: 'My Work' },
   { id: 'stat_cards', label: 'Summary Statistics' },
   { id: 'financial_kpis', label: 'Financial KPIs' },
   { id: 'tickets_table', label: 'Open & In Progress Tickets' },
@@ -42,6 +43,7 @@ const DASHBOARD_WIDGETS = [
 
 function getDefaultWidgets(): Record<string, boolean> {
   const defaults: Record<string, boolean> = {
+    my_work: true,
     stat_cards: true,
     financial_kpis: true,
     tickets_table: true,
@@ -63,7 +65,14 @@ function formatCurrency(value: number | null | undefined, currency = 'USD'): str
   }).format(value);
 }
 
-const StatBox: React.FC<{ label: string; value: number | string; status?: 'success' | 'warning' | 'error' | 'info'; onClick?: () => void }> = ({ label, value, status = 'info', onClick }) => (
+const StatBox: React.FC<{
+  label: string;
+  value: number | string;
+  status?: 'success' | 'warning' | 'error' | 'info';
+  onClick?: () => void;
+  /** Verb describing what clicking the tile does, e.g. "Triage now". */
+  hint?: string;
+}> = ({ label, value, status = 'info', onClick, hint }) => (
   <Container>
     <div style={onClick ? { cursor: 'pointer' } : undefined} onClick={onClick}>
       <SpaceBetween size="xs">
@@ -71,6 +80,13 @@ const StatBox: React.FC<{ label: string; value: number | string; status?: 'succe
         <Box variant="h1" fontSize="display-l">
           <StatusIndicator type={status}>{value}</StatusIndicator>
         </Box>
+        {onClick && (
+          <Box variant="small">
+            <Link href="#" onFollow={(e) => e.preventDefault()}>
+              {hint ?? 'View'}
+            </Link>
+          </Box>
+        )}
       </SpaceBetween>
     </div>
   </Container>
@@ -152,6 +168,27 @@ const DashboardPage: React.FC = () => {
     (v) => v.budgeted != null && v.actual != null && v.actual > v.budgeted,
   ).length;
 
+  // "My work": open/in-progress tickets assigned to the signed-in user, most
+  // urgent first. Tickets already carry their eager-loaded assignee, so this
+  // needs no extra request.
+  const today = new Date().toISOString().slice(0, 10);
+  const myEmail = user?.email?.toLowerCase() ?? '';
+  const isOverdue = (t: MaintenanceTicket) =>
+    Boolean(t.scheduled_date && t.scheduled_date < today);
+  const myTickets = myEmail
+    ? openTickets
+        .filter((t) => t.assigned_to?.email?.toLowerCase() === myEmail)
+        .sort((a, b) => {
+          const overdueDelta = Number(isOverdue(b)) - Number(isOverdue(a));
+          if (overdueDelta !== 0) return overdueDelta;
+          // Undated work sinks below anything with a target date.
+          return (a.scheduled_date ?? '9999-12-31').localeCompare(
+            b.scheduled_date ?? '9999-12-31',
+          );
+        })
+    : [];
+  const myOverdueCount = myTickets.filter(isOverdue).length;
+
   return (
     <ContentLayout
       header={
@@ -172,6 +209,88 @@ const DashboardPage: React.FC = () => {
           </Alert>
         )}
 
+        {/* My work — the signed-in user's own queue, ahead of org-wide rollups */}
+        {isVisible('my_work') && (
+          <Container
+            header={
+              <Header
+                variant="h2"
+                counter={`(${myTickets.length})`}
+                description={
+                  myOverdueCount > 0
+                    ? `${myOverdueCount} past its scheduled date`
+                    : 'Tickets assigned to you that are still open'
+                }
+                actions={
+                  <Button onClick={() => navigate('/maintenance-tickets')}>
+                    All tickets
+                  </Button>
+                }
+              >
+                My Work
+              </Header>
+            }
+          >
+            <Table<MaintenanceTicket>
+              variant="embedded"
+              items={myTickets.slice(0, 8)}
+              columnDefinitions={[
+                {
+                  id: 'subject',
+                  header: 'Ticket',
+                  cell: (t) => (
+                    <Link
+                      onFollow={(e) => {
+                        e.preventDefault();
+                        navigate(`/maintenance-tickets/${t.id}`);
+                      }}
+                      href={`/maintenance-tickets/${t.id}`}
+                    >
+                      {t.subject}
+                    </Link>
+                  ),
+                },
+                {
+                  id: 'office',
+                  header: 'Office',
+                  cell: (t) => t.office?.location_name ?? '—',
+                },
+                {
+                  id: 'priority',
+                  header: 'Priority',
+                  cell: (t) => (
+                    <Badge color={t.priority === 'high' ? 'red' : t.priority === 'medium' ? 'blue' : 'grey'}>
+                      {t.priority}
+                    </Badge>
+                  ),
+                },
+                {
+                  id: 'due',
+                  header: 'Scheduled',
+                  cell: (t) =>
+                    t.scheduled_date ? (
+                      <StatusIndicator type={isOverdue(t) ? 'error' : 'info'}>
+                        {t.scheduled_date}
+                      </StatusIndicator>
+                    ) : (
+                      '—'
+                    ),
+                },
+              ]}
+              empty={
+                <Box textAlign="center" padding="m">
+                  <SpaceBetween size="xs">
+                    <Box>Nothing is assigned to you right now.</Box>
+                    <Button onClick={() => navigate('/maintenance-tickets')}>
+                      Browse open tickets
+                    </Button>
+                  </SpaceBetween>
+                </Box>
+              }
+            />
+          </Container>
+        )}
+
         {/* Summary Stats */}
         {isVisible('stat_cards') && (
           <Grid
@@ -190,42 +309,49 @@ const DashboardPage: React.FC = () => {
               value={summary?.active_offices ?? 0}
               status="success"
               onClick={() => navigate('/offices')}
+              hint="Browse offices"
             />
             <StatBox
               label="High Priority"
               value={summary?.high_priority_tickets ?? 0}
               status={summary?.high_priority_tickets ? 'error' : 'success'}
               onClick={() => navigate('/maintenance-tickets?priority=high')}
+              hint={summary?.high_priority_tickets ? 'Triage now' : 'Nothing urgent'}
             />
             <StatBox
               label="Active Leases"
               value={summary?.active_leases ?? 0}
               status="success"
               onClick={() => navigate('/leases')}
+              hint="Browse leases"
             />
             <StatBox
               label="Expiring (90d)"
               value={summary?.upcoming_expirations_90d ?? 0}
               status={summary?.upcoming_expirations_90d ? 'warning' : 'success'}
               onClick={() => navigate('/leases?expiring_soon=90')}
+              hint={summary?.upcoming_expirations_90d ? 'Start renewals' : 'None expiring'}
             />
             <StatBox
               label="Overdue Notices"
               value={summary?.overdue_notices ?? 0}
               status={summary?.overdue_notices ? 'error' : 'success'}
               onClick={() => navigate('/leases?overdue_notices=true')}
+              hint={summary?.overdue_notices ? 'Send notices' : 'All sent'}
             />
             <StatBox
               label="Overdue Tickets"
               value={summary?.overdue_tickets ?? 0}
               status={summary?.overdue_tickets ? 'error' : 'success'}
               onClick={() => navigate('/maintenance-tickets')}
+              hint={summary?.overdue_tickets ? 'Reschedule' : 'On track'}
             />
             <StatBox
               label="HVAC Due Soon"
               value={hvacDue.length}
               status={hvacDue.length > 0 ? 'warning' : 'success'}
               onClick={() => navigate('/hvac-contracts?due_soon=true')}
+              hint={hvacDue.length > 0 ? 'Book service' : 'All serviced'}
             />
           </Grid>
         )}

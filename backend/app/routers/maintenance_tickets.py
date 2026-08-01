@@ -344,13 +344,10 @@ async def update_ticket(
             ticket.closed_at = None
 
     await db.commit()
-    changes = compute_changes(old_values, update_data)
-    await log_activity(db, user=current_user, action="updated", entity_type="maintenance_ticket", entity_id=ticket.id, entity_label=ticket.subject, changes=changes)
-    try:
-        await update_search_vector(db, "maintenance_tickets", ticket.id)
-    except Exception:
-        pass
 
+    # Load the response row while the session is still healthy and BEFORE the
+    # best-effort side effects below, so a failure in one of them cannot turn a
+    # successfully-committed update into a spurious "Failed to update ticket".
     result = await db.execute(
         select(MaintenanceTicket).options(*_LOAD_OPTIONS).where(
             MaintenanceTicket.id == ticket_id,
@@ -359,6 +356,17 @@ async def update_ticket(
         )
     )
     updated = result.unique().scalar_one()
+    response = MaintenanceTicketResponse.model_validate(updated, from_attributes=True)
+
+    changes = compute_changes(old_values, update_data)
+    try:
+        await log_activity(db, user=current_user, action="updated", entity_type="maintenance_ticket", entity_id=ticket.id, entity_label=ticket.subject, changes=changes)
+    except Exception:
+        pass
+    try:
+        await update_search_vector(db, "maintenance_tickets", ticket.id)
+    except Exception:
+        pass
 
     new_status = updated.status
     new_assigned_to_id = updated.assigned_to_id
@@ -413,7 +421,7 @@ async def update_ticket(
         except Exception:
             pass
 
-    return MaintenanceTicketResponse.model_validate(updated, from_attributes=True)
+    return response
 
 
 @router.delete("/{ticket_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -50,6 +50,8 @@ function StripeIntegrationCard() {
   const [publishableKey, setPublishableKey] = useState("")
   const [priceStarter, setPriceStarter] = useState("")
   const [pricePro, setPricePro] = useState("")
+  const [priceStarterAnnual, setPriceStarterAnnual] = useState("")
+  const [priceProAnnual, setPriceProAnnual] = useState("")
   const [productEnterprise, setProductEnterprise] = useState("")
   const [isEnabled, setIsEnabled] = useState(true)
 
@@ -60,6 +62,8 @@ function StripeIntegrationCard() {
       setPublishableKey(data.publishable_key || "")
       setPriceStarter(data.price_id_starter || "")
       setPricePro(data.price_id_pro || "")
+      setPriceStarterAnnual(data.price_id_starter_annual || "")
+      setPriceProAnnual(data.price_id_pro_annual || "")
       setProductEnterprise(data.product_id_enterprise || "")
       setIsEnabled(data.is_enabled)
       setErr("")
@@ -82,6 +86,8 @@ function StripeIntegrationCard() {
         publishable_key: publishableKey,
         price_id_starter: priceStarter,
         price_id_pro: pricePro,
+        price_id_starter_annual: priceStarterAnnual,
+        price_id_pro_annual: priceProAnnual,
         product_id_enterprise: productEnterprise,
         is_enabled: isEnabled,
       }
@@ -213,7 +219,7 @@ function StripeIntegrationCard() {
             <Label htmlFor="stripe-enabled" className="text-sm">Integration enabled</Label>
           </div>
           <div>
-            <Label htmlFor="stripe-price-starter" className="text-sm">Starter plan price ID</Label>
+            <Label htmlFor="stripe-price-starter" className="text-sm">Core monthly price ID ($99)</Label>
             <Input
               id="stripe-price-starter"
               autoComplete="off"
@@ -224,13 +230,35 @@ function StripeIntegrationCard() {
             />
           </div>
           <div>
-            <Label htmlFor="stripe-price-pro" className="text-sm">Pro plan price ID</Label>
+            <Label htmlFor="stripe-price-pro" className="text-sm">Operations monthly price ID ($299)</Label>
             <Input
               id="stripe-price-pro"
               autoComplete="off"
               placeholder="price_…"
               value={pricePro}
               onChange={(e) => setPricePro(e.target.value)}
+              className="mt-2 font-mono"
+            />
+          </div>
+          <div>
+            <Label htmlFor="stripe-price-starter-annual" className="text-sm">Core annual price ID ($948/year)</Label>
+            <Input
+              id="stripe-price-starter-annual"
+              autoComplete="off"
+              placeholder="price_…"
+              value={priceStarterAnnual}
+              onChange={(e) => setPriceStarterAnnual(e.target.value)}
+              className="mt-2 font-mono"
+            />
+          </div>
+          <div>
+            <Label htmlFor="stripe-price-pro-annual" className="text-sm">Operations annual price ID ($2,988/year)</Label>
+            <Input
+              id="stripe-price-pro-annual"
+              autoComplete="off"
+              placeholder="price_…"
+              value={priceProAnnual}
+              onChange={(e) => setPriceProAnnual(e.target.value)}
               className="mt-2 font-mono"
             />
           </div>

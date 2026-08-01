@@ -481,7 +481,7 @@ const ReportsPage: React.FC = () => {
           </Alert>
         )}
 
-        {/* AI-generated operations briefing (Pro+) */}
+        {/* AI-generated operations briefing (Operations+) */}
         <AISummaryPanel />
 
         {/* Quick Export */}

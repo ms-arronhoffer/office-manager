@@ -16,6 +16,8 @@ import Link from '@cloudscape-design/components/link';
 import { leases as leasesApi } from '@/api';
 import type { Lease } from '@/types';
 import { usePreferences } from '@/context/PreferencesContext';
+import { useFilterOptions } from '@/hooks/useFilterOptions';
+import type { FilterOptionSpec } from '@/hooks/useFilterOptions';
 import { useServerCollection } from '@/hooks/useServerCollection';
 import ImportModal from '@/components/common/ImportModal';
 import SavedFiltersDropdown from '@/components/common/SavedFiltersDropdown';
@@ -57,6 +59,33 @@ const FILTERING_PROPERTIES: PropertyFilterProps.FilteringProperty[] = [
     propertyLabel: 'Status',
     groupValuesLabel: 'Statuses',
   },
+  {
+    key: 'manager_id',
+    operators: ['='],
+    propertyLabel: 'Manager',
+    groupValuesLabel: 'Managers',
+  },
+  {
+    key: 'notice_status',
+    operators: ['='],
+    propertyLabel: 'Notice',
+    groupValuesLabel: 'Notice statuses',
+  },
+];
+
+const FILTER_OPTION_SPECS: FilterOptionSpec[] = [
+  { propertyKey: 'manager_id', source: 'manager' },
+  {
+    propertyKey: 'status',
+    values: LEASE_STATUS_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+  },
+  {
+    propertyKey: 'notice_status',
+    values: [
+      { value: 'given', label: 'Given' },
+      { value: 'not_given', label: 'Not given' },
+    ],
+  },
 ];
 
 const LeasesPage: React.FC = () => {
@@ -78,28 +107,17 @@ const LeasesPage: React.FC = () => {
   });
 
   // Combine URL filters + PropertyFilter tokens into server params
+  const { filteringOptions, tokensToParams } = useFilterOptions(FILTER_OPTION_SPECS);
   const filters = useMemo(() => {
-    const params: Record<string, unknown> = {};
-
-    // URL-based quick filters
-    if (urlExpiringSoon) {
-      params.expiring_within_days = parseInt(urlExpiringSoon, 10) || 90;
-    }
-    if (urlOverdueNotices === 'true') {
-      params.notice_status = 'not_given';
-    }
-    if (urlExpirationYear) {
-      params.year = parseInt(urlExpirationYear, 10);
-    }
-
-    // PropertyFilter tokens
-    for (const token of filterQuery.tokens) {
-      if ('propertyKey' in token && token.propertyKey && token.value) {
-        params[token.propertyKey] = token.value;
-      }
-    }
+    // Tokens first so an explicit filter overrides the URL quick-filter.
+    const params: Record<string, unknown> = {
+      ...(urlExpiringSoon ? { expiring_within_days: parseInt(urlExpiringSoon, 10) || 90 } : {}),
+      ...(urlOverdueNotices === 'true' ? { notice_status: 'not_given' } : {}),
+      ...(urlExpirationYear ? { year: parseInt(urlExpirationYear, 10) } : {}),
+      ...tokensToParams(filterQuery.tokens),
+    };
     return params;
-  }, [filterQuery, urlExpiringSoon, urlOverdueNotices, urlExpirationYear]);
+  }, [filterQuery, urlExpiringSoon, urlOverdueNotices, urlExpirationYear, tokensToParams]);
 
   const {
     items,
@@ -227,11 +245,8 @@ const LeasesPage: React.FC = () => {
               >
                 Export to Calendar (.ics)
               </Button>
-              <Button onClick={() => navigate('/leases/wizard')}>
-                Lease wizard
-              </Button>
-              <Button variant="primary" onClick={() => navigate('/leases/new')}>
-                Create Lease
+              <Button variant="primary" onClick={() => navigate('/leases/wizard')}>
+                Create lease
               </Button>
             </SpaceBetween>
           }
@@ -284,11 +299,7 @@ const LeasesPage: React.FC = () => {
               query={filterQuery}
               onChange={({ detail }) => setFilterQuery(detail)}
               filteringProperties={FILTERING_PROPERTIES}
-              filteringOptions={LEASE_STATUS_OPTIONS.map((o) => ({
-                propertyKey: 'status',
-                value: o.value,
-                label: o.label,
-              }))}
+              filteringOptions={filteringOptions}
               countText={`${total} matches`}
               expandToViewport
             />
@@ -334,8 +345,7 @@ const LeasesPage: React.FC = () => {
               <SpaceBetween size="m">
                 <b>No leases</b>
                 <SpaceBetween direction="horizontal" size="xs">
-                  <Button onClick={() => navigate('/leases/wizard')}>Lease wizard</Button>
-                  <Button variant="primary" onClick={() => navigate('/leases/new')}>Create lease</Button>
+                  <Button variant="primary" onClick={() => navigate('/leases/wizard')}>Create lease</Button>
                 </SpaceBetween>
               </SpaceBetween>
             </Box>

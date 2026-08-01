@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import useUnsavedChangesWarning from '@/hooks/useUnsavedChangesWarning';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
@@ -69,6 +70,11 @@ const OfficeWizardPage: React.FC = () => {
   // Step 1 — basics
   const [officeNumber, setOfficeNumber] = useState('');
   const [locationName, setLocationName] = useState('');
+
+  // Any progress past the first step, or a typed name, is work worth protecting.
+  useUnsavedChangesWarning(
+    !saving && (activeStepIndex > 0 || officeNumber.trim() !== '' || locationName.trim() !== ''),
+  );
   const [locationType, setLocationType] = useState<QuickCreateOption | null>(null);
   const [sector, setSector] = useState('');
   const [regionNumber, setRegionNumber] = useState('');

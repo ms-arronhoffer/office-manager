@@ -57,7 +57,7 @@ function sourceLabel(sourceType: string): string {
 }
 
 /**
- * AI portfolio assistant (Pro+). Answers natural-language questions across the
+ * AI portfolio assistant (Operations+). Answers natural-language questions across the
  * whole organization — offices, leases, lease documents, residents, owners,
  * finances and, via a generic catch-all indexer, any other organization-scoped
  * data in the database — using retrieval-augmented generation, returning a
@@ -84,7 +84,7 @@ const AIPortfolioAssistant: React.FC = () => {
       return 'AI assist is not configured on the server. Add a Gemini API key to enable the assistant.';
     }
     if (status === 402) {
-      return 'The portfolio assistant requires the Pro plan or higher.';
+      return 'The portfolio assistant requires the Operations plan or higher.';
     }
     if (status === 422) {
       return "I couldn't map that to your data. Try rephrasing with a specific record type or field.";

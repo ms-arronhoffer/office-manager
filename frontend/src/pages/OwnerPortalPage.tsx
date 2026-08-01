@@ -1,5 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import React, { useCallback, useState } from 'react';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Container from '@cloudscape-design/components/container';
@@ -11,10 +10,11 @@ import Box from '@cloudscape-design/components/box';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
-import Alert from '@cloudscape-design/components/alert';
 import Spinner from '@cloudscape-design/components/spinner';
 import Flashbar from '@cloudscape-design/components/flashbar';
 import Tabs from '@cloudscape-design/components/tabs';
+import PortalAccessDenied from '@/components/portal/PortalAccessDenied';
+import usePortalSession from '@/hooks/usePortalSession';
 import { ownerPortal } from '@/api';
 import type {
   OwnerPortalBalance,
@@ -51,94 +51,40 @@ const distributionStatusColor = (s: string): 'green' | 'blue' | 'grey' | 'red' =
 };
 
 const OwnerPortalPage: React.FC = () => {
-  const [searchParams] = useSearchParams();
-  const location = useLocation();
-  const navigate = useNavigate();
-  // The single-use invite lands on /owner-portal/signup?token=...; the
-  // persistent portal link is /owner-portal?token=...
-  const isSignupRoute = location.pathname.endsWith('/signup');
-  const urlToken = searchParams.get('token') ?? '';
-  const signupToken = isSignupRoute ? urlToken : '';
-  const tokenParam = isSignupRoute ? '' : urlToken;
-
-  const [token, setToken] = useState(tokenParam);
   const [profile, setProfile] = useState<OwnerPortalProfile | null>(null);
   const [properties, setProperties] = useState<OwnerPortalProperty[]>([]);
   const [ledger, setLedger] = useState<OwnerPortalLedgerEntry[]>([]);
   const [balance, setBalance] = useState<OwnerPortalBalance | null>(null);
   const [distributions, setDistributions] = useState<OwnerPortalDistribution[]>([]);
   const [statement, setStatement] = useState<OwnerPortalStatement | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [authError, setAuthError] = useState(false);
-  const [flash, setFlash] = useState<{ type: 'success' | 'error'; content: string } | null>(null);
 
   // Statement filters
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [loadingStatement, setLoadingStatement] = useState(false);
 
-  const redeemSignup = useCallback(async () => {
-    try {
-      const res = await ownerPortal.signup(signupToken);
-      const newToken = res.data.portal_token;
-      setToken(newToken);
-      navigate(`/owner-portal?token=${newToken}`, { replace: true });
-      return newToken;
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 400) {
-        setFlash({ type: 'error', content: 'This signup link has expired. Please request a new one.' });
-      }
-      setAuthError(true);
-      return '';
-    }
-  }, [signupToken, navigate]);
-
   const loadData = useCallback(async (activeToken: string) => {
-    try {
-      const [profileRes, propsRes, ledgerRes, balanceRes, distRes, stmtRes] = await Promise.all([
-        ownerPortal.getProfile(activeToken),
-        ownerPortal.listProperties(activeToken),
-        ownerPortal.listLedger(activeToken),
-        ownerPortal.getBalance(activeToken),
-        ownerPortal.listDistributions(activeToken),
-        ownerPortal.getStatement(activeToken),
-      ]);
-      setProfile(profileRes.data);
-      setProperties(propsRes.data);
-      setLedger(ledgerRes.data);
-      setBalance(balanceRes.data);
-      setDistributions(distRes.data);
-      setStatement(stmtRes.data);
-    } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 401) {
-        setAuthError(true);
-      } else {
-        setFlash({ type: 'error', content: 'Failed to load portal data.' });
-      }
-    }
+    const [profileRes, propsRes, ledgerRes, balanceRes, distRes, stmtRes] = await Promise.all([
+      ownerPortal.getProfile(activeToken),
+      ownerPortal.listProperties(activeToken),
+      ownerPortal.listLedger(activeToken),
+      ownerPortal.getBalance(activeToken),
+      ownerPortal.listDistributions(activeToken),
+      ownerPortal.getStatement(activeToken),
+    ]);
+    setProfile(profileRes.data);
+    setProperties(propsRes.data);
+    setLedger(ledgerRes.data);
+    setBalance(balanceRes.data);
+    setDistributions(distRes.data);
+    setStatement(stmtRes.data);
   }, []);
 
-  const init = useCallback(async () => {
-    setLoading(true);
-    let activeToken = tokenParam;
-    if (signupToken) {
-      activeToken = await redeemSignup();
-    }
-    if (!activeToken) {
-      setAuthError(true);
-      setLoading(false);
-      return;
-    }
-    await loadData(activeToken);
-    setLoading(false);
-  }, [tokenParam, signupToken, redeemSignup, loadData]);
-
-  useEffect(() => {
-    init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const { token, loading, authError, flash, setFlash } = usePortalSession({
+    portalPath: '/owner-portal',
+    signup: ownerPortal.signup,
+    load: loadData,
+  });
 
   const handleRunStatement = async () => {
     setLoadingStatement(true);
@@ -161,14 +107,7 @@ const OwnerPortalPage: React.FC = () => {
   }
 
   if (authError || !token) {
-    return (
-      <Box padding="xxl">
-        <Alert type="error" header="Access denied">
-          This portal link is invalid or has expired. Please contact your property manager for a new
-          link.
-        </Alert>
-      </Box>
-    );
+    return <PortalAccessDenied />;
   }
 
   const currency = balance?.currency ?? profile?.currency ?? 'USD';

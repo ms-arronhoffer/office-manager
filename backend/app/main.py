@@ -90,6 +90,9 @@ _org_guard = [Depends(enforce_org_access)]
 _commercial_guard = _org_guard + [Depends(require_category("commercial"))]
 _residential_guard = _org_guard + [Depends(require_category("residential"))]
 _self_storage_guard = _org_guard + [Depends(require_category("self_storage"))]
+_accounting_guard = _org_guard + [Depends(require_feature("advanced_accounting"))]
+_inspections_guard = _org_guard + [Depends(require_feature("inspections"))]
+_buildium_guard = _org_guard + [Depends(require_feature("buildium_migration"))]
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 # Public, unauthenticated: legal documents must be viewable before any account
@@ -139,19 +142,19 @@ app.include_router(insurance_certificates.router, prefix="/api/v1/insurance-cert
 app.include_router(ws.router, tags=["WebSocket"])
 app.include_router(work_order_costs.router, prefix="/api/v1", tags=["Work Order Costs"], dependencies=_org_guard)
 app.include_router(space.router, prefix="/api/v1", tags=["Space Management"], dependencies=_org_guard)
-app.include_router(gl.router, prefix="/api/v1/gl", tags=["General Ledger"], dependencies=_org_guard)
-app.include_router(cam.router, prefix="/api/v1/cam", tags=["CAM Reconciliation"], dependencies=_org_guard)
-app.include_router(lifecycle.router, prefix="/api/v1/lifecycle", tags=["Lease Lifecycle Accounting"], dependencies=_org_guard)
-app.include_router(ap.router, prefix="/api/v1/ap", tags=["Accounts Payable"], dependencies=_org_guard)
-app.include_router(ar.router, prefix="/api/v1/ar", tags=["Accounts Receivable"], dependencies=_org_guard)
-app.include_router(bank.router, prefix="/api/v1/bank", tags=["Bank Reconciliation"], dependencies=_org_guard)
-app.include_router(tax.router, prefix="/api/v1/tax", tags=["Tax & 1099"], dependencies=_org_guard)
-app.include_router(budgets.router, prefix="/api/v1/budgets", tags=["Budgeting"], dependencies=_org_guard)
-app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Property Inspections"], dependencies=_org_guard)
+app.include_router(gl.router, prefix="/api/v1/gl", tags=["General Ledger"], dependencies=_accounting_guard)
+app.include_router(cam.router, prefix="/api/v1/cam", tags=["CAM Reconciliation"], dependencies=_accounting_guard)
+app.include_router(lifecycle.router, prefix="/api/v1/lifecycle", tags=["Lease Lifecycle Accounting"], dependencies=_accounting_guard)
+app.include_router(ap.router, prefix="/api/v1/ap", tags=["Accounts Payable"], dependencies=_accounting_guard)
+app.include_router(ar.router, prefix="/api/v1/ar", tags=["Accounts Receivable"], dependencies=_accounting_guard)
+app.include_router(bank.router, prefix="/api/v1/bank", tags=["Bank Reconciliation"], dependencies=_accounting_guard)
+app.include_router(tax.router, prefix="/api/v1/tax", tags=["Tax & 1099"], dependencies=_accounting_guard)
+app.include_router(budgets.router, prefix="/api/v1/budgets", tags=["Budgeting"], dependencies=_accounting_guard)
+app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Property Inspections"], dependencies=_inspections_guard)
 app.include_router(leasing.router, prefix="/api/v1/leasing", tags=["Leasing (Residents)"], dependencies=_residential_guard)
 app.include_router(lease_templates.router, prefix="/api/v1/lease-templates", tags=["Lease Templates"], dependencies=_residential_guard)
 app.include_router(application_templates.router, prefix="/api/v1/application-templates", tags=["Application Templates"], dependencies=_residential_guard)
-app.include_router(buildium.router, prefix="/api/v1/buildium", tags=["Buildium Migration"], dependencies=_org_guard)
+app.include_router(buildium.router, prefix="/api/v1/buildium", tags=["Buildium Migration"], dependencies=_buildium_guard)
 app.include_router(self_storage.router, prefix="/api/v1/self-storage", tags=["Self Storage"], dependencies=_self_storage_guard)
 app.include_router(announcements.router, prefix="/api/v1/announcements", tags=["Resident Announcements"], dependencies=_residential_guard)
 app.include_router(rent.router, prefix="/api/v1/rent", tags=["Rent Collection"], dependencies=_residential_guard)
@@ -163,7 +166,7 @@ app.include_router(resident_portal.router, prefix="/api/v1", tags=["Resident Por
 app.include_router(owners.trust_router, prefix="/api/v1/owners/trust-accounts", tags=["Owner Trust Accounts"], dependencies=_residential_guard)
 app.include_router(owners.router, prefix="/api/v1/owners", tags=["Owner Accounting"], dependencies=_residential_guard)
 app.include_router(owner_portal.router, prefix="/api/v1", tags=["Owner Portal"])
-app.include_router(financials.router, prefix="/api/v1/financials", tags=["Financial Statements"], dependencies=_org_guard)
+app.include_router(financials.router, prefix="/api/v1/financials", tags=["Financial Statements"], dependencies=_accounting_guard)
 app.include_router(ai.router, prefix="/api/v1/ai", tags=["AI Assist"], dependencies=[Depends(enforce_org_access), Depends(ai.reset_ai_usage)])
 app.include_router(
     waivers.router,

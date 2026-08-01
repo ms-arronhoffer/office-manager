@@ -12,6 +12,7 @@ import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { ai, leaseTemplates } from '@/api';
+import EmptyState from '@/components/common/EmptyState';
 import { aiUploadErrorMessage } from '@/utils/aiUpload';
 import type { LeaseTemplate } from '@/types';
 
@@ -249,7 +250,14 @@ const LeaseTemplatesPage: React.FC = () => {
             ),
           },
         ]}
-        empty={<Box textAlign="center">No lease templates yet.</Box>}
+        empty={
+          <EmptyState
+            title="No lease templates yet"
+            description="Templates let you generate and e-sign leases from saved wording."
+            actionLabel="Create your first template"
+            onAction={openCreate}
+          />
+        }
       />
 
       <Modal

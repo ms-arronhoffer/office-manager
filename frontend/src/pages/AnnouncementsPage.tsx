@@ -4,6 +4,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
 import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
@@ -13,6 +14,7 @@ import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { announcements as annApi, offices as officesApi } from '@/api';
+import EmptyState from '@/components/common/EmptyState';
 import type {
   Announcement,
   AnnouncementChannel,
@@ -158,6 +160,55 @@ const AnnouncementsPage: React.FC = () => {
     }
   };
 
+  const messageFields = (
+    <SpaceBetween size="m">
+      <FormField label="Title">
+        <Input value={title} onChange={({ detail }) => setTitle(detail.value)} />
+      </FormField>
+      <FormField label="Body">
+        <Textarea value={body} onChange={({ detail }) => setBody(detail.value)} rows={5} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const channelFields = (
+    <FormField label="Channels">
+      <Multiselect
+        selectedOptions={channels}
+        onChange={({ detail }) => setChannels(detail.selectedOptions as Opt[])}
+        options={CHANNELS.map((c) => ({ label: c, value: c }))}
+      />
+    </FormField>
+  );
+
+  const audienceFields = (
+    <SpaceBetween size="m">
+      <FormField label="Audience — property">
+        <Select
+          selectedOption={officeOptions.find((o) => o.value === audienceOffice) ?? officeOptions[0]}
+          onChange={({ detail }) => setAudienceOffice(detail.selectedOption.value ?? '')}
+          options={officeOptions}
+          filteringType="auto"
+        />
+      </FormField>
+      <FormField label="Audience — resident status">
+        <Select
+          selectedOption={{
+            label: audienceStatus || 'All residents',
+            value: audienceStatus,
+          }}
+          onChange={({ detail }) => setAudienceStatus(detail.selectedOption.value ?? '')}
+          options={[
+            { label: 'All residents', value: '' },
+            ...RESIDENT_STATUSES.map((s) => ({ label: s, value: s })),
+          ]}
+        />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const createDirty = Boolean(title || body || audienceOffice || audienceStatus);
+
   return (
     <SpaceBetween size="l">
       <Table<Announcement>
@@ -204,52 +255,78 @@ const AnnouncementsPage: React.FC = () => {
             ),
           },
         ]}
-        empty={<Box textAlign="center">No announcements yet.</Box>}
+        empty={
+          <EmptyState
+            title="No announcements yet"
+            description="Broadcast notices to residents across your properties."
+            actionLabel="Post your first announcement"
+            onAction={openCreate}
+          />
+        }
+      />
+
+      <CreateWizardModal
+        visible={modalOpen && !editing}
+        entityLabel="announcement"
+        onCancel={() => setModalOpen(false)}
+        onSubmit={save}
+        submitting={saving}
+        dirty={createDirty}
+        onBulkComplete={load}
+        bulk={{
+          columns: [
+            { key: 'title', label: 'Title', required: true },
+            { key: 'body', label: 'Body', required: true },
+            { key: 'channels', label: 'Channels (portal/email/sms)' },
+          ],
+          onSubmitRow: async (row) => {
+            const parsedChannels = (row.channels ?? '')
+              .split(/[,;|]/)
+              .map((c) => c.trim().toLowerCase())
+              .filter((c): c is AnnouncementChannel =>
+                CHANNELS.includes(c as AnnouncementChannel),
+              );
+            await annApi.create({
+              title: row.title.trim(),
+              body: row.body.trim(),
+              channels: parsedChannels.length ? parsedChannels : ['portal'],
+            });
+          },
+        }}
+        steps={[
+          {
+            title: 'Message',
+            description: 'What are you telling residents?',
+            content: messageFields,
+            validate: () =>
+              !title.trim() || !body.trim() ? 'Title and body are required.' : null,
+          },
+          {
+            title: 'Delivery',
+            description: 'How the notice reaches them.',
+            content: channelFields,
+            validate: () => (channels.length === 0 ? 'Select at least one channel.' : null),
+          },
+          {
+            title: 'Audience',
+            description: 'Narrow the recipients, or leave it open to everyone.',
+            content: audienceFields,
+          },
+        ]}
       />
 
       <EntityFormModal
-        visible={modalOpen}
+        visible={modalOpen && Boolean(editing)}
         onCancel={() => setModalOpen(false)}
-        title={editing ? 'Edit announcement' : 'New announcement'}
+        title="Edit announcement"
         submitLabel="Save"
         submitting={saving}
         onSubmit={save}
       >
         <SpaceBetween size="m">
-          <FormField label="Title">
-            <Input value={title} onChange={({ detail }) => setTitle(detail.value)} />
-          </FormField>
-          <FormField label="Body">
-            <Textarea value={body} onChange={({ detail }) => setBody(detail.value)} rows={5} />
-          </FormField>
-          <FormField label="Channels">
-            <Multiselect
-              selectedOptions={channels}
-              onChange={({ detail }) => setChannels(detail.selectedOptions as Opt[])}
-              options={CHANNELS.map((c) => ({ label: c, value: c }))}
-            />
-          </FormField>
-          <FormField label="Audience — property">
-            <Select
-              selectedOption={officeOptions.find((o) => o.value === audienceOffice) ?? officeOptions[0]}
-              onChange={({ detail }) => setAudienceOffice(detail.selectedOption.value ?? '')}
-              options={officeOptions}
-              filteringType="auto"
-            />
-          </FormField>
-          <FormField label="Audience — resident status">
-            <Select
-              selectedOption={{
-                label: audienceStatus || 'All residents',
-                value: audienceStatus,
-              }}
-              onChange={({ detail }) => setAudienceStatus(detail.selectedOption.value ?? '')}
-              options={[
-                { label: 'All residents', value: '' },
-                ...RESIDENT_STATUSES.map((s) => ({ label: s, value: s })),
-              ]}
-            />
-          </FormField>
+          {messageFields}
+          {channelFields}
+          {audienceFields}
         </SpaceBetween>
       </EntityFormModal>
     </SpaceBetween>

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import useFormDirty from '@/hooks/useFormDirty';
+import useUnsavedChangesWarning from '@/hooks/useUnsavedChangesWarning';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Form from '@cloudscape-design/components/form';
@@ -92,6 +94,9 @@ const OfficeFormPage: React.FC = () => {
   const [managers, setManagers] = useState<{ label: string; value: string }[]>([]);
   const [glAccounts, setGlAccounts] = useState<{ label: string; value: string }[]>([]);
   const [form, setForm] = useState<OfficeFormState>(emptyForm);
+
+  const { dirty } = useFormDirty(form, !loading);
+  useUnsavedChangesWarning(dirty && !saving);
   const [queuedFiles, setQueuedFiles] = useState<QueuedFile[]>([]);
   const [officeLandlord, setOfficeLandlord] = useState<Landlord | null>(null);
   const [allLandlords, setAllLandlords] = useState<Landlord[]>([]);

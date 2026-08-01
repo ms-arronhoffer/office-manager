@@ -3,6 +3,7 @@ import Modal from '@cloudscape-design/components/modal';
 import Box from '@cloudscape-design/components/box';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
+import { GO_TO_ROUTES } from '@/hooks/useKeyboardShortcuts';
 
 interface KeyboardShortcutsModalProps {
   visible: boolean;
@@ -14,6 +15,10 @@ const SHORTCUTS = [
   { keys: 'Ctrl + J', description: 'Toggle the AI portfolio assistant' },
   { keys: '?', description: 'Show keyboard shortcuts' },
   { keys: 'Escape', description: 'Close modals and dialogs' },
+  ...Object.entries(GO_TO_ROUTES).map(([key, { label }]) => ({
+    keys: `G then ${key.toUpperCase()}`,
+    description: `Go to ${label}`,
+  })),
 ];
 
 const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({ visible, onDismiss }) => (
@@ -22,7 +27,7 @@ const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({ visible
     onDismiss={onDismiss}
     header="Keyboard Shortcuts"
     closeAriaLabel="Close"
-    size="small"
+    size="medium"
   >
     <SpaceBetween size="s">
       <Table

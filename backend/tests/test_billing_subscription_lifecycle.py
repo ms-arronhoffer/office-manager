@@ -44,6 +44,8 @@ def _stripe_env(monkeypatch):
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_x")
     monkeypatch.setattr(settings, "STRIPE_PRICE_ID_STARTER", "price_starter")
     monkeypatch.setattr(settings, "STRIPE_PRICE_ID_PRO", "price_pro")
+    monkeypatch.setattr(settings, "STRIPE_PRICE_ID_STARTER_ANNUAL", "price_starter_annual")
+    monkeypatch.setattr(settings, "STRIPE_PRICE_ID_PRO_ANNUAL", "price_pro_annual")
     monkeypatch.setattr(settings, "STRIPE_PRODUCT_ID_ENTERPRISE", "prod_enterprise")
     yield
 
@@ -113,6 +115,28 @@ async def test_checkout_allows_starter_plan(client, db_session, monkeypatch):
     )
     assert r.status_code == 200, r.text
     assert r.json()["checkout_url"] == "https://checkout.stripe.com/session/xyz"
+
+
+@pytest.mark.asyncio
+async def test_checkout_uses_annual_price(client, db_session, monkeypatch):
+    org, admin = await _org_admin(db_session)
+    captured = {}
+
+    class _FakeSession:
+        url = "https://checkout.stripe.com/session/annual"
+
+    def fake_create(**kwargs):
+        captured.update(kwargs)
+        return _FakeSession()
+
+    monkeypatch.setattr("stripe.checkout.Session.create", fake_create)
+    r = await client.post(
+        "/api/v1/billing/checkout",
+        headers=auth_headers(admin),
+        json={"plan": "starter", "billing_interval": "annual"},
+    )
+    assert r.status_code == 200, r.text
+    assert captured["line_items"] == [{"price": "price_starter_annual", "quantity": 1}]
 
 
 # ─── In-place plan switch (upgrade/downgrade) ──────────────────────────────

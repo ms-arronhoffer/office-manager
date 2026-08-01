@@ -146,6 +146,20 @@ const LeaseDetailPage: React.FC = () => {
     }
   }, [id]);
 
+  // Open the renewal workflow automatically once the deadline is near, so an
+  // expiring lease does not depend on the user expanding a collapsed section.
+  useEffect(() => {
+    if (!lease) return;
+    const remaining = daysUntil(lease.lease_expiration);
+    if (remaining !== null && remaining <= 180) {
+      setRenewalExpanded((wasExpanded) => {
+        if (!wasExpanded) fetchRenewals();
+        return true;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lease]);
+
   const handleStartRenewal = async () => {
     if (!id) return;
     setStartingRenewal(true);
@@ -415,6 +429,7 @@ const LeaseDetailPage: React.FC = () => {
   }
 
   const canEdit = user?.role === 'admin' || user?.role === 'editor';
+  const isFinance = user?.role === 'admin' || user?.role === 'accountant';
   const days = daysUntil(lease.lease_expiration);
   const expirationStatus =
     days === null ? null : days < 90 ? 'error' : days < 180 ? 'warning' : 'success';
@@ -632,6 +647,9 @@ const LeaseDetailPage: React.FC = () => {
               variant="h1"
               actions={
                 <SpaceBetween direction="horizontal" size="xs">
+                  {isFinance && (
+                    <Button onClick={() => navigate('/finance')}>Rent roll</Button>
+                  )}
                   <Button loading={renewing} onClick={handleRenew}>Renew Lease</Button>
                   {canEdit && !lease.notice_given_date && (
                     <Button loading={markingNotice} onClick={handleMarkNoticeGiven}>Mark Notice Given</Button>
@@ -752,7 +770,18 @@ const LeaseDetailPage: React.FC = () => {
           {id && <LeaseDocumentSearch leaseId={id} canEdit={canEdit} />}
 
           {/* CAM schedule (per-year common-area-maintenance) */}
-          {id && <LeaseCamSchedule leaseId={id} canEdit={canEdit} />}
+          {id && (
+            <SpaceBetween size="xs">
+              <LeaseCamSchedule leaseId={id} canEdit={canEdit} />
+              {isFinance && (
+                <Box textAlign="right">
+                  <Button onClick={() => navigate('/finance/cam')}>
+                    Open CAM reconciliations
+                  </Button>
+                </Box>
+              )}
+            </SpaceBetween>
+          )}
 
           {/* Lease Options */}
           <ExpandableSection

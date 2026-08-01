@@ -120,7 +120,7 @@ def test_token_limits_present_in_catalog():
     assert "monthly_ai_input_tokens" in ent.LIMIT_KEYS
     assert "monthly_ai_output_tokens" in ent.LIMIT_KEYS
     assert "monthly_ai_input_tokens" in ent.OVERRIDE_KEYS
-    assert ent.PLAN_CATALOG["enterprise"]["monthly_ai_input_tokens"] is None
+    assert ent.PLAN_CATALOG["enterprise"]["monthly_ai_input_tokens"] > 0
     assert ent.PLAN_CATALOG["starter"]["monthly_ai_input_tokens"] > 0
 
 
@@ -130,8 +130,10 @@ def test_is_over_limit_for_token_keys():
     limit = ent.PLAN_CATALOG["starter"]["monthly_ai_input_tokens"]
     assert ent.is_over_limit("monthly_ai_input_tokens", limit, starter) is True
     assert ent.is_over_limit("monthly_ai_input_tokens", limit - 1, starter) is False
-    # Enterprise is unlimited -> never over.
-    assert ent.is_over_limit("monthly_ai_input_tokens", 10**9, enterprise) is False
+    enterprise_limit = ent.PLAN_CATALOG["enterprise"]["monthly_ai_input_tokens"]
+    assert ent.is_over_limit(
+        "monthly_ai_input_tokens", enterprise_limit, enterprise
+    ) is True
 
 
 def test_token_limit_override_raises_cap():

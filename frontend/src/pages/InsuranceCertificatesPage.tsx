@@ -6,6 +6,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
 import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -18,6 +19,9 @@ import Toggle from '@cloudscape-design/components/toggle';
 import { useFlashbar } from '@/context/FlashbarContext';
 import AIDocumentPrefill from '@/components/common/AIDocumentPrefill';
 import { insuranceCertificates as certsApi, leases as leasesApi, vendors as vendorsApi, landlords as landlordsApi, ai as aiApi } from '@/api';
+import useListCollection from '@/hooks/useListCollection';
+import { exportRowsToCsv } from '@/lib/csv';
+import type { CsvColumn } from '@/lib/csv';
 import type { InsuranceCertificate, InsuranceCertComplianceSummary } from '@/types';
 
 const CERT_TYPES = [
@@ -26,6 +30,23 @@ const CERT_TYPES = [
   { label: 'Auto', value: 'auto' },
   { label: 'Umbrella', value: 'umbrella' },
   { label: 'Other', value: 'other' },
+];
+
+const CERT_CSV_COLUMNS: CsvColumn<InsuranceCertificate>[] = [
+  {
+    header: 'Vendor / Landlord',
+    value: (c) => c.vendor?.company_name ?? c.landlord?.company_name,
+  },
+  {
+    header: 'Type',
+    value: (c) => CERT_TYPES.find((t) => t.value === c.certificate_type)?.label ?? c.certificate_type,
+  },
+  { header: 'Insurer', value: (c) => c.insurer },
+  { header: 'Policy #', value: (c) => c.policy_number },
+  { header: 'Effective', value: (c) => c.effective_date },
+  { header: 'Expires', value: (c) => c.expiration_date },
+  { header: 'Status', value: (c) => c.status },
+  { header: 'Verified', value: (c) => (c.is_verified ? 'Yes' : 'No') },
 ];
 
 const statusBadge = (s: string) => {
@@ -209,6 +230,155 @@ const InsuranceCertificatesPage: React.FC = () => {
     }
   };
 
+  const certCollection = useListCollection(items, {
+    entity: 'insurance-certificates',
+    filterPlaceholder: 'Search certificates',
+    searchText: (c) =>
+      [
+        c.vendor?.company_name,
+        c.landlord?.company_name,
+        c.certificate_type,
+        c.insurer,
+        c.policy_number,
+        c.status,
+      ]
+        .filter(Boolean)
+        .join(' '),
+    empty: (
+      <Box textAlign="center" color="inherit" padding="l">
+        <b>No certificates</b>
+        <Box color="text-body-secondary" padding={{ bottom: 's' }}>
+          Add COIs to track compliance for vendors and landlords.
+        </Box>
+        <Button onClick={openCreate}>Add your first certificate</Button>
+      </Box>
+    ),
+  });
+
+  const holderFields = (
+    <FormField label="Vendor or landlord" description="Required">
+      <Select
+        selectedOption={form.entity ? { label: form.entity.label, value: form.entity.value } : null}
+        onChange={({ detail }) => {
+          const opt = entityOptions.find((o) => o.value === detail.selectedOption?.value) ?? null;
+          setForm((f) => ({ ...f, entity: opt }));
+        }}
+        options={entityOptions.map((o) => ({ label: o.label, value: o.value }))}
+        placeholder="Select vendor or landlord"
+        filteringType="auto"
+      />
+    </FormField>
+  );
+
+  const coverageFields = (
+    <SpaceBetween size="m">
+      <SpaceBetween direction="horizontal" size="m">
+        <FormField label="Certificate type">
+          <Select
+            selectedOption={CERT_TYPES.find((t) => t.value === form.certificate_type) ?? null}
+            onChange={({ detail }) => setForm((f) => ({ ...f, certificate_type: detail.selectedOption?.value ?? 'general_liability' }))}
+            options={CERT_TYPES}
+          />
+        </FormField>
+        <FormField label="Policy number">
+          <Input
+            value={form.policy_number}
+            onChange={({ detail }) => setForm((f) => ({ ...f, policy_number: detail.value }))}
+            placeholder="e.g., GL-123456"
+          />
+        </FormField>
+      </SpaceBetween>
+
+      <FormField label="Insurer">
+        <Input
+          value={form.insurer}
+          onChange={({ detail }) => setForm((f) => ({ ...f, insurer: detail.value }))}
+          placeholder="e.g., Travelers Insurance"
+        />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const termFields = (
+    <SpaceBetween size="m">
+      <SpaceBetween direction="horizontal" size="m">
+        <FormField label="Effective date">
+          <Input
+            value={form.effective_date}
+            onChange={({ detail }) => setForm((f) => ({ ...f, effective_date: detail.value }))}
+            type={"date" as any}
+          />
+        </FormField>
+        <FormField label="Expiration date">
+          <Input
+            value={form.expiration_date}
+            onChange={({ detail }) => setForm((f) => ({ ...f, expiration_date: detail.value }))}
+            type={"date" as any}
+          />
+        </FormField>
+      </SpaceBetween>
+
+      <FormField label="Coverage limits">
+        <Input
+          value={form.limits}
+          onChange={({ detail }) => setForm((f) => ({ ...f, limits: detail.value }))}
+          placeholder="e.g., $1M/$2M"
+        />
+      </FormField>
+
+      <FormField label="Certificate holder">
+        <Input
+          value={form.certificate_holder}
+          onChange={({ detail }) => setForm((f) => ({ ...f, certificate_holder: detail.value }))}
+          placeholder="Your organization name"
+        />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const documentFields = (
+    <SpaceBetween size="m">
+      <FormField label="Notes">
+        <Textarea
+          value={form.notes}
+          onChange={({ detail }) => setForm((f) => ({ ...f, notes: detail.value }))}
+          rows={3}
+        />
+      </FormField>
+
+      <FormField label="Certificate PDF">
+        <input
+          type="file"
+          accept=".pdf,.jpg,.jpeg,.png"
+          onChange={(e) => setForm((f) => ({ ...f, file: e.target.files?.[0] ?? null }))}
+          style={{ display: 'block', marginBottom: '8px' }}
+        />
+        <Box fontSize="body-s" color="text-body-secondary">
+          Upload a PDF or image of the certificate of insurance
+        </Box>
+      </FormField>
+
+      <Toggle
+        checked={form.is_verified}
+        onChange={({ detail }) => setForm((f) => ({ ...f, is_verified: detail.checked }))}
+      >
+        Verified
+      </Toggle>
+    </SpaceBetween>
+  );
+
+  const createDirty = Boolean(
+    form.entity ||
+      form.insurer ||
+      form.policy_number ||
+      form.effective_date ||
+      form.expiration_date ||
+      form.limits ||
+      form.certificate_holder ||
+      form.notes ||
+      form.file,
+  );
+
   return (
     <ContentLayout
       header={
@@ -256,8 +426,12 @@ const InsuranceCertificatesPage: React.FC = () => {
 
         {/* ── Table ── */}
         <Table
+          {...certCollection.collectionProps}
           loading={loading}
-          items={items}
+          items={certCollection.items}
+          selectionType="multi"
+          filter={certCollection.filter}
+          pagination={certCollection.pagination}
           columnDefinitions={[
             {
               id: 'entity',
@@ -306,137 +480,95 @@ const InsuranceCertificatesPage: React.FC = () => {
               width: 120,
             },
           ]}
-          empty={
-            <Box textAlign="center" color="inherit" padding="l">
-              <b>No certificates</b>
-              <Box color="text-body-secondary" padding={{ bottom: 's' }}>
-                Add COIs to track compliance for vendors and landlords.
-              </Box>
-            </Box>
+          header={
+            <Header
+              counter={`(${items.length})`}
+              actions={
+                <Button
+                  disabled={certCollection.selectedItems.length === 0}
+                  onClick={() =>
+                    exportRowsToCsv(
+                      'insurance-certificates.csv',
+                      CERT_CSV_COLUMNS,
+                      certCollection.selectedItems,
+                    )
+                  }
+                >
+                  Export selected
+                </Button>
+              }
+            >
+              Certificates of Insurance
+            </Header>
           }
-          header={<Header counter={`(${items.length})`}>Certificates of Insurance</Header>}
         />
       </SpaceBetween>
 
-      {/* ── Create / Edit Modal ── */}
+      {/* ── Create wizard ── */}
+      <CreateWizardModal
+        visible={modalOpen && !editingId}
+        entityLabel="certificate"
+        onCancel={() => setModalOpen(false)}
+        onSubmit={handleSave}
+        submitting={saving}
+        dirty={createDirty}
+        size="large"
+        steps={[
+          {
+            title: 'Coverage holder',
+            description: 'Who is this certificate for?',
+            content: (
+              <SpaceBetween size="m">
+                <AIDocumentPrefill
+                  title="AI assist — extract from document"
+                  description="Upload a certificate of insurance and let AI pre-fill the fields below for your review."
+                  dropzoneText="Drop a certificate of insurance here"
+                  parse={aiApi.parseInsuranceCertificate}
+                  onSuggested={applyAISuggestions}
+                  onFileExtracted={(file) => setForm((f) => ({ ...f, file }))}
+                />
+                {holderFields}
+              </SpaceBetween>
+            ),
+            validate: () =>
+              !form.entity || !form.certificate_type
+                ? 'Select a vendor or landlord and a certificate type.'
+                : null,
+          },
+          {
+            title: 'Policy',
+            description: 'Carrier and policy identifiers.',
+            content: coverageFields,
+          },
+          {
+            title: 'Term & limits',
+            description: 'When the coverage runs and how much it covers.',
+            content: termFields,
+          },
+          {
+            title: 'Document & verification',
+            description: 'Attach the COI and mark it verified.',
+            content: documentFields,
+          },
+        ]}
+      />
+
+      {/* ── Edit Modal ── */}
       <EntityFormModal
-        visible={modalOpen}
-        title={editingId ? 'Edit certificate' : 'Add insurance certificate'}
+        visible={modalOpen && Boolean(editingId)}
+        title="Edit certificate"
         onCancel={() => setModalOpen(false)}
         onSubmit={handleSave}
         submitting={saving}
         submitDisabled={!form.entity || !form.certificate_type}
-        submitLabel={editingId ? 'Save changes' : 'Add certificate'}
+        submitLabel="Save changes"
         size="large"
       >
         <SpaceBetween size="m">
-          {!editingId && (
-            <AIDocumentPrefill
-              title="AI assist — extract from document"
-              description="Upload a certificate of insurance and let AI pre-fill the fields below for your review."
-              dropzoneText="Drop a certificate of insurance here"
-              parse={aiApi.parseInsuranceCertificate}
-              onSuggested={applyAISuggestions}
-              onFileExtracted={(file) => setForm((f) => ({ ...f, file }))}
-            />
-          )}
-          <FormField label="Vendor or landlord" description="Required">
-            <Select
-              selectedOption={form.entity ? { label: form.entity.label, value: form.entity.value } : null}
-              onChange={({ detail }) => {
-                const opt = entityOptions.find((o) => o.value === detail.selectedOption?.value) ?? null;
-                setForm((f) => ({ ...f, entity: opt }));
-              }}
-              options={entityOptions.map((o) => ({ label: o.label, value: o.value }))}
-              placeholder="Select vendor or landlord"
-              filteringType="auto"
-            />
-          </FormField>
-
-          <SpaceBetween direction="horizontal" size="m">
-            <FormField label="Certificate type">
-              <Select
-                selectedOption={CERT_TYPES.find((t) => t.value === form.certificate_type) ?? null}
-                onChange={({ detail }) => setForm((f) => ({ ...f, certificate_type: detail.selectedOption?.value ?? 'general_liability' }))}
-                options={CERT_TYPES}
-              />
-            </FormField>
-            <FormField label="Policy number">
-              <Input
-                value={form.policy_number}
-                onChange={({ detail }) => setForm((f) => ({ ...f, policy_number: detail.value }))}
-                placeholder="e.g., GL-123456"
-              />
-            </FormField>
-          </SpaceBetween>
-
-          <FormField label="Insurer">
-            <Input
-              value={form.insurer}
-              onChange={({ detail }) => setForm((f) => ({ ...f, insurer: detail.value }))}
-              placeholder="e.g., Travelers Insurance"
-            />
-          </FormField>
-
-          <SpaceBetween direction="horizontal" size="m">
-            <FormField label="Effective date">
-              <Input
-                value={form.effective_date}
-                onChange={({ detail }) => setForm((f) => ({ ...f, effective_date: detail.value }))}
-                type={"date" as any}
-              />
-            </FormField>
-            <FormField label="Expiration date">
-              <Input
-                value={form.expiration_date}
-                onChange={({ detail }) => setForm((f) => ({ ...f, expiration_date: detail.value }))}
-                type={"date" as any}
-              />
-            </FormField>
-          </SpaceBetween>
-
-          <FormField label="Coverage limits">
-            <Input
-              value={form.limits}
-              onChange={({ detail }) => setForm((f) => ({ ...f, limits: detail.value }))}
-              placeholder="e.g., $1M/$2M"
-            />
-          </FormField>
-
-          <FormField label="Certificate holder">
-            <Input
-              value={form.certificate_holder}
-              onChange={({ detail }) => setForm((f) => ({ ...f, certificate_holder: detail.value }))}
-              placeholder="Your organization name"
-            />
-          </FormField>
-
-          <FormField label="Notes">
-            <Textarea
-              value={form.notes}
-              onChange={({ detail }) => setForm((f) => ({ ...f, notes: detail.value }))}
-              rows={3}
-            />
-          </FormField>
-
-          <FormField label="Certificate PDF">
-            <input
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
-              onChange={(e) => setForm((f) => ({ ...f, file: e.target.files?.[0] ?? null }))}
-              style={{ display: 'block', marginBottom: '8px' }}
-            />
-            <Box fontSize="body-s" color="text-body-secondary">
-              Upload a PDF or image of the certificate of insurance
-            </Box>
-          </FormField>
-
-          <Toggle
-            checked={form.is_verified}
-            onChange={({ detail }) => setForm((f) => ({ ...f, is_verified: detail.checked }))}
-          >
-            Verified
-          </Toggle>
+          {holderFields}
+          {coverageFields}
+          {termFields}
+          {documentFields}
         </SpaceBetween>
       </EntityFormModal>
     </ContentLayout>

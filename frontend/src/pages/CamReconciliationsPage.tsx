@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Container from '@cloudscape-design/components/container';
@@ -13,6 +14,7 @@ import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import Alert from '@cloudscape-design/components/alert';
+import Link from '@cloudscape-design/components/link';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { cam as camApi, leases as leasesApi } from '@/api';
 import type { CamReconciliation, CamReviewResponse } from '@/types';
@@ -34,6 +36,7 @@ const severityType = (s: string): 'error' | 'warning' | 'info' =>
 
 const CamReconciliationsPage: React.FC = () => {
   const { addFlash } = useFlashbar();
+  const navigate = useNavigate();
 
   const [recons, setRecons] = useState<CamReconciliation[]>([]);
   const [leaseOpts, setLeaseOpts] = useState<Opt[]>([]);
@@ -204,7 +207,21 @@ const CamReconciliationsPage: React.FC = () => {
           onSelectionChange={({ detail }) => onSelect(detail.selectedItems[0] ?? null)}
           trackBy="id"
           columnDefinitions={[
-            { id: 'lease', header: 'Lease', cell: (r) => leaseLabel(r.lease_id) },
+            {
+              id: 'lease',
+              header: 'Lease',
+              cell: (r) => (
+                <Link
+                  onFollow={(e) => {
+                    e.preventDefault();
+                    navigate(`/leases/${r.lease_id}`);
+                  }}
+                  href={`/leases/${r.lease_id}`}
+                >
+                  {leaseLabel(r.lease_id)}
+                </Link>
+              ),
+            },
             { id: 'year', header: 'Year', cell: (r) => r.year },
             { id: 'pool', header: 'Total pool', cell: (r) => <Box textAlign="right">{fmt(r.total_pool)}</Box> },
             { id: 'recoverable', header: 'Recoverable', cell: (r) => <Box textAlign="right">{fmt(r.recoverable_amount)}</Box> },

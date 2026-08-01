@@ -5,7 +5,7 @@ import Container from '@cloudscape-design/components/container';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
-import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -286,6 +286,133 @@ const AccountsReceivablePage: React.FC = () => {
   const deleteReceipt = (receiptId: string) =>
     runAction('Receipt removed.', () => arApi.deleteReceipt(receiptId));
 
+  const invoiceCustomerFields = (
+    <SpaceBetween size="m">
+      <FormField label="Customer">
+        <SpaceBetween direction="horizontal" size="xs">
+          <Select
+            selectedOption={customerId ? customerOpts.find((o) => o.value === customerId) ?? null : null}
+            options={customerOpts}
+            onChange={({ detail }) => setCustomerId(detail.selectedOption.value ?? '')}
+            filteringType="auto"
+            placeholder="Select a customer"
+            empty="No customers"
+          />
+          <Button onClick={() => setCustModalOpen(true)}>New</Button>
+        </SpaceBetween>
+      </FormField>
+      <ColumnLayout columns={3}>
+        <FormField label="Invoice date">
+          <Input type={"date" as any} value={invoiceDate} onChange={({ detail }) => setInvoiceDate(detail.value)} />
+        </FormField>
+        <FormField label="Due date">
+          <Input type={"date" as any} value={dueDate} onChange={({ detail }) => setDueDate(detail.value)} />
+        </FormField>
+        <FormField label="Invoice number">
+          <Input value={invoiceNumber} onChange={({ detail }) => setInvoiceNumber(detail.value)} />
+        </FormField>
+      </ColumnLayout>
+    </SpaceBetween>
+  );
+
+  const invoiceLineFields = (
+    <SpaceBetween size="m">
+      <FormField label="Memo">
+        <Input value={memo} onChange={({ detail }) => setMemo(detail.value)} />
+      </FormField>
+
+      <FormField label="Revenue lines">
+        <SpaceBetween size="xs">
+          {lines.map((line, idx) => (
+            <ColumnLayout key={idx} columns={3}>
+              <Select
+                selectedOption={line.account_id ? accountOptions.find((o) => o.value === line.account_id) ?? null : null}
+                options={accountOptions}
+                onChange={({ detail }) => updateLine(idx, { account_id: detail.selectedOption.value ?? '' })}
+                filteringType="auto"
+                placeholder="Revenue account"
+                empty="No accounts"
+              />
+              <Input
+                type="number"
+                value={line.amount}
+                placeholder="Amount"
+                onChange={({ detail }) => updateLine(idx, { amount: detail.value })}
+              />
+              <SpaceBetween direction="horizontal" size="xs">
+                <Input
+                  value={line.description}
+                  placeholder="Description"
+                  onChange={({ detail }) => updateLine(idx, { description: detail.value })}
+                />
+                {lines.length > 1 && (
+                  <Button
+                    iconName="remove"
+                    variant="icon"
+                    ariaLabel="Remove line"
+                    onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx))}
+                  />
+                )}
+              </SpaceBetween>
+            </ColumnLayout>
+          ))}
+          <Button
+            iconName="add-plus"
+            onClick={() => setLines((prev) => [...prev, { account_id: '', amount: '', description: '' }])}
+          >
+            Add line
+          </Button>
+          <Box textAlign="right" fontWeight="bold">Total: {fmt(invoiceTotal)}</Box>
+        </SpaceBetween>
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const receiptFields = (
+    <SpaceBetween size="m">
+      <Box>Outstanding balance: <strong>{fmt(rcptInvoice?.balance_due)}</strong></Box>
+      <FormField label="Receipt date">
+        <Input type={"date" as any} value={rcptDate} onChange={({ detail }) => setRcptDate(detail.value)} />
+      </FormField>
+      <FormField label="Amount">
+        <Input type="number" value={rcptAmount} onChange={({ detail }) => setRcptAmount(detail.value)} />
+      </FormField>
+      <ColumnLayout columns={2}>
+        <FormField label="Method">
+          <Input value={rcptMethod} onChange={({ detail }) => setRcptMethod(detail.value)} placeholder="check, ACH…" />
+        </FormField>
+        <FormField label="Reference">
+          <Input value={rcptReference} onChange={({ detail }) => setRcptReference(detail.value)} />
+        </FormField>
+      </ColumnLayout>
+    </SpaceBetween>
+  );
+
+  const customerFields = (
+    <SpaceBetween size="m">
+      <FormField label="Name">
+        <Input value={custName} onChange={({ detail }) => setCustName(detail.value)} />
+      </FormField>
+      <FormField label="Billing email">
+        <Input value={custEmail} onChange={({ detail }) => setCustEmail(detail.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const invoiceDirty = Boolean(
+    customerId ||
+      dueDate ||
+      invoiceNumber ||
+      memo ||
+      lines.some((l) => l.account_id || l.amount || l.description),
+  );
+
+  const receiptDirty = Boolean(
+    rcptMethod || rcptReference || (rcptInvoice && rcptAmount !== String(rcptInvoice.balance_due)),
+  );
+
+  const customerDirty = Boolean(custName || custEmail);
+
   const agingBuckets = aging?.buckets ?? [];
 
   return (
@@ -434,138 +561,87 @@ const AccountsReceivablePage: React.FC = () => {
         )}
       </SpaceBetween>
 
-      {/* New invoice modal */}
-      <EntityFormModal
+      {/* New invoice wizard */}
+      <CreateWizardModal
         visible={invModalOpen}
-        title="New customer invoice"
+        entityLabel="customer invoice"
         onCancel={() => setInvModalOpen(false)}
         onSubmit={submitInvoice}
         submitting={savingInv}
-        submitLabel="Create"
+        dirty={invoiceDirty}
         size="large"
-      >
-        <SpaceBetween size="m">
-          <FormField label="Customer">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Select
-                selectedOption={customerId ? customerOpts.find((o) => o.value === customerId) ?? null : null}
-                options={customerOpts}
-                onChange={({ detail }) => setCustomerId(detail.selectedOption.value ?? '')}
-                filteringType="auto"
-                placeholder="Select a customer"
-                empty="No customers"
-              />
-              <Button onClick={() => setCustModalOpen(true)}>New</Button>
-            </SpaceBetween>
-          </FormField>
-          <ColumnLayout columns={3}>
-            <FormField label="Invoice date">
-              <Input type={"date" as any} value={invoiceDate} onChange={({ detail }) => setInvoiceDate(detail.value)} />
-            </FormField>
-            <FormField label="Due date">
-              <Input type={"date" as any} value={dueDate} onChange={({ detail }) => setDueDate(detail.value)} />
-            </FormField>
-            <FormField label="Invoice number">
-              <Input value={invoiceNumber} onChange={({ detail }) => setInvoiceNumber(detail.value)} />
-            </FormField>
-          </ColumnLayout>
-          <FormField label="Memo">
-            <Input value={memo} onChange={({ detail }) => setMemo(detail.value)} />
-          </FormField>
+        steps={[
+          {
+            title: 'Customer & dates',
+            description: 'Who is being billed, and when payment is due.',
+            content: invoiceCustomerFields,
+            validate: () => (!customerId ? 'A customer is required.' : null),
+          },
+          {
+            title: 'Revenue lines',
+            description: 'Code the invoice to revenue accounts.',
+            content: invoiceLineFields,
+            validate: () =>
+              lines.filter((l) => l.account_id && parseFloat(l.amount) > 0).length === 0
+                ? 'Add at least one revenue line with an account and amount.'
+                : null,
+          },
+        ]}
+      />
 
-          <FormField label="Revenue lines">
-            <SpaceBetween size="xs">
-              {lines.map((line, idx) => (
-                <ColumnLayout key={idx} columns={3}>
-                  <Select
-                    selectedOption={line.account_id ? accountOptions.find((o) => o.value === line.account_id) ?? null : null}
-                    options={accountOptions}
-                    onChange={({ detail }) => updateLine(idx, { account_id: detail.selectedOption.value ?? '' })}
-                    filteringType="auto"
-                    placeholder="Revenue account"
-                    empty="No accounts"
-                  />
-                  <Input
-                    type="number"
-                    value={line.amount}
-                    placeholder="Amount"
-                    onChange={({ detail }) => updateLine(idx, { amount: detail.value })}
-                  />
-                  <SpaceBetween direction="horizontal" size="xs">
-                    <Input
-                      value={line.description}
-                      placeholder="Description"
-                      onChange={({ detail }) => updateLine(idx, { description: detail.value })}
-                    />
-                    {lines.length > 1 && (
-                      <Button
-                        iconName="remove"
-                        variant="icon"
-                        ariaLabel="Remove line"
-                        onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx))}
-                      />
-                    )}
-                  </SpaceBetween>
-                </ColumnLayout>
-              ))}
-              <Button
-                iconName="add-plus"
-                onClick={() => setLines((prev) => [...prev, { account_id: '', amount: '', description: '' }])}
-              >
-                Add line
-              </Button>
-              <Box textAlign="right" fontWeight="bold">Total: {fmt(invoiceTotal)}</Box>
-            </SpaceBetween>
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
-
-      {/* Receipt modal */}
-      <EntityFormModal
+      {/* Receipt wizard */}
+      <CreateWizardModal
         visible={rcptModalOpen}
-        title="Record receipt"
+        entityLabel="receipt"
         onCancel={() => setRcptModalOpen(false)}
         onSubmit={submitReceipt}
         submitting={savingRcpt}
-        submitLabel="Record"
-      >
-        <SpaceBetween size="m">
-          <Box>Outstanding balance: <strong>{fmt(rcptInvoice?.balance_due)}</strong></Box>
-          <FormField label="Receipt date">
-            <Input type={"date" as any} value={rcptDate} onChange={({ detail }) => setRcptDate(detail.value)} />
-          </FormField>
-          <FormField label="Amount">
-            <Input type="number" value={rcptAmount} onChange={({ detail }) => setRcptAmount(detail.value)} />
-          </FormField>
-          <ColumnLayout columns={2}>
-            <FormField label="Method">
-              <Input value={rcptMethod} onChange={({ detail }) => setRcptMethod(detail.value)} placeholder="check, ACH…" />
-            </FormField>
-            <FormField label="Reference">
-              <Input value={rcptReference} onChange={({ detail }) => setRcptReference(detail.value)} />
-            </FormField>
-          </ColumnLayout>
-        </SpaceBetween>
-      </EntityFormModal>
+        dirty={receiptDirty}
+        size="medium"
+        steps={[
+          {
+            title: 'Receipt details',
+            description: 'Apply a payment against this invoice.',
+            content: receiptFields,
+            validate: () =>
+              !(parseFloat(rcptAmount) > 0)
+                ? 'Receipt amount must be greater than zero.'
+                : null,
+          },
+        ]}
+      />
 
-      {/* New customer modal */}
-      <EntityFormModal
+      {/* New customer wizard */}
+      <CreateWizardModal
         visible={custModalOpen}
-        title="New customer"
+        entityLabel="customer"
         onCancel={() => setCustModalOpen(false)}
         onSubmit={submitCustomer}
         submitting={savingCust}
-        submitLabel="Create"
-      >
-        <SpaceBetween size="m">
-          <FormField label="Name">
-            <Input value={custName} onChange={({ detail }) => setCustName(detail.value)} />
-          </FormField>
-          <FormField label="Billing email">
-            <Input value={custEmail} onChange={({ detail }) => setCustEmail(detail.value)} />
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
+        dirty={customerDirty}
+        onBulkComplete={loadCustomers}
+        size="medium"
+        bulk={{
+          columns: [
+            { key: 'name', label: 'Name', required: true },
+            { key: 'contact_email', label: 'Billing email' },
+          ],
+          onSubmitRow: async (row) => {
+            await arApi.createCustomer({
+              name: row.name.trim(),
+              contact_email: row.contact_email?.trim() || null,
+            });
+          },
+        }}
+        steps={[
+          {
+            title: 'Customer details',
+            description: 'Who you invoice and where the bill goes.',
+            content: customerFields,
+            validate: () => (!custName.trim() ? 'A customer name is required.' : null),
+          },
+        ]}
+      />
     </ContentLayout>
   );
 };

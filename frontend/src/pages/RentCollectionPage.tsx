@@ -4,6 +4,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
 import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -13,6 +14,7 @@ import Container from '@cloudscape-design/components/container';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { rent, leasing } from '@/api';
+import EmptyState from '@/components/common/EmptyState';
 import type { RentCharge, SecurityDeposit, ResidentLease } from '@/types';
 
 const fmtMoney = (v: string | null) =>
@@ -268,6 +270,119 @@ const RentCollectionPage: React.FC = () => {
     }
   };
 
+  const chargeLeaseFields = (
+    <SpaceBetween size="m">
+      <FormField label="Lease">
+        <Select
+          disabled={!!editing}
+          selectedOption={leaseOptions.find((o) => o.value === leaseId) ?? null}
+          onChange={({ detail }) => setLeaseId(detail.selectedOption.value ?? '')}
+          options={leaseOptions}
+          filteringType="auto"
+          placeholder="Select a lease"
+        />
+      </FormField>
+      <ColumnLayout columns={2}>
+        <FormField label="Charge type">
+          <Select
+            selectedOption={{ label: chargeType, value: chargeType }}
+            onChange={({ detail }) => setChargeType(detail.selectedOption.value ?? 'rent')}
+            options={CHARGE_TYPES.map((t) => ({ label: t, value: t }))}
+          />
+        </FormField>
+        <FormField label="Amount">
+          <Input type="number" value={amount} onChange={({ detail }) => setAmount(detail.value)} />
+        </FormField>
+      </ColumnLayout>
+    </SpaceBetween>
+  );
+
+  const chargeScheduleFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="Frequency">
+        <Select
+          selectedOption={{ label: frequency, value: frequency }}
+          onChange={({ detail }) => setFrequency(detail.selectedOption.value ?? 'monthly')}
+          options={FREQUENCIES.map((f) => ({ label: f, value: f }))}
+        />
+      </FormField>
+      <FormField label="Day of month">
+        <Input
+          type="number"
+          value={dayOfMonth}
+          onChange={({ detail }) => setDayOfMonth(detail.value)}
+        />
+      </FormField>
+      <FormField label="Grace days">
+        <Input
+          type="number"
+          value={graceDays}
+          onChange={({ detail }) => setGraceDays(detail.value)}
+        />
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const chargeFeeFields = (
+    <SpaceBetween size="m">
+      <ColumnLayout columns={2}>
+        <FormField label="Late fee type">
+          <Select
+            selectedOption={{ label: lateFeeType, value: lateFeeType }}
+            onChange={({ detail }) => setLateFeeType(detail.selectedOption.value ?? 'none')}
+            options={LATE_FEE_TYPES.map((t) => ({ label: t, value: t }))}
+          />
+        </FormField>
+        {lateFeeType !== 'none' && (
+          <FormField label="Late fee amount">
+            <Input
+              type="number"
+              value={lateFeeAmount}
+              onChange={({ detail }) => setLateFeeAmount(detail.value)}
+            />
+          </FormField>
+        )}
+      </ColumnLayout>
+      <FormField label="Description">
+        <Input value={description} onChange={({ detail }) => setDescription(detail.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const depositFields = (
+    <SpaceBetween size="m">
+      <FormField label="Lease">
+        <Select
+          selectedOption={leaseOptions.find((o) => o.value === depLeaseId) ?? null}
+          onChange={({ detail }) => setDepLeaseId(detail.selectedOption.value ?? '')}
+          options={leaseOptions}
+          filteringType="auto"
+          placeholder="Select a lease"
+        />
+      </FormField>
+      <FormField label="Amount">
+        <Input type="number" value={depAmount} onChange={({ detail }) => setDepAmount(detail.value)} />
+      </FormField>
+      <FormField label="Notes">
+        <Input value={depNotes} onChange={({ detail }) => setDepNotes(detail.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const chargeCreateDirty = Boolean(
+    leaseId ||
+      amount ||
+      lateFeeAmount ||
+      description ||
+      chargeType !== 'rent' ||
+      frequency !== 'monthly' ||
+      dayOfMonth !== '1' ||
+      graceDays !== '0' ||
+      lateFeeType !== 'none',
+  );
+
+  const depositDirty = Boolean(depLeaseId || depAmount || depNotes);
+
   return (
     <SpaceBetween size="l">
       <Container
@@ -340,7 +455,14 @@ const RentCollectionPage: React.FC = () => {
             ),
           },
         ]}
-        empty={<Box textAlign="center">No recurring charges yet.</Box>}
+        empty={
+          <EmptyState
+            title="No recurring charges yet"
+            description="Recurring charges post rent and fees to leases automatically."
+            actionLabel="Add your first charge"
+            onAction={openChargeCreate}
+          />
+        }
       />
 
       <Table<SecurityDeposit>
@@ -378,109 +500,80 @@ const RentCollectionPage: React.FC = () => {
               ),
           },
         ]}
-        empty={<Box textAlign="center">No deposits recorded.</Box>}
+        empty={
+          <EmptyState
+            title="No deposits recorded"
+            description="Record security deposits so refunds and deductions stay auditable."
+            actionLabel="Record your first deposit"
+            onAction={openDeposit}
+          />
+        }
+      />
+
+      <CreateWizardModal
+        visible={chargeOpen && !editing}
+        entityLabel="recurring charge"
+        onCancel={() => setChargeOpen(false)}
+        onSubmit={saveCharge}
+        submitting={savingCharge}
+        dirty={chargeCreateDirty}
+        steps={[
+          {
+            title: 'Lease & amount',
+            description: 'Which lease is charged, and how much.',
+            content: chargeLeaseFields,
+            validate: () => {
+              if (!leaseId) return 'A lease is required.';
+              if (!amount.trim()) return 'Amount is required.';
+              return null;
+            },
+          },
+          {
+            title: 'Schedule',
+            description: 'How often the charge posts and when it is due.',
+            content: chargeScheduleFields,
+          },
+          {
+            title: 'Late fees & description',
+            description: 'What happens when the charge goes unpaid.',
+            content: chargeFeeFields,
+          },
+        ]}
       />
 
       <EntityFormModal
-        visible={chargeOpen}
+        visible={chargeOpen && Boolean(editing)}
         onCancel={() => setChargeOpen(false)}
-        title={editing ? 'Edit charge' : 'Add charge'}
+        title="Edit charge"
         submitLabel="Save"
         submitting={savingCharge}
         onSubmit={saveCharge}
       >
         <SpaceBetween size="m">
-          <FormField label="Lease">
-            <Select
-              disabled={!!editing}
-              selectedOption={leaseOptions.find((o) => o.value === leaseId) ?? null}
-              onChange={({ detail }) => setLeaseId(detail.selectedOption.value ?? '')}
-              options={leaseOptions}
-              filteringType="auto"
-              placeholder="Select a lease"
-            />
-          </FormField>
-          <ColumnLayout columns={2}>
-            <FormField label="Charge type">
-              <Select
-                selectedOption={{ label: chargeType, value: chargeType }}
-                onChange={({ detail }) => setChargeType(detail.selectedOption.value ?? 'rent')}
-                options={CHARGE_TYPES.map((t) => ({ label: t, value: t }))}
-              />
-            </FormField>
-            <FormField label="Amount">
-              <Input type="number" value={amount} onChange={({ detail }) => setAmount(detail.value)} />
-            </FormField>
-            <FormField label="Frequency">
-              <Select
-                selectedOption={{ label: frequency, value: frequency }}
-                onChange={({ detail }) => setFrequency(detail.selectedOption.value ?? 'monthly')}
-                options={FREQUENCIES.map((f) => ({ label: f, value: f }))}
-              />
-            </FormField>
-            <FormField label="Day of month">
-              <Input
-                type="number"
-                value={dayOfMonth}
-                onChange={({ detail }) => setDayOfMonth(detail.value)}
-              />
-            </FormField>
-            <FormField label="Grace days">
-              <Input
-                type="number"
-                value={graceDays}
-                onChange={({ detail }) => setGraceDays(detail.value)}
-              />
-            </FormField>
-            <FormField label="Late fee type">
-              <Select
-                selectedOption={{ label: lateFeeType, value: lateFeeType }}
-                onChange={({ detail }) => setLateFeeType(detail.selectedOption.value ?? 'none')}
-                options={LATE_FEE_TYPES.map((t) => ({ label: t, value: t }))}
-              />
-            </FormField>
-            {lateFeeType !== 'none' && (
-              <FormField label="Late fee amount">
-                <Input
-                  type="number"
-                  value={lateFeeAmount}
-                  onChange={({ detail }) => setLateFeeAmount(detail.value)}
-                />
-              </FormField>
-            )}
-          </ColumnLayout>
-          <FormField label="Description">
-            <Input value={description} onChange={({ detail }) => setDescription(detail.value)} />
-          </FormField>
+          {chargeLeaseFields}
+          {chargeScheduleFields}
+          {chargeFeeFields}
         </SpaceBetween>
       </EntityFormModal>
 
-      <EntityFormModal
+      <CreateWizardModal
         visible={depositOpen}
+        entityLabel="security deposit"
         onCancel={() => setDepositOpen(false)}
-        title="Record deposit"
-        submitLabel="Save"
-        submitting={savingDeposit}
         onSubmit={saveDeposit}
-      >
-        <SpaceBetween size="m">
-          <FormField label="Lease">
-            <Select
-              selectedOption={leaseOptions.find((o) => o.value === depLeaseId) ?? null}
-              onChange={({ detail }) => setDepLeaseId(detail.selectedOption.value ?? '')}
-              options={leaseOptions}
-              filteringType="auto"
-              placeholder="Select a lease"
-            />
-          </FormField>
-          <FormField label="Amount">
-            <Input type="number" value={depAmount} onChange={({ detail }) => setDepAmount(detail.value)} />
-          </FormField>
-          <FormField label="Notes">
-            <Input value={depNotes} onChange={({ detail }) => setDepNotes(detail.value)} />
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
+        submitting={savingDeposit}
+        dirty={depositDirty}
+        size="medium"
+        steps={[
+          {
+            title: 'Deposit details',
+            description: 'Record a security deposit held against a lease.',
+            content: depositFields,
+            validate: () =>
+              !depLeaseId || !depAmount.trim() ? 'Lease and amount are required.' : null,
+          },
+        ]}
+      />
     </SpaceBetween>
   );
 };

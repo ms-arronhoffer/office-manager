@@ -4,6 +4,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
 import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
@@ -14,6 +15,9 @@ import Badge from '@cloudscape-design/components/badge';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { leasing, leaseTemplates, leasingFunnel } from '@/api';
+import useListCollection from '@/hooks/useListCollection';
+import { exportRowsToCsv } from '@/lib/csv';
+import type { CsvColumn } from '@/lib/csv';
 import type {
   ResidentLease,
   ResidentLeaseStatus,
@@ -446,12 +450,241 @@ const ResidentLeasesPage: React.FC = () => {
     }
   };
 
+  const LEASE_CSV_COLUMNS: CsvColumn<ResidentLease>[] = [
+    { header: 'Lease', value: (l) => l.name },
+    { header: 'Unit', value: (l) => unitLabel(l.unit_id) },
+    {
+      header: 'Occupants',
+      value: (l) =>
+        l.occupants
+          .map((o) => (o.resident ? `${o.resident.first_name} ${o.resident.last_name}` : ''))
+          .filter(Boolean)
+          .join('; '),
+    },
+    { header: 'Start', value: (l) => l.start_date },
+    { header: 'End', value: (l) => l.end_date },
+    { header: 'Rent', value: (l) => l.rent_amount },
+    { header: 'Security deposit', value: (l) => l.security_deposit },
+    { header: 'Status', value: (l) => l.status },
+  ];
+
+  const collection = useListCollection(leases, {
+    entity: 'resident-leases',
+    filterPlaceholder: 'Search leases',
+    searchText: (l) =>
+      [
+        l.name,
+        l.status,
+        unitLabel(l.unit_id),
+        ...l.occupants.map((o) =>
+          o.resident ? `${o.resident.first_name} ${o.resident.last_name}` : '',
+        ),
+      ]
+        .filter(Boolean)
+        .join(' '),
+    empty: (
+      <Box textAlign="center" padding="m">
+        <SpaceBetween size="xs">
+          <Box>No leases yet.</Box>
+          <Button onClick={openCreate}>Add your first lease</Button>
+        </SpaceBetween>
+      </Box>
+    ),
+  });
+
+  const templateFields = (
+    <SpaceBetween size="m">
+      <FormField
+        label="Lease template (optional)"
+        description="Choose a template to email this lease to the occupants for e-signature after saving. All lease fields become required so the document has no blanks."
+      >
+        <Select
+          selectedOption={templateOptions.find((o) => o.value === formTemplateId) ?? null}
+          onChange={({ detail }) => setFormTemplateId(detail.selectedOption.value ?? '')}
+          options={[{ label: 'None — just save the lease', value: '' }, ...templateOptions]}
+          filteringType="auto"
+          placeholder="Select a lease template"
+          empty="No active templates"
+        />
+      </FormField>
+      {formTemplateId && formCustomFields.length > 0 && (
+        <FormField
+          label="Template fields"
+          description="This lease template defines custom fields. Their values are merged into the document sent for signature."
+        >
+          <SpaceBetween size="xs">
+            {formCustomFields.map((f) => (
+              <FormField key={f} label={humanizeField(f)}>
+                <Input
+                  value={templateFieldValues[f] ?? ''}
+                  onChange={({ detail }) =>
+                    setTemplateFieldValues((prev) => ({ ...prev, [f]: detail.value }))
+                  }
+                />
+              </FormField>
+            ))}
+          </SpaceBetween>
+        </FormField>
+      )}
+    </SpaceBetween>
+  );
+
+  const partiesFields = (
+    <SpaceBetween size="m">
+      <FormField label="Unit">
+        <Select
+          disabled={!!editing}
+          selectedOption={unitOptions.find((o) => o.value === unitId) ?? null}
+          onChange={({ detail }) => setUnitId(detail.selectedOption.value ?? '')}
+          options={unitOptions}
+          filteringType="auto"
+          placeholder="Select a unit"
+        />
+      </FormField>
+      <FormField label="Occupants (first is primary)">
+        <Multiselect
+          selectedOptions={occupantIds}
+          onChange={({ detail }) => setOccupantIds(detail.selectedOptions as Opt[])}
+          options={residentOptions}
+          filteringType="auto"
+          placeholder="Select residents"
+        />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const termsFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="Lease name">
+        <Input value={name} onChange={({ detail }) => setName(detail.value)} />
+      </FormField>
+      <FormField label="Status">
+        <Select
+          selectedOption={{ label: statusValue, value: statusValue }}
+          onChange={({ detail }) =>
+            setStatusValue(detail.selectedOption.value as ResidentLeaseStatus)
+          }
+          options={LEASE_STATUSES.map((s) => ({ label: s, value: s }))}
+        />
+      </FormField>
+      <FormField label="Start date">
+        <Input
+          type={'date' as any}
+          value={startDate}
+          onChange={({ detail }) => setStartDate(detail.value)}
+        />
+      </FormField>
+      <FormField label="End date">
+        <Input
+          type={'date' as any}
+          value={endDate}
+          onChange={({ detail }) => setEndDate(detail.value)}
+        />
+      </FormField>
+      <FormField label="Rent amount">
+        <Input
+          type="number"
+          value={rentAmount}
+          onChange={({ detail }) => setRentAmount(detail.value)}
+        />
+      </FormField>
+      <FormField label="Security deposit">
+        <Input
+          type="number"
+          value={deposit}
+          onChange={({ detail }) => setDeposit(detail.value)}
+        />
+      </FormField>
+      <FormField label="Lease type">
+        <Select
+          selectedOption={leaseType ? { label: leaseType, value: leaseType } : null}
+          onChange={({ detail }) => setLeaseType(detail.selectedOption.value as ResidentLeaseType)}
+          options={LEASE_TYPES.map((t) => ({ label: t, value: t }))}
+          placeholder="Select a lease type"
+        />
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const feeFields = (
+    <SpaceBetween size="m">
+      <ColumnLayout columns={2}>
+        <FormField label="Rent escalation rate (%)">
+          <Input
+            type="number"
+            value={escalationRate}
+            onChange={({ detail }) => setEscalationRate(detail.value)}
+          />
+        </FormField>
+        <FormField label="Pet deposit">
+          <Input
+            type="number"
+            value={petDeposit}
+            onChange={({ detail }) => setPetDeposit(detail.value)}
+          />
+        </FormField>
+        <FormField label="Late fee amount">
+          <Input
+            type="number"
+            value={lateFeeAmount}
+            onChange={({ detail }) => setLateFeeAmount(detail.value)}
+          />
+        </FormField>
+        <FormField label="Late fee grace (days)">
+          <Input
+            type="number"
+            value={lateFeeGraceDays}
+            onChange={({ detail }) => setLateFeeGraceDays(detail.value)}
+          />
+        </FormField>
+        <FormField label="Notice period (days)">
+          <Input
+            type="number"
+            value={noticePeriodDays}
+            onChange={({ detail }) => setNoticePeriodDays(detail.value)}
+          />
+        </FormField>
+        <FormField label="Renewal option">
+          <Select
+            selectedOption={
+              renewalOption ? { label: 'Yes', value: 'yes' } : { label: 'No', value: 'no' }
+            }
+            onChange={({ detail }) => setRenewalOption(detail.selectedOption.value === 'yes')}
+            options={[
+              { label: 'No', value: 'no' },
+              { label: 'Yes', value: 'yes' },
+            ]}
+          />
+        </FormField>
+      </ColumnLayout>
+      <FormField label="Notes">
+        <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const createDirty = Boolean(
+    formTemplateId ||
+      unitId ||
+      occupantIds.length ||
+      name ||
+      startDate ||
+      endDate ||
+      rentAmount ||
+      deposit ||
+      notes,
+  );
+
   return (
     <SpaceBetween size="l">
       <Table<ResidentLease>
+        {...collection.collectionProps}
         loading={loading}
-        items={leases}
+        items={collection.items}
         variant="container"
+        selectionType="multi"
+        filter={collection.filter}
+        pagination={collection.pagination}
         header={
           <Header
             counter={`(${leases.length})`}
@@ -465,6 +698,14 @@ const ResidentLeasesPage: React.FC = () => {
                     ...LEASE_STATUSES.map((s) => ({ label: s, value: s })),
                   ]}
                 />
+                <Button
+                  disabled={collection.selectedItems.length === 0}
+                  onClick={() =>
+                    exportRowsToCsv('resident-leases.csv', LEASE_CSV_COLUMNS, collection.selectedItems)
+                  }
+                >
+                  Export selected
+                </Button>
                 <Button variant="primary" onClick={openCreate}>
                   Add lease
                 </Button>
@@ -528,182 +769,55 @@ const ResidentLeasesPage: React.FC = () => {
             },
           },
         ]}
-        empty={<Box textAlign="center">No leases yet.</Box>}
+      />
+
+      <CreateWizardModal
+        visible={modalOpen && !editing}
+        entityLabel="lease"
+        onCancel={() => setModalOpen(false)}
+        onSubmit={save}
+        submitting={saving}
+        dirty={createDirty}
+        onBulkComplete={load}
+        steps={[
+          {
+            title: 'Template',
+            description:
+              'Optionally build this lease from a template so it can be emailed for e-signature.',
+            content: templateFields,
+          },
+          {
+            title: 'Unit & occupants',
+            description: 'Which unit is being leased, and who lives there?',
+            content: partiesFields,
+            validate: () => (!unitId ? 'A unit is required.' : null),
+          },
+          {
+            title: 'Terms',
+            description: 'Dates, rent, and the type of lease.',
+            content: termsFields,
+          },
+          {
+            title: 'Fees & notes',
+            description: 'Deposits, late fees, renewal terms, and internal notes.',
+            content: feeFields,
+          },
+        ]}
       />
 
       <EntityFormModal
-        visible={modalOpen}
+        visible={modalOpen && Boolean(editing)}
         onCancel={() => setModalOpen(false)}
-        title={editing ? 'Edit lease' : 'Add lease'}
+        title="Edit lease"
         size="large"
         submitLabel="Save"
         submitting={saving}
         onSubmit={save}
       >
         <SpaceBetween size="m">
-          {!editing && (
-            <FormField
-              label="Lease template (optional)"
-              description="Choose a template to email this lease to the occupants for e-signature after saving. All lease fields become required so the document has no blanks."
-            >
-              <Select
-                selectedOption={
-                  templateOptions.find((o) => o.value === formTemplateId) ?? null
-                }
-                onChange={({ detail }) => setFormTemplateId(detail.selectedOption.value ?? '')}
-                options={[{ label: 'None — just save the lease', value: '' }, ...templateOptions]}
-                filteringType="auto"
-                placeholder="Select a lease template"
-                empty="No active templates"
-              />
-            </FormField>
-          )}
-          {!editing && formTemplateId && formCustomFields.length > 0 && (
-            <FormField
-              label="Template fields"
-              description="This lease template defines custom fields. Their values are merged into the document sent for signature."
-            >
-              <SpaceBetween size="xs">
-                {formCustomFields.map((f) => (
-                  <FormField key={f} label={humanizeField(f)}>
-                    <Input
-                      value={templateFieldValues[f] ?? ''}
-                      onChange={({ detail }) =>
-                        setTemplateFieldValues((prev) => ({ ...prev, [f]: detail.value }))
-                      }
-                    />
-                  </FormField>
-                ))}
-              </SpaceBetween>
-            </FormField>
-          )}
-          <FormField label="Unit">
-            <Select
-              disabled={!!editing}
-              selectedOption={unitOptions.find((o) => o.value === unitId) ?? null}
-              onChange={({ detail }) => setUnitId(detail.selectedOption.value ?? '')}
-              options={unitOptions}
-              filteringType="auto"
-              placeholder="Select a unit"
-            />
-          </FormField>
-          <FormField label="Occupants (first is primary)">
-            <Multiselect
-              selectedOptions={occupantIds}
-              onChange={({ detail }) => setOccupantIds(detail.selectedOptions as Opt[])}
-              options={residentOptions}
-              filteringType="auto"
-              placeholder="Select residents"
-            />
-          </FormField>
-          <ColumnLayout columns={2}>
-            <FormField label="Lease name">
-              <Input value={name} onChange={({ detail }) => setName(detail.value)} />
-            </FormField>
-            <FormField label="Status">
-              <Select
-                selectedOption={{ label: statusValue, value: statusValue }}
-                onChange={({ detail }) =>
-                  setStatusValue(detail.selectedOption.value as ResidentLeaseStatus)
-                }
-                options={LEASE_STATUSES.map((s) => ({ label: s, value: s }))}
-              />
-            </FormField>
-            <FormField label="Start date">
-              <Input
-                type={"date" as any}
-                value={startDate}
-                onChange={({ detail }) => setStartDate(detail.value)}
-              />
-            </FormField>
-            <FormField label="End date">
-              <Input
-                type={"date" as any}
-                value={endDate}
-                onChange={({ detail }) => setEndDate(detail.value)}
-              />
-            </FormField>
-            <FormField label="Rent amount">
-              <Input
-                type="number"
-                value={rentAmount}
-                onChange={({ detail }) => setRentAmount(detail.value)}
-              />
-            </FormField>
-            <FormField label="Security deposit">
-              <Input
-                type="number"
-                value={deposit}
-                onChange={({ detail }) => setDeposit(detail.value)}
-              />
-            </FormField>
-            <FormField label="Lease type">
-              <Select
-                selectedOption={
-                  leaseType ? { label: leaseType, value: leaseType } : null
-                }
-                onChange={({ detail }) =>
-                  setLeaseType(detail.selectedOption.value as ResidentLeaseType)
-                }
-                options={LEASE_TYPES.map((t) => ({ label: t, value: t }))}
-                placeholder="Select a lease type"
-              />
-            </FormField>
-            <FormField label="Rent escalation rate (%)">
-              <Input
-                type="number"
-                value={escalationRate}
-                onChange={({ detail }) => setEscalationRate(detail.value)}
-              />
-            </FormField>
-            <FormField label="Pet deposit">
-              <Input
-                type="number"
-                value={petDeposit}
-                onChange={({ detail }) => setPetDeposit(detail.value)}
-              />
-            </FormField>
-            <FormField label="Late fee amount">
-              <Input
-                type="number"
-                value={lateFeeAmount}
-                onChange={({ detail }) => setLateFeeAmount(detail.value)}
-              />
-            </FormField>
-            <FormField label="Late fee grace (days)">
-              <Input
-                type="number"
-                value={lateFeeGraceDays}
-                onChange={({ detail }) => setLateFeeGraceDays(detail.value)}
-              />
-            </FormField>
-            <FormField label="Notice period (days)">
-              <Input
-                type="number"
-                value={noticePeriodDays}
-                onChange={({ detail }) => setNoticePeriodDays(detail.value)}
-              />
-            </FormField>
-            <FormField label="Renewal option">
-              <Select
-                selectedOption={
-                  renewalOption
-                    ? { label: 'Yes', value: 'yes' }
-                    : { label: 'No', value: 'no' }
-                }
-                onChange={({ detail }) =>
-                  setRenewalOption(detail.selectedOption.value === 'yes')
-                }
-                options={[
-                  { label: 'No', value: 'no' },
-                  { label: 'Yes', value: 'yes' },
-                ]}
-              />
-            </FormField>
-          </ColumnLayout>
-          <FormField label="Notes">
-            <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
-          </FormField>
+          {partiesFields}
+          {termsFields}
+          {feeFields}
         </SpaceBetween>
       </EntityFormModal>
 
