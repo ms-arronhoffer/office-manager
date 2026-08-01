@@ -144,3 +144,72 @@ async def test_create_ticket_succeeds_when_notification_side_effect_fails(
     )
     assert listing.status_code == 200
     assert any(t["id"] == data["id"] for t in listing.json()["items"])
+
+
+@pytest.mark.asyncio
+async def test_update_ticket_with_scheduled_date(
+    client, editor_user, sample_office, sample_category
+):
+    """Regression: a ticket carrying a scheduled date used to update the row and
+    then 500 while writing the activity-log `changes` JSONB, because the raw
+    datetime was not JSON serializable. The user saw "Failed to update ticket"
+    even though the change had persisted."""
+    create_resp = await client.post(
+        "/api/v1/maintenance-tickets",
+        headers=auth_headers(editor_user),
+        json={
+            "subject": "Replace filter",
+            "priority": "medium",
+            "category_id": str(sample_category.id),
+            "office_id": str(sample_office.id),
+            "description": "Quarterly filter swap",
+            "scheduled_date": "2026-08-01T00:00:00Z",
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    ticket_id = create_resp.json()["id"]
+
+    resp = await client.put(
+        f"/api/v1/maintenance-tickets/{ticket_id}",
+        headers=auth_headers(editor_user),
+        json={"status": "in_progress", "scheduled_date": "2026-09-15T00:00:00Z"},
+    )
+    assert resp.status_code == 200, f"got {resp.status_code}: {resp.text}"
+    assert resp.json()["status"] == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_update_ticket_survives_activity_log_failure(
+    client, editor_user, sample_office, sample_category, monkeypatch
+):
+    """A DB-level failure in best-effort activity logging must not poison the
+    session and 500 an update that has already committed."""
+    import app.routers.maintenance_tickets as tickets_router
+    from sqlalchemy import text
+
+    create_resp = await client.post(
+        "/api/v1/maintenance-tickets",
+        headers=auth_headers(editor_user),
+        json={
+            "subject": "Fix lock",
+            "priority": "low",
+            "category_id": str(sample_category.id),
+            "office_id": str(sample_office.id),
+            "description": "Front door lock sticks",
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    ticket_id = create_resp.json()["id"]
+
+    async def _db_boom(db, **kwargs):
+        await db.execute(text("SELECT * FROM table_that_does_not_exist"))
+
+    monkeypatch.setattr(tickets_router, "log_activity", _db_boom)
+
+    resp = await client.put(
+        f"/api/v1/maintenance-tickets/{ticket_id}",
+        headers=auth_headers(editor_user),
+        json={"subject": "Fix lock urgently"},
+    )
+    assert resp.status_code == 200, f"got {resp.status_code}: {resp.text}"
+    assert resp.json()["subject"] == "Fix lock urgently"
