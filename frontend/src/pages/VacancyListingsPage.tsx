@@ -5,6 +5,7 @@ import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
 import Modal from '@cloudscape-design/components/modal';
 import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
@@ -17,6 +18,7 @@ import { useFlashbar } from '@/context/FlashbarContext';
 import { useAuth } from '@/auth/AuthContext';
 import { copyToClipboard } from '@/utils/clipboard';
 import { listings, leasing } from '@/api';
+import EmptyState from '@/components/common/EmptyState';
 import type {
   VacancyListing,
   ListingStatus,
@@ -325,6 +327,77 @@ const VacancyListingsPage: React.FC = () => {
     });
   };
 
+  const unitFields = (
+    <SpaceBetween size="m">
+      <FormField label="Unit">
+        <Select
+          disabled={!!editing}
+          selectedOption={unitOptions.find((o) => o.value === unitId) ?? null}
+          onChange={({ detail }) => setUnitId(detail.selectedOption.value ?? '')}
+          options={unitOptions}
+          filteringType="auto"
+          placeholder="Select a unit"
+        />
+      </FormField>
+      <FormField label="Title">
+        <Input value={title} onChange={({ detail }) => setTitle(detail.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const marketingFields = (
+    <SpaceBetween size="m">
+      <FormField label="Headline">
+        <Input value={headline} onChange={({ detail }) => setHeadline(detail.value)} />
+      </FormField>
+      <FormField label="Description">
+        <Textarea
+          value={description}
+          onChange={({ detail }) => setDescription(detail.value)}
+          rows={4}
+        />
+      </FormField>
+      <FormField label="Amenities (comma-separated)">
+        <Input value={amenities} onChange={({ detail }) => setAmenities(detail.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const pricingFields = (
+    <SpaceBetween size="m">
+      <ColumnLayout columns={2}>
+        <FormField label="Marketing rent">
+          <Input
+            type="number"
+            value={marketingRent}
+            onChange={({ detail }) => setMarketingRent(detail.value)}
+          />
+        </FormField>
+        <FormField label="Available date">
+          <Input
+            type={"date" as any}
+            value={availableDate}
+            onChange={({ detail }) => setAvailableDate(detail.value)}
+          />
+        </FormField>
+      </ColumnLayout>
+      <FormField label="Contact email">
+        <Input value={contactEmail} onChange={({ detail }) => setContactEmail(detail.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const createDirty = Boolean(
+    unitId ||
+      title ||
+      headline ||
+      description ||
+      marketingRent ||
+      availableDate ||
+      amenities ||
+      contactEmail,
+  );
+
   return (
     <SpaceBetween size="l">
       <Table<VacancyListing>
@@ -389,64 +462,61 @@ const VacancyListingsPage: React.FC = () => {
             ),
           },
         ]}
-        empty={<Box textAlign="center">No listings yet.</Box>}
+        empty={
+          <EmptyState
+            title="No listings yet"
+            description="Publish vacant units so prospects can find and apply for them."
+            actionLabel="Create your first listing"
+            onAction={openCreate}
+          />
+        }
+      />
+
+      <CreateWizardModal
+        visible={modalOpen && !editing}
+        entityLabel="listing"
+        onCancel={() => setModalOpen(false)}
+        onSubmit={save}
+        submitting={saving}
+        dirty={createDirty}
+        size="large"
+        steps={[
+          {
+            title: 'Unit',
+            description: 'Which vacant unit is this listing for?',
+            content: unitFields,
+            validate: () => {
+              if (!unitId) return 'A unit is required.';
+              if (!title.trim()) return 'Title is required.';
+              return null;
+            },
+          },
+          {
+            title: 'Marketing copy',
+            description: 'What prospects will read on the portals.',
+            content: marketingFields,
+          },
+          {
+            title: 'Pricing & availability',
+            description: 'Rent, move-in date, and who to contact.',
+            content: pricingFields,
+          },
+        ]}
       />
 
       <EntityFormModal
-        visible={modalOpen}
+        visible={modalOpen && Boolean(editing)}
         onCancel={() => setModalOpen(false)}
-        title={editing ? 'Edit listing' : 'Add listing'}
+        title="Edit listing"
         size="large"
         submitLabel="Save"
         submitting={saving}
         onSubmit={save}
       >
         <SpaceBetween size="m">
-          <FormField label="Unit">
-            <Select
-              disabled={!!editing}
-              selectedOption={unitOptions.find((o) => o.value === unitId) ?? null}
-              onChange={({ detail }) => setUnitId(detail.selectedOption.value ?? '')}
-              options={unitOptions}
-              filteringType="auto"
-              placeholder="Select a unit"
-            />
-          </FormField>
-          <FormField label="Title">
-            <Input value={title} onChange={({ detail }) => setTitle(detail.value)} />
-          </FormField>
-          <FormField label="Headline">
-            <Input value={headline} onChange={({ detail }) => setHeadline(detail.value)} />
-          </FormField>
-          <FormField label="Description">
-            <Textarea
-              value={description}
-              onChange={({ detail }) => setDescription(detail.value)}
-              rows={4}
-            />
-          </FormField>
-          <ColumnLayout columns={2}>
-            <FormField label="Marketing rent">
-              <Input
-                type="number"
-                value={marketingRent}
-                onChange={({ detail }) => setMarketingRent(detail.value)}
-              />
-            </FormField>
-            <FormField label="Available date">
-              <Input
-                type={"date" as any}
-                value={availableDate}
-                onChange={({ detail }) => setAvailableDate(detail.value)}
-              />
-            </FormField>
-          </ColumnLayout>
-          <FormField label="Amenities (comma-separated)">
-            <Input value={amenities} onChange={({ detail }) => setAmenities(detail.value)} />
-          </FormField>
-          <FormField label="Contact email">
-            <Input value={contactEmail} onChange={({ detail }) => setContactEmail(detail.value)} />
-          </FormField>
+          {unitFields}
+          {marketingFields}
+          {pricingFields}
         </SpaceBetween>
       </EntityFormModal>
 

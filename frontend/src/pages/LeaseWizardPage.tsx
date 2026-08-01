@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import useUnsavedChangesWarning from '@/hooks/useUnsavedChangesWarning';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
@@ -93,6 +94,9 @@ const LeaseWizardPage: React.FC = () => {
   // Step 1 — type & name
   const [leaseKind, setLeaseKind] = useState<LeaseKind>('net_new');
   const [leaseName, setLeaseName] = useState('');
+
+  // Any progress past the first step, or a typed name, is work worth protecting.
+  useUnsavedChangesWarning(!saving && (activeStepIndex > 0 || leaseName.trim() !== ''));
 
   // Step 2 — property & parties
   const [office, setOffice] = useState<QuickCreateOption | null>(null);

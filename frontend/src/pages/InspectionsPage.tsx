@@ -6,7 +6,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
 import Modal from '@cloudscape-design/components/modal';
-import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import DatePicker from '@cloudscape-design/components/date-picker';
@@ -20,6 +20,7 @@ import SegmentedControl from '@cloudscape-design/components/segmented-control';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useAuth } from '@/auth/AuthContext';
 import { inspections as inspectionsApi, offices as officesApi } from '@/api';
+import useListCollection from '@/hooks/useListCollection';
 import type {
   Inspection,
   InspectionItemResultInput,
@@ -250,6 +251,119 @@ const InspectionsPage: React.FC = () => {
 
   const detailLocked = detail?.status === 'completed';
 
+  const inspectionCollection = useListCollection(items, {
+    entity: 'inspections',
+    filterPlaceholder: 'Search inspections',
+    searchText: (i) =>
+      [i.title, officeName(i.office_id), i.status, i.scheduled_date, i.overall_result]
+        .filter(Boolean)
+        .join(' '),
+    empty: <Box textAlign="center">No inspections yet.</Box>,
+  });
+
+  const templateCollection = useListCollection(templates, {
+    entity: 'inspection-templates',
+    filterPlaceholder: 'Search templates',
+    searchText: (t) => [t.name, t.category].filter(Boolean).join(' '),
+    empty: <Box textAlign="center">No templates yet.</Box>,
+  });
+
+  const templateBasicsFields = (
+    <SpaceBetween size="m">
+      <FormField label="Name">
+        <Input value={tplName} onChange={({ detail: d }) => setTplName(d.value)} />
+      </FormField>
+      <FormField label="Category" description="Optional grouping, e.g. hvac, safety.">
+        <Input value={tplCategory} onChange={({ detail: d }) => setTplCategory(d.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const templateItemFields = (
+    <FormField label="Checklist items">
+      <SpaceBetween size="xs">
+        {tplItems.map((item, idx) => (
+          <SpaceBetween key={idx} direction="horizontal" size="xs">
+            <Input
+              placeholder="Item label"
+              value={item.label}
+              onChange={({ detail: d }) =>
+                setTplItems((prev) =>
+                  prev.map((p, i) => (i === idx ? { ...p, label: d.value } : p)),
+                )
+              }
+            />
+            <Checkbox
+              checked={item.is_required}
+              onChange={({ detail: d }) =>
+                setTplItems((prev) =>
+                  prev.map((p, i) => (i === idx ? { ...p, is_required: d.checked } : p)),
+                )
+              }
+            >
+              Required
+            </Checkbox>
+            <Button
+              variant="inline-link"
+              onClick={() => setTplItems((prev) => prev.filter((_, i) => i !== idx))}
+            >
+              Remove
+            </Button>
+          </SpaceBetween>
+        ))}
+        <Button
+          onClick={() =>
+            setTplItems((prev) => [...prev, { label: '', description: '', is_required: true }])
+          }
+        >
+          Add item
+        </Button>
+      </SpaceBetween>
+    </FormField>
+  );
+
+  const inspectionBasicsFields = (
+    <SpaceBetween size="m">
+      <FormField label="Title">
+        <Input value={insTitle} onChange={({ detail: d }) => setInsTitle(d.value)} />
+      </FormField>
+      <FormField label="Office">
+        <Select
+          selectedOption={officeOptions.find((o) => o.value === insOfficeId) ?? null}
+          onChange={({ detail: d }) => setInsOfficeId(d.selectedOption.value ?? '')}
+          options={officeOptions}
+          placeholder="Select an office"
+          filteringType="auto"
+        />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const inspectionScheduleFields = (
+    <SpaceBetween size="m">
+      <FormField label="Template" description="Items are copied onto the inspection.">
+        <Select
+          selectedOption={templateOptions.find((o) => o.value === insTemplateId) ?? templateOptions[0]}
+          onChange={({ detail: d }) => setInsTemplateId(d.selectedOption.value ?? '')}
+          options={templateOptions}
+        />
+      </FormField>
+      <FormField label="Scheduled date">
+        <DatePicker
+          value={insScheduled}
+          onChange={({ detail: d }) => setInsScheduled(d.value)}
+          placeholder="YYYY/MM/DD"
+        />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const templateDirty = Boolean(
+    tplName || tplCategory || tplItems.some((i) => i.label.trim() || i.description.trim()),
+  );
+
+  const inspectionDirty = Boolean(insTitle || insOfficeId || insTemplateId || insScheduled);
+
   return (
     <ContentLayout header={<Header variant="h1">Property Inspections</Header>}>
       <Tabs
@@ -277,8 +391,11 @@ const InspectionsPage: React.FC = () => {
                 }
               >
                 <Table
+                  {...inspectionCollection.collectionProps}
                   loading={loading}
-                  items={items}
+                  items={inspectionCollection.items}
+                  filter={inspectionCollection.filter}
+                  pagination={inspectionCollection.pagination}
                   columnDefinitions={[
                     {
                       id: 'title',
@@ -298,7 +415,6 @@ const InspectionsPage: React.FC = () => {
                       cell: (i) => resultBadge(i.overall_result),
                     },
                   ]}
-                  empty={<Box textAlign="center">No inspections yet.</Box>}
                 />
               </Container>
             ),
@@ -324,8 +440,11 @@ const InspectionsPage: React.FC = () => {
                 }
               >
                 <Table
+                  {...templateCollection.collectionProps}
                   loading={loading}
-                  items={templates}
+                  items={templateCollection.items}
+                  filter={templateCollection.filter}
+                  pagination={templateCollection.pagination}
                   columnDefinitions={[
                     { id: 'name', header: 'Name', cell: (t) => t.name },
                     { id: 'category', header: 'Category', cell: (t) => t.category ?? '—' },
@@ -346,7 +465,6 @@ const InspectionsPage: React.FC = () => {
                         ) : null,
                     },
                   ]}
-                  empty={<Box textAlign="center">No templates yet.</Box>}
                 />
               </Container>
             ),
@@ -354,101 +472,55 @@ const InspectionsPage: React.FC = () => {
         ]}
       />
 
-      {/* Template creation modal */}
-      <EntityFormModal
+      {/* Template creation wizard */}
+      <CreateWizardModal
         visible={templateModal}
-        title="New inspection template"
+        entityLabel="inspection template"
         onCancel={() => setTemplateModal(false)}
         onSubmit={saveTemplate}
-        submitLabel="Create"
-      >
-        <SpaceBetween size="m">
-          <FormField label="Name">
-            <Input value={tplName} onChange={({ detail: d }) => setTplName(d.value)} />
-          </FormField>
-          <FormField label="Category" description="Optional grouping, e.g. hvac, safety.">
-            <Input value={tplCategory} onChange={({ detail: d }) => setTplCategory(d.value)} />
-          </FormField>
-          <FormField label="Checklist items">
-            <SpaceBetween size="xs">
-              {tplItems.map((item, idx) => (
-                <SpaceBetween key={idx} direction="horizontal" size="xs">
-                  <Input
-                    placeholder="Item label"
-                    value={item.label}
-                    onChange={({ detail: d }) =>
-                      setTplItems((prev) =>
-                        prev.map((p, i) => (i === idx ? { ...p, label: d.value } : p)),
-                      )
-                    }
-                  />
-                  <Checkbox
-                    checked={item.is_required}
-                    onChange={({ detail: d }) =>
-                      setTplItems((prev) =>
-                        prev.map((p, i) => (i === idx ? { ...p, is_required: d.checked } : p)),
-                      )
-                    }
-                  >
-                    Required
-                  </Checkbox>
-                  <Button
-                    variant="inline-link"
-                    onClick={() => setTplItems((prev) => prev.filter((_, i) => i !== idx))}
-                  >
-                    Remove
-                  </Button>
-                </SpaceBetween>
-              ))}
-              <Button
-                onClick={() =>
-                  setTplItems((prev) => [...prev, { label: '', description: '', is_required: true }])
-                }
-              >
-                Add item
-              </Button>
-            </SpaceBetween>
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
+        dirty={templateDirty}
+        steps={[
+          {
+            title: 'Template basics',
+            description: 'Name the checklist and group it with similar ones.',
+            content: templateBasicsFields,
+            validate: () =>
+              !tplName.trim() ? 'A template needs a name and at least one item.' : null,
+          },
+          {
+            title: 'Checklist items',
+            description: 'What gets scored on every inspection using this template.',
+            content: templateItemFields,
+            validate: () =>
+              tplItems.every((i) => !i.label.trim())
+                ? 'A template needs a name and at least one item.'
+                : null,
+          },
+        ]}
+      />
 
-      {/* Inspection creation modal */}
-      <EntityFormModal
+      {/* Inspection creation wizard */}
+      <CreateWizardModal
         visible={inspectionModal}
-        title="New inspection"
+        entityLabel="inspection"
         onCancel={() => setInspectionModal(false)}
         onSubmit={saveInspection}
-        submitLabel="Create"
-      >
-        <SpaceBetween size="m">
-          <FormField label="Title">
-            <Input value={insTitle} onChange={({ detail: d }) => setInsTitle(d.value)} />
-          </FormField>
-          <FormField label="Office">
-            <Select
-              selectedOption={officeOptions.find((o) => o.value === insOfficeId) ?? null}
-              onChange={({ detail: d }) => setInsOfficeId(d.selectedOption.value ?? '')}
-              options={officeOptions}
-              placeholder="Select an office"
-              filteringType="auto"
-            />
-          </FormField>
-          <FormField label="Template" description="Items are copied onto the inspection.">
-            <Select
-              selectedOption={templateOptions.find((o) => o.value === insTemplateId) ?? templateOptions[0]}
-              onChange={({ detail: d }) => setInsTemplateId(d.selectedOption.value ?? '')}
-              options={templateOptions}
-            />
-          </FormField>
-          <FormField label="Scheduled date">
-            <DatePicker
-              value={insScheduled}
-              onChange={({ detail: d }) => setInsScheduled(d.value)}
-              placeholder="YYYY/MM/DD"
-            />
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
+        dirty={inspectionDirty}
+        steps={[
+          {
+            title: 'Inspection details',
+            description: 'What is being inspected, and where.',
+            content: inspectionBasicsFields,
+            validate: () =>
+              !insTitle.trim() || !insOfficeId ? 'Title and office are required.' : null,
+          },
+          {
+            title: 'Checklist & schedule',
+            description: 'Pick a checklist template and when the visit happens.',
+            content: inspectionScheduleFields,
+          },
+        ]}
+      />
 
       {/* Inspection detail / scoring modal */}
       <Modal

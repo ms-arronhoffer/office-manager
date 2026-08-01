@@ -7,6 +7,7 @@ import Box from '@cloudscape-design/components/box';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Modal from '@cloudscape-design/components/modal';
 import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import Form from '@cloudscape-design/components/form';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
@@ -266,8 +267,89 @@ const UsersPage: React.FC = () => {
 
   // ─── Create / Edit modal ──────────────────────────────────────────────────────
 
-  const isCreateOrEdit = modalMode === 'create' || modalMode === 'edit';
-  const modalTitle = modalMode === 'create' ? 'Create User' : 'Edit User';
+  const identityFields = (
+    <SpaceBetween size="m">
+      <FormField
+        label="Email address"
+        errorText={formErrors.email}
+        constraintText="Must be a valid email address."
+      >
+        <Input
+          type="email"
+          value={form.email}
+          onChange={({ detail }) =>
+            setForm((prev) => ({ ...prev, email: detail.value }))
+          }
+          placeholder="user@example.com"
+          disabled={saving}
+        />
+      </FormField>
+
+      <FormField label="Full name" errorText={formErrors.display_name}>
+        <Input
+          value={form.display_name}
+          onChange={({ detail }) =>
+            setForm((prev) => ({ ...prev, display_name: detail.value }))
+          }
+          placeholder="Jane Smith"
+          disabled={saving}
+        />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const accessFields = (
+    <SpaceBetween size="m">
+      {modalMode === 'create' && (
+        <FormField
+          label="Password"
+          errorText={formErrors.password}
+          constraintText="Minimum 8 characters recommended."
+        >
+          <Input
+            type="password"
+            value={form.password}
+            onChange={({ detail }) =>
+              setForm((prev) => ({ ...prev, password: detail.value }))
+            }
+            placeholder="Enter password"
+            disabled={saving}
+          />
+        </FormField>
+      )}
+
+      <FormField label="Role" errorText={formErrors.role}>
+        <Select
+          selectedOption={form.role}
+          onChange={({ detail }) =>
+            setForm((prev) => ({
+              ...prev,
+              role: detail.selectedOption as SelectOption,
+            }))
+          }
+          options={ROLE_OPTIONS}
+          placeholder="Select a role"
+          disabled={saving}
+        />
+      </FormField>
+
+      {modalMode === 'edit' && (
+        <FormField label="Active">
+          <Toggle
+            checked={form.is_active}
+            onChange={({ detail }) =>
+              setForm((prev) => ({ ...prev, is_active: detail.checked }))
+            }
+            disabled={saving || selectedUser?.id === currentUser?.id}
+          >
+            {form.is_active ? 'Active' : 'Inactive'}
+          </Toggle>
+        </FormField>
+      )}
+    </SpaceBetween>
+  );
+
+  const createDirty = Boolean(form.email || form.display_name || form.password);
 
   // ─── Render ───────────────────────────────────────────────────────────────────
 
@@ -329,14 +411,50 @@ const UsersPage: React.FC = () => {
         />
       </SpaceBetween>
 
-      {/* ── Create / Edit Modal ─────────────────────────────────────────────── */}
-      <EntityFormModal
-        visible={isCreateOrEdit}
-        title={modalTitle}
+      {/* ── Create Wizard ───────────────────────────────────────────────────── */}
+      <CreateWizardModal
+        visible={modalMode === 'create'}
+        entityLabel="user"
         onCancel={closeModal}
         onSubmit={handleSave}
         submitting={saving}
-        submitLabel={modalMode === 'create' ? 'Create User' : 'Save Changes'}
+        error={actionError}
+        dirty={createDirty}
+        size="medium"
+        steps={[
+          {
+            title: 'Account',
+            description: 'Who is signing in?',
+            content: identityFields,
+            validate: () => {
+              if (!form.email.trim()) return 'Email is required.';
+              if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
+                return 'Enter a valid email address.';
+              if (!form.display_name.trim()) return 'Full name is required.';
+              return null;
+            },
+          },
+          {
+            title: 'Access',
+            description: 'Set their initial password and permission level.',
+            content: accessFields,
+            validate: () => {
+              if (!form.password) return 'Password is required when creating a user.';
+              if (!form.role) return 'Role is required.';
+              return null;
+            },
+          },
+        ]}
+      />
+
+      {/* ── Edit Modal ──────────────────────────────────────────────────────── */}
+      <EntityFormModal
+        visible={modalMode === 'edit'}
+        title="Edit User"
+        onCancel={closeModal}
+        onSubmit={handleSave}
+        submitting={saving}
+        submitLabel="Save Changes"
         size="medium"
       >
         <Form>
@@ -347,79 +465,9 @@ const UsersPage: React.FC = () => {
               </Alert>
             )}
 
-            <FormField
-              label="Email address"
-              errorText={formErrors.email}
-              constraintText="Must be a valid email address."
-            >
-              <Input
-                type="email"
-                value={form.email}
-                onChange={({ detail }) =>
-                  setForm((prev) => ({ ...prev, email: detail.value }))
-                }
-                placeholder="user@example.com"
-                disabled={saving}
-              />
-            </FormField>
+            {identityFields}
 
-            <FormField label="Full name" errorText={formErrors.display_name}>
-              <Input
-                value={form.display_name}
-                onChange={({ detail }) =>
-                  setForm((prev) => ({ ...prev, display_name: detail.value }))
-                }
-                placeholder="Jane Smith"
-                disabled={saving}
-              />
-            </FormField>
-
-            {modalMode === 'create' && (
-              <FormField
-                label="Password"
-                errorText={formErrors.password}
-                constraintText="Minimum 8 characters recommended."
-              >
-                <Input
-                  type="password"
-                  value={form.password}
-                  onChange={({ detail }) =>
-                    setForm((prev) => ({ ...prev, password: detail.value }))
-                  }
-                  placeholder="Enter password"
-                  disabled={saving}
-                />
-              </FormField>
-            )}
-
-            <FormField label="Role" errorText={formErrors.role}>
-              <Select
-                selectedOption={form.role}
-                onChange={({ detail }) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    role: detail.selectedOption as SelectOption,
-                  }))
-                }
-                options={ROLE_OPTIONS}
-                placeholder="Select a role"
-                disabled={saving}
-              />
-            </FormField>
-
-            {modalMode === 'edit' && (
-              <FormField label="Active">
-                <Toggle
-                  checked={form.is_active}
-                  onChange={({ detail }) =>
-                    setForm((prev) => ({ ...prev, is_active: detail.checked }))
-                  }
-                  disabled={saving || selectedUser?.id === currentUser?.id}
-                >
-                  {form.is_active ? 'Active' : 'Inactive'}
-                </Toggle>
-              </FormField>
-            )}
+            {accessFields}
           </SpaceBetween>
         </Form>
       </EntityFormModal>

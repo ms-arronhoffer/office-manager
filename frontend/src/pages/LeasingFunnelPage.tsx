@@ -4,7 +4,7 @@ import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
 import Modal from '@cloudscape-design/components/modal';
-import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Textarea from '@cloudscape-design/components/textarea';
@@ -310,6 +310,144 @@ const LeasingFunnelPage: React.FC = () => {
     }
   };
 
+  const applicantFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="First name">
+        <Input value={firstName} onChange={({ detail }) => setFirstName(detail.value)} />
+      </FormField>
+      <FormField label="Last name">
+        <Input value={lastName} onChange={({ detail }) => setLastName(detail.value)} />
+      </FormField>
+      <FormField label="Email">
+        <Input value={email} onChange={({ detail }) => setEmail(detail.value)} />
+      </FormField>
+      <FormField label="Phone">
+        <Input value={phone} onChange={({ detail }) => setPhone(detail.value)} />
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const applicationUnitFields = (
+    <SpaceBetween size="m">
+      <FormField label="Unit">
+        <Select
+          selectedOption={unitOptions.find((o) => o.value === unitId) ?? unitOptions[0]}
+          onChange={({ detail }) => setUnitId(detail.selectedOption.value ?? '')}
+          options={unitOptions}
+          filteringType="auto"
+        />
+      </FormField>
+      <FormField label="Monthly income">
+        <Input type="number" value={income} onChange={({ detail }) => setIncome(detail.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const sendApplicantFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="First name">
+        <Input value={sendFirst} onChange={({ detail }) => setSendFirst(detail.value)} />
+      </FormField>
+      <FormField label="Last name">
+        <Input value={sendLast} onChange={({ detail }) => setSendLast(detail.value)} />
+      </FormField>
+      <FormField label="Email">
+        <Input value={sendEmail} onChange={({ detail }) => setSendEmail(detail.value)} />
+      </FormField>
+      <FormField label="Phone">
+        <Input value={sendPhone} onChange={({ detail }) => setSendPhone(detail.value)} />
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const sendTemplateFields = (
+    <SpaceBetween size="m">
+      <FormField
+        label="Application template"
+        description="Leave blank to use the organization's default template."
+      >
+        <Select
+          selectedOption={
+            templateOptions.find((o) => o.value === sendTemplateId) ?? templateOptions[0]
+          }
+          onChange={({ detail }) => setSendTemplateId(detail.selectedOption.value ?? '')}
+          options={templateOptions}
+          filteringType="auto"
+        />
+      </FormField>
+      <FormField label="Unit">
+        <Select
+          selectedOption={unitOptions.find((o) => o.value === sendUnitId) ?? unitOptions[0]}
+          onChange={({ detail }) => setSendUnitId(detail.selectedOption.value ?? '')}
+          options={unitOptions}
+          filteringType="auto"
+        />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const sigDocumentFields = (
+    <SpaceBetween size="m">
+      <FormField label="Title">
+        <Input value={sigTitle} onChange={({ detail }) => setSigTitle(detail.value)} />
+      </FormField>
+      <FormField label="Lease document text">
+        <Textarea
+          value={sigBody}
+          onChange={({ detail }) => setSigBody(detail.value)}
+          rows={6}
+        />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const sigPartyFields = (
+    <FormField
+      label="Signers"
+      secondaryControl={
+        <Button
+          onClick={() =>
+            setParties((p) => [...p, { signer_name: '', signer_email: '', role: 'tenant' }])
+          }
+        >
+          Add signer
+        </Button>
+      }
+    >
+      <SpaceBetween size="xs">
+        {parties.map((p, i) => (
+          <ColumnLayout key={i} columns={3}>
+            <Input
+              placeholder="Name"
+              value={p.signer_name}
+              onChange={({ detail }) => updateParty(i, 'signer_name', detail.value)}
+            />
+            <Input
+              placeholder="Email"
+              value={p.signer_email}
+              onChange={({ detail }) => updateParty(i, 'signer_email', detail.value)}
+            />
+            <Input
+              placeholder="Role"
+              value={p.role ?? 'tenant'}
+              onChange={({ detail }) => updateParty(i, 'role', detail.value)}
+            />
+          </ColumnLayout>
+        ))}
+      </SpaceBetween>
+    </FormField>
+  );
+
+  const appDirty = Boolean(unitId || firstName || lastName || email || phone || income);
+
+  const sendDirty = Boolean(
+    sendTemplateId || sendUnitId || sendFirst || sendLast || sendEmail || sendPhone,
+  );
+
+  const sigDirty = Boolean(
+    sigTitle || sigBody || parties.some((p) => p.signer_name || p.signer_email),
+  );
+
   return (
     <SpaceBetween size="l">
       <Table<RentalApplication>
@@ -426,89 +564,75 @@ const LeasingFunnelPage: React.FC = () => {
         empty={<Box textAlign="center">No signature requests yet.</Box>}
       />
 
-      <EntityFormModal
+      <CreateWizardModal
         visible={appOpen}
+        entityLabel="rental application"
         onCancel={() => setAppOpen(false)}
-        title="Add application"
-        submitLabel="Save"
-        submitting={savingApp}
         onSubmit={saveApp}
-      >
-        <SpaceBetween size="m">
-          <FormField label="Unit">
-            <Select
-              selectedOption={unitOptions.find((o) => o.value === unitId) ?? unitOptions[0]}
-              onChange={({ detail }) => setUnitId(detail.selectedOption.value ?? '')}
-              options={unitOptions}
-              filteringType="auto"
-            />
-          </FormField>
-          <ColumnLayout columns={2}>
-            <FormField label="First name">
-              <Input value={firstName} onChange={({ detail }) => setFirstName(detail.value)} />
-            </FormField>
-            <FormField label="Last name">
-              <Input value={lastName} onChange={({ detail }) => setLastName(detail.value)} />
-            </FormField>
-            <FormField label="Email">
-              <Input value={email} onChange={({ detail }) => setEmail(detail.value)} />
-            </FormField>
-            <FormField label="Phone">
-              <Input value={phone} onChange={({ detail }) => setPhone(detail.value)} />
-            </FormField>
-            <FormField label="Monthly income">
-              <Input type="number" value={income} onChange={({ detail }) => setIncome(detail.value)} />
-            </FormField>
-          </ColumnLayout>
-        </SpaceBetween>
-      </EntityFormModal>
+        submitting={savingApp}
+        dirty={appDirty}
+        onBulkComplete={load}
+        bulk={{
+          columns: [
+            { key: 'applicant_first_name', label: 'First name', required: true },
+            { key: 'applicant_last_name', label: 'Last name', required: true },
+            { key: 'applicant_email', label: 'Email', required: true },
+            { key: 'applicant_phone', label: 'Phone' },
+            { key: 'monthly_income', label: 'Monthly income' },
+          ],
+          onSubmitRow: async (row) => {
+            await leasingFunnel.createApplication({
+              unit_id: null,
+              applicant_first_name: row.applicant_first_name.trim(),
+              applicant_last_name: row.applicant_last_name.trim(),
+              applicant_email: row.applicant_email.trim(),
+              applicant_phone: row.applicant_phone?.trim() || null,
+              monthly_income: row.monthly_income?.trim() || null,
+            });
+          },
+        }}
+        steps={[
+          {
+            title: 'Applicant',
+            description: 'Who is applying, and how to reach them.',
+            content: applicantFields,
+            validate: () =>
+              !firstName.trim() || !lastName.trim() || !email.trim()
+                ? 'Applicant name and email are required.'
+                : null,
+          },
+          {
+            title: 'Unit & income',
+            description: 'What they are applying for, and what they earn.',
+            content: applicationUnitFields,
+          },
+        ]}
+      />
 
-      <EntityFormModal
+      <CreateWizardModal
         visible={sendOpen}
+        entityLabel="application invite"
         onCancel={() => setSendOpen(false)}
-        title="Send application to applicant"
-        submitLabel="Send"
-        submitting={sendingApp}
         onSubmit={sendFromTemplate}
-      >
-        <SpaceBetween size="m">
-          <FormField
-            label="Application template"
-            description="Leave blank to use the organization's default template."
-          >
-            <Select
-              selectedOption={
-                templateOptions.find((o) => o.value === sendTemplateId) ?? templateOptions[0]
-              }
-              onChange={({ detail }) => setSendTemplateId(detail.selectedOption.value ?? '')}
-              options={templateOptions}
-              filteringType="auto"
-            />
-          </FormField>
-          <FormField label="Unit">
-            <Select
-              selectedOption={unitOptions.find((o) => o.value === sendUnitId) ?? unitOptions[0]}
-              onChange={({ detail }) => setSendUnitId(detail.selectedOption.value ?? '')}
-              options={unitOptions}
-              filteringType="auto"
-            />
-          </FormField>
-          <ColumnLayout columns={2}>
-            <FormField label="First name">
-              <Input value={sendFirst} onChange={({ detail }) => setSendFirst(detail.value)} />
-            </FormField>
-            <FormField label="Last name">
-              <Input value={sendLast} onChange={({ detail }) => setSendLast(detail.value)} />
-            </FormField>
-            <FormField label="Email">
-              <Input value={sendEmail} onChange={({ detail }) => setSendEmail(detail.value)} />
-            </FormField>
-            <FormField label="Phone">
-              <Input value={sendPhone} onChange={({ detail }) => setSendPhone(detail.value)} />
-            </FormField>
-          </ColumnLayout>
-        </SpaceBetween>
-      </EntityFormModal>
+        submitting={sendingApp}
+        dirty={sendDirty}
+        steps={[
+          {
+            title: 'Applicant',
+            description: 'Who receives the application to fill out.',
+            content: sendApplicantFields,
+            validate: () =>
+              !sendFirst.trim() || !sendLast.trim() || !sendEmail.trim()
+                ? 'Applicant name and email are required.'
+                : null,
+          },
+          {
+            title: 'Template & unit',
+            description: 'Which form to send, and for which unit.',
+            content: sendTemplateFields,
+          },
+        ]}
+      />
 
       <Modal
         visible={screenOpen}
@@ -550,61 +674,34 @@ const LeasingFunnelPage: React.FC = () => {
         )}
       </Modal>
 
-      <EntityFormModal
+      <CreateWizardModal
         visible={sigOpen}
+        entityLabel="lease signature request"
         onCancel={() => setSigOpen(false)}
-        title="New lease signature request"
-        submitLabel="Send"
-        submitting={savingSig}
         onSubmit={saveSig}
-      >
-        <SpaceBetween size="m">
-          <FormField label="Title">
-            <Input value={sigTitle} onChange={({ detail }) => setSigTitle(detail.value)} />
-          </FormField>
-          <FormField label="Lease document text">
-            <Textarea
-              value={sigBody}
-              onChange={({ detail }) => setSigBody(detail.value)}
-              rows={6}
-            />
-          </FormField>
-          <FormField
-            label="Signers"
-            secondaryControl={
-              <Button
-                onClick={() =>
-                  setParties((p) => [...p, { signer_name: '', signer_email: '', role: 'tenant' }])
-                }
-              >
-                Add signer
-              </Button>
-            }
-          >
-            <SpaceBetween size="xs">
-              {parties.map((p, i) => (
-                <ColumnLayout key={i} columns={3}>
-                  <Input
-                    placeholder="Name"
-                    value={p.signer_name}
-                    onChange={({ detail }) => updateParty(i, 'signer_name', detail.value)}
-                  />
-                  <Input
-                    placeholder="Email"
-                    value={p.signer_email}
-                    onChange={({ detail }) => updateParty(i, 'signer_email', detail.value)}
-                  />
-                  <Input
-                    placeholder="Role"
-                    value={p.role ?? 'tenant'}
-                    onChange={({ detail }) => updateParty(i, 'role', detail.value)}
-                  />
-                </ColumnLayout>
-              ))}
-            </SpaceBetween>
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
+        submitting={savingSig}
+        dirty={sigDirty}
+        steps={[
+          {
+            title: 'Document',
+            description: 'Title the request and paste the lease text to sign.',
+            content: sigDocumentFields,
+            validate: () =>
+              !sigTitle.trim() || !sigBody.trim()
+                ? 'Title, body, and at least one signer are required.'
+                : null,
+          },
+          {
+            title: 'Signers',
+            description: 'Who signs, in the order they are listed.',
+            content: sigPartyFields,
+            validate: () =>
+              parties.filter((p) => p.signer_name.trim() && p.signer_email.trim()).length === 0
+                ? 'Title, body, and at least one signer are required.'
+                : null,
+          },
+        ]}
+      />
     </SpaceBetween>
   );
 };

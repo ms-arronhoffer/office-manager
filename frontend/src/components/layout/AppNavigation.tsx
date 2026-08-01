@@ -16,6 +16,7 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useInstallPrompt } from '@/hooks/useInstallPrompt';
 import { useCategories } from '@/hooks/useCategories';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import { useUnsavedChanges } from '@/context/UnsavedChangesContext';
 import type { PrimaryCategory } from '@/types';
 import './AppNavigation.css';
 
@@ -32,6 +33,16 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
   const { mode, toggleMode } = useTheme();
   const { getNavigationOpen, setNavigationOpen: persistNavOpen, getPinnedOffices } = usePreferences();
   const { settings } = useSiteSettings();
+  const { confirmLeave } = useUnsavedChanges();
+
+  // Every shared navigation surface routes through here so pending form edits
+  // are never discarded silently.
+  const guardedNavigate = useCallback(
+    (href: string) => {
+      if (confirmLeave()) navigate(href);
+    },
+    [confirmLeave, navigate],
+  );
 
   const [navigationOpen, setNavigationOpen] = useState(() => getNavigationOpen());
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -54,7 +65,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
     () => setActiveDrawerId((id) => (id === AI_ASSISTANT_DRAWER_ID ? null : AI_ASSISTANT_DRAWER_ID)),
     [],
   );
-  useKeyboardShortcuts(onShowShortcuts, toggleAssistant);
+  useKeyboardShortcuts(onShowShortcuts, toggleAssistant, guardedNavigate);
   const { canInstall, promptInstall } = useInstallPrompt();
   const notifications = useNotifications();
 
@@ -218,7 +229,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
             title: 'Portfolio Desk',
             onFollow: (e) => {
               e.preventDefault();
-              navigate('/');
+              guardedNavigate('/');
             },
           }}
           search={<GlobalSearchBar />}
@@ -322,7 +333,7 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
               items={navItems}
               onFollow={(e) => {
                 e.preventDefault();
-                navigate(e.detail.href);
+                guardedNavigate(e.detail.href);
               }}
             />
           </div>

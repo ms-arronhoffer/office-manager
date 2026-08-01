@@ -1,20 +1,22 @@
-import { useEffect } from 'react';
+import { useEffect, useId } from 'react';
+import { useUnsavedChanges } from '@/context/UnsavedChangesContext';
 
 /**
- * Warns the user before navigating away from the page when `dirty` is true.
+ * Warns before abandoning a form with pending edits.
  *
- * This hook attaches a `beforeunload` listener so the browser shows its
- * native "are you sure you want to leave?" prompt for full reloads, tab
- * closes, and external navigation.
- *
- * Note: in-app navigation (clicking a React Router <Link>) is not blocked
- * by `beforeunload`. To block in-app navigation cleanly, the app would
- * need to migrate to a data router (createBrowserRouter) and use
- * `useBlocker`. Until then, prompt the user manually before navigating
- * away from a dirty form (e.g. on Cancel buttons).
+ * Covers both exits: `beforeunload` handles reloads, tab closes and external
+ * navigation, while registering with {@link useUnsavedChanges} lets in-app
+ * navigation (sidebar, logo, breadcrumbs) prompt as well.
  */
 export function useUnsavedChangesWarning(dirty: boolean, message?: string) {
   const text = message ?? 'You have unsaved changes. Are you sure you want to leave?';
+  const key = useId();
+  const { setDirty } = useUnsavedChanges();
+
+  useEffect(() => {
+    setDirty(key, dirty);
+    return () => setDirty(key, false);
+  }, [dirty, key, setDirty]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -28,3 +30,5 @@ export function useUnsavedChangesWarning(dirty: boolean, message?: string) {
     return () => window.removeEventListener('beforeunload', handler);
   }, [dirty, text]);
 }
+
+export default useUnsavedChangesWarning;

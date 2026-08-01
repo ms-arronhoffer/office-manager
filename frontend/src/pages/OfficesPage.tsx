@@ -15,6 +15,8 @@ import Alert from '@cloudscape-design/components/alert';
 import { offices as officesApi } from '@/api';
 import type { Office } from '@/types';
 import { usePreferences } from '@/context/PreferencesContext';
+import { useFilterOptions } from '@/hooks/useFilterOptions';
+import type { FilterOptionSpec } from '@/hooks/useFilterOptions';
 import { useServerCollection } from '@/hooks/useServerCollection';
 import ImportModal from '@/components/common/ImportModal';
 import SavedFiltersDropdown from '@/components/common/SavedFiltersDropdown';
@@ -26,6 +28,19 @@ const FILTERING_PROPERTIES: PropertyFilterProps.FilteringProperty[] = [
   { key: 'location_type', operators: ['=', ':'], propertyLabel: 'Type', groupValuesLabel: 'Types' },
   { key: 'sector', operators: ['=', ':'], propertyLabel: 'Sector', groupValuesLabel: 'Sectors' },
   { key: 'state', operators: ['=', ':'], propertyLabel: 'State', groupValuesLabel: 'States' },
+  { key: 'manager_id', operators: ['='], propertyLabel: 'Manager', groupValuesLabel: 'Managers' },
+  { key: 'is_active', operators: ['='], propertyLabel: 'Active', groupValuesLabel: 'Active' },
+];
+
+const FILTER_OPTION_SPECS: FilterOptionSpec[] = [
+  { propertyKey: 'manager_id', source: 'manager' },
+  {
+    propertyKey: 'is_active',
+    values: [
+      { value: 'true', label: 'Active' },
+      { value: 'false', label: 'Inactive' },
+    ],
+  },
 ];
 
 const OfficesPage: React.FC = () => {
@@ -41,17 +56,11 @@ const OfficesPage: React.FC = () => {
   });
 
   // Convert PropertyFilter tokens to server query params
-  const filters = useMemo(() => {
-    const params: Record<string, unknown> = {};
-    for (const token of filterQuery.tokens) {
-      if ('propertyKey' in token && token.propertyKey && token.value) {
-        params[token.propertyKey] = token.value;
-      } else if ('value' in token && token.value) {
-        params.search = token.value;
-      }
-    }
-    return params;
-  }, [filterQuery]);
+  const { filteringOptions, tokensToParams } = useFilterOptions(FILTER_OPTION_SPECS, 'search');
+  const filters = useMemo(
+    () => tokensToParams(filterQuery.tokens),
+    [filterQuery, tokensToParams],
+  );
 
   const {
     items,
@@ -198,6 +207,7 @@ const OfficesPage: React.FC = () => {
               query={filterQuery}
               onChange={({ detail }) => setFilterQuery(detail)}
               filteringProperties={FILTERING_PROPERTIES}
+              filteringOptions={filteringOptions}
               countText={`${total} matches`}
               expandToViewport
             />

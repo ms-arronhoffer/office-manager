@@ -7,6 +7,7 @@ import Table from '@cloudscape-design/components/table';
 import Button from '@cloudscape-design/components/button';
 import Modal from '@cloudscape-design/components/modal';
 import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -133,6 +134,68 @@ const BudgetingPage: React.FC = () => {
     }
   };
 
+  const basicsFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="Name">
+        <Input value={name} onChange={(e) => setName(e.detail.value)} />
+      </FormField>
+      <FormField label="Fiscal year">
+        <Input type="number" value={fiscalYear} onChange={(e) => setFiscalYear(e.detail.value)} />
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const lineFields = (
+    <FormField label="Account lines">
+      <SpaceBetween size="xs">
+        {lines.map((line, idx) => (
+          <ColumnLayout columns={2} key={idx}>
+            <Select
+              selectedOption={accountOptions.find((o) => o.value === line.account_id) ?? null}
+              onChange={(e) => {
+                const next = [...lines];
+                next[idx] = { ...next[idx], account_id: e.detail.selectedOption.value ?? '' };
+                setLines(next);
+              }}
+              options={accountOptions}
+              placeholder="Select account"
+              filteringType="auto"
+            />
+            <SpaceBetween direction="horizontal" size="xs">
+              <Input
+                type="number"
+                value={line.amount}
+                placeholder="Amount"
+                onChange={(e) => {
+                  const next = [...lines];
+                  next[idx] = { ...next[idx], amount: e.detail.value };
+                  setLines(next);
+                }}
+              />
+              <Button
+                iconName="close"
+                variant="icon"
+                onClick={() => setLines(lines.filter((_, i) => i !== idx))}
+              />
+            </SpaceBetween>
+          </ColumnLayout>
+        ))}
+        <Button
+          iconName="add-plus"
+          onClick={() => setLines([...lines, { account_id: '', amount: '' }])}
+        >
+          Add line
+        </Button>
+      </SpaceBetween>
+    </FormField>
+  );
+
+  const createDirty = Boolean(
+    name ||
+      fiscalYear !== String(new Date().getFullYear()) ||
+      lines.some((l) => l.account_id || l.amount),
+  );
+
   return (
     <ContentLayout
       header={
@@ -171,10 +234,34 @@ const BudgetingPage: React.FC = () => {
         ]}
       />
 
-      {/* Create / edit modal */}
+      {/* Create wizard */}
+      <CreateWizardModal
+        visible={modalOpen && !editingId}
+        entityLabel="budget"
+        onCancel={() => setModalOpen(false)}
+        onSubmit={save}
+        submitting={saving}
+        dirty={createDirty}
+        size="large"
+        steps={[
+          {
+            title: 'Budget basics',
+            description: 'Name the budget and pick its fiscal year.',
+            content: basicsFields,
+            validate: () => (!name.trim() ? 'A budget name is required.' : null),
+          },
+          {
+            title: 'Account lines',
+            description: 'Budget an amount per GL account.',
+            content: lineFields,
+          },
+        ]}
+      />
+
+      {/* Edit modal */}
       <EntityFormModal
-        visible={modalOpen}
-        title={editingId ? 'Edit budget' : 'New budget'}
+        visible={modalOpen && Boolean(editingId)}
+        title="Edit budget"
         onCancel={() => setModalOpen(false)}
         onSubmit={save}
         submitting={saving}
@@ -182,56 +269,8 @@ const BudgetingPage: React.FC = () => {
         size="large"
       >
         <SpaceBetween size="m">
-          <ColumnLayout columns={2}>
-            <FormField label="Name">
-              <Input value={name} onChange={(e) => setName(e.detail.value)} />
-            </FormField>
-            <FormField label="Fiscal year">
-              <Input type="number" value={fiscalYear} onChange={(e) => setFiscalYear(e.detail.value)} />
-            </FormField>
-          </ColumnLayout>
-          <FormField label="Account lines">
-            <SpaceBetween size="xs">
-              {lines.map((line, idx) => (
-                <ColumnLayout columns={2} key={idx}>
-                  <Select
-                    selectedOption={accountOptions.find((o) => o.value === line.account_id) ?? null}
-                    onChange={(e) => {
-                      const next = [...lines];
-                      next[idx] = { ...next[idx], account_id: e.detail.selectedOption.value ?? '' };
-                      setLines(next);
-                    }}
-                    options={accountOptions}
-                    placeholder="Select account"
-                    filteringType="auto"
-                  />
-                  <SpaceBetween direction="horizontal" size="xs">
-                    <Input
-                      type="number"
-                      value={line.amount}
-                      placeholder="Amount"
-                      onChange={(e) => {
-                        const next = [...lines];
-                        next[idx] = { ...next[idx], amount: e.detail.value };
-                        setLines(next);
-                      }}
-                    />
-                    <Button
-                      iconName="close"
-                      variant="icon"
-                      onClick={() => setLines(lines.filter((_, i) => i !== idx))}
-                    />
-                  </SpaceBetween>
-                </ColumnLayout>
-              ))}
-              <Button
-                iconName="add-plus"
-                onClick={() => setLines([...lines, { account_id: '', amount: '' }])}
-              >
-                Add line
-              </Button>
-            </SpaceBetween>
-          </FormField>
+          {basicsFields}
+          {lineFields}
         </SpaceBetween>
       </EntityFormModal>
 

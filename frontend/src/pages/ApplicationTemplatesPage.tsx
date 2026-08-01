@@ -14,6 +14,7 @@ import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { applicationTemplates } from '@/api';
+import EmptyState from '@/components/common/EmptyState';
 import type { ApplicationTemplate, ApplicationTemplateField } from '@/types';
 
 // Applicant merge fields available in the backend's
@@ -236,7 +237,14 @@ const ApplicationTemplatesPage: React.FC = () => {
             ),
           },
         ]}
-        empty={<Box textAlign="center">No application templates yet.</Box>}
+        empty={
+          <EmptyState
+            title="No application templates yet"
+            description="Templates define the questions prospects answer when they apply."
+            actionLabel="Create your first template"
+            onAction={openCreate}
+          />
+        }
       />
 
       <Modal

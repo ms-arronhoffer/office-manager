@@ -7,6 +7,7 @@ import Box from '@cloudscape-design/components/box';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Modal from '@cloudscape-design/components/modal';
 import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import Form from '@cloudscape-design/components/form';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
@@ -204,8 +205,39 @@ const ManagersPage: React.FC = () => {
       : []),
   ];
 
-  const isCreateOrEdit = modalMode === 'create' || modalMode === 'edit';
-  const modalTitle = modalMode === 'create' ? 'Add Manager' : 'Edit Manager';
+  const managerFields = (
+    <SpaceBetween size="m">
+      <FormField label="Name" errorText={formErrors.name}>
+        <Input
+          value={form.name}
+          onChange={({ detail }) => setForm((prev) => ({ ...prev, name: detail.value }))}
+          placeholder="Manager name"
+          disabled={saving}
+        />
+      </FormField>
+
+      <FormField label="Email">
+        <Input
+          type="email"
+          value={form.email}
+          onChange={({ detail }) => setForm((prev) => ({ ...prev, email: detail.value }))}
+          placeholder="manager@example.com"
+          disabled={saving}
+        />
+      </FormField>
+
+      <FormField label="Phone">
+        <Input
+          value={form.phone}
+          onChange={({ detail }) => setForm((prev) => ({ ...prev, phone: detail.value }))}
+          placeholder="(555) 123-4567"
+          disabled={saving}
+        />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const createDirty = Boolean(form.name || form.email || form.phone);
 
   return (
     <ContentLayout
@@ -257,14 +289,49 @@ const ManagersPage: React.FC = () => {
         />
       </SpaceBetween>
 
-      {/* Create / Edit Modal */}
-      <EntityFormModal
-        visible={isCreateOrEdit}
-        title={modalTitle}
+      {/* Create Wizard */}
+      <CreateWizardModal
+        visible={modalMode === 'create'}
+        entityLabel="manager"
         onCancel={closeModal}
         onSubmit={handleSave}
         submitting={saving}
-        submitLabel={modalMode === 'create' ? 'Add Manager' : 'Save Changes'}
+        error={actionError}
+        dirty={createDirty}
+        onBulkComplete={fetchManagers}
+        size="medium"
+        bulk={{
+          columns: [
+            { key: 'name', label: 'Name', required: true },
+            { key: 'email', label: 'Email' },
+            { key: 'phone', label: 'Phone' },
+          ],
+          onSubmitRow: async (row) => {
+            await managersApi.create({
+              name: row.name.trim(),
+              email: row.email?.trim() || undefined,
+              phone: row.phone?.trim() || undefined,
+            });
+          },
+        }}
+        steps={[
+          {
+            title: 'Manager details',
+            description: 'Who is this manager, and how do you reach them?',
+            content: managerFields,
+            validate: () => (!form.name.trim() ? 'Name is required.' : null),
+          },
+        ]}
+      />
+
+      {/* Edit Modal */}
+      <EntityFormModal
+        visible={modalMode === 'edit'}
+        title="Edit Manager"
+        onCancel={closeModal}
+        onSubmit={handleSave}
+        submitting={saving}
+        submitLabel="Save Changes"
         size="medium"
       >
         <Form>
@@ -275,33 +342,7 @@ const ManagersPage: React.FC = () => {
               </Alert>
             )}
 
-            <FormField label="Name" errorText={formErrors.name}>
-              <Input
-                value={form.name}
-                onChange={({ detail }) => setForm((prev) => ({ ...prev, name: detail.value }))}
-                placeholder="Manager name"
-                disabled={saving}
-              />
-            </FormField>
-
-            <FormField label="Email">
-              <Input
-                type="email"
-                value={form.email}
-                onChange={({ detail }) => setForm((prev) => ({ ...prev, email: detail.value }))}
-                placeholder="manager@example.com"
-                disabled={saving}
-              />
-            </FormField>
-
-            <FormField label="Phone">
-              <Input
-                value={form.phone}
-                onChange={({ detail }) => setForm((prev) => ({ ...prev, phone: detail.value }))}
-                placeholder="(555) 123-4567"
-                disabled={saving}
-              />
-            </FormField>
+            {managerFields}
           </SpaceBetween>
         </Form>
       </EntityFormModal>

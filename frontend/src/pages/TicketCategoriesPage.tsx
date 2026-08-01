@@ -6,8 +6,7 @@ import Button from '@cloudscape-design/components/button';
 import Box from '@cloudscape-design/components/box';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Modal from '@cloudscape-design/components/modal';
-import EntityFormModal from '@/components/common/EntityFormModal';
-import Form from '@cloudscape-design/components/form';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Alert from '@cloudscape-design/components/alert';
@@ -139,6 +138,22 @@ const TicketCategoriesPage: React.FC = () => {
       : []),
   ];
 
+  const categoryFields = (
+    <FormField label="Category Name" errorText={nameError}>
+      <Input
+        value={name}
+        onChange={({ detail }) => {
+          setName(detail.value);
+          setNameError('');
+        }}
+        placeholder="e.g. Plumbing, Electrical, HVAC"
+        disabled={saving}
+      />
+    </FormField>
+  );
+
+  const createDirty = Boolean(name);
+
   return (
     <ContentLayout
       header={
@@ -190,37 +205,32 @@ const TicketCategoriesPage: React.FC = () => {
         />
       </SpaceBetween>
 
-      {/* Create Modal */}
-      <EntityFormModal
+      {/* Create Wizard */}
+      <CreateWizardModal
         visible={modalMode === 'create'}
-        title="Add Category"
+        entityLabel="category"
         onCancel={closeModal}
         onSubmit={handleCreate}
         submitting={saving}
-        submitLabel="Add Category"
+        error={actionError}
+        dirty={createDirty}
+        onBulkComplete={fetchCategories}
         size="medium"
-      >
-        <Form>
-          <SpaceBetween size="m">
-            {actionError && (
-              <Alert type="error" dismissible onDismiss={() => setActionError(null)}>
-                {actionError}
-              </Alert>
-            )}
-            <FormField label="Category Name" errorText={nameError}>
-              <Input
-                value={name}
-                onChange={({ detail }) => {
-                  setName(detail.value);
-                  setNameError('');
-                }}
-                placeholder="e.g. Plumbing, Electrical, HVAC"
-                disabled={saving}
-              />
-            </FormField>
-          </SpaceBetween>
-        </Form>
-      </EntityFormModal>
+        bulk={{
+          columns: [{ key: 'name', label: 'Category Name', required: true }],
+          onSubmitRow: async (row) => {
+            await categoriesApi.create({ name: row.name.trim() });
+          },
+        }}
+        steps={[
+          {
+            title: 'Category name',
+            description: 'Name the work type residents and staff will pick when raising a ticket.',
+            content: categoryFields,
+            validate: () => (!name.trim() ? 'Name is required.' : null),
+          },
+        ]}
+      />
 
       {/* Delete Confirmation Modal */}
       <Modal

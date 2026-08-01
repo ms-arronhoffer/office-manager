@@ -13,8 +13,10 @@ import Container from '@cloudscape-design/components/container';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { owners as ownersApi } from '@/api';
+import EmptyState from '@/components/common/EmptyState';
 import PortalInviteButton from '@/components/common/PortalInviteButton';
 import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import type {
   PropertyOwner,
   OwnerStatus,
@@ -347,6 +349,67 @@ const OwnersPage: React.FC = () => {
     }
   };
 
+  const ownerIdentityFields = (
+    <SpaceBetween size="m">
+      <FormField label="Name">
+        <Input value={name} onChange={({ detail }) => setName(detail.value)} />
+      </FormField>
+      <ColumnLayout columns={2}>
+        <FormField label="Email">
+          <Input value={email} onChange={({ detail }) => setEmail(detail.value)} />
+        </FormField>
+        <FormField label="Phone">
+          <Input value={phone} onChange={({ detail }) => setPhone(detail.value)} />
+        </FormField>
+      </ColumnLayout>
+    </SpaceBetween>
+  );
+
+  const ownerTermsFields = (
+    <SpaceBetween size="m">
+      <ColumnLayout columns={2}>
+        <FormField label="Management fee %">
+          <Input
+            type="number"
+            value={feePercent}
+            onChange={({ detail }) => setFeePercent(detail.value)}
+          />
+        </FormField>
+        <FormField label="Status">
+          <Select
+            selectedOption={{ label: statusValue, value: statusValue }}
+            onChange={({ detail }) => setStatusValue(detail.selectedOption.value as OwnerStatus)}
+            options={OWNER_STATUSES.map((s) => ({ label: s, value: s }))}
+          />
+        </FormField>
+      </ColumnLayout>
+      <FormField label="Notes">
+        <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const ownerCreateDirty = Boolean(name || email || phone || notes || feePercent !== '0');
+
+  const trustAccountFields = (
+    <SpaceBetween size="m">
+      <FormField label="Account name">
+        <Input value={trustName} onChange={({ detail }) => setTrustName(detail.value)} />
+      </FormField>
+      <FormField label="Bank name">
+        <Input value={trustBank} onChange={({ detail }) => setTrustBank(detail.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const trustIdentificationFields = (
+    <FormField label="Account number (last 4)">
+      <Input value={trustLast4} onChange={({ detail }) => setTrustLast4(detail.value)} />
+    </FormField>
+  );
+
+  const trustCreateDirty = Boolean(trustName || trustBank || trustLast4);
+
   return (
     <SpaceBetween size="l">
       <Table<PropertyOwner>
@@ -403,7 +466,14 @@ const OwnersPage: React.FC = () => {
             ),
           },
         ]}
-        empty={<Box textAlign="center">No owners yet.</Box>}
+        empty={
+          <EmptyState
+            title="No owners yet"
+            description="Track the people you manage properties on behalf of."
+            actionLabel="Add your first owner"
+            onAction={openOwnerCreate}
+          />
+        }
       />
 
       {detailOwner && (
@@ -530,135 +600,213 @@ const OwnersPage: React.FC = () => {
             ),
           },
         ]}
-        empty={<Box textAlign="center">No trust accounts yet.</Box>}
+        empty={
+          <EmptyState
+            title="No trust accounts yet"
+            description="Hold owner funds separately from operating cash."
+            actionLabel="Add your first trust account"
+            onAction={openTrustCreate}
+          />
+        }
       />
 
-      {/* Owner modal */}
-      <EntityFormModal
-        visible={ownerOpen}
+      {/* Owner create wizard */}
+      <CreateWizardModal
+        visible={ownerOpen && !editing}
+        entityLabel="owner"
+        size="medium"
         onCancel={() => setOwnerOpen(false)}
-        title={editing ? 'Edit owner' : 'Add owner'}
+        onSubmit={saveOwner}
+        submitting={savingOwner}
+        dirty={ownerCreateDirty}
+        onBulkComplete={loadTop}
+        bulk={{
+          columns: [
+            { key: 'name', label: 'Name', required: true },
+            { key: 'email', label: 'Email' },
+            { key: 'phone', label: 'Phone' },
+            { key: 'management_fee_percent', label: 'Management fee %' },
+            { key: 'status', label: 'Status' },
+          ],
+          onSubmitRow: async (row) => {
+            const status = OWNER_STATUSES.includes(row.status as OwnerStatus)
+              ? (row.status as OwnerStatus)
+              : 'active';
+            await ownersApi.create({
+              name: row.name.trim(),
+              email: row.email?.trim() || null,
+              phone: row.phone?.trim() || null,
+              management_fee_percent: row.management_fee_percent?.trim() || '0',
+              status,
+              notes: null,
+            });
+          },
+        }}
+        steps={[
+          {
+            title: 'Owner',
+            description: 'Who owns the property, and how do you reach them?',
+            content: ownerIdentityFields,
+            validate: () => (!name.trim() ? 'Owner name is required.' : null),
+          },
+          {
+            title: 'Management terms',
+            description: 'Fee split, account status, and internal notes.',
+            content: ownerTermsFields,
+          },
+        ]}
+      />
+
+      {/* Owner edit modal */}
+      <EntityFormModal
+        visible={ownerOpen && Boolean(editing)}
+        onCancel={() => setOwnerOpen(false)}
+        title="Edit owner"
         submitLabel="Save"
         submitting={savingOwner}
         onSubmit={saveOwner}
       >
         <SpaceBetween size="m">
-          <FormField label="Name">
-            <Input value={name} onChange={({ detail }) => setName(detail.value)} />
-          </FormField>
-          <ColumnLayout columns={2}>
-            <FormField label="Email">
-              <Input value={email} onChange={({ detail }) => setEmail(detail.value)} />
-            </FormField>
-            <FormField label="Phone">
-              <Input value={phone} onChange={({ detail }) => setPhone(detail.value)} />
-            </FormField>
-            <FormField label="Management fee %">
-              <Input
-                type="number"
-                value={feePercent}
-                onChange={({ detail }) => setFeePercent(detail.value)}
-              />
-            </FormField>
-            <FormField label="Status">
-              <Select
-                selectedOption={{ label: statusValue, value: statusValue }}
-                onChange={({ detail }) =>
-                  setStatusValue(detail.selectedOption.value as OwnerStatus)
-                }
-                options={OWNER_STATUSES.map((s) => ({ label: s, value: s }))}
-              />
-            </FormField>
-          </ColumnLayout>
-          <FormField label="Notes">
-            <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
-          </FormField>
+          {ownerIdentityFields}
+          {ownerTermsFields}
         </SpaceBetween>
       </EntityFormModal>
 
-      {/* Ledger entry modal */}
-      <EntityFormModal
+      {/* Ledger entry wizard */}
+      <CreateWizardModal
         visible={ledgerOpen}
+        entityLabel="ledger entry"
+        size="medium"
         onCancel={() => setLedgerOpen(false)}
-        title="Add ledger entry"
-        submitLabel="Post"
-        submitting={savingEntry}
         onSubmit={saveEntry}
-      >
-        <SpaceBetween size="m">
-          <FormField label="Entry type">
-            <Select
-              selectedOption={{ label: entryType, value: entryType }}
-              onChange={({ detail }) =>
-                setEntryType(detail.selectedOption.value as LedgerEntryType)
-              }
-              options={LEDGER_ENTRY_TYPES.map((t) => ({ label: t, value: t }))}
-            />
-          </FormField>
-          <FormField label="Amount">
-            <Input
-              type="number"
-              value={entryAmount}
-              onChange={({ detail }) => setEntryAmount(detail.value)}
-            />
-          </FormField>
-          <FormField label="Description">
-            <Input value={entryDesc} onChange={({ detail }) => setEntryDesc(detail.value)} />
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
+        submitting={savingEntry}
+        dirty={Boolean(entryAmount || entryDesc)}
+        steps={[
+          {
+            title: 'Entry details',
+            description: 'Post an amount against this owner’s ledger.',
+            content: (
+              <SpaceBetween size="m">
+                <FormField label="Entry type">
+                  <Select
+                    selectedOption={{ label: entryType, value: entryType }}
+                    onChange={({ detail }) =>
+                      setEntryType(detail.selectedOption.value as LedgerEntryType)
+                    }
+                    options={LEDGER_ENTRY_TYPES.map((t) => ({ label: t, value: t }))}
+                  />
+                </FormField>
+                <FormField label="Amount">
+                  <Input
+                    type="number"
+                    value={entryAmount}
+                    onChange={({ detail }) => setEntryAmount(detail.value)}
+                  />
+                </FormField>
+                <FormField label="Description">
+                  <Input value={entryDesc} onChange={({ detail }) => setEntryDesc(detail.value)} />
+                </FormField>
+              </SpaceBetween>
+            ),
+            validate: () =>
+              Number(entryAmount) > 0 ? null : 'Amount must be greater than zero.',
+          },
+        ]}
+      />
 
-      {/* Distribution modal */}
-      <EntityFormModal
+      {/* Distribution wizard */}
+      <CreateWizardModal
         visible={distOpen}
+        entityLabel="distribution"
+        size="medium"
         onCancel={() => setDistOpen(false)}
-        title="New distribution"
-        submitLabel="Create"
-        submitting={savingDist}
         onSubmit={saveDist}
-      >
-        <SpaceBetween size="m">
-          <FormField label="Amount">
-            <Input
-              type="number"
-              value={distAmount}
-              onChange={({ detail }) => setDistAmount(detail.value)}
-            />
-          </FormField>
-          <FormField label="Method">
-            <Select
-              selectedOption={{ label: distMethod, value: distMethod }}
-              onChange={({ detail }) =>
-                setDistMethod(detail.selectedOption.value as DistributionMethod)
-              }
-              options={DISTRIBUTION_METHODS.map((m) => ({ label: m, value: m }))}
-            />
-          </FormField>
-          <FormField label="Memo">
-            <Input value={distMemo} onChange={({ detail }) => setDistMemo(detail.value)} />
-          </FormField>
-        </SpaceBetween>
-      </EntityFormModal>
+        submitting={savingDist}
+        dirty={Boolean(distAmount || distMemo)}
+        steps={[
+          {
+            title: 'Distribution details',
+            description: 'Pay funds out to this owner.',
+            content: (
+              <SpaceBetween size="m">
+                <FormField label="Amount">
+                  <Input
+                    type="number"
+                    value={distAmount}
+                    onChange={({ detail }) => setDistAmount(detail.value)}
+                  />
+                </FormField>
+                <FormField label="Method">
+                  <Select
+                    selectedOption={{ label: distMethod, value: distMethod }}
+                    onChange={({ detail }) =>
+                      setDistMethod(detail.selectedOption.value as DistributionMethod)
+                    }
+                    options={DISTRIBUTION_METHODS.map((m) => ({ label: m, value: m }))}
+                  />
+                </FormField>
+                <FormField label="Memo">
+                  <Input value={distMemo} onChange={({ detail }) => setDistMemo(detail.value)} />
+                </FormField>
+              </SpaceBetween>
+            ),
+            validate: () =>
+              Number(distAmount) > 0 ? null : 'Amount must be greater than zero.',
+          },
+        ]}
+      />
 
-      {/* Trust account modal */}
-      <EntityFormModal
-        visible={trustOpen}
+      {/* Trust account create wizard */}
+      <CreateWizardModal
+        visible={trustOpen && !editingTrust}
+        entityLabel="trust account"
+        size="medium"
         onCancel={() => setTrustOpen(false)}
-        title={editingTrust ? 'Edit trust account' : 'Add trust account'}
+        onSubmit={saveTrust}
+        submitting={savingTrust}
+        dirty={trustCreateDirty}
+        onBulkComplete={loadTop}
+        bulk={{
+          columns: [
+            { key: 'name', label: 'Account name', required: true },
+            { key: 'bank_name', label: 'Bank name' },
+            { key: 'account_number_last4', label: 'Account number (last 4)' },
+          ],
+          onSubmitRow: async (row) => {
+            await ownersApi.createTrustAccount({
+              name: row.name.trim(),
+              bank_name: row.bank_name?.trim() || null,
+              account_number_last4: row.account_number_last4?.trim() || null,
+            });
+          },
+        }}
+        steps={[
+          {
+            title: 'Account',
+            description: 'Name the account and the bank that holds it.',
+            content: trustAccountFields,
+            validate: () => (!trustName.trim() ? 'Account name is required.' : null),
+          },
+          {
+            title: 'Identification',
+            description: 'The last four digits used to reconcile statements.',
+            content: trustIdentificationFields,
+          },
+        ]}
+      />
+
+      {/* Trust account edit modal */}
+      <EntityFormModal
+        visible={trustOpen && Boolean(editingTrust)}
+        onCancel={() => setTrustOpen(false)}
+        title="Edit trust account"
         submitLabel="Save"
         submitting={savingTrust}
         onSubmit={saveTrust}
       >
         <SpaceBetween size="m">
-          <FormField label="Account name">
-            <Input value={trustName} onChange={({ detail }) => setTrustName(detail.value)} />
-          </FormField>
-          <FormField label="Bank name">
-            <Input value={trustBank} onChange={({ detail }) => setTrustBank(detail.value)} />
-          </FormField>
-          <FormField label="Account number (last 4)">
-            <Input value={trustLast4} onChange={({ detail }) => setTrustLast4(detail.value)} />
-          </FormField>
+          {trustAccountFields}
+          {trustIdentificationFields}
         </SpaceBetween>
       </EntityFormModal>
     </SpaceBetween>

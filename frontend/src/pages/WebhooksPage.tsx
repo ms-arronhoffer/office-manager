@@ -7,6 +7,7 @@ import Table from '@cloudscape-design/components/table';
 import Box from '@cloudscape-design/components/box';
 import Modal from '@cloudscape-design/components/modal';
 import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -156,6 +157,40 @@ const WebhooksPage: React.FC = () => {
     );
   };
 
+  const webhookFields = (
+    <SpaceBetween size="m">
+      <FormField label="Endpoint URL" description="Must be publicly reachable (https:// recommended).">
+        <Input
+          value={url}
+          onChange={({ detail }) => setUrl(detail.value)}
+          placeholder="https://example.com/webhooks/office-manager"
+          type="url"
+        />
+      </FormField>
+      <FormField
+        label="Events"
+        description="Select which events to subscribe to, or choose * for all."
+      >
+        <Select
+          selectedOption={
+            EVENT_OPTIONS.find((o) => o.value === eventsValue) ??
+            { label: eventsValue, value: eventsValue }
+          }
+          onChange={({ detail }) => setEventsValue(detail.selectedOption.value ?? '*')}
+          options={[
+            ...EVENT_OPTIONS,
+            // Allow custom comma-separated value if already set
+            ...(KNOWN_EVENTS.includes(eventsValue) || eventsValue === '*'
+              ? []
+              : [{ label: eventsValue, value: eventsValue }]),
+          ]}
+        />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const createDirty = Boolean(url || eventsValue !== '*');
+
   return (
     <SpaceBetween size="l">
       <Container
@@ -236,45 +271,49 @@ const WebhooksPage: React.FC = () => {
         header={<Header counter={`(${items.length})`}>Registered endpoints</Header>}
       />
 
-      {/* Create / Edit Modal */}
+      {/* Create Wizard */}
+      <CreateWizardModal
+        visible={modalOpen && !editingWebhook}
+        entityLabel="webhook"
+        onCancel={() => setModalOpen(false)}
+        onSubmit={handleSave}
+        submitting={saving}
+        dirty={createDirty}
+        onBulkComplete={load}
+        size="medium"
+        bulk={{
+          columns: [
+            { key: 'url', label: 'Endpoint URL', required: true },
+            { key: 'events', label: 'Events' },
+          ],
+          onSubmitRow: async (row) => {
+            await webhooksApi.create({
+              url: row.url.trim(),
+              events: row.events?.trim() || '*',
+            });
+          },
+        }}
+        steps={[
+          {
+            title: 'Endpoint',
+            description: 'Where should we deliver events, and which ones?',
+            content: webhookFields,
+            validate: () => (!url.trim() ? 'Endpoint URL is required.' : null),
+          },
+        ]}
+      />
+
+      {/* Edit Modal */}
       <EntityFormModal
-        visible={modalOpen}
-        title={editingWebhook ? 'Edit webhook' : 'Add webhook'}
+        visible={modalOpen && Boolean(editingWebhook)}
+        title="Edit webhook"
         onCancel={() => setModalOpen(false)}
         onSubmit={handleSave}
         submitting={saving}
         submitDisabled={!url.trim()}
-        submitLabel={editingWebhook ? 'Save changes' : 'Create webhook'}
+        submitLabel="Save changes"
       >
-        <SpaceBetween size="m">
-          <FormField label="Endpoint URL" description="Must be publicly reachable (https:// recommended).">
-            <Input
-              value={url}
-              onChange={({ detail }) => setUrl(detail.value)}
-              placeholder="https://example.com/webhooks/office-manager"
-              type="url"
-            />
-          </FormField>
-          <FormField
-            label="Events"
-            description="Select which events to subscribe to, or choose * for all."
-          >
-            <Select
-              selectedOption={
-                EVENT_OPTIONS.find((o) => o.value === eventsValue) ??
-                { label: eventsValue, value: eventsValue }
-              }
-              onChange={({ detail }) => setEventsValue(detail.selectedOption.value ?? '*')}
-              options={[
-                ...EVENT_OPTIONS,
-                // Allow custom comma-separated value if already set
-                ...(KNOWN_EVENTS.includes(eventsValue) || eventsValue === '*'
-                  ? []
-                  : [{ label: eventsValue, value: eventsValue }]),
-              ]}
-            />
-          </FormField>
-        </SpaceBetween>
+        {webhookFields}
       </EntityFormModal>
 
       {/* Delivery History Modal */}

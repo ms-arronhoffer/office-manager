@@ -76,15 +76,21 @@ const ResidentDetailPage: React.FC = () => {
       setResident(res.data);
       setLeases(leaseRes.data);
 
-      // Units give each lease a human-readable address; failure is non-fatal.
-      leasing
-        .listUnits()
-        .then((r) => setUnits(r.data))
-        .catch(() => undefined);
+      const leaseIds = leaseRes.data.map((l) => l.id);
+
+      // Resolve only the units this resident actually occupies.
+      const unitIds = Array.from(new Set(leaseRes.data.map((l) => l.unit_id)));
+      Promise.all(
+        unitIds.map((unitId) =>
+          leasing
+            .getUnit(unitId)
+            .then((r) => r.data)
+            .catch(() => null),
+        ),
+      ).then((loaded) => setUnits(loaded.filter((u): u is RentalUnit => u !== null)));
 
       // Rent charges and deposits are per-lease and finance-gated, so they are
       // fetched best-effort and simply omitted when the caller lacks access.
-      const leaseIds = leaseRes.data.map((l) => l.id);
       const [chargeLists, depositLists] = await Promise.all([
         Promise.all(
           leaseIds.map((leaseId) =>

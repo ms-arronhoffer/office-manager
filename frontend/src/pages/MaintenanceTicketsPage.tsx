@@ -22,6 +22,8 @@ import { usePreferences } from '@/context/PreferencesContext';
 import { useSiteSettings } from '@/context/SiteSettingsContext';
 import { useServerCollection } from '@/hooks/useServerCollection';
 import SavedFiltersDropdown from '@/components/common/SavedFiltersDropdown';
+import { useFilterOptions } from '@/hooks/useFilterOptions';
+import type { FilterOptionSpec } from '@/hooks/useFilterOptions';
 
 const DEFAULT_VISIBLE = ['subject', 'priority', 'status', 'category', 'office', 'assigned_to', 'created_by', 'created_at', 'days_open'];
 
@@ -65,6 +67,35 @@ const STATUS_OPTIONS = [
 
 const FILTERING_PROPERTIES: PropertyFilterProps.FilteringProperty[] = [
   { key: 'priority', operators: ['='], propertyLabel: 'Priority', groupValuesLabel: 'Priorities' },
+  { key: 'status', operators: ['='], propertyLabel: 'Status', groupValuesLabel: 'Statuses' },
+  { key: 'assigned_to_id', operators: ['='], propertyLabel: 'Assigned To', groupValuesLabel: 'Assignees' },
+  { key: 'category_id', operators: ['='], propertyLabel: 'Category', groupValuesLabel: 'Categories' },
+  { key: 'office_id', operators: ['='], propertyLabel: 'Office', groupValuesLabel: 'Offices' },
+];
+
+// `assigned_to_id`, `category_id` and `office_id` are UUID columns, so they are
+// resolved to pickable names rather than typed by hand.
+const FILTER_OPTION_SPECS: FilterOptionSpec[] = [
+  { propertyKey: 'assigned_to_id', source: 'manager' },
+  { propertyKey: 'category_id', source: 'ticket_category' },
+  { propertyKey: 'office_id', source: 'office' },
+  {
+    propertyKey: 'priority',
+    values: [
+      { value: 'high', label: 'High' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'low', label: 'Low' },
+    ],
+  },
+  {
+    propertyKey: 'status',
+    values: [
+      { value: 'open', label: 'Open' },
+      { value: 'in_progress', label: 'In Progress' },
+      { value: 'pending_review', label: 'Pending Review' },
+      { value: 'closed', label: 'Closed' },
+    ],
+  },
 ];
 
 const MaintenanceTicketsPage: React.FC = () => {
@@ -92,22 +123,16 @@ const MaintenanceTicketsPage: React.FC = () => {
   });
 
   // Combine tab filter + PropertyFilter tokens
+  const { filteringOptions, tokensToParams } = useFilterOptions(FILTER_OPTION_SPECS);
   const filters = useMemo(() => {
-    const params: Record<string, unknown> = {};
+    const params: Record<string, unknown> = tokensToParams(filterQuery.tokens);
 
-    // Tab status filter
+    // The status tab is the authoritative status filter when it isn't "all".
     if (activeTab !== 'all') {
       params.status = activeTab;
     }
-
-    // PropertyFilter tokens
-    for (const token of filterQuery.tokens) {
-      if ('propertyKey' in token && token.propertyKey && token.value) {
-        params[token.propertyKey] = token.value;
-      }
-    }
     return params;
-  }, [filterQuery, activeTab]);
+  }, [filterQuery, activeTab, tokensToParams]);
 
   const {
     items,
@@ -309,6 +334,7 @@ const MaintenanceTicketsPage: React.FC = () => {
               query={filterQuery}
               onChange={({ detail }) => setFilterQuery(detail)}
               filteringProperties={FILTERING_PROPERTIES}
+              filteringOptions={filteringOptions}
               countText={`${total} matches`}
               expandToViewport
             />

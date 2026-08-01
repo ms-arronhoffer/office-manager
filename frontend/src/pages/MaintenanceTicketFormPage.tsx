@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Form from '@cloudscape-design/components/form';
+import Wizard from '@cloudscape-design/components/wizard';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import Select from '@cloudscape-design/components/select';
@@ -33,6 +34,7 @@ import {
   ManagerQuickCreate,
   TicketCategoryQuickCreate,
 } from '@/components/common/QuickCreateForms';
+import { wizardI18nStrings } from '@/components/common/wizardI18n';
 import type { Office, TicketCategory, Manager, TicketTemplate, Vendor, TicketTriageSuggestion } from '@/types';
 
 type SelectOption = { label: string; value: string };
@@ -72,6 +74,7 @@ const MaintenanceTicketFormPage: React.FC = () => {
   const [templates, setTemplates] = useState<TicketTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<SelectOption | null>(null);
   const [pendingVendorId, setPendingVendorId] = useState<string | null>(null);
+  const [activeStepIndex, setActiveStepIndex] = useState(0);
 
   // AI triage assist
   const [aiConfigured, setAiConfigured] = useState(false);
@@ -253,6 +256,26 @@ const MaintenanceTicketFormPage: React.FC = () => {
     }
   };
 
+  const validateIssueDetails = (): boolean => {
+    if (!subject.trim()) {
+      setError('Subject is required.');
+      return false;
+    }
+    if (!selectedCategory) {
+      setError('Category is required.');
+      return false;
+    }
+    if (!selectedOffice) {
+      setError('Location is required.');
+      return false;
+    }
+    if (!description.trim()) {
+      setError('Description is required.');
+      return false;
+    }
+    return true;
+  };
+
   const handleSubmit = async () => {
     if (!subject.trim()) {
       setError('Subject is required.');
@@ -330,51 +353,8 @@ const MaintenanceTicketFormPage: React.FC = () => {
     );
   }
 
-  return (
-    <ContentLayout
-      header={
-        <SpaceBetween size="m">
-          <BreadcrumbGroup
-            items={[
-              { text: 'Maintenance Tickets', href: '/maintenance-tickets' },
-              isEditing
-                ? { text: 'Edit Ticket', href: `/maintenance-tickets/${id}/edit` }
-                : { text: 'New Ticket', href: '/maintenance-tickets/new' },
-            ]}
-            onFollow={(e) => {
-              e.preventDefault();
-              navigate(e.detail.href);
-            }}
-          />
-          <Header variant="h1">
-            {isEditing ? 'Edit Maintenance Ticket' : 'New Maintenance Ticket'}
-          </Header>
-        </SpaceBetween>
-      }
-    >
-      {error && (
-        <Alert type="error" dismissible onDismiss={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-      <Form
-        actions={
-          <SpaceBetween direction="horizontal" size="xs">
-            <Button
-              onClick={() =>
-                navigate(isEditing ? `/maintenance-tickets/${id}` : '/maintenance-tickets')
-              }
-            >
-              Cancel
-            </Button>
-            <Button variant="primary" loading={saving} onClick={handleSubmit}>
-              {isEditing ? 'Save Changes' : 'Create Ticket'}
-            </Button>
-          </SpaceBetween>
-        }
-      >
-        <Container header={<Header variant="h2">Ticket Information</Header>}>
-          <SpaceBetween size="l">
+  const issueFields = (
+    <SpaceBetween size="l">
             {!isEditing && templates.length > 0 && (
               <FormField
                 label="Load Template"
@@ -535,7 +515,11 @@ const MaintenanceTicketFormPage: React.FC = () => {
               excludeId={isEditing && id ? id : undefined}
               onApply={applyTriage}
             />
+    </SpaceBetween>
+  );
 
+  const assignmentFields = (
+    <SpaceBetween size="l">
             <FormField label="Assigned To">
               <EntityQuickCreateSelect
                 selectedOption={selectedAssignedTo}
@@ -616,10 +600,116 @@ const MaintenanceTicketFormPage: React.FC = () => {
                 />
               </FormField>
             </SpaceBetween>
+    </SpaceBetween>
+  );
 
-            {!isEditing && (
-              <FileQueueField files={queuedFiles} onChange={setQueuedFiles} disabled={saving} />
-            )}
+  const attachmentsFields = !isEditing && (
+    <FileQueueField files={queuedFiles} onChange={setQueuedFiles} disabled={saving} />
+  );
+
+  const pageHeader = (
+    <SpaceBetween size="m">
+      <BreadcrumbGroup
+        items={[
+          { text: 'Maintenance Tickets', href: '/maintenance-tickets' },
+          isEditing
+            ? { text: 'Edit Ticket', href: `/maintenance-tickets/${id}/edit` }
+            : { text: 'New Ticket', href: '/maintenance-tickets/new' },
+        ]}
+        onFollow={(e) => {
+          e.preventDefault();
+          navigate(e.detail.href);
+        }}
+      />
+      <Header variant="h1">
+        {isEditing ? 'Edit Maintenance Ticket' : 'New Maintenance Ticket'}
+      </Header>
+    </SpaceBetween>
+  );
+
+  const errorAlert = error && (
+    <Alert type="error" dismissible onDismiss={() => setError(null)}>
+      {error}
+    </Alert>
+  );
+
+  if (!isEditing) {
+    return (
+      <ContentLayout header={pageHeader}>
+        {errorAlert}
+        <Wizard
+          i18nStrings={wizardI18nStrings('Create Ticket')}
+          activeStepIndex={activeStepIndex}
+          isLoadingNextStep={saving}
+          onNavigate={({ detail }) => {
+            // Subject, category, location and description all live on the first step.
+            if (activeStepIndex === 0 && detail.requestedStepIndex > 0 && !validateIssueDetails()) {
+              return;
+            }
+            setActiveStepIndex(detail.requestedStepIndex);
+          }}
+          onCancel={() => navigate('/maintenance-tickets')}
+          onSubmit={handleSubmit}
+          steps={[
+            {
+              title: 'Ticket information',
+              description: 'Describe the issue and where it is happening.',
+              content: (
+                <Container header={<Header variant="h2">Ticket Information</Header>}>
+                  {issueFields}
+                </Container>
+              ),
+            },
+            {
+              title: 'Assignment & scheduling',
+              description: 'Who is doing the work and when.',
+              isOptional: true,
+              content: (
+                <Container header={<Header variant="h2">Assignment &amp; scheduling</Header>}>
+                  {assignmentFields}
+                </Container>
+              ),
+            },
+            {
+              title: 'Attachments',
+              description: 'Photos, quotes, or other supporting files.',
+              isOptional: true,
+              content: (
+                <Container header={<Header variant="h2">Attachments</Header>}>
+                  {attachmentsFields}
+                </Container>
+              ),
+            },
+          ]}
+        />
+      </ContentLayout>
+    );
+  }
+
+  return (
+    <ContentLayout header={pageHeader}>
+      {errorAlert}
+      <Form
+        actions={
+          <SpaceBetween direction="horizontal" size="xs">
+            <Button
+              onClick={() =>
+                navigate(isEditing ? `/maintenance-tickets/${id}` : '/maintenance-tickets')
+              }
+            >
+              Cancel
+            </Button>
+            <Button variant="primary" loading={saving} onClick={handleSubmit}>
+              {isEditing ? 'Save Changes' : 'Create Ticket'}
+            </Button>
+          </SpaceBetween>
+        }
+      >
+        <Container header={<Header variant="h2">Ticket Information</Header>}>
+          <SpaceBetween size="l">
+            {issueFields}
+            {assignmentFields}
+            {attachmentsFields}
           </SpaceBetween>
         </Container>
       </Form>

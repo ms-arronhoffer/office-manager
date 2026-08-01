@@ -15,13 +15,25 @@ import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useAuth } from '@/auth/AuthContext';
 import { leasing, attachments as attachmentsApi } from '@/api';
+import useListCollection from '@/hooks/useListCollection';
+import { exportRowsToCsv } from '@/lib/csv';
+import type { CsvColumn } from '@/lib/csv';
 import PortalInviteButton from '@/components/common/PortalInviteButton';
 import AttachmentsPanel from '@/components/common/AttachmentsPanel';
 import EntityFormModal from '@/components/common/EntityFormModal';
+import CreateWizardModal from '@/components/common/CreateWizardModal';
 import FileUploadField, { type QueuedFile } from '@/components/common/FileUploadField';
 import type { Resident, ResidentStatus } from '@/types';
 
 const RESIDENT_STATUSES: ResidentStatus[] = ['prospect', 'current', 'past'];
+
+const RESIDENT_CSV_COLUMNS: CsvColumn<Resident>[] = [
+  { header: 'First name', value: (r) => r.first_name },
+  { header: 'Last name', value: (r) => r.last_name },
+  { header: 'Email', value: (r) => r.email },
+  { header: 'Phone', value: (r) => r.phone },
+  { header: 'Status', value: (r) => r.status },
+];
 
 const residentBadge = (s: ResidentStatus) => {
   const color = s === 'current' ? 'green' : s === 'prospect' ? 'blue' : 'grey';
@@ -203,12 +215,108 @@ const ResidentsPage: React.FC = () => {
     }
   };
 
+  const collection = useListCollection(residents, {
+    entity: 'residents',
+    filterPlaceholder: 'Search residents',
+    searchText: (r) =>
+      [r.first_name, r.last_name, r.email, r.phone, r.company, r.status]
+        .filter(Boolean)
+        .join(' '),
+    empty: (
+      <Box textAlign="center" padding="m">
+        <SpaceBetween size="xs">
+          <Box>No residents yet.</Box>
+          <Button onClick={openCreate}>Add your first resident</Button>
+        </SpaceBetween>
+      </Box>
+    ),
+  });
+
+  const identityFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="First name">
+        <Input value={firstName} onChange={({ detail }) => setFirstName(detail.value)} />
+      </FormField>
+      <FormField label="Last name">
+        <Input value={lastName} onChange={({ detail }) => setLastName(detail.value)} />
+      </FormField>
+      <FormField label="Status">
+        <Select
+          selectedOption={{ label: statusValue, value: statusValue }}
+          onChange={({ detail }) => setStatusValue(detail.selectedOption.value as ResidentStatus)}
+          options={RESIDENT_STATUSES.map((s) => ({ label: s, value: s }))}
+        />
+      </FormField>
+      <FormField label="Company">
+        <Input value={company} onChange={({ detail }) => setCompany(detail.value)} />
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const contactFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="Email">
+        <Input value={email} onChange={({ detail }) => setEmail(detail.value)} />
+      </FormField>
+      <FormField label="Phone">
+        <Input value={phone} onChange={({ detail }) => setPhone(detail.value)} />
+      </FormField>
+      <FormField label="Alternate phone">
+        <Input value={alternatePhone} onChange={({ detail }) => setAlternatePhone(detail.value)} />
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const addressFields = (
+    <ColumnLayout columns={2}>
+      <FormField label="Address line 1">
+        <Input value={addr1} onChange={({ detail }) => setAddr1(detail.value)} />
+      </FormField>
+      <FormField label="Address line 2">
+        <Input value={addr2} onChange={({ detail }) => setAddr2(detail.value)} />
+      </FormField>
+      <FormField label="City">
+        <Input value={city} onChange={({ detail }) => setCity(detail.value)} />
+      </FormField>
+      <FormField label="State">
+        <Input value={stateVal} onChange={({ detail }) => setStateVal(detail.value)} />
+      </FormField>
+      <FormField label="ZIP code">
+        <Input value={zip} onChange={({ detail }) => setZip(detail.value)} />
+      </FormField>
+    </ColumnLayout>
+  );
+
+  const emergencyFields = (
+    <SpaceBetween size="m">
+      <ColumnLayout columns={2}>
+        <FormField label="Emergency contact">
+          <Input value={emergencyName} onChange={({ detail }) => setEmergencyName(detail.value)} />
+        </FormField>
+        <FormField label="Emergency phone">
+          <Input value={emergencyPhone} onChange={({ detail }) => setEmergencyPhone(detail.value)} />
+        </FormField>
+      </ColumnLayout>
+      <FormField label="Notes">
+        <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
+      </FormField>
+    </SpaceBetween>
+  );
+
+  const createDirty = Boolean(
+    firstName || lastName || email || phone || company || addr1 || notes || queuedFiles.length,
+  );
+
   return (
     <SpaceBetween size="l">
       <Table<Resident>
+        {...collection.collectionProps}
         loading={loading}
-        items={residents}
+        items={collection.items}
         variant="container"
+        selectionType="multi"
+        filter={collection.filter}
+        pagination={collection.pagination}
         header={
           <Header
             counter={`(${residents.length})`}
@@ -222,6 +330,14 @@ const ResidentsPage: React.FC = () => {
                     ...RESIDENT_STATUSES.map((s) => ({ label: s, value: s })),
                   ]}
                 />
+                <Button
+                  disabled={collection.selectedItems.length === 0}
+                  onClick={() =>
+                    exportRowsToCsv('residents.csv', RESIDENT_CSV_COLUMNS, collection.selectedItems)
+                  }
+                >
+                  Export selected
+                </Button>
                 <Button variant="primary" onClick={openCreate}>
                   Add resident
                 </Button>
@@ -270,89 +386,83 @@ const ResidentsPage: React.FC = () => {
             ),
           },
         ]}
-        empty={<Box textAlign="center">No residents yet.</Box>}
+      />
+
+      <CreateWizardModal
+        visible={modalOpen && !editing}
+        entityLabel="resident"
+        onCancel={() => setModalOpen(false)}
+        onSubmit={save}
+        submitting={saving}
+        error={error}
+        dirty={createDirty}
+        onBulkComplete={load}
+        bulk={{
+          columns: [
+            { key: 'first_name', label: 'First name', required: true },
+            { key: 'last_name', label: 'Last name', required: true },
+            { key: 'email', label: 'Email' },
+            { key: 'phone', label: 'Phone' },
+            { key: 'status', label: 'Status' },
+          ],
+          onSubmitRow: async (row) => {
+            const status = RESIDENT_STATUSES.includes(row.status as ResidentStatus)
+              ? (row.status as ResidentStatus)
+              : 'prospect';
+            await leasing.createResident({
+              first_name: row.first_name.trim(),
+              last_name: row.last_name.trim(),
+              email: row.email?.trim() || null,
+              phone: row.phone?.trim() || null,
+              status,
+            });
+          },
+        }}
+        steps={[
+          {
+            title: 'Identity',
+            description: 'Who is this resident?',
+            content: identityFields,
+            validate: () =>
+              !firstName.trim() || !lastName.trim()
+                ? 'First and last name are required.'
+                : null,
+          },
+          { title: 'Contact', description: 'How do you reach them?', content: contactFields },
+          { title: 'Address', description: 'Where do they receive mail?', content: addressFields },
+          {
+            title: 'Emergency & notes',
+            description: 'Anything else worth recording.',
+            content: (
+              <SpaceBetween size="m">
+                {emergencyFields}
+                <FileUploadField files={queuedFiles} onChange={setQueuedFiles} disabled={saving} />
+              </SpaceBetween>
+            ),
+          },
+        ]}
       />
 
       <EntityFormModal
-        visible={modalOpen}
+        visible={modalOpen && Boolean(editing)}
         onCancel={() => setModalOpen(false)}
-        title={editing ? 'Edit resident' : 'Add resident'}
+        title="Edit resident"
         size="large"
         onSubmit={save}
         submitting={saving}
         error={error}
       >
         <SpaceBetween size="m">
-          <ColumnLayout columns={2}>
-            <FormField label="First name">
-              <Input value={firstName} onChange={({ detail }) => setFirstName(detail.value)} />
-            </FormField>
-            <FormField label="Last name">
-              <Input value={lastName} onChange={({ detail }) => setLastName(detail.value)} />
-            </FormField>
-            <FormField label="Email">
-              <Input value={email} onChange={({ detail }) => setEmail(detail.value)} />
-            </FormField>
-            <FormField label="Phone">
-              <Input value={phone} onChange={({ detail }) => setPhone(detail.value)} />
-            </FormField>
-            <FormField label="Alternate phone">
-              <Input
-                value={alternatePhone}
-                onChange={({ detail }) => setAlternatePhone(detail.value)}
-              />
-            </FormField>
-            <FormField label="Company">
-              <Input value={company} onChange={({ detail }) => setCompany(detail.value)} />
-            </FormField>
-            <FormField label="Status">
-              <Select
-                selectedOption={{ label: statusValue, value: statusValue }}
-                onChange={({ detail }) =>
-                  setStatusValue(detail.selectedOption.value as ResidentStatus)
-                }
-                options={RESIDENT_STATUSES.map((s) => ({ label: s, value: s }))}
-              />
-            </FormField>
-            <FormField label="Address line 1">
-              <Input value={addr1} onChange={({ detail }) => setAddr1(detail.value)} />
-            </FormField>
-            <FormField label="Address line 2">
-              <Input value={addr2} onChange={({ detail }) => setAddr2(detail.value)} />
-            </FormField>
-            <FormField label="City">
-              <Input value={city} onChange={({ detail }) => setCity(detail.value)} />
-            </FormField>
-            <FormField label="State">
-              <Input value={stateVal} onChange={({ detail }) => setStateVal(detail.value)} />
-            </FormField>
-            <FormField label="ZIP code">
-              <Input value={zip} onChange={({ detail }) => setZip(detail.value)} />
-            </FormField>
-            <FormField label="Emergency contact">
-              <Input
-                value={emergencyName}
-                onChange={({ detail }) => setEmergencyName(detail.value)}
-              />
-            </FormField>
-            <FormField label="Emergency phone">
-              <Input
-                value={emergencyPhone}
-                onChange={({ detail }) => setEmergencyPhone(detail.value)}
-              />
-            </FormField>
-          </ColumnLayout>
-          <FormField label="Notes">
-            <Textarea value={notes} onChange={({ detail }) => setNotes(detail.value)} />
-          </FormField>
-          {editing ? (
+          {identityFields}
+          {contactFields}
+          {addressFields}
+          {emergencyFields}
+          {editing && (
             <AttachmentsPanel
               entityType="resident"
               entityId={editing.id}
               canEdit={canEditDocuments}
             />
-          ) : (
-            <FileUploadField files={queuedFiles} onChange={setQueuedFiles} disabled={saving} />
           )}
         </SpaceBetween>
       </EntityFormModal>

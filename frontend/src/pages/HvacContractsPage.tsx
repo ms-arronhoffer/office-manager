@@ -16,6 +16,8 @@ import Link from '@cloudscape-design/components/link';
 import { hvacContracts as hvacContractsApi } from '@/api';
 import type { HvacContract } from '@/types';
 import { usePreferences } from '@/context/PreferencesContext';
+import { useFilterOptions } from '@/hooks/useFilterOptions';
+import type { FilterOptionSpec } from '@/hooks/useFilterOptions';
 import { useServerCollection } from '@/hooks/useServerCollection';
 import ImportModal from '@/components/common/ImportModal';
 
@@ -41,6 +43,18 @@ const formatDate = (dateStr?: string): string => {
 const FILTERING_PROPERTIES: PropertyFilterProps.FilteringProperty[] = [
   { key: 'landlord_handles', operators: ['='], propertyLabel: 'Landlord Handles', groupValuesLabel: 'Landlord Handles' },
   { key: 'frequency', operators: ['=', ':'], propertyLabel: 'Frequency', groupValuesLabel: 'Frequencies' },
+  { key: 'manager_id', operators: ['='], propertyLabel: 'Manager', groupValuesLabel: 'Managers' },
+];
+
+const FILTER_OPTION_SPECS: FilterOptionSpec[] = [
+  { propertyKey: 'manager_id', source: 'manager' },
+  {
+    propertyKey: 'landlord_handles',
+    values: [
+      { value: 'true', label: 'Yes' },
+      { value: 'false', label: 'No' },
+    ],
+  },
 ];
 
 const HvacContractsPage: React.FC = () => {
@@ -56,20 +70,11 @@ const HvacContractsPage: React.FC = () => {
     operation: 'and',
   });
 
-  const filters = useMemo(() => {
-    const params: Record<string, unknown> = {};
-
-    // PropertyFilter tokens
-    for (const token of filterQuery.tokens) {
-      if ('propertyKey' in token && token.propertyKey && token.value) {
-        params[token.propertyKey] = token.value;
-      } else if ('value' in token && token.value) {
-        params.search = token.value;
-      }
-    }
-
-    return params;
-  }, [filterQuery]);
+  const { filteringOptions, tokensToParams } = useFilterOptions(FILTER_OPTION_SPECS, 'search');
+  const filters = useMemo(
+    () => tokensToParams(filterQuery.tokens),
+    [filterQuery, tokensToParams],
+  );
 
   const {
     items,
@@ -208,6 +213,7 @@ const HvacContractsPage: React.FC = () => {
               query={filterQuery}
               onChange={({ detail }) => setFilterQuery(detail)}
               filteringProperties={FILTERING_PROPERTIES}
+              filteringOptions={filteringOptions}
               countText={`${total} matches`}
               expandToViewport
             />

@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import useFormDirty from '@/hooks/useFormDirty';
+import useUnsavedChangesWarning from '@/hooks/useUnsavedChangesWarning';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Form from '@cloudscape-design/components/form';
@@ -213,6 +215,9 @@ const LeaseFormPage: React.FC = () => {
   const [managerOptions, setManagerOptions] = useState<SelectOption[]>([]);
 
   const [form, setForm] = useState<LeaseFormState>(emptyForm);
+
+  const { dirty } = useFormDirty(form, !loading);
+  useUnsavedChangesWarning(dirty && !saving);
 
   const [selectedOffice, setSelectedOffice] = useState<SelectOption | null>(null);
   const [selectedManager, setSelectedManager] = useState<SelectOption | null>(null);

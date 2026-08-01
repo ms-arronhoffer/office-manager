@@ -5,6 +5,7 @@ import Box from '@cloudscape-design/components/box';
 import { AuthProvider } from '@/auth/AuthContext';
 import { PreferencesProvider } from '@/context/PreferencesContext';
 import { FlashbarProvider } from '@/context/FlashbarContext';
+import { UnsavedChangesProvider } from '@/context/UnsavedChangesContext';
 import { SiteSettingsProvider } from '@/context/SiteSettingsContext';
 import { ThemeProvider } from '@/theme/ThemeContext';
 import { WSProvider } from '@/context/WSContext';
@@ -104,6 +105,7 @@ const App: React.FC = () => {
         <PreferencesProvider>
         <ThemeProvider>
         <FlashbarProvider>
+        <UnsavedChangesProvider>
         <WSProvider token={localStorage.getItem('access_token')}>
         <Suspense fallback={<PageLoader />}>
           <Routes>
@@ -146,7 +148,7 @@ const App: React.FC = () => {
                         <Route path="dashboard/reports" element={<DashboardHubPage />} />
                         <Route path="dashboard/sla" element={<DashboardHubPage />} />
                         <Route path="offices" element={<OfficesPage />} />
-                        <Route path="offices/new" element={<OfficeFormPage />} />
+                        <Route path="offices/new" element={<Navigate to="/offices/wizard" replace />} />
                         <Route path="offices/wizard" element={<OfficeWizardPage />} />
                         <Route path="offices/:id" element={<OfficeDetailPage />} />
                         <Route path="offices/:id/edit" element={<OfficeFormPage />} />
@@ -181,7 +183,7 @@ const App: React.FC = () => {
                         <Route path="self-storage/agreements" element={<SelfStoragePage />} />
                         <Route path="self-storage/reservations" element={<SelfStoragePage />} />
                         <Route path="self-storage/rate-plans" element={<SelfStoragePage />} />
-                        <Route path="leases/new" element={<LeaseFormPage />} />
+                        <Route path="leases/new" element={<Navigate to="/leases/wizard" replace />} />
                         <Route path="leases/wizard" element={<LeaseWizardPage />} />
                         <Route path="leases/:id" element={<LeaseDetailPage />} />
                         <Route path="leases/:id/edit" element={<LeaseFormPage />} />
@@ -271,6 +273,7 @@ const App: React.FC = () => {
           </Routes>
         </Suspense>
         </WSProvider>
+        </UnsavedChangesProvider>
         </FlashbarProvider>
         </ThemeProvider>
         </PreferencesProvider>

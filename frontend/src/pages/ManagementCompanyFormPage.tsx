@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import useFormDirty from '@/hooks/useFormDirty';
+import useUnsavedChangesWarning from '@/hooks/useUnsavedChangesWarning';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Form from '@cloudscape-design/components/form';
+import Wizard from '@cloudscape-design/components/wizard';
 import FormField from '@cloudscape-design/components/form-field';
 import Input from '@cloudscape-design/components/input';
 import type { InputProps } from '@cloudscape-design/components/input';
@@ -16,6 +19,7 @@ import BreadcrumbGroup from '@cloudscape-design/components/breadcrumb-group';
 import Box from '@cloudscape-design/components/box';
 import { managementCompanies as api } from '@/api';
 import AddressFields, { type StructuredAddress } from '@/components/common/AddressFields';
+import { wizardI18nStrings } from '@/components/common/wizardI18n';
 import type { ManagementCompanyCreate } from '@/types';
 
 const emptyForm = {
@@ -42,6 +46,9 @@ const ManagementCompanyFormPage: React.FC = () => {
   const [nameError, setNameError] = useState<string | undefined>(undefined);
   const [form, setForm] = useState({ ...emptyForm });
   const [address, setAddress] = useState<StructuredAddress>({});
+  const [activeStepIndex, setActiveStepIndex] = useState(0);
+  const { dirty } = useFormDirty({ form, address }, !loading);
+  useUnsavedChangesWarning(dirty && !saving);
   const nameRef = React.useRef<InputProps.Ref>(null);
 
   useEffect(() => {
@@ -83,11 +90,18 @@ const ManagementCompanyFormPage: React.FC = () => {
     if (key === 'name') setNameError(undefined);
   };
 
-  const handleSubmit = async () => {
+  const validateBasics = (): boolean => {
     if (!form.name.trim()) {
       setNameError('Company Name is required.');
       setError('Company Name is required.');
       nameRef.current?.focus();
+      return false;
+    }
+    return true;
+  };
+
+  const handleSubmit = async () => {
+    if (!validateBasics()) {
       return;
     }
     setSaving(true);
@@ -137,45 +151,8 @@ const ManagementCompanyFormPage: React.FC = () => {
 
   const pageTitle = isEdit ? 'Edit Management Company' : 'New Management Company';
 
-  return (
-    <ContentLayout
-      header={
-        <SpaceBetween size="m">
-          <BreadcrumbGroup
-            items={[
-              { text: 'Property Management', href: '/management-companies' },
-              isEdit
-                ? { text: 'Edit Management Company', href: `/management-companies/${id}/edit` }
-                : { text: 'New Management Company', href: '/management-companies/new' },
-            ]}
-            onFollow={(e) => {
-              e.preventDefault();
-              navigate(e.detail.href);
-            }}
-          />
-          <Header variant="h1">{pageTitle}</Header>
-        </SpaceBetween>
-      }
-    >
-      {error && (
-        <Alert type="error" dismissible onDismiss={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-      <Form
-        actions={
-          <SpaceBetween direction="horizontal" size="xs">
-            <Button onClick={() => navigate(isEdit ? `/management-companies/${id}` : '/management-companies')}>
-              Cancel
-            </Button>
-            <Button variant="primary" loading={saving} onClick={handleSubmit}>
-              {isEdit ? 'Save Changes' : 'Create Management Company'}
-            </Button>
-          </SpaceBetween>
-        }
-      >
-        <Container header={<Header variant="h2">Company Information</Header>}>
-          <SpaceBetween size="l">
+  const companyFields = (
+    <SpaceBetween size="l">
             <FormField label="Company Name" errorText={nameError} constraintText="Required">
               <Input
                 ref={nameRef}
@@ -238,7 +215,11 @@ const ManagementCompanyFormPage: React.FC = () => {
                 />
               </FormField>
             </SpaceBetween>
+    </SpaceBetween>
+  );
 
+  const webAddressFields = (
+    <SpaceBetween size="l">
             <Header variant="h3">Web</Header>
             <FormField label="Website">
               <Input
@@ -259,7 +240,11 @@ const ManagementCompanyFormPage: React.FC = () => {
 
             <Header variant="h3">Address</Header>
             <AddressFields value={address} onChange={setAddress} disabled={saving} />
+    </SpaceBetween>
+  );
 
+  const notesFields = (
+    <SpaceBetween size="l">
             <FormField label="Notes">
               <Textarea
                 value={form.notes}
@@ -268,6 +253,100 @@ const ManagementCompanyFormPage: React.FC = () => {
                 rows={4}
               />
             </FormField>
+    </SpaceBetween>
+  );
+
+  const pageHeader = (
+    <SpaceBetween size="m">
+      <BreadcrumbGroup
+        items={[
+          { text: 'Property Management', href: '/management-companies' },
+          isEdit
+            ? { text: 'Edit Management Company', href: `/management-companies/${id}/edit` }
+            : { text: 'New Management Company', href: '/management-companies/new' },
+        ]}
+        onFollow={(e) => {
+          e.preventDefault();
+          navigate(e.detail.href);
+        }}
+      />
+      <Header variant="h1">{pageTitle}</Header>
+    </SpaceBetween>
+  );
+
+  const errorAlert = error && (
+    <Alert type="error" dismissible onDismiss={() => setError(null)}>
+      {error}
+    </Alert>
+  );
+
+  if (!isEdit) {
+    return (
+      <ContentLayout header={pageHeader}>
+        {errorAlert}
+        <Wizard
+          i18nStrings={wizardI18nStrings('Create Management Company')}
+          activeStepIndex={activeStepIndex}
+          isLoadingNextStep={saving}
+          onNavigate={({ detail }) => {
+            // Company Name is the only required field; guard leaving its step.
+            if (activeStepIndex === 0 && detail.requestedStepIndex > 0 && !validateBasics()) return;
+            setActiveStepIndex(detail.requestedStepIndex);
+          }}
+          onCancel={() => navigate('/management-companies')}
+          onSubmit={handleSubmit}
+          steps={[
+            {
+              title: 'Company details',
+              description: 'Name the company and its primary contact.',
+              content: (
+                <Container header={<Header variant="h2">Company Information</Header>}>
+                  {companyFields}
+                </Container>
+              ),
+            },
+            {
+              title: 'Web & address',
+              description: 'Online presence and mailing address.',
+              isOptional: true,
+              content: (
+                <Container header={<Header variant="h2">Web &amp; address</Header>}>
+                  {webAddressFields}
+                </Container>
+              ),
+            },
+            {
+              title: 'Notes',
+              description: 'Anything else worth recording.',
+              isOptional: true,
+              content: <Container header={<Header variant="h2">Notes</Header>}>{notesFields}</Container>,
+            },
+          ]}
+        />
+      </ContentLayout>
+    );
+  }
+
+  return (
+    <ContentLayout header={pageHeader}>
+      {errorAlert}
+      <Form
+        actions={
+          <SpaceBetween direction="horizontal" size="xs">
+            <Button onClick={() => navigate(isEdit ? `/management-companies/${id}` : '/management-companies')}>
+              Cancel
+            </Button>
+            <Button variant="primary" loading={saving} onClick={handleSubmit}>
+              {isEdit ? 'Save Changes' : 'Create Management Company'}
+            </Button>
+          </SpaceBetween>
+        }
+      >
+        <Container header={<Header variant="h2">Company Information</Header>}>
+          <SpaceBetween size="l">
+            {companyFields}
+            {webAddressFields}
+            {notesFields}
           </SpaceBetween>
         </Container>
       </Form>
