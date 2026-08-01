@@ -69,8 +69,7 @@ from app.routers import (  # noqa: E402
     ai, waivers, document_search, maintenance, saved_reports, assistant,
     support_requests, leasing, resident_portal, announcements, rent,
     leasing_funnel, listings, owners, owner_portal, lease_templates,
-    application_templates, buildium, self_storage, legal,
-)
+    application_templates, buildium, self_storage, legal, sso,    quickbooks, bank_feed,)
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit, usage as admin_usage, support_requests as admin_support_requests  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature, require_category  # noqa: E402
 from fastapi import Depends  # noqa: E402
@@ -95,6 +94,10 @@ _inspections_guard = _org_guard + [Depends(require_feature("inspections"))]
 _buildium_guard = _org_guard + [Depends(require_feature("buildium_migration"))]
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
+# Single sign-on. Deliberately unguarded at the router level: the authorize and
+# callback legs run before any session exists. The admin config endpoints inside
+# carry their own role + "sso" entitlement dependencies.
+app.include_router(sso.router, prefix="/api/v1/sso", tags=["Single Sign-On"])
 # Public, unauthenticated: legal documents must be viewable before any account
 # exists (marketing site + signup flow).
 app.include_router(legal.router, prefix="/api/v1/legal", tags=["Legal"])
@@ -148,6 +151,8 @@ app.include_router(lifecycle.router, prefix="/api/v1/lifecycle", tags=["Lease Li
 app.include_router(ap.router, prefix="/api/v1/ap", tags=["Accounts Payable"], dependencies=_accounting_guard)
 app.include_router(ar.router, prefix="/api/v1/ar", tags=["Accounts Receivable"], dependencies=_accounting_guard)
 app.include_router(bank.router, prefix="/api/v1/bank", tags=["Bank Reconciliation"], dependencies=_accounting_guard)
+app.include_router(quickbooks.router, prefix="/api/v1/quickbooks", tags=["QuickBooks Sync"], dependencies=_accounting_guard)
+app.include_router(bank_feed.router, prefix="/api/v1/bank-feed", tags=["Bank Feed"], dependencies=_accounting_guard)
 app.include_router(tax.router, prefix="/api/v1/tax", tags=["Tax & 1099"], dependencies=_accounting_guard)
 app.include_router(budgets.router, prefix="/api/v1/budgets", tags=["Budgeting"], dependencies=_accounting_guard)
 app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Property Inspections"], dependencies=_inspections_guard)

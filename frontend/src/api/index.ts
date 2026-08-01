@@ -7,6 +7,9 @@ import type {
   CategoriesState,
   LegalDocument,
   LegalDocumentMeta,
+  SsoLookupResult,
+  SsoConfig,
+  SsoConfigInput,
   StorageFacility,
   StorageFacilityCreate,
   StorageFacilityUpdate,
@@ -112,6 +115,7 @@ import type {
   OrganizationCreate,
   OrganizationUpdate,
   BillingSubscription,
+  BillableUnitSnapshot,
   ApiKey,
   ApiKeyCreate,
   Webhook,
@@ -229,6 +233,12 @@ import type {
   ResidentPortalTicket,
   ResidentPortalMaintenanceCreate,
   ResidentPortalAnnouncement,
+  ResidentPortalPaymentMethod,
+  ResidentPortalPaymentMethodCreate,
+  ResidentPortalPaymentCreate,
+  ResidentPortalPaymentResult,
+  ResidentPortalAutopay,
+  ResidentPortalAutopayUpdate,
   OwnerPortalProfile,
   OwnerPortalProperty,
   OwnerPortalLedgerEntry,
@@ -1081,6 +1091,11 @@ export const recurringTicketRules = {
 export const billing = {
   getSubscription: () => client.get<BillingSubscription>('/billing/subscription'),
 
+  syncUsage: () =>
+    client.post<BillableUnitSnapshot & { reported_quantity: number | null }>(
+      '/billing/usage/sync',
+    ),
+
   createCheckout: (
     plan: 'starter' | 'pro' | 'enterprise',
     enterpriseCode?: string,
@@ -1159,6 +1174,17 @@ export const operatingExpenses = {
 
   variance: (params?: { lease_id?: string; year?: number }) =>
     client.get<OperatingExpenseVariance[]>('/operating-expenses/variance', { params }),
+};
+
+export const sso = {
+  lookup: (params: { slug?: string; email?: string }) =>
+    client.get<SsoLookupResult>('/sso/lookup', { params }),
+
+  getConfig: () => client.get<SsoConfig>('/sso/config'),
+
+  saveConfig: (data: SsoConfigInput) => client.put<SsoConfig>('/sso/config', data),
+
+  deleteConfig: () => client.delete('/sso/config'),
 };
 
 export const buildium = {
@@ -1581,6 +1607,29 @@ export const residentPortal = {
 
   listAnnouncements: (token: string) =>
     _residentPortalClient(token).get<ResidentPortalAnnouncement[]>('/resident-portal/announcements'),
+
+  listPaymentMethods: (token: string) =>
+    _residentPortalClient(token).get<ResidentPortalPaymentMethod[]>(
+      '/resident-portal/payment-methods',
+    ),
+
+  createPaymentMethod: (token: string, data: ResidentPortalPaymentMethodCreate) =>
+    _residentPortalClient(token).post<ResidentPortalPaymentMethod>(
+      '/resident-portal/payment-methods',
+      data,
+    ),
+
+  deletePaymentMethod: (token: string, id: string) =>
+    _residentPortalClient(token).delete<void>(`/resident-portal/payment-methods/${id}`),
+
+  makePayment: (token: string, data: ResidentPortalPaymentCreate) =>
+    _residentPortalClient(token).post<ResidentPortalPaymentResult>(
+      '/resident-portal/payments',
+      data,
+    ),
+
+  updateAutopay: (token: string, data: ResidentPortalAutopayUpdate) =>
+    _residentPortalClient(token).put<ResidentPortalAutopay>('/resident-portal/autopay', data),
 };
 
 // ─── Owner Portal (external: property-owner self-service, X-Owner-Token) ──────

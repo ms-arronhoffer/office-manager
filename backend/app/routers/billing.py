@@ -19,6 +19,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.enterprise_activation_code import EnterpriseActivationCode
 from app.services import billing_ledger_service as ledger
+from app.services import metering_service as metering
 from app.services.stripe_settings import StripeSettings, resolve_stripe_settings
 from app.utils.email_client import send_email
 
@@ -199,6 +200,38 @@ async def _get_org(org_id, db: AsyncSession) -> Organization:
     return org
 
 
+async def _report_metered_quantity(db: AsyncSession, org: Organization) -> int | None:
+    """Push the org's billable-unit quantity onto its Stripe subscription item.
+
+    Sets the quantity on the first subscription item so a tiered/graduated price
+    bills the right band. Best-effort: returns ``None`` and leaves billing
+    untouched when Stripe is not configured, when the org has no subscription,
+    or when Stripe rejects the call, so metering can never break the app.
+    """
+    if not org.stripe_subscription_id:
+        return None
+    stripe_cfg = await resolve_stripe_settings(db)
+    if not stripe_cfg.secret_key:
+        return None
+    stripe.api_key = stripe_cfg.secret_key
+
+    quantity = metering.billable_quantity(
+        await metering.current_billable_units(db, org.id)
+    )
+    try:
+        sub = stripe.Subscription.retrieve(org.stripe_subscription_id)
+        item_id = sub["items"]["data"][0]["id"]
+        stripe.SubscriptionItem.modify(
+            item_id, quantity=quantity, proration_behavior="none"
+        )
+    except (stripe.error.StripeError, KeyError, IndexError, TypeError) as e:
+        logger.warning(
+            "Could not report metered quantity %s for org %s: %s", quantity, org.id, e
+        )
+        return None
+    return quantity
+
+
 async def _finalize_checkout_session(
     db: AsyncSession, session_obj: dict, stripe_cfg: "StripeSettings"
 ) -> Organization | None:
@@ -230,6 +263,7 @@ async def _finalize_checkout_session(
     org.past_due_since = None
     await db.commit()
     await db.refresh(org)
+    await _report_metered_quantity(db, org)
     return org
 
 
@@ -250,6 +284,8 @@ async def get_subscription(
         )
     )
     seat_count = seat_result.scalar_one()
+
+    usage = await metering.metering_summary(db, org.id)
 
     now = datetime.now(timezone.utc)
     trial_ends_at = org.trial_ends_at
@@ -289,6 +325,32 @@ async def get_subscription(
         "max_seats": org.max_seats,
         "seat_count": seat_count,
         "billing_configured": (await resolve_stripe_settings(db)).configured,
+        "billable_units": usage["billable_units"],
+        "billable_unit_breakdown": usage["breakdown"],
+        "billable_unit_floor": usage["floor"],
+        "billable_quantity": usage["billable_quantity"],
+        "billable_period_month": usage["period_month"],
+        "billable_unit_snapshot": usage["snapshot"],
+    }
+
+
+# ─── POST /billing/usage/sync ─────────────────────────────────────────────────
+
+@router.post("/usage/sync")
+async def sync_metered_usage(
+    current_user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Snapshot this period's billable units and report them to Stripe."""
+    org = await _get_org(current_user.organization_id, db)
+    snapshot = await metering.capture_snapshot(db, org.id, refresh=True)
+    reported = await _report_metered_quantity(db, org)
+    return {
+        "period_month": snapshot.period_month,
+        "billable_units": snapshot.billable_units,
+        "breakdown": snapshot.breakdown or {},
+        "captured_at": snapshot.captured_at.isoformat() if snapshot.captured_at else None,
+        "reported_quantity": reported,
     }
 
 

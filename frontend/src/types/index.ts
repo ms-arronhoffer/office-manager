@@ -91,6 +91,19 @@ export interface SignupResponse {
   organization: Organization;
 }
 
+export interface BillableUnitBreakdown {
+  commercial: number;
+  residential: number;
+  self_storage: number;
+}
+
+export interface BillableUnitSnapshot {
+  period_month: string;
+  billable_units: number;
+  breakdown: Partial<BillableUnitBreakdown>;
+  captured_at: string | null;
+}
+
 export interface BillingSubscription {
   plan: 'starter' | 'pro' | 'enterprise';
   is_active: boolean;
@@ -105,6 +118,12 @@ export interface BillingSubscription {
   max_seats: number | null;
   seat_count: number;
   billing_configured: boolean;
+  billable_units: number;
+  billable_unit_breakdown: BillableUnitBreakdown;
+  billable_unit_floor: number;
+  billable_quantity: number;
+  billable_period_month: string;
+  billable_unit_snapshot: BillableUnitSnapshot | null;
 }
 
 export interface ApiKey {
@@ -1369,6 +1388,8 @@ export interface ResidentPortalLease {
   currency: string;
   unit_number: string | null;
   unit_name: string | null;
+  autopay_enabled: boolean;
+  autopay_payment_method_id: string | null;
 }
 
 export interface ResidentPortalBalance {
@@ -1376,6 +1397,54 @@ export interface ResidentPortalBalance {
   monthly_rent: string;
   security_deposit: string;
   balance_due: string;
+}
+
+export interface ResidentPortalPaymentMethod {
+  id: string;
+  processor: string;
+  brand: string | null;
+  last4: string | null;
+  exp_month: number | null;
+  exp_year: number | null;
+  is_default: boolean;
+  created_at: string;
+}
+
+export interface ResidentPortalPaymentMethodCreate {
+  processor_token: string;
+  brand?: string | null;
+  last4?: string | null;
+  exp_month?: number | null;
+  exp_year?: number | null;
+  is_default?: boolean;
+}
+
+export interface ResidentPortalPaymentCreate {
+  amount: string;
+  payment_method_id?: string | null;
+  method?: string;
+  idempotency_key?: string;
+}
+
+export interface ResidentPortalPaymentResult {
+  amount_applied: string;
+  captured: boolean;
+  processor_status: string;
+  detail: string | null;
+  receipt_ids: string[];
+  balance: ResidentPortalBalance;
+}
+
+export interface ResidentPortalAutopayUpdate {
+  enabled: boolean;
+  payment_method_id?: string | null;
+  lease_id?: string | null;
+}
+
+export interface ResidentPortalAutopay {
+  lease_id: string;
+  autopay_enabled: boolean;
+  autopay_payment_method_id: string | null;
 }
 
 export interface ResidentPortalTicket {
@@ -3996,6 +4065,41 @@ export interface TrustAccountCreate {
 
 export type TrustAccountUpdate = Partial<Omit<TrustAccountCreate, 'currency'>>;
 
+// ─── Single sign-on (OIDC) ────────────────────────────────────────────────
+
+export interface SsoLookupResult {
+  enabled: boolean;
+  organization_slug: string | null;
+  organization_name: string | null;
+  authorize_url: string | null;
+  enforce_sso: boolean;
+}
+
+export interface SsoConfig {
+  configured: boolean;
+  provider: string | null;
+  issuer: string | null;
+  client_id: string | null;
+  client_secret_hint: string | null;
+  allowed_email_domains: string[];
+  enforce_sso: boolean;
+  is_enabled: boolean;
+  default_role: string;
+  last_login_at: string | null;
+  redirect_uri: string | null;
+  login_url: string | null;
+}
+
+export interface SsoConfigInput {
+  issuer: string;
+  client_id: string;
+  client_secret?: string;
+  allowed_email_domains: string[];
+  enforce_sso: boolean;
+  is_enabled: boolean;
+  default_role: string;
+}
+
 // ─── Buildium migration connector ─────────────────────────────────────────
 
 export interface BuildiumConnection {
@@ -4068,6 +4172,130 @@ export interface BuildiumMigrationRun {
 export interface BuildiumMigrateRequest {
   entities?: string[] | null;
   dry_run?: boolean;
+}
+
+// ─── QuickBooks Online sync ─────────────────────────────────────────────────
+
+export type ExternalConnectionStatus =
+  | 'connected'
+  | 'disconnected'
+  | 'error'
+  | 'reauth_required';
+
+export interface QuickBooksConnection {
+  configured: boolean;
+  connected: boolean;
+  realm_id: string | null;
+  environment: string | null;
+  status: ExternalConnectionStatus | null;
+  last_sync_at: string | null;
+  last_sync_cursor: string | null;
+  last_error: string | null;
+  access_token_expires_at: string | null;
+}
+
+export interface QuickBooksAuthorizeUrl {
+  configured: boolean;
+  authorize_url: string | null;
+  state: string | null;
+  detail: string | null;
+}
+
+export interface QuickBooksCallbackInput {
+  code: string;
+  realm_id: string;
+  state?: string | null;
+}
+
+export interface QuickBooksSyncResult {
+  candidates: number;
+  pushed: number;
+  adopted: number;
+  skipped: number;
+  failed: number;
+  cursor: string | null;
+  errors: string[];
+}
+
+export interface QuickBooksAccountMapping {
+  id: string;
+  qbo_account_id: string;
+  qbo_account_name: string | null;
+  qbo_account_type: string | null;
+  qbo_account_number: string | null;
+  gl_account_id: string | null;
+  gl_account_name: string | null;
+  manual_override: boolean;
+}
+
+export interface QuickBooksPullAccountsResult {
+  pulled: number;
+  created: number;
+  updated: number;
+  auto_matched: number;
+}
+
+export interface ExternalSyncLog {
+  id: string;
+  direction: string;
+  status: string;
+  cursor_before?: string | null;
+  cursor_after?: string | null;
+  counts: Record<string, number> | null;
+  error_message: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+// ─── Live bank feed ─────────────────────────────────────────────────────────
+
+export interface BankFeedProviderStatus {
+  configured: boolean;
+  provider: string;
+  environment: string | null;
+  detail: string | null;
+}
+
+export interface BankFeedLinkToken {
+  configured: boolean;
+  link_token: string | null;
+  expiration: string | null;
+  detail: string | null;
+}
+
+export interface BankFeedConnectionInput {
+  public_token: string;
+  bank_account_id: string;
+  provider_account_id?: string | null;
+}
+
+export interface BankFeedConnection {
+  id: string;
+  provider: string;
+  item_id: string;
+  institution_name: string | null;
+  provider_account_id: string | null;
+  account_mask: string | null;
+  bank_account_id: string;
+  bank_account_name: string | null;
+  status: ExternalConnectionStatus;
+  is_enabled: boolean;
+  last_sync_at: string | null;
+  last_error: string | null;
+  has_cursor: boolean;
+  created_at: string;
+}
+
+export interface BankFeedSyncResult {
+  configured: boolean;
+  imported: number;
+  updated: number;
+  deleted: number;
+  skipped: number;
+  retained: number;
+  pages: number;
+  error: string | null;
+  detail: string | null;
 }
 
 // ─── Self Storage ───────────────────────────────────────────────────────────

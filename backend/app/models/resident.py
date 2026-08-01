@@ -208,7 +208,15 @@ class ResidentLease(SoftDeleteMixin, TimestampMixin, Base):
     currency: Mapped[str] = mapped_column(String(3), default="USD", nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # The lease template this lease was prepared from. Remembering it lets staff
+    # Autopay: when enabled the lease is charged automatically against a saved,
+    # tokenised resident payment method.
+    autopay_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
+    autopay_payment_method_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("resident_payment_methods.id", ondelete="SET NULL"), nullable=True
+    )
+
     # send the lease for e-signature without re-selecting a template, and drives
     # which custom merge fields (``template_field_values``) the lease captures.
     lease_template_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -258,3 +266,4 @@ class ResidentLeaseOccupant(TimestampMixin, Base):
 
 # Avoid circular imports - resolved at runtime by SQLAlchemy.
 from app.models.office import Office  # noqa: E402
+from app.models.resident_payment_method import ResidentPaymentMethod  # noqa: E402,F401

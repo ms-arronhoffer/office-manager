@@ -39,21 +39,21 @@ interface PlanCard {
 const PLANS: PlanCard[] = [
   {
     plan: 'starter',
-    price: '$99 / month',
-    annualPrice: '$79 / month, billed annually',
-    features: ['Up to 10 offices', 'Up to 100 active leases', 'Unlimited users', 'Lease management & critical-date alerts', 'Maintenance ticket tracking', 'Resident, owner & vendor portals', 'AI lease detail extraction', 'Basic reporting & CSV export', '90-day audit log'],
+    price: '$79 / month',
+    annualPrice: '$65 / month, billed annually',
+    features: ['Up to 10 offices', 'Up to 150 active leases', 'Unlimited users', 'Lease management & critical-date alerts', 'Maintenance tickets, assets & preventive schedules', 'Property inspections', 'Resident, owner & vendor portals', 'AI lease detail extraction', 'Basic reporting & CSV export', '90-day audit log'],
     cta: 'Subscribe to Core',
   },
   {
     plan: 'pro',
-    price: '$299 / month',
-    annualPrice: '$249 / month, billed annually',
-    features: ['Up to 50 offices', 'Up to 500 active leases', 'Unlimited users', 'Full maintenance, HVAC & inspections', 'SLA rules & escalations', 'Commercial client portal', 'Advanced analytics & PDF export', 'AI abstracts & digital waivers', 'CAM reconciliation & advanced accounting', 'Guided Buildium migration', 'Full audit log (unlimited)'],
+    price: '$199 / month',
+    annualPrice: '$165 / month, billed annually',
+    features: ['Up to 50 offices', 'Up to 500 active leases', 'Unlimited users', 'Double-entry general ledger & financial statements', 'CAM reconciliation, AP, AR & bank reconciliation', 'HVAC service contracts', 'SLA rules & escalations', 'Commercial client portal', 'Advanced analytics & PDF export', 'AI portfolio assistant & digital waivers', 'Guided Buildium migration', 'Full audit log (unlimited)'],
     cta: 'Upgrade to Operations',
   },
   {
     plan: 'enterprise',
-    price: 'From $750 / month',
+    price: 'From $449 / month',
     features: ['Everything in Operations', 'API access & webhooks', 'Custom limits & retention', 'High-volume AI allowance', 'Dedicated onboarding', 'Migration assistance', 'Contractual support response times', 'Private deployment options'],
     cta: null,
   },
@@ -389,6 +389,60 @@ const BillingPage: React.FC = () => {
                   <Box>{new Date(sub.current_period_end).toLocaleDateString()}</Box>
                 </SpaceBetween>
               )}
+            </ColumnLayout>
+          </Container>
+        )}
+
+        {/* Metered billable units */}
+        {sub && (
+          <Container
+            header={
+              <Header
+                variant="h2"
+                description="Billable units are the spaces you actively lease or manage: commercial leases, occupied rental units and occupied storage units. Vacant inventory is not billed."
+              >
+                Billable units
+              </Header>
+            }
+          >
+            <ColumnLayout columns={3} variant="text-grid">
+              <SpaceBetween size="xs">
+                <Box variant="awsui-key-label">Current units</Box>
+                <Box fontSize="display-l" fontWeight="bold">
+                  {sub.billable_units}
+                </Box>
+                {sub.billable_units < sub.billable_unit_floor && (
+                  <Box variant="small" color="text-body-secondary">
+                    Billed at the {sub.billable_unit_floor}-unit minimum.
+                  </Box>
+                )}
+              </SpaceBetween>
+              <SpaceBetween size="xs">
+                <Box variant="awsui-key-label">Breakdown</Box>
+                <Box>Commercial leases: {sub.billable_unit_breakdown?.commercial ?? 0}</Box>
+                <Box>Rental units: {sub.billable_unit_breakdown?.residential ?? 0}</Box>
+                <Box>Storage units: {sub.billable_unit_breakdown?.self_storage ?? 0}</Box>
+              </SpaceBetween>
+              <SpaceBetween size="xs">
+                <Box variant="awsui-key-label">
+                  This period ({sub.billable_period_month})
+                </Box>
+                {sub.billable_unit_snapshot ? (
+                  <>
+                    <Box>{sub.billable_unit_snapshot.billable_units} units recorded</Box>
+                    {sub.billable_unit_snapshot.captured_at && (
+                      <Box variant="small" color="text-body-secondary">
+                        Captured{' '}
+                        {new Date(sub.billable_unit_snapshot.captured_at).toLocaleString()}
+                      </Box>
+                    )}
+                  </>
+                ) : (
+                  <Box variant="small" color="text-body-secondary">
+                    Not yet recorded for this period.
+                  </Box>
+                )}
+              </SpaceBetween>
             </ColumnLayout>
           </Container>
         )}

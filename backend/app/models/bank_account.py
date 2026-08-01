@@ -44,7 +44,7 @@ TRANSACTION_STATUSES = {"unmatched", "cleared"}
 # Reconciliation workflow states.
 RECONCILIATION_STATUSES = {"in_progress", "completed"}
 # Recognised import sources for a bank transaction.
-IMPORT_SOURCES = {"csv", "ofx", "manual"}
+IMPORT_SOURCES = {"csv", "ofx", "manual", "plaid"}
 
 
 class BankAccount(TimestampMixin, Base):

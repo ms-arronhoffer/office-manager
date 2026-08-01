@@ -219,7 +219,7 @@ function StripeIntegrationCard() {
             <Label htmlFor="stripe-enabled" className="text-sm">Integration enabled</Label>
           </div>
           <div>
-            <Label htmlFor="stripe-price-starter" className="text-sm">Core monthly price ID ($99)</Label>
+            <Label htmlFor="stripe-price-starter" className="text-sm">Core monthly price ID ($79)</Label>
             <Input
               id="stripe-price-starter"
               autoComplete="off"
@@ -230,7 +230,7 @@ function StripeIntegrationCard() {
             />
           </div>
           <div>
-            <Label htmlFor="stripe-price-pro" className="text-sm">Operations monthly price ID ($299)</Label>
+            <Label htmlFor="stripe-price-pro" className="text-sm">Operations monthly price ID ($199)</Label>
             <Input
               id="stripe-price-pro"
               autoComplete="off"

@@ -15,9 +15,23 @@ import Icon from '@cloudscape-design/components/icon';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/auth/AuthContext';
 import { useSiteSettings } from '@/context/SiteSettingsContext';
-import { auth as authApi } from '@/api';
+import { auth as authApi, sso as ssoApi } from '@/api';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
+
+// The callback hands results back in the URL fragment, which browsers never put
+// on the wire, so a session token cannot land in a proxy or server access log.
+const SSO_ERROR_MESSAGES: Record<string, string> = {
+  invalid_state: 'That sign-in link is no longer valid. Please start again.',
+  expired_state: 'That sign-in request expired. Please start again.',
+  invalid_request: 'The identity provider sent an incomplete response. Please try again.',
+  provider_error: 'Your identity provider cancelled or rejected the sign-in.',
+  sso_disabled: 'Single sign-on is not currently enabled for your organization.',
+  verification_failed:
+    'We could not verify your identity provider sign-in. Confirm your account uses an approved email domain, then contact your administrator.',
+};
 
 // Amount the login form card overlaps the hero banner to create a floating effect.
 const FORM_OVERLAP_OFFSET = '-56px';
@@ -28,7 +42,7 @@ const HERO_IMAGE_SRC = '/images/login-hero-dashboard.png';
 // Cap the hero image height so it never pushes the login form below the fold.
 const HERO_IMAGE_MAX_HEIGHT = '26vh';
 
-type Mode = 'login' | 'forgot' | 'reset' | 'mfa' | 'mfaSetup' | 'mfaBackup';
+type Mode = 'login' | 'forgot' | 'reset' | 'mfa' | 'mfaSetup' | 'mfaBackup' | 'sso';
 
 /**
  * Build a user-facing error message from a request failure.
@@ -90,6 +104,9 @@ const LoginPage: React.FC = () => {
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [pendingToken, setPendingToken] = useState('');
 
+  // SSO state: an email address or an organization slug to resolve to an IdP.
+  const [ssoIdentifier, setSsoIdentifier] = useState('');
+
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
 
   // Redirect away from the login page once the user is authenticated.
@@ -107,6 +124,52 @@ const LoginPage: React.FC = () => {
       setSuccessMessage(null);
     }
   }, [routeResetToken]);
+
+  // Consume the result the SSO callback left in the URL fragment.
+  useEffect(() => {
+    const raw = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+    if (!raw) return;
+    const params = new URLSearchParams(raw);
+    const ssoToken = params.get('sso_token');
+    const ssoMfa = params.get('sso_mfa');
+    const ssoError = params.get('sso_error');
+    const ssoOrg = params.get('sso_org');
+    if (!ssoToken && !ssoMfa && !ssoError && !ssoOrg) return;
+
+    // Drop the fragment immediately so a refresh or back-navigation cannot
+    // replay it and so it never reaches the clipboard via a copied URL.
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+
+    if (ssoToken) {
+      setIsLoading(true);
+      loginWithToken(ssoToken)
+        .then(() => {
+          reloadSiteSettings();
+          navigate(from, { replace: true });
+        })
+        .catch(() => setError('Single sign-on succeeded but the session could not be started.'))
+        .finally(() => setIsLoading(false));
+      return;
+    }
+    if (ssoMfa) {
+      setMfaToken(ssoMfa);
+      setMfaCode('');
+      setUseBackupCode(false);
+      setMode('mfa');
+      return;
+    }
+    if (ssoError) {
+      setError(SSO_ERROR_MESSAGES[ssoError] || 'Single sign-on failed. Please try again.');
+      setMode('login');
+      return;
+    }
+    if (ssoOrg) {
+      setSsoIdentifier(ssoOrg);
+      setMode('sso');
+    }
+    // Runs once on mount: the fragment is cleared immediately after being read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (isAuthenticated) {
     return null;
@@ -153,6 +216,34 @@ const LoginPage: React.FC = () => {
 
   const handleGoogleLogin = async () => {
     setError('Google sign-in is not configured. Please use email/password.');
+  };
+
+  // ── Single sign-on ─────────────────────────────────────────────────────────
+  const handleSsoContinue = async () => {
+    const identifier = ssoIdentifier.trim();
+    if (!identifier) {
+      setError('Enter your work email address or your organization ID.');
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      const { data } = await ssoApi.lookup(
+        identifier.includes('@') ? { email: identifier } : { slug: identifier },
+      );
+      if (!data.enabled || !data.organization_slug) {
+        setError(
+          'Single sign-on is not set up for that email domain or organization. Sign in with your password instead.',
+        );
+        return;
+      }
+      // Full-page navigation: the IdP redirect must leave the SPA entirely.
+      window.location.href = `${API_BASE}/sso/${encodeURIComponent(data.organization_slug)}/authorize`;
+    } catch (err: unknown) {
+      setError(getRequestErrorMessage(err, 'Could not start single sign-on. Please try again.'));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // ── Forgot Password ────────────────────────────────────────────────────────
@@ -283,6 +374,16 @@ const LoginPage: React.FC = () => {
 
   // ── Form content per mode ──────────────────────────────────────────────────
   const renderFormHeader = () => {
+    if (mode === 'sso') {
+      return (
+        <Header
+          variant="h2"
+          description="Enter your work email address and we'll send you to your company's identity provider."
+        >
+          Single Sign-On
+        </Header>
+      );
+    }
     if (mode === 'forgot') {
       return (
         <Header variant="h2" description="Enter your email and we'll send you a reset token.">
@@ -339,6 +440,31 @@ const LoginPage: React.FC = () => {
   };
 
   const renderFormBody = () => {
+    if (mode === 'sso') {
+      return (
+        <SpaceBetween direction="vertical" size="l">
+          {error && (
+            <Alert type="error" dismissible onDismiss={() => setError(null)}>
+              {error}
+            </Alert>
+          )}
+          <FormField
+            label="Work email address"
+            description="You can also enter the organization ID your administrator gave you."
+          >
+            <Input
+              value={ssoIdentifier}
+              onChange={({ detail }) => { setSsoIdentifier(detail.value); setError(null); }}
+              placeholder="you@yourcompany.com"
+              disabled={isLoading}
+              onKeyDown={({ detail }) => { if (detail.key === 'Enter') handleSsoContinue(); }}
+              autoFocus
+            />
+          </FormField>
+        </SpaceBetween>
+      );
+    }
+
     if (mode === 'forgot') {
       return (
         <SpaceBetween direction="vertical" size="l">
@@ -541,6 +667,19 @@ const LoginPage: React.FC = () => {
   };
 
   const renderFormActions = () => {
+    if (mode === 'sso') {
+      return (
+        <SpaceBetween direction="vertical" size="s">
+          <Button variant="primary" loading={isLoading} onClick={handleSsoContinue} fullWidth>
+            Continue
+          </Button>
+          <Button variant="link" onClick={() => switchMode('login')}>
+            Back to sign in
+          </Button>
+        </SpaceBetween>
+      );
+    }
+
     if (mode === 'forgot') {
       return (
         <SpaceBetween direction="vertical" size="s">
@@ -628,6 +767,14 @@ const LoginPage: React.FC = () => {
             Sign in with Google
           </Button>
         )}
+        <Button
+          variant="normal"
+          onClick={() => { setSsoIdentifier(email); switchMode('sso'); }}
+          fullWidth
+          iconName="lock-private"
+        >
+          Use single sign-on
+        </Button>
         <Box textAlign="center">
           <Link onFollow={() => navigate('/signup')}>New here? Create an account</Link>
         </Box>

@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     SCREENING_PROVIDER: str = "transunion"
     SCREENING_API_KEY: str = ""
     SCREENING_API_URL: str = ""
+    # How long to wait for a provider that answers asynchronously before leaving
+    # the report 'pending' for a later refresh.
+    SCREENING_POLL_ATTEMPTS: int = 5
+    SCREENING_POLL_INTERVAL_SECONDS: float = 2.0
     FRONTEND_URL: str = "http://localhost:3000"
     ADMIN_FRONTEND_URL: str = "http://localhost:4001"
     DEFAULT_ADMIN_EMAIL: str = "admin@officemanager.local"
@@ -139,12 +143,51 @@ class Settings(BaseSettings):
     # secret). See app.utils.crypto. Optional in dev; required in production.
     ENCRYPTION_KEY: str = ""
 
+    # Absolute URL of the OIDC redirect endpoint (app.routers.sso.callback).
+    # Must match the redirect URI registered with each customer's identity
+    # provider, so it is configured rather than derived from the request.
+    SSO_CALLBACK_URL: str = "http://localhost:8000/api/v1/sso/callback"
+
     # Buildium Open API connector (see app.services.buildium).
     BUILDIUM_API_BASE_URL: str = "https://api.buildium.com/v1"
     BUILDIUM_TIMEOUT_SECONDS: int = 60
     BUILDIUM_MAX_RETRIES: int = 4
     BUILDIUM_RETRY_BASE_SECONDS: float = 1.0
     BUILDIUM_PAGE_SIZE: int = 100
+
+    # QuickBooks Online two-way sync (see app.services.quickbooks). Optional;
+    # when QBO_CLIENT_ID/QBO_CLIENT_SECRET are empty the connector reports
+    # itself unconfigured instead of failing (mirroring SMTP/Stripe/Plaid).
+    QBO_CLIENT_ID: str = ""
+    QBO_CLIENT_SECRET: str = ""
+    # Must exactly match the redirect URI registered on the Intuit app.
+    QBO_REDIRECT_URI: str = ""
+    QBO_ENVIRONMENT: str = "production"
+    QBO_API_BASE_URL: str = "https://quickbooks.api.intuit.com/v3/company"
+    QBO_AUTH_URL: str = "https://appcenter.intuit.com/connect/oauth2"
+    QBO_TOKEN_URL: str = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
+    QBO_MINOR_VERSION: str = "70"
+    QBO_TIMEOUT_SECONDS: int = 30
+    QBO_MAX_RETRIES: int = 3
+    QBO_RETRY_BASE_SECONDS: float = 1.0
+    # Refresh the access token this many seconds before it actually expires so a
+    # long-running push doesn't die mid-batch.
+    QBO_TOKEN_REFRESH_LEEWAY_SECONDS: int = 300
+    # Upper bound on journal entries pushed in a single sync run.
+    QBO_PUSH_BATCH_LIMIT: int = 200
+
+    # Plaid live bank feed (see app.services.bank_feed). Optional; when
+    # PLAID_CLIENT_ID/PLAID_SECRET are empty the feed degrades to a logged
+    # no-op exactly like app.utils.payment_processor.
+    PLAID_CLIENT_ID: str = ""
+    PLAID_SECRET: str = ""
+    PLAID_ENV: str = "production"
+    PLAID_API_BASE_URL: str = "https://production.plaid.com"
+    PLAID_TIMEOUT_SECONDS: int = 30
+    PLAID_COUNTRY_CODES: str = "US"
+    PLAID_REDIRECT_URI: str = ""
+    # Max /transactions/sync pages walked per run, bounding a first-time backfill.
+    PLAID_MAX_SYNC_PAGES: int = 20
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

@@ -70,10 +70,16 @@ PAST_DUE_GRACE_DAYS = 10
 # Canonical monthly list price per plan in integer cents. Single source of truth
 # for revenue estimates (admin metrics) and admin plan-change pricing, replacing
 # the formerly hardcoded copy in app.routers.admin.metrics.
+#
+# Benchmarked 2026-08 against Buildium (Essential $62 / Growth $192 /
+# Premium $400) and DoorLoop (Starter $69 / Pro $149 / Premium $209 at 10
+# units). Starter sits at parity with their entry tiers; Pro carries the
+# premium because it includes the real double-entry ledger and CAM
+# reconciliation, which DoorLoop only ships on its top tier.
 PLAN_PRICE_CENTS: dict[str, int] = {
-    "starter": 9900,
-    "pro": 29900,
-    "enterprise": 75000,
+    "starter": 7900,
+    "pro": 19900,
+    "enterprise": 44900,
 }
 
 
@@ -87,16 +93,18 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
     "starter": {
         "max_offices": 10,
         "max_seats": UNLIMITED,
-        "max_active_leases": 100,
+        "max_active_leases": 150,
         "audit_retention_days": 90,
         "monthly_ai_input_tokens": 1_000_000,
         "monthly_ai_output_tokens": 250_000,
         "hvac": False,
-        "maintenance": False,
+        # Field operations are table stakes at the entry tier: competitors all
+        # include maintenance and inspections in their cheapest plan.
+        "maintenance": True,
         "transitions": False,
         "advanced_analytics": False,
         "advanced_accounting": False,
-        "inspections": False,
+        "inspections": True,
         "buildium_migration": False,
         "pdf_export": False,
         "api_access": False,
@@ -147,7 +155,7 @@ PLAN_CATALOG: dict[str, dict[str, Any]] = {
         "pdf_export": True,
         "api_access": True,
         "webhooks": True,
-        "sso": False,
+        "sso": True,
         "custom_fields": False,
         "ai_assist": True,
         "digital_waivers": True,

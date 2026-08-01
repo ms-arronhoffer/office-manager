@@ -10,12 +10,13 @@ specific topics.
 
 Each row is one searchable text chunk derived from a source record. As with
 lease document chunks, the ``embedding`` column stores the raw float vector as
-JSONB and cosine similarity is computed in Python, so **no ``pgvector`` extension
-is required**; when no embedding is available the chunk stays keyword-searchable
-via ``content``. ``pgvector`` was evaluated and intentionally deferred: it would
-require a DB extension that the fresh-DB ``create_all``/``stamp`` bootstrap path
-cannot guarantee, and the in-Python cosine + keyword fallback already powers the
-existing document search at the platform's current scale.
+JSONB; when no embedding is available the chunk stays keyword-searchable via
+``content``. Migration 112 adds a parallel ``embedding_vec`` ``pgvector`` column
+(plus an HNSW cosine index) so ranking can run in Postgres. That column is
+intentionally *not* declared here: the fresh-DB ``create_all``/``stamp``
+bootstrap path cannot guarantee the extension exists, so it is created by
+migration only and :mod:`app.services.knowledge_service` falls back to the
+in-Python cosine scan whenever it is absent.
 """
 import uuid
 

@@ -447,6 +447,7 @@ async def record_rent_payment(
     receipt_date: date | None = None,
     reference: str | None = None,
     created_by_id: uuid.UUID | None = None,
+    idempotency_key: str | None = None,
 ) -> dict:
     """Charge a resident (via the processor) and record the receipt in the GL.
 
@@ -472,6 +473,7 @@ async def record_rent_payment(
             method=method,
             payment_token=payment_token,
             description=f"Rent payment for invoice {invoice.invoice_number or invoice.id}",
+            idempotency_key=idempotency_key,
         )
         if charge_result.captured and charge_result.processor_ref:
             processor_ref = charge_result.processor_ref
