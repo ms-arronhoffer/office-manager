@@ -79,6 +79,98 @@ def _ensure_search_vector_columns() -> None:
     print("[start] Ensured full-text search_vector columns/indexes exist.")
 
 
+# ── pgvector embedding columns (mirrors Alembic migration 112) ────────────────
+# Gemini ``text-embedding-004`` returns 768 floats; ai_service.embed_texts never
+# sends output_dimensionality, so the width is fixed for every vector we store.
+_EMBEDDING_VECTOR_DIM = 768
+_EMBEDDING_VECTOR_COLUMN = "embedding_vec"
+# (table, hnsw index name) — identical to migration 112's targets.
+_EMBEDDING_VECTOR_TARGETS = (
+    ("knowledge_chunks", "idx_knowledge_chunks_embedding_hnsw"),
+    ("lease_document_chunks", "idx_lease_doc_chunks_embedding_hnsw"),
+)
+
+
+def _ensure_pgvector_columns() -> None:
+    """Create the pgvector columns/indexes idempotently.
+
+    Mirrors Alembic migration 112, which cannot be relied on: the column is
+    deliberately absent from the ORM models (declaring it would make
+    ``create_all`` emit ``vector(768)`` and fail wherever the extension is not
+    installed), so a fresh database is stamped at head without ever running 112.
+    Without this, semantic search silently falls back to scanning every chunk in
+    Python, which is correct but does not scale, and there is no error to alert on.
+
+    Every step is optional: pgvector is unavailable on some managed Postgres
+    offerings, and a missing extension must never stop the app from booting.
+    """
+    inspector = inspect(sync_engine)
+    present = set(inspector.get_table_names())
+
+    def _try(conn, statement: str, description: str) -> bool:
+        try:
+            with conn.begin_nested():
+                conn.execute(text(statement))
+            return True
+        except Exception as exc:  # noqa: BLE001 - a pgvector gap must not block boot
+            print(f"[start] pgvector: {description} skipped ({exc.__class__.__name__}).")
+            return False
+
+    with sync_engine.begin() as conn:
+        if not _try(conn, "CREATE EXTENSION IF NOT EXISTS vector", "extension creation"):
+            print(
+                "[start] pgvector unavailable; embedding search stays on the "
+                "JSONB + in-Python cosine fallback."
+            )
+            return
+
+        created_any = False
+        for table, index_name in _EMBEDDING_VECTOR_TARGETS:
+            if table not in present:
+                continue
+            # Guard the interpolated identifier the same way the search_vector
+            # helper does: these are module constants, but validating against the
+            # registered ORM tables stops a typo emitting unintended DDL.
+            if table not in Base.metadata.tables:
+                raise RuntimeError(f"[start] Unknown table for pgvector setup: {table}")
+
+            columns = {c["name"] for c in inspector.get_columns(table)}
+            if _EMBEDDING_VECTOR_COLUMN not in columns:
+                if not _try(
+                    conn,
+                    f"ALTER TABLE {table} ADD COLUMN {_EMBEDDING_VECTOR_COLUMN} "
+                    f"vector({_EMBEDDING_VECTOR_DIM})",
+                    f"{table}.{_EMBEDDING_VECTOR_COLUMN} column",
+                ):
+                    continue
+                created_any = True
+
+            # JSONB arrays render as '[0.1, 0.2, ...]', valid vector input. Rows
+            # of another width stay null and keep using the Python path.
+            _try(
+                conn,
+                f"UPDATE {table} SET {_EMBEDDING_VECTOR_COLUMN} = embedding::text::vector "
+                f"WHERE embedding IS NOT NULL "
+                f"AND {_EMBEDDING_VECTOR_COLUMN} IS NULL "
+                f"AND jsonb_typeof(embedding) = 'array' "
+                f"AND jsonb_array_length(embedding) = {_EMBEDDING_VECTOR_DIM}",
+                f"{table}.{_EMBEDDING_VECTOR_COLUMN} backfill",
+            )
+
+            # HNSW needs pgvector >= 0.5.0; older builds only ship ivfflat.
+            _try(
+                conn,
+                f"CREATE INDEX IF NOT EXISTS {index_name} ON {table} "
+                f"USING hnsw ({_EMBEDDING_VECTOR_COLUMN} vector_cosine_ops)",
+                f"{index_name} HNSW index",
+            )
+
+    print(
+        "[start] Ensured pgvector embedding columns/indexes exist"
+        f"{' (columns added)' if created_any else ''}."
+    )
+
+
 # Idempotent reconciliation for newer columns that some long-lived databases
 # can be missing: a DB first created on an older release via ``create_all`` +
 # ``alembic stamp head`` is marked current, so later feature migrations (the
@@ -441,6 +533,7 @@ def _initialize_schema() -> None:
         # them before stamping so endpoints that maintain them don't fail after a
         # commit (a spurious 500 despite the row persisting).
         _ensure_search_vector_columns()
+        _ensure_pgvector_columns()
         _ensure_self_storage_schema()
         _ensure_reconciled_columns()
         _ensure_manager_name_constraint()
@@ -489,6 +582,7 @@ def _initialize_schema() -> None:
                 "create_all+stamp). Healing artifacts and stamping at head."
             )
         _ensure_search_vector_columns()
+        _ensure_pgvector_columns()
         _ensure_self_storage_schema()
         _ensure_reconciled_columns()
         _ensure_manager_name_constraint()
@@ -514,6 +608,10 @@ def _initialize_schema() -> None:
     # surfacing as a spurious 500 (e.g. "Could not create office") even though
     # the record persists. Idempotent (ADD COLUMN IF NOT EXISTS + NULL-only backfill).
     _ensure_search_vector_columns()
+    # Same reasoning for the pgvector columns from migration 112: a database
+    # stamped at head on an older release never ran it, and the ORM models
+    # cannot declare the column, so heal it here too.
+    _ensure_pgvector_columns()
 
     # Sanity-check after upgrade: a couple of must-have tables.
     post_inspector = inspect(sync_engine)

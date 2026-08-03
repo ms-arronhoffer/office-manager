@@ -123,6 +123,18 @@ import type {
   WebhookUpdate,
   WebhookDelivery,
   BuildiumConnection,
+  QuickBooksConnection,
+  QuickBooksAuthorizeUrl,
+  QuickBooksCallbackInput,
+  QuickBooksSyncResult,
+  QuickBooksAccountMapping,
+  QuickBooksPullAccountsResult,
+  ExternalSyncLog,
+  BankFeedProviderStatus,
+  BankFeedLinkToken,
+  BankFeedConnectionInput,
+  BankFeedConnection,
+  BankFeedSyncResult,
   BuildiumConnectionInput,
   BuildiumTestConnectionResult,
   BuildiumEntityType,
@@ -1212,6 +1224,48 @@ export const buildium = {
   cancelRun: (id: string) => client.post<BuildiumMigrationRun>(`/buildium/runs/${id}/cancel`),
 
   getSummary: () => client.get<Record<string, number>>('/buildium/summary'),
+};
+
+// ─── QuickBooks Online sync ──────────────────────────────────────────────────
+export const quickbooks = {
+  getConnection: () => client.get<QuickBooksConnection>('/quickbooks/connection'),
+
+  getAuthorizeUrl: () => client.get<QuickBooksAuthorizeUrl>('/quickbooks/authorize-url'),
+
+  completeCallback: (data: QuickBooksCallbackInput) =>
+    client.post<QuickBooksConnection>('/quickbooks/callback', data),
+
+  disconnect: () => client.delete('/quickbooks/connection'),
+
+  pullAccounts: () => client.post<QuickBooksPullAccountsResult>('/quickbooks/accounts/pull'),
+
+  listAccountMappings: () =>
+    client.get<QuickBooksAccountMapping[]>('/quickbooks/accounts'),
+
+  updateAccountMapping: (id: string, gl_account_id: string | null) =>
+    client.put<QuickBooksAccountMapping>(`/quickbooks/accounts/${id}`, { gl_account_id }),
+
+  sync: () => client.post<QuickBooksSyncResult>('/quickbooks/sync'),
+
+  listLogs: () => client.get<ExternalSyncLog[]>('/quickbooks/logs'),
+};
+
+// ─── Live bank feed (Plaid) ──────────────────────────────────────────────────
+export const bankFeed = {
+  status: () => client.get<BankFeedProviderStatus>('/bank-feed/status'),
+
+  createLinkToken: () => client.post<BankFeedLinkToken>('/bank-feed/link-token'),
+
+  listConnections: () => client.get<BankFeedConnection[]>('/bank-feed/connections'),
+
+  createConnection: (data: BankFeedConnectionInput) =>
+    client.post<BankFeedConnection>('/bank-feed/connections', data),
+
+  deleteConnection: (id: string) => client.delete(`/bank-feed/connections/${id}`),
+
+  sync: (id: string) => client.post<BankFeedSyncResult>(`/bank-feed/connections/${id}/sync`),
+
+  listLogs: () => client.get<ExternalSyncLog[]>('/bank-feed/logs'),
 };
 
 export const organizations = {
