@@ -340,6 +340,11 @@ App deploy (for the `deploy` job of `infra-prod.yml`), matching the Terraform ou
     (see `secrets.tf`), so the container's password can never diverge from it.
 - `RDS_HOST` (= `terraform output db_address`), `RDS_PORT` (usually `5432`)
 - `JWT_SECRET`, `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PASSWORD`
+- `ENCRYPTION_KEY` — a Fernet key used to encrypt per-organization SSO client
+  secrets and other stored integration credentials. Store it as the GitHub
+  Actions secret `ENCRYPTION_KEY`; Terraform copies it into the AWS Secrets
+  Manager app secret and the deploy job exports it to the backend container.
+  Do not rotate it without a credential migration/reconnection plan.
 - `S3_UPLOAD_BUCKET` (= `terraform output uploads_bucket`), `S3_UPLOAD_PREFIX`, `AWS_REGION`
 - `FRONTEND_URL`, `ADMIN_FRONTEND_URL`, `APP_PORT`, `ADMIN_PORT`, `LANDING_PORT`, `BACKEND_PORT`
   - Host ports the stack binds. The bundled Nginx Proxy Manager (see below)
@@ -350,15 +355,7 @@ App deploy (for the `deploy` job of `infra-prod.yml`), matching the Terraform ou
     host-level debugging); NPM itself reaches every container by service name
     over the shared `edge` network, so the app containers are never exposed on
     the instance's public/LAN interfaces — NPM is the sole ingress.
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SMTP_*`, `GEMINI_API_KEY`,
-  `GEMINI_MODEL`, `SENTRY_DSN` (optional/as applicable)
-- QuickBooks Online: `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_REDIRECT_URI`;
-  optional repository variables `QBO_ENVIRONMENT` and `QBO_API_BASE_URL`
-  default to production.
-- Plaid: `PLAID_CLIENT_ID`, `PLAID_SECRET`, and optional
-  `PLAID_REDIRECT_URI`; optional repository variables `PLAID_ENV`,
-  `PLAID_API_BASE_URL`, and `PLAID_COUNTRY_CODES` default to production,
-  Plaid's production API, and `US`.
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SMTP_*`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `SENTRY_DSN` (optional/as applicable)
 
 ## Reverse proxy — Nginx Proxy Manager
 
@@ -384,6 +381,12 @@ run the script from the host — see
 [`infra/nginx-proxy-manager/README.md`](../infra/nginx-proxy-manager/README.md)
 for the full walkthrough. Change the default `admin@example.com` / `changeme`
 NPM admin credentials on first login.
+
+The frontend nginx configuration also proxies `/ws/` to the backend with HTTP
+upgrade headers. Keep **Websockets Support** enabled on the NPM frontend proxy
+host so `wss://<frontend-domain>/ws/connect` reaches the backend. The optional
+`NPM_API_DOMAIN` is useful for direct API clients but is not required for the
+SPA, SSO callback, or WebSockets.
 
 ### SSH / firewall
 
