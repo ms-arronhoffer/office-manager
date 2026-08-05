@@ -2,6 +2,10 @@
 
 A multi-tenant SaaS office and property management platform built with FastAPI, React, and PostgreSQL. Covers the full lifecycle of corporate office portfolios: lease management, HVAC, maintenance, vendors, transitions, billing, and analytics — all in one containerized application.
 
+AI-assisted features can use Google Gemini, OpenAI, or OpenRouter. See
+[AI provider configuration](docs/AI_PROVIDERS.md) for model requirements,
+environment variables, deployment steps, and embedding migration guidance.
+
 ## Tech Stack
 
 - **Backend**: Python 3.12 / FastAPI / SQLAlchemy (async) / Alembic

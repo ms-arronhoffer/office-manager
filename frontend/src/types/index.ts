@@ -2106,10 +2106,13 @@ export interface NotificationItem {
   created_at: string;
 }
 
-// ─── AI assist (Google Gemini) ───────────────────────────────────────────────
+// ─── AI assist ──────────────────────────────────────────────────────────────
 export interface AIStatus {
   configured: boolean;
+  provider: 'gemini' | 'openai' | 'openrouter' | string;
   model: string;
+  embedding_provider: 'gemini' | 'openai' | 'openrouter' | string;
+  embedding_model: string;
   period?: string;
   input_tokens_used?: number;
   output_tokens_used?: number;

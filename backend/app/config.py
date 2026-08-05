@@ -120,6 +120,20 @@ class Settings(BaseSettings):
     # Slack webhook for internal ops alerts (billing events, etc.). Optional.
     SLACK_WEBHOOK_URL: str = ""
 
+    # AI provider selection. Leave AI_PROVIDER empty to preserve the legacy
+    # behaviour of selecting Gemini whenever GEMINI_API_KEY is configured.
+    AI_PROVIDER: str = ""
+    AI_MODEL: str = ""
+    AI_MODEL_FAST: str = ""
+    AI_EMBED_PROVIDER: str = ""
+    AI_EMBED_MODEL: str = ""
+    # The pgvector columns and indexes use vector(768). Providers that support
+    # configurable embedding widths must be asked for this exact dimension.
+    AI_EMBED_DIMENSIONS: int = 768
+    AI_TIMEOUT_SECONDS: int = 60
+    AI_MAX_RETRIES: int = 2
+    AI_RETRY_BASE_SECONDS: float = 0.5
+
     # Google Gemini (AI assist). All three are configurable so the model id and
     # endpoint can be corrected without a code change. When GEMINI_API_KEY is
     # empty the AI features degrade gracefully (mirroring SMTP/Stripe).
@@ -136,6 +150,18 @@ class Settings(BaseSettings):
     # idempotent generate + embed calls. Set MAX_RETRIES=0 to disable.
     GEMINI_MAX_RETRIES: int = 2
     GEMINI_RETRY_BASE_SECONDS: float = 0.5
+
+    # OpenAI generation and embeddings. OPENAI_API_BASE can point at an
+    # OpenAI-compatible gateway when required.
+    OPENAI_API_KEY: str = ""
+    OPENAI_API_BASE: str = "https://api.openai.com/v1"
+
+    # OpenRouter uses the OpenAI-compatible chat-completions protocol. The
+    # optional site URL and app name are sent as OpenRouter attribution headers.
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_API_BASE: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_SITE_URL: str = ""
+    OPENROUTER_APP_NAME: str = "Portfolio Desk"
 
     # Symmetric encryption key (urlsafe-base64, 32 bytes — see
     # ``Fernet.generate_key()``) used to encrypt third-party secrets we must
