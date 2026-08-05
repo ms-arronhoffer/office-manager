@@ -29,9 +29,8 @@ depends_on = None
 
 logger = logging.getLogger("alembic.runtime.migration")
 
-# Gemini ``text-embedding-004`` (app.config.GEMINI_EMBED_MODEL) returns 768
-# floats; ai_service.embed_texts never sends output_dimensionality, so the
-# model's documented default width is fixed for every vector we store.
+# ai_service.embed_texts requests 768 dimensions from every provider, which is
+# the storage and HNSW index contract for both embedding tables.
 _VECTOR_DIM = 768
 
 _VECTOR_COLUMN = "embedding_vec"

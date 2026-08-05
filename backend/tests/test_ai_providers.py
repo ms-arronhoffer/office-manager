@@ -38,6 +38,16 @@ def test_legacy_configuration_still_selects_gemini(monkeypatch: pytest.MonkeyPat
     assert ai_service.is_configured() is True
 
 
+def test_retired_gemini_embedding_model_is_normalized(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "AI_EMBED_PROVIDER", "gemini")
+    monkeypatch.setattr(settings, "AI_EMBED_MODEL", "")
+    monkeypatch.setattr(settings, "GEMINI_EMBED_MODEL", "text-embedding-004")
+
+    assert ai_service.get_embedding_model_name() == "gemini-embedding-001"
+
+
 @pytest.mark.asyncio
 async def test_openai_generation_payload_and_usage(monkeypatch: pytest.MonkeyPatch):
     _configure_openai(monkeypatch)
@@ -84,6 +94,55 @@ def test_openrouter_attribution_headers(monkeypatch: pytest.MonkeyPatch):
     assert headers["X-Title"] == "Portfolio Desk Test"
 
 
+def test_gemini_fallback_uses_gemini_model_not_openrouter_model(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "AI_PROVIDER", "openrouter")
+    monkeypatch.setattr(settings, "AI_MODEL", "anthropic/test")
+    monkeypatch.setattr(settings, "GEMINI_MODEL", "gemini-document-test")
+
+    assert ai_service.get_model_name() == "anthropic/test"
+    assert (
+        ai_service.get_model_name(provider="gemini") == "gemini-document-test"
+    )
+
+
+@pytest.mark.asyncio
+async def test_scanned_pdf_uses_configured_gemini_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "AI_PROVIDER", "openrouter")
+    monkeypatch.setattr(settings, "AI_MODEL", "anthropic/test")
+    monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "router-secret")
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "gemini-secret")
+    monkeypatch.setattr(settings, "GEMINI_MODEL", "gemini-document-test")
+    calls: list[dict[str, Any]] = []
+
+    async def fake_generate(parts: list[dict[str, Any]], **kwargs: Any) -> str:
+        calls.append(kwargs)
+        return "Transcribed lease text"
+
+    monkeypatch.setattr(ai_service, "_generate", fake_generate)
+
+    result = await ai_service.extract_pdf_text_with_ai(b"scanned-pdf")
+
+    assert result == "Transcribed lease text"
+    assert calls == [{"temperature": 0.0, "provider": "gemini"}]
+
+
+@pytest.mark.asyncio
+async def test_scanned_pdf_requires_configured_gemini_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "AI_PROVIDER", "openrouter")
+    monkeypatch.setattr(settings, "AI_MODEL", "anthropic/test")
+    monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "router-secret")
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+
+    with pytest.raises(ai_service.AIDocumentError, match="fallback is not configured"):
+        await ai_service.extract_pdf_text_with_ai(b"scanned-pdf")
+
+
 def test_openai_content_rejects_non_image_inline_files(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -122,6 +181,58 @@ async def test_openai_embeddings_request_768_dimensions(
     assert len(vectors[0]) == 768
     assert captured["url"].endswith("/embeddings")
     assert captured["json"]["dimensions"] == 768
+
+
+@pytest.mark.asyncio
+async def test_openrouter_embeddings_remain_on_openrouter(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "AI_PROVIDER", "openrouter")
+    monkeypatch.setattr(settings, "AI_MODEL", "anthropic/test")
+    monkeypatch.setattr(settings, "OPENROUTER_API_KEY", "router-secret")
+    monkeypatch.setattr(settings, "AI_EMBED_PROVIDER", "openrouter")
+    monkeypatch.setattr(settings, "AI_EMBED_MODEL", "openai/text-embedding-3-small")
+    monkeypatch.setattr(settings, "AI_EMBED_DIMENSIONS", 768)
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "gemini-secret")
+    captured: dict[str, Any] = {}
+
+    async def fake_post(url: str, **kwargs: Any) -> _Response:
+        captured.update(url=url, **kwargs)
+        return _Response({"data": [{"index": 0, "embedding": [0.0] * 768}]})
+
+    monkeypatch.setattr(ai_service, "_post_with_retry", fake_post)
+
+    await ai_service.embed_texts(["lease termination"])
+
+    assert captured["url"] == "https://openrouter.ai/api/v1/embeddings"
+    assert captured["provider"] == "openrouter"
+    assert captured["headers"]["Authorization"] == "Bearer router-secret"
+    assert captured["json"]["model"] == "openai/text-embedding-3-small"
+
+
+@pytest.mark.asyncio
+async def test_gemini_embedding_uses_current_model_and_768_dimensions(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "AI_EMBED_PROVIDER", "gemini")
+    monkeypatch.setattr(settings, "AI_EMBED_MODEL", "")
+    monkeypatch.setattr(settings, "GEMINI_EMBED_MODEL", "gemini-embedding-001")
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "gemini-secret")
+    monkeypatch.setattr(settings, "AI_EMBED_DIMENSIONS", 768)
+    captured: dict[str, Any] = {}
+
+    async def fake_post(url: str, **kwargs: Any) -> _Response:
+        captured.update(url=url, **kwargs)
+        return _Response({"embeddings": [{"values": [0.0] * 768}]})
+
+    monkeypatch.setattr(ai_service, "_post_with_retry", fake_post)
+
+    await ai_service.embed_texts(["lease termination"])
+
+    assert "/models/gemini-embedding-001:batchEmbedContents" in captured["url"]
+    request = captured["json"]["requests"][0]
+    assert request["outputDimensionality"] == 768
+    assert captured["provider"] == "gemini"
 
 
 @pytest.mark.asyncio

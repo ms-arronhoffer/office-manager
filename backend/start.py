@@ -80,8 +80,8 @@ def _ensure_search_vector_columns() -> None:
 
 
 # ── pgvector embedding columns (mirrors Alembic migration 112) ────────────────
-# Gemini ``text-embedding-004`` returns 768 floats; ai_service.embed_texts never
-# sends output_dimensionality, so the width is fixed for every vector we store.
+# ai_service.embed_texts requests 768 dimensions from every provider, so this
+# remains the fixed width for every vector we store.
 _EMBEDDING_VECTOR_DIM = 768
 _EMBEDDING_VECTOR_COLUMN = "embedding_vec"
 # (table, hnsw index name) — identical to migration 112's targets.

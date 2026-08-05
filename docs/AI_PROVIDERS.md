@@ -73,14 +73,21 @@ OPENROUTER_APP_NAME=Portfolio Desk
 
 `OPENROUTER_SITE_URL` and `OPENROUTER_APP_NAME` are sent as `HTTP-Referer` and `X-Title` attribution headers.
 
-Embedding availability varies across OpenRouter models and routes. The recommended production configuration uses OpenRouter for generation and OpenAI for embeddings:
+OpenRouter embeddings can be selected independently from the Gemini document fallback. Use an embedding model exposed by your OpenRouter account:
 
 ```dotenv
-AI_EMBED_PROVIDER=openai
-AI_EMBED_MODEL=text-embedding-3-small
+AI_EMBED_PROVIDER=openrouter
+AI_EMBED_MODEL=openai/text-embedding-3-small
 AI_EMBED_DIMENSIONS=768
-OPENAI_API_KEY=replace-with-secret
+
+# Gemini remains available only for scanned/image-only PDF transcription.
+GEMINI_API_KEY=replace-with-secret
+GEMINI_MODEL=gemini-3.1-flash-lite
 ```
+
+Embedding availability varies by OpenRouter model and route. If the selected
+OpenRouter embedding model does not support a 768-dimension request, use OpenAI
+directly for embeddings or migrate the pgvector schema before changing width.
 
 ## Gemini Compatibility
 
@@ -90,7 +97,7 @@ Existing installations do not need to change immediately. When `AI_PROVIDER` is 
 AI_PROVIDER=
 GEMINI_API_KEY=replace-with-secret
 GEMINI_MODEL=gemini-3.1-flash-lite
-GEMINI_EMBED_MODEL=text-embedding-004
+GEMINI_EMBED_MODEL=gemini-embedding-001
 ```
 
 Setting `AI_PROVIDER=gemini` explicitly is preferred for new deployments.
@@ -101,7 +108,7 @@ Text-bearing PDF, Word, spreadsheet, CSV, and text documents are extracted local
 
 Images are sent as data URLs to OpenAI-compatible models. Select a model with vision support when image ingestion is required.
 
-Scanned or image-only PDFs currently rely on Gemini's inline PDF processing. When OpenAI or OpenRouter is selected, the app returns a clear document error for inline PDFs instead of silently dropping content. Use OCR before upload or configure Gemini when scanned-PDF ingestion is required.
+Scanned or image-only PDFs use Gemini's inline PDF processing. When OpenAI or OpenRouter is selected for generation, Portfolio Desk automatically uses the separately configured `GEMINI_API_KEY` and `GEMINI_MODEL` for transcription, then returns extracted text to the normal provider-neutral workflow. This fallback does not change `AI_EMBED_PROVIDER`; OpenRouter embeddings remain on OpenRouter. Without Gemini fallback credentials, upload an OCR or text-bearing PDF instead.
 
 Structured-output features require a model that supports JSON-object response format through the selected endpoint. Test a candidate model against lease parsing and ticket triage before production rollout.
 

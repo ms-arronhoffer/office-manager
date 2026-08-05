@@ -145,7 +145,7 @@ def _relevance_threshold(best_score: float) -> float:
 # Postgres lacking the extension) still builds, with retrieval degrading to the
 # in-Python cosine scan below.
 VECTOR_COLUMN = "embedding_vec"
-# Gemini text-embedding-004 width; must match migration 112's vector(768).
+# Provider embedding width; must match migration 112's vector(768).
 EMBEDDING_DIM = 768
 # Over-fetch candidates per table so the per-source diversity cap still has
 # alternatives to choose from, as it did when every row was scored in Python.

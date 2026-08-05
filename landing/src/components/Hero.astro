@@ -1,5 +1,5 @@
 ---
-import ProductVideo from './screens/ProductVideo.astro';
+import DashboardScreen from './screens/DashboardScreen.astro';
 import TrustBadges from './TrustBadges.astro';
 ---
 <section class="relative pt-20 pb-24 lg:pt-28 lg:pb-32 overflow-hidden">
@@ -39,15 +39,15 @@ import TrustBadges from './TrustBadges.astro';
       </a>
       <a href="#product-tour" class="bg-white text-slate-800 font-semibold text-base px-8 py-3.5 rounded-xl border-2 border-slate-200 hover:border-slate-400 transition-colors inline-flex items-center justify-center gap-2">
         <svg class="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-        Watch the 15-second tour
+        View the live product
       </a>
     </div>
 
     <p class="mt-5 text-sm text-slate-400">No credit card required &nbsp;·&nbsp; Setup in under an hour &nbsp;·&nbsp; Cancel anytime</p>
 
-    <!-- Live product walkthrough video (built from real captured screens) -->
+    <!-- Current product capture from the automated tutorial screenshot pipeline -->
     <div id="product-tour" class="mt-16 relative max-w-5xl mx-auto scroll-mt-24">
-      <ProductVideo />
+      <DashboardScreen />
       <!-- Glow -->
       <div class="absolute -inset-4 -z-10 bg-blue-100/40 rounded-3xl blur-3xl"></div>
     </div>

@@ -17,7 +17,7 @@ from app.database import get_db
 from app.main import limiter
 from app.models.maintenance_ticket import MaintenanceTicket
 from app.models.office import Office
-from app.models.organization import Organization
+from app.models.organization import Organization, new_organization_id
 from app.models.user import User
 from app.schemas.organization import (
     OrganizationCreate, OrganizationResponse, OrganizationUpdate,
@@ -74,6 +74,7 @@ async def signup(
 
     # Create organization
     org = Organization(
+        id=new_organization_id(),
         name=payload.org_name,
         slug=slug,
         plan="starter",
@@ -138,6 +139,7 @@ async def create_organization(payload: OrganizationCreate, db: AsyncSession = De
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already taken")
     org = Organization(
+        id=new_organization_id(),
         name=payload.name,
         slug=slug,
         plan=payload.plan,

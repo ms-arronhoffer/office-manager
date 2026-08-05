@@ -143,7 +143,7 @@ class Settings(BaseSettings):
     # Falls back to GEMINI_MODEL when left empty so behaviour is unchanged unless
     # explicitly configured.
     GEMINI_MODEL_FAST: str = ""
-    GEMINI_EMBED_MODEL: str = "text-embedding-004"
+    GEMINI_EMBED_MODEL: str = "gemini-embedding-001"
     GEMINI_API_BASE: str = "https://generativelanguage.googleapis.com/v1beta"
     GEMINI_TIMEOUT_SECONDS: int = 60
     # Bounded retry for transient upstream failures (429 / 5xx / network) on
