@@ -197,8 +197,15 @@ variable "google_client_secret" {
   default     = ""
 }
 
-variable "encryption_key" {
-  description = "Fernet key used to encrypt stored OAuth and integration secrets."
+variable "qbo_client_secret" {
+  description = "QuickBooks Online OAuth client secret (optional)."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "plaid_secret" {
+  description = "Plaid API secret (optional)."
   type        = string
   sensitive   = true
   default     = ""

@@ -129,6 +129,7 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          SSO_CALLBACK_URL: ${{ secrets.SSO_CALLBACK_URL }}
           ADMIN_FRONTEND_URL: ${{ secrets.ADMIN_FRONTEND_URL }}
           DEFAULT_ADMIN_EMAIL: ${{ secrets.DEFAULT_ADMIN_EMAIL }}
           DEFAULT_ADMIN_PASSWORD: ${{ secrets.DEFAULT_ADMIN_PASSWORD }}

@@ -73,7 +73,8 @@ jobs:
       # Folded into the Secrets Manager app secret so the SSM-driven deploy job
       # can assemble the container .env entirely on-box (all optional).
       TF_VAR_google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-      TF_VAR_encryption_key: ${{ secrets.ENCRYPTION_KEY }}
+      TF_VAR_qbo_client_secret: ${{ secrets.QBO_CLIENT_SECRET }}
+      TF_VAR_plaid_secret: ${{ secrets.PLAID_SECRET }}
       TF_VAR_smtp_user: ${{ secrets.SMTP_USER }}
       TF_VAR_smtp_password: ${{ secrets.SMTP_PASSWORD }}
       TF_VAR_npm_admin_password: ${{ secrets.NPM_ADMIN_PASSWORD }}
@@ -474,6 +475,15 @@ jobs:
           POSTGRES_PORT: ${{ secrets.RDS_PORT }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          QBO_CLIENT_ID: ${{ secrets.QBO_CLIENT_ID }}
+          QBO_REDIRECT_URI: ${{ secrets.QBO_REDIRECT_URI }}
+          QBO_ENVIRONMENT: ${{ vars.QBO_ENVIRONMENT || 'production' }}
+          QBO_API_BASE_URL: ${{ vars.QBO_API_BASE_URL || 'https://quickbooks.api.intuit.com/v3/company' }}
+          PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+          PLAID_ENV: ${{ vars.PLAID_ENV || 'production' }}
+          PLAID_API_BASE_URL: ${{ vars.PLAID_API_BASE_URL || 'https://production.plaid.com' }}
+          PLAID_COUNTRY_CODES: ${{ vars.PLAID_COUNTRY_CODES || 'US' }}
+          PLAID_REDIRECT_URI: ${{ secrets.PLAID_REDIRECT_URI }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
@@ -527,12 +537,20 @@ jobs:
           emit POSTGRES_PORT   "$POSTGRES_PORT"
           emit POSTGRES_DB     "$POSTGRES_DB"
           emit GOOGLE_CLIENT_ID "$GOOGLE_CLIENT_ID"
+          emit QBO_CLIENT_ID    "$QBO_CLIENT_ID"
+          emit QBO_REDIRECT_URI "$QBO_REDIRECT_URI"
+          emit QBO_ENVIRONMENT  "$QBO_ENVIRONMENT"
+          emit QBO_API_BASE_URL "$QBO_API_BASE_URL"
+          emit PLAID_CLIENT_ID  "$PLAID_CLIENT_ID"
+          emit PLAID_ENV        "$PLAID_ENV"
+          emit PLAID_API_BASE_URL "$PLAID_API_BASE_URL"
+          emit PLAID_COUNTRY_CODES "$PLAID_COUNTRY_CODES"
+          emit PLAID_REDIRECT_URI "$PLAID_REDIRECT_URI"
           emit SMTP_HOST       "$SMTP_HOST"
           emit SMTP_PORT       "$SMTP_PORT"
           emit SMTP_FROM       "$SMTP_FROM"
           emit SUPPORT_EMAIL   "$SUPPORT_EMAIL"
           emit FRONTEND_URL    "$FRONTEND_URL"
-          emit SSO_CALLBACK_URL "${SSO_CALLBACK_URL:-${FRONTEND_URL%/}/api/v1/sso/callback}"
           emit ADMIN_FRONTEND_URL "$ADMIN_FRONTEND_URL"
           emit DEFAULT_ADMIN_EMAIL "$DEFAULT_ADMIN_EMAIL"
           emit SUPER_ADMIN_EMAILS  "$SUPER_ADMIN_EMAILS"
@@ -607,7 +625,8 @@ jobs:
             --query SecretString --output text)"
           for k in POSTGRES_PASSWORD JWT_SECRET DEFAULT_ADMIN_PASSWORD ENCRYPTION_KEY \
                    STRIPE_SECRET_KEY GEMINI_API_KEY SENTRY_DSN \
-                   GOOGLE_CLIENT_SECRET SMTP_USER SMTP_PASSWORD NPM_ADMIN_PASSWORD; do
+                   GOOGLE_CLIENT_SECRET QBO_CLIENT_SECRET PLAID_SECRET \
+                   SMTP_USER SMTP_PASSWORD NPM_ADMIN_PASSWORD; do
             v="$(printf '%s' "$secret_json" | jq -r --arg k "$k" '.[$k] // empty')"
             [ -n "$v" ] && export "$k=$v"
           done
@@ -744,4 +763,3 @@ jobs:
             exit 1
           fi
           echo "Remote deploy succeeded."
-
