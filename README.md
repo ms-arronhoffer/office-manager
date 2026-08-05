@@ -766,6 +766,8 @@ docker compose exec db psql -U office_admin -d office_manager
 - **Google OAuth** — single sign-on with existing Google accounts
 
 ### Security & Access
+- **Information Security Policy** — governance requirements for information handling, identity, tenant isolation, cryptography, secure development, integrations, incident response, backup and recovery; see [docs/INFORMATION_SECURITY_POLICY.md](docs/INFORMATION_SECURITY_POLICY.md)
+- **Data Retention and Disposal Policy** — retention schedule, account termination, legal holds, backup expiry, integration-token disposal, and verified purge requirements; see [docs/DATA_RETENTION_AND_DISPOSAL_POLICY.md](docs/DATA_RETENTION_AND_DISPOSAL_POLICY.md)
 - **TOTP Two-Factor Authentication** — RFC 6238 TOTP (Google Authenticator, Authy, 1Password); mandatory for super-admins, optional for org users; 8 single-use backup codes per enrollment; see [docs/MFA_SETUP.md](docs/MFA_SETUP.md)
 - **Role-Based Access Control** — viewer / editor / accountant / admin / super-admin with org-scoped enforcement
 - **Multi-Tenancy** — complete data isolation between organizations; `organization_id` scoped on all entities
