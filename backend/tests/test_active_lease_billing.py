@@ -74,3 +74,23 @@ async def test_same_lease_can_count_in_a_later_month(db_session):
     september = await metering.count_billable_units(db_session, org.id, period="2026-09")
     assert august["residential"] == 1
     assert september["residential"] == 1
+
+
+@pytest.mark.asyncio
+async def test_unset_status_records_as_active_usage(db_session):
+    org = Organization(name="Unset Org", slug=f"unset-{uuid.uuid4().hex}", plan="pro")
+    db_session.add(org)
+    await db_session.flush()
+
+    await metering.record_active_lease_month(
+        db_session,
+        organization_id=org.id,
+        lease_type="commercial",
+        lease_id=uuid.uuid4(),
+        status=None,
+        when=datetime(2026, 8, 5, tzinfo=timezone.utc),
+    )
+    await db_session.commit()
+
+    breakdown = await metering.count_billable_units(db_session, org.id, period="2026-08")
+    assert breakdown["commercial"] == 1

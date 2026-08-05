@@ -508,7 +508,7 @@ class LeaseCreate(_LeaseAccountingFields, _LeaseBoundedTextMixin):
     notice_period_days: int | None = None
     lease_notice_date: date | None = None
     notice_given_date: date | None = None
-    status: str | None = None
+    status: str | None = "active"
     expiration_year: int
 
 

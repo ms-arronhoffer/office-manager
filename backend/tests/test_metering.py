@@ -126,5 +126,7 @@ def test_base_fee_and_per_lease_formula():
 def test_only_exact_active_status_is_billable():
     assert is_billable_active_status("Active") is True
     assert is_billable_active_status(" active ") is True
+    assert is_billable_active_status(None) is True
+    assert is_billable_active_status("") is True
+    assert is_billable_active_status("   ") is True
     assert is_billable_active_status("pending") is False
-    assert is_billable_active_status(None) is False

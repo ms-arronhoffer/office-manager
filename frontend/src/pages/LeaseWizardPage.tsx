@@ -108,7 +108,7 @@ const LeaseWizardPage: React.FC = () => {
   const [commencementDate, setCommencementDate] = useState('');
   const [leaseExpiration, setLeaseExpiration] = useState('');
   const [expirationYear, setExpirationYear] = useState('');
-  const [status, setStatus] = useState<QuickCreateOption | null>(null);
+  const [status, setStatus] = useState<QuickCreateOption | null>({ label: 'Active', value: 'active' });
   const [noticePeriod, setNoticePeriod] = useState('');
   const [noticePeriodDays, setNoticePeriodDays] = useState('');
 

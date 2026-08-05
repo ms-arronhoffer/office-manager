@@ -218,7 +218,7 @@ class OccupantResponse(BaseModel):
 class ResidentLeaseCreate(BaseModel):
     unit_id: uuid.UUID
     name: str | None = None
-    status: str = "draft"
+    status: str = "active"
     start_date: date | None = None
     end_date: date | None = None
     move_in_date: date | None = None

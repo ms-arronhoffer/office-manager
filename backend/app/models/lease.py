@@ -28,7 +28,9 @@ class Lease(SoftDeleteMixin, TimestampMixin, Base):
     notice_period_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     lease_notice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     notice_given_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    status: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, default="active", server_default="active"
+    )
     expiration_year: Mapped[int] = mapped_column(Integer, nullable=False)
 
     # ASC 842 / IFRS 16 financial fields

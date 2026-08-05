@@ -72,7 +72,7 @@ def estimated_monthly_charge_cents(units: int) -> int:
 
 
 def is_billable_active_status(status: str | None) -> bool:
-    return (status or "").strip().lower() == "active"
+    return (status or "").strip().lower() in {"", "active"}
 
 
 def period_month(when: datetime | None = None) -> str:
@@ -140,7 +140,7 @@ async def ensure_current_active_leases(
             select(Lease.id).where(
                 Lease.organization_id == org_id,
                 Lease.is_deleted.is_(False),
-                func.lower(func.trim(func.coalesce(Lease.status, ""))) == "active",
+                func.lower(func.trim(func.coalesce(Lease.status, ""))).in_(("", "active")),
             )
         )
     ).scalars().all()
@@ -149,7 +149,7 @@ async def ensure_current_active_leases(
             select(ResidentLease.id).where(
                 ResidentLease.organization_id == org_id,
                 ResidentLease.is_deleted.is_(False),
-                func.lower(func.trim(func.coalesce(ResidentLease.status, ""))) == "active",
+                func.lower(func.trim(func.coalesce(ResidentLease.status, ""))).in_(("", "active")),
             )
         )
     ).scalars().all()

@@ -10,7 +10,7 @@ The Base subscription includes every non-Enterprise application feature. Enterpr
 
 ## What Counts as an Active Lease
 
-A commercial or residential lease counts once for a UTC calendar month when its saved status is exactly `Active` for at least one day in that month.
+A commercial or residential lease counts once for a UTC calendar month when its saved status is `Active` for at least one day in that month. A null, blank, whitespace-only, or otherwise unset status is treated as Active so incomplete legacy data cannot suppress billing. New commercial and residential leases default to Active in the API, database, imports, clones, and user interface.
 
 Portfolio Desk writes an immutable `active_lease_months` row when a lease is saved as Active. Leases that remain Active across a month boundary are carried into the new month automatically. Changing or deleting the lease later does not reduce the completed month's usage.
 
@@ -119,7 +119,7 @@ STRIPE_PRODUCT_ID_ENTERPRISE=prod_...
 
 The platform admin console may store Stripe settings in the database. Enabled database settings override environment fallbacks. Stored secrets require `ENCRYPTION_KEY`.
 
-Apply migration `116_active_lease_billing_and_discounts.py` before deploying the new application version. The migration backfills exact Active commercial and residential leases into the current month.
+Apply migrations `116_active_lease_billing_and_discounts.py` and `117_default_lease_status_active.py` before deploying the new application version. Revision 116 creates the monthly usage and discount tables. Revision 117 normalizes existing unset statuses to Active, establishes database defaults, and backfills current-month usage.
 
 ## Operational Checks
 
