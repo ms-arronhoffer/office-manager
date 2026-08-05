@@ -307,7 +307,8 @@ terraform output github_actions_deploy_role_arn
 - `AWS_REGION` — region the ECR registry lives in (e.g. `us-east-2`).
 - `TF_VAR_DB_PASSWORD`, `TF_VAR_JWT_SECRET`, `TF_VAR_DEFAULT_ADMIN_PASSWORD`
 - `TF_VAR_STRIPE_SECRET_KEY`, `TF_VAR_GEMINI_API_KEY`, `TF_VAR_SENTRY_DSN` (optional)
-- `GOOGLE_CLIENT_SECRET`, `SMTP_USER`, `SMTP_PASSWORD`, `NPM_ADMIN_PASSWORD`
+- `GOOGLE_CLIENT_SECRET`, `QBO_CLIENT_SECRET`, `PLAID_SECRET`, `SMTP_USER`,
+  `SMTP_PASSWORD`, `NPM_ADMIN_PASSWORD`
   (optional) — folded into the Secrets Manager app secret by the `infra` job so
   the `deploy` job can assemble the container `.env` on-box. The remaining
   non-secret container config (`RDS_HOST`, `POSTGRES_DB`, `FRONTEND_URL`,
@@ -349,7 +350,15 @@ App deploy (for the `deploy` job of `infra-prod.yml`), matching the Terraform ou
     host-level debugging); NPM itself reaches every container by service name
     over the shared `edge` network, so the app containers are never exposed on
     the instance's public/LAN interfaces — NPM is the sole ingress.
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SMTP_*`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `SENTRY_DSN` (optional/as applicable)
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SMTP_*`, `GEMINI_API_KEY`,
+  `GEMINI_MODEL`, `SENTRY_DSN` (optional/as applicable)
+- QuickBooks Online: `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_REDIRECT_URI`;
+  optional repository variables `QBO_ENVIRONMENT` and `QBO_API_BASE_URL`
+  default to production.
+- Plaid: `PLAID_CLIENT_ID`, `PLAID_SECRET`, and optional
+  `PLAID_REDIRECT_URI`; optional repository variables `PLAID_ENV`,
+  `PLAID_API_BASE_URL`, and `PLAID_COUNTRY_CODES` default to production,
+  Plaid's production API, and `US`.
 
 ## Reverse proxy — Nginx Proxy Manager
 

@@ -21,6 +21,8 @@ resource "aws_secretsmanager_secret_version" "app" {
     # Folded in so the SSM-driven deploy can build the whole container .env
     # on-box from this single secret (see .github/workflows/infra-prod.yml).
     GOOGLE_CLIENT_SECRET = var.google_client_secret
+    QBO_CLIENT_SECRET    = var.qbo_client_secret
+    PLAID_SECRET         = var.plaid_secret
     SMTP_USER            = var.smtp_user
     SMTP_PASSWORD        = var.smtp_password
     NPM_ADMIN_PASSWORD   = var.npm_admin_password

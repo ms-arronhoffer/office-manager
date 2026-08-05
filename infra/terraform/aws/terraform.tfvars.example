@@ -31,6 +31,8 @@ app_eip_allocation_id = "eipalloc-04448fb4ab8eeae33"
 # Additional app secrets folded into the Secrets Manager secret so the
 # SSM-driven deploy can build the container .env on-box (all optional):
 # google_client_secret    = "..."
+# qbo_client_secret       = "..."
+# plaid_secret            = "..."
 # smtp_user               = "..."
 # smtp_password           = "..."
 # npm_admin_password      = "..."
