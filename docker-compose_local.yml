@@ -37,6 +37,12 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-noreply@officemanager.local}
       SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      QBO_CLIENT_ID: ${QBO_CLIENT_ID:-}
+      QBO_CLIENT_SECRET: ${QBO_CLIENT_SECRET:-}
+      QBO_REDIRECT_URI: ${QBO_REDIRECT_URI:-http://localhost:4001/finance/connections}
+      QBO_ENVIRONMENT: ${QBO_ENVIRONMENT:-production}
+      QBO_API_BASE_URL: ${QBO_API_BASE_URL:-https://quickbooks.api.intuit.com/v3/company}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:4000}
       DEFAULT_ADMIN_EMAIL: ${DEFAULT_ADMIN_EMAIL:-admin@officemanager.local}
       DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:?DEFAULT_ADMIN_PASSWORD is required}
