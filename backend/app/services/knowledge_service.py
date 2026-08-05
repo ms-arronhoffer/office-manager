@@ -9,7 +9,10 @@ existing lease-document chunks.
 Design mirrors :mod:`app.services.document_search_service`:
 
 * **Embeddings** are computed with Gemini when configured and stored as JSONB.
-  Cosine similarity is computed in Python — no ``pgvector`` extension required.
+  Migration 112 mirrors that JSONB into a ``pgvector`` column so ranking runs in
+  Postgres (``ORDER BY embedding_vec <=> :query LIMIT n``, HNSW indexed) instead
+  of scanning every row into application memory. When the extension or column is
+  unavailable, the original in-Python cosine scan is used unchanged.
 * **Graceful degradation** — when AI is unconfigured (or nothing is embedded
   yet) retrieval falls back to a keyword ``ILIKE`` scan so the feature still
   returns useful context.
@@ -27,7 +30,8 @@ import math
 import time
 import uuid
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -119,6 +123,49 @@ def _cosine(a: list[float], b: list[float]) -> float:
     if na == 0.0 or nb == 0.0:
         return 0.0
     return dot / (na * nb)
+
+
+def _similarity_from_distance(distance: float) -> float:
+    """Convert a pgvector cosine *distance* to the cosine *similarity* used here.
+
+    Postgres' ``<=>`` returns ``1 - cosine_similarity``, so the two floors below
+    (which are expressed as similarities) only apply after this inversion.
+    """
+    return 1.0 - float(distance)
+
+
+def _relevance_threshold(best_score: float) -> float:
+    """Similarity cutoff for a result set whose best match scored ``best_score``."""
+    return max(SEMANTIC_RELEVANCE_FLOOR, best_score * SEMANTIC_RELATIVE_FLOOR_RATIO)
+
+
+# ── pgvector-accelerated ranking ──────────────────────────────────────────────
+# The vector column is added by migration 112 only. It is deliberately absent
+# from the ORM models so a fresh ``create_all`` bootstrap (and any managed
+# Postgres lacking the extension) still builds, with retrieval degrading to the
+# in-Python cosine scan below.
+VECTOR_COLUMN = "embedding_vec"
+# Provider embedding width; must match migration 112's vector(768).
+EMBEDDING_DIM = 768
+# Over-fetch candidates per table so the per-source diversity cap still has
+# alternatives to choose from, as it did when every row was scored in Python.
+_VECTOR_CANDIDATE_MULTIPLIER = MAX_CHUNKS_PER_SOURCE * 4
+
+# Tri-state process cache: None = not probed, True/False = probe result.
+_vector_support: bool | None = None
+_iterative_scan_support: bool | None = None
+
+
+def reset_vector_support_cache() -> None:
+    """Forget the cached pgvector probe results (used after a schema change)."""
+    global _vector_support, _iterative_scan_support
+    _vector_support = None
+    _iterative_scan_support = None
+
+
+def _vector_literal(vector: list[float]) -> str:
+    """Render an embedding in pgvector's text input format."""
+    return "[" + ",".join(repr(float(v)) for v in vector) + "]"
 
 
 def _clean(text: str | None) -> str:
@@ -1604,6 +1651,7 @@ async def reindex_organization(
             )
         )
     await db.commit()
+    await sync_embedding_vectors(db, organization_id)
     return len(chunks)
 
 
@@ -1762,7 +1810,7 @@ def _select_relevant(
 
     ranked = sorted(scored, key=lambda x: x[0], reverse=True)
     best_score = ranked[0][0]
-    threshold = max(SEMANTIC_RELEVANCE_FLOOR, best_score * SEMANTIC_RELATIVE_FLOOR_RATIO)
+    threshold = _relevance_threshold(best_score)
 
     selected: list[tuple[float, str, object]] = []
     per_source: dict[tuple, int] = {}
@@ -1781,13 +1829,177 @@ def _select_relevant(
     return selected
 
 
-async def _semantic_retrieve(
+async def _vector_columns_present(db: AsyncSession) -> bool:
+    """True when both embedding tables carry the migration-112 vector column."""
+    global _vector_support
+    if _vector_support is not None:
+        return _vector_support
+    try:
+        rows = await db.execute(
+            text(
+                "SELECT table_name FROM information_schema.columns "
+                "WHERE table_schema = current_schema() "
+                "AND column_name = :col "
+                "AND table_name IN ('knowledge_chunks', 'lease_document_chunks')"
+            ),
+            {"col": VECTOR_COLUMN},
+        )
+        present = {row[0] for row in rows}
+    except SQLAlchemyError as exc:
+        # Not cached: a transient catalog failure should not disable pgvector
+        # for the life of the process.
+        logger.warning("pgvector probe failed, using in-Python ranking: %s", exc)
+        return False
+    _vector_support = present >= {"knowledge_chunks", "lease_document_chunks"}
+    if not _vector_support:
+        logger.info(
+            "pgvector column %s not present; knowledge retrieval uses in-Python cosine.",
+            VECTOR_COLUMN,
+        )
+    return _vector_support
+
+
+async def _vectors_in_sync(db: AsyncSession, organization_id: uuid.UUID) -> bool:
+    """True when every embedded chunk in the org also has its vector populated.
+
+    Guards against silent recall loss: rows written after the backfill have JSONB
+    but no vector, and an indexed ``ORDER BY`` would simply never see them.
+    """
+    for table in ("knowledge_chunks", "lease_document_chunks"):
+        stale = await db.execute(
+            text(
+                f"SELECT 1 FROM {table} "
+                f"WHERE organization_id = :org "
+                f"AND embedding IS NOT NULL AND {VECTOR_COLUMN} IS NULL LIMIT 1"
+            ),
+            {"org": organization_id},
+        )
+        if stale.first() is not None:
+            return False
+    return True
+
+
+async def sync_embedding_vectors(
+    db: AsyncSession, organization_id: uuid.UUID
+) -> None:
+    """Mirror an org's JSONB embeddings into the pgvector column (best-effort).
+
+    JSONB stays the write path, so this runs after indexing to keep the vector
+    column, and therefore the HNSW index, complete for the org.
+    """
+    if organization_id is None or not await _vector_columns_present(db):
+        return
+    for table in ("knowledge_chunks", "lease_document_chunks"):
+        try:
+            await db.execute(
+                text(
+                    f"UPDATE {table} SET {VECTOR_COLUMN} = embedding::text::vector "
+                    f"WHERE organization_id = :org "
+                    f"AND embedding IS NOT NULL AND {VECTOR_COLUMN} IS NULL "
+                    f"AND jsonb_typeof(embedding) = 'array' "
+                    f"AND jsonb_array_length(embedding) = :dim"
+                ),
+                {"org": organization_id, "dim": EMBEDDING_DIM},
+            )
+            await db.commit()
+        except ProgrammingError as exc:
+            await db.rollback()
+            _mark_vector_unsupported("vector sync", exc)
+            return
+
+
+def _mark_vector_unsupported(operation: str, exc: Exception) -> None:
+    global _vector_support
+    _vector_support = False
+    logger.warning(
+        "pgvector %s failed, falling back to in-Python cosine ranking: %s",
+        operation,
+        exc,
+    )
+
+
+async def _enable_iterative_scan(db: AsyncSession) -> None:
+    """Ask HNSW to keep scanning until the org filter is satisfied.
+
+    Retrieval is always tenant-filtered, and an unaided HNSW scan can exhaust its
+    candidate list on other orgs' rows and under-return for a small tenant.
+    ``hnsw.iterative_scan`` (pgvector >= 0.8) fixes that; older builds simply
+    keep the default behaviour. Results are re-sorted in Python, so the relaxed
+    ordering mode is safe here.
+    """
+    global _iterative_scan_support
+    if _iterative_scan_support is None:
+        # The two-argument form returns NULL instead of raising on older builds.
+        probe = await db.execute(
+            text("SELECT current_setting('hnsw.iterative_scan', true)")
+        )
+        _iterative_scan_support = probe.scalar() is not None
+    if _iterative_scan_support:
+        await db.execute(text("SET LOCAL hnsw.iterative_scan = relaxed_order"))
+
+
+async def _vector_scored(
     db: AsyncSession,
     *,
     organization_id: uuid.UUID,
     query_embedding: list[float],
     limit: int,
-) -> list[dict]:
+) -> list[tuple[float, str, object]] | None:
+    """Rank candidates in Postgres. Returns ``None`` when pgvector is unusable."""
+    if len(query_embedding) != EMBEDDING_DIM:
+        return None
+    if not await _vector_columns_present(db):
+        return None
+    if not await _vectors_in_sync(db, organization_id):
+        return None
+
+    fetch = max(limit, 1) * _VECTOR_CANDIDATE_MULTIPLIER
+    params = {
+        "qvec": _vector_literal(query_embedding),
+        "org": organization_id,
+        "lim": fetch,
+    }
+    await _enable_iterative_scan(db)
+    scored: list[tuple[float, str, object]] = []
+    for table, kind, model in (
+        ("knowledge_chunks", "knowledge", KnowledgeChunk),
+        ("lease_document_chunks", "document", LeaseDocumentChunk),
+    ):
+        # Table names are module constants, never caller input.
+        stmt = text(
+            f"SELECT id, {VECTOR_COLUMN} <=> CAST(:qvec AS vector) AS distance "
+            f"FROM {table} "
+            f"WHERE organization_id = :org AND {VECTOR_COLUMN} IS NOT NULL "
+            f"ORDER BY {VECTOR_COLUMN} <=> CAST(:qvec AS vector) "
+            f"LIMIT :lim"
+        )
+        try:
+            rows = (await db.execute(stmt, params)).all()
+        except ProgrammingError as exc:
+            # Column/type/operator missing at execute time (e.g. extension dropped).
+            await db.rollback()
+            _mark_vector_unsupported(f"{table} ranking", exc)
+            return None
+        if not rows:
+            continue
+        distances = {row[0]: float(row[1]) for row in rows}
+        chunks = (
+            await db.execute(select(model).where(model.id.in_(list(distances))))
+        ).scalars().all()
+        for chunk in chunks:
+            scored.append(
+                (_similarity_from_distance(distances[chunk.id]), kind, chunk)
+            )
+    return scored
+
+
+async def _python_scored(
+    db: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    query_embedding: list[float],
+) -> list[tuple[float, str, object]]:
+    """Original full-scan path: load every embedded chunk and score in Python."""
     scored: list[tuple[float, str, object]] = []
 
     k_chunks = (
@@ -1811,6 +2023,27 @@ async def _semantic_retrieve(
     ).scalars().all()
     for chunk in d_chunks:
         scored.append((_cosine(query_embedding, chunk.embedding or []), "document", chunk))
+
+    return scored
+
+
+async def _semantic_retrieve(
+    db: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    query_embedding: list[float],
+    limit: int,
+) -> list[dict]:
+    scored = await _vector_scored(
+        db,
+        organization_id=organization_id,
+        query_embedding=query_embedding,
+        limit=limit,
+    )
+    if scored is None:
+        scored = await _python_scored(
+            db, organization_id=organization_id, query_embedding=query_embedding
+        )
 
     if not scored:
         return []

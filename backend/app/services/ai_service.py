@@ -116,7 +116,18 @@ def collect_token_usage() -> tuple[int, int]:
 
 
 def _record_usage_metadata(data: dict[str, Any]) -> None:
-    """Extract prompt/candidate token counts from a Gemini response body."""
+    """Extract token counts from Gemini or OpenAI-compatible responses."""
+    usage = data.get("usage") or {}
+    if usage:
+        try:
+            record_token_usage(
+                int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
+                int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
+            )
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            pass
+        return
+
     meta = data.get("usageMetadata") or {}
     prompt_tokens = meta.get("promptTokenCount") or 0
     # Embedding/older responses may omit candidates; fall back to total - prompt.
@@ -145,7 +156,7 @@ _parse_cache: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
 
 def _cache_key(parser: str, payload: bytes) -> str:
     digest = hashlib.sha256(payload).hexdigest()
-    return f"{parser}:{PROMPT_VERSION}:{settings.GEMINI_MODEL}:{digest}"
+    return f"{parser}:{PROMPT_VERSION}:{get_provider_name()}:{get_model_name()}:{digest}"
 
 
 def _cache_get(key: str) -> dict[str, Any] | None:
@@ -197,29 +208,116 @@ class AIDocumentError(AIError):
     """
 
 
+SUPPORTED_PROVIDERS = frozenset({"gemini", "openai", "openrouter"})
+
+
+def get_provider_name() -> str:
+    """Return the selected generation provider.
+
+    An empty ``AI_PROVIDER`` preserves the original Gemini-only configuration
+    contract so existing deployments continue to work without environment
+    changes.
+    """
+    configured = settings.AI_PROVIDER.strip().lower()
+    return configured or "gemini"
+
+
+def get_embedding_provider_name() -> str:
+    return settings.AI_EMBED_PROVIDER.strip().lower() or get_provider_name()
+
+
+def _provider_api_key(provider: str) -> str:
+    if provider == "gemini":
+        return settings.GEMINI_API_KEY
+    if provider == "openai":
+        return settings.OPENAI_API_KEY
+    if provider == "openrouter":
+        return settings.OPENROUTER_API_KEY
+    return ""
+
+
+def provider_configured(provider: str) -> bool:
+    """Return whether ``provider`` has both an API key and generation model."""
+    return provider in SUPPORTED_PROVIDERS and bool(_provider_api_key(provider)) and bool(
+        get_model_name(provider=provider)
+    )
+
+
 def is_configured() -> bool:
-    """Return whether a Gemini API key is configured."""
-    return bool(settings.GEMINI_API_KEY)
+    """Return whether the selected generation provider is configured."""
+    provider = get_provider_name()
+    return provider_configured(provider)
+
+
+def gemini_fallback_configured() -> bool:
+    """Return whether Gemini can be used for provider-specific document input."""
+    return provider_configured("gemini")
+
+
+def embeddings_configured() -> bool:
+    provider = get_embedding_provider_name()
+    return provider in SUPPORTED_PROVIDERS and bool(_provider_api_key(provider)) and bool(
+        get_embedding_model_name()
+    )
+
+
+def get_model_name(model: str | None = None, *, provider: str | None = None) -> str:
+    provider = provider or get_provider_name()
+    if provider == "gemini":
+        # AI_MODEL overrides Gemini only when Gemini is the selected primary
+        # provider. A Gemini fallback in an OpenRouter deployment must use the
+        # Gemini-specific model, never an OpenRouter model identifier.
+        primary_is_gemini = get_provider_name() == "gemini"
+        default_model = (
+            settings.AI_MODEL if primary_is_gemini else ""
+        ) or settings.GEMINI_MODEL
+        fast_model = (
+            settings.AI_MODEL_FAST if primary_is_gemini else ""
+        ) or settings.GEMINI_MODEL_FAST
+    else:
+        default_model = settings.AI_MODEL
+        fast_model = settings.AI_MODEL_FAST
+    if model is None:
+        return default_model
+    if model == "fast":
+        return fast_model or default_model
+    return model
+
+
+def get_embedding_model_name() -> str:
+    provider = get_embedding_provider_name()
+    model = settings.AI_EMBED_MODEL
+    if not model and provider == "gemini":
+        model = settings.GEMINI_EMBED_MODEL
+    # Existing deployments may still carry the retired model in their .env.
+    # Normalize only for the direct Gemini provider; an OpenRouter namespaced
+    # model must remain untouched.
+    if provider == "gemini" and model == "text-embedding-004":
+        return "gemini-embedding-001"
+    return model
 
 
 def _resolve_model(model: str | None) -> str:
-    """Resolve a caller-supplied model name to a concrete Gemini model id.
+    """Resolve a caller-supplied model name to the selected provider model.
 
     ``None`` selects the default ``GEMINI_MODEL``. The sentinel ``"fast"``
     selects ``GEMINI_MODEL_FAST`` when configured (for cheap, low-stakes tasks
     like intent parsing), transparently falling back to ``GEMINI_MODEL`` when no
     fast model is set so behaviour is unchanged by default.
     """
-    if model is None:
-        return settings.GEMINI_MODEL
-    if model == "fast":
-        return settings.GEMINI_MODEL_FAST or settings.GEMINI_MODEL
-    return model
+    return get_model_name(model)
 
 
-def _endpoint(model: str | None = None) -> str:
-    base = settings.GEMINI_API_BASE.rstrip("/")
-    return f"{base}/models/{_resolve_model(model)}:generateContent"
+def _endpoint(model: str | None = None, *, provider: str | None = None) -> str:
+    provider = provider or get_provider_name()
+    if provider == "gemini":
+        base = settings.GEMINI_API_BASE.rstrip("/")
+        return f"{base}/models/{get_model_name(model, provider=provider)}:generateContent"
+    if provider == "openai":
+        return f"{settings.OPENAI_API_BASE.rstrip('/')}/chat/completions"
+    if provider == "openrouter":
+        return f"{settings.OPENROUTER_API_BASE.rstrip('/')}/chat/completions"
+    raise AIUnavailableError(f"Unsupported AI provider: {provider}")
 
 
 # HTTP statuses worth retrying: rate limiting + transient server errors.
@@ -227,9 +325,14 @@ _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
 
 async def _post_with_retry(
-    url: str, *, params: dict[str, Any], json: dict[str, Any]
+    url: str,
+    *,
+    json: dict[str, Any],
+    params: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    provider: str | None = None,
 ) -> httpx.Response:
-    """POST to Gemini with bounded, jittered exponential backoff.
+    """POST to an AI provider with bounded, jittered exponential backoff.
 
     Retries only transient failures — network/timeout errors and ``429``/``5xx``
     responses — since generate and embed calls are idempotent. Non-retryable
@@ -240,14 +343,30 @@ async def _post_with_retry(
     import asyncio
     import random
 
-    attempts = max(0, settings.GEMINI_MAX_RETRIES) + 1
-    base_delay = max(0.0, settings.GEMINI_RETRY_BASE_SECONDS)
+    provider = provider or get_provider_name()
+    use_gemini_settings = provider == "gemini"
+    max_retries = settings.GEMINI_MAX_RETRIES if use_gemini_settings else settings.AI_MAX_RETRIES
+    base_seconds = (
+        settings.GEMINI_RETRY_BASE_SECONDS
+        if use_gemini_settings
+        else settings.AI_RETRY_BASE_SECONDS
+    )
+    timeout_seconds = (
+        settings.GEMINI_TIMEOUT_SECONDS if use_gemini_settings else settings.AI_TIMEOUT_SECONDS
+    )
+    attempts = max(0, max_retries) + 1
+    base_delay = max(0.0, base_seconds)
     last_exc: httpx.HTTPError | None = None
 
     for attempt in range(attempts):
         try:
-            async with httpx.AsyncClient(timeout=settings.GEMINI_TIMEOUT_SECONDS) as client:
-                resp = await client.post(url, params=params, json=json)
+            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+                request_kwargs: dict[str, Any] = {"json": json}
+                if params is not None:
+                    request_kwargs["params"] = params
+                if headers is not None:
+                    request_kwargs["headers"] = headers
+                resp = await client.post(url, **request_kwargs)
         except httpx.HTTPError as exc:  # network / timeout
             last_exc = exc
             if attempt == attempts - 1:
@@ -255,7 +374,7 @@ async def _post_with_retry(
         else:
             if resp.status_code in _RETRYABLE_STATUS and attempt < attempts - 1:
                 logger.info(
-                    "Gemini returned retryable %s (attempt %d/%d); backing off",
+                    "AI provider returned retryable %s (attempt %d/%d); backing off",
                     resp.status_code, attempt + 1, attempts,
                 )
             else:
@@ -269,11 +388,53 @@ async def _post_with_retry(
     raise last_exc  # type: ignore[misc]
 
 
-def _require_configured() -> None:
-    if not is_configured():
+def _require_configured(provider: str | None = None) -> None:
+    provider = provider or get_provider_name()
+    if not provider_configured(provider):
         raise AIUnavailableError(
-            "AI assist is not configured. Set GEMINI_API_KEY to enable it."
+            f"AI assist is not configured for provider '{provider}'. "
+            "Set AI_PROVIDER, AI_MODEL, and the matching provider API key."
         )
+
+
+def _openai_headers(provider: str) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {_provider_api_key(provider)}",
+        "Content-Type": "application/json",
+    }
+    if provider == "openrouter":
+        if settings.OPENROUTER_SITE_URL:
+            headers["HTTP-Referer"] = settings.OPENROUTER_SITE_URL
+        if settings.OPENROUTER_APP_NAME:
+            headers["X-Title"] = settings.OPENROUTER_APP_NAME
+    return headers
+
+
+def _openai_content(parts: list[dict[str, Any]]) -> str | list[dict[str, Any]]:
+    """Translate canonical Gemini-style parts to OpenAI-compatible content."""
+    content: list[dict[str, Any]] = []
+    for part in parts:
+        if "text" in part:
+            content.append({"type": "text", "text": str(part.get("text") or "")})
+            continue
+        inline = part.get("inlineData") or {}
+        mime_type = str(inline.get("mimeType") or "application/octet-stream")
+        data = str(inline.get("data") or "")
+        if mime_type.startswith("image/"):
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime_type};base64,{data}"},
+                }
+            )
+            continue
+        raise AIDocumentError(
+            f"The selected provider cannot process inline {mime_type} documents. "
+            "Use a text-bearing document or configure Gemini for scanned PDFs."
+        )
+    if all(item["type"] == "text" for item in content):
+        return "\n".join(str(item["text"]) for item in content)
+    return content
 
 
 async def _generate(
@@ -283,6 +444,7 @@ async def _generate(
     json_response: bool = False,
     temperature: float = 0.2,
     model: str | None = None,
+    provider: str | None = None,
 ) -> str:
     """Call Gemini ``generateContent`` and return the first text part.
 
@@ -291,42 +453,65 @@ async def _generate(
     sentinel ``"fast"`` uses ``GEMINI_MODEL_FAST`` (falling back to the default
     when unset) for cheap, low-stakes calls such as intent parsing.
     """
-    _require_configured()
+    provider = provider or get_provider_name()
+    _require_configured(provider)
 
-    payload: dict[str, Any] = {
-        "contents": [{"role": "user", "parts": parts}],
-        "generationConfig": {"temperature": temperature},
-    }
-    if system_instruction:
-        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
-    if json_response:
-        payload["generationConfig"]["responseMimeType"] = "application/json"
+    if provider == "gemini":
+        payload: dict[str, Any] = {
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"temperature": temperature},
+        }
+        if system_instruction:
+            payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+        if json_response:
+            payload["generationConfig"]["responseMimeType"] = "application/json"
+        params = {"key": settings.GEMINI_API_KEY}
+        headers = None
+    else:
+        messages: list[dict[str, Any]] = []
+        if system_instruction:
+            messages.append({"role": "system", "content": system_instruction})
+        messages.append({"role": "user", "content": _openai_content(parts)})
+        payload = {
+            "model": get_model_name(model, provider=provider),
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if json_response:
+            payload["response_format"] = {"type": "json_object"}
+        params = None
+        headers = _openai_headers(provider)
 
-    url = _endpoint(model)
+    url = _endpoint(model, provider=provider)
     try:
         resp = await _post_with_retry(
             url,
-            params={"key": settings.GEMINI_API_KEY},
+            params=params,
+            headers=headers,
             json=payload,
+            provider=provider,
         )
     except httpx.HTTPError as exc:  # network/timeout after retries
-        logger.warning("Gemini request failed: %s", exc)
+        logger.warning("AI provider request failed: %s", exc)
         raise AIRequestError(f"AI provider request failed: {exc}") from exc
 
     if resp.status_code != 200:
         # Avoid leaking the API key; surface only the status + provider message.
         detail = _safe_error_detail(resp)
-        logger.warning("Gemini returned %s: %s", resp.status_code, detail)
+        logger.warning("AI provider returned %s: %s", resp.status_code, detail)
         raise AIRequestError(f"AI provider error ({resp.status_code}): {detail}")
 
     try:
         data = resp.json()
-        candidates = data.get("candidates") or []
-        first = candidates[0]
-        out_parts = first["content"]["parts"]
-        text = "".join(p.get("text", "") for p in out_parts)
+        if provider == "gemini":
+            candidates = data.get("candidates") or []
+            first = candidates[0]
+            out_parts = first["content"]["parts"]
+            text = "".join(p.get("text", "") for p in out_parts)
+        else:
+            text = data["choices"][0]["message"]["content"]
     except (KeyError, IndexError, ValueError) as exc:
-        logger.warning("Unexpected Gemini response shape: %s", exc)
+        logger.warning("Unexpected AI provider response shape: %s", exc)
         raise AIRequestError("AI provider returned an unexpected response") from exc
 
     _record_usage_metadata(data)
@@ -454,9 +639,20 @@ async def _split_large_pdf(content: bytes, mime_type: str) -> list[list[dict[str
 
 
 async def extract_pdf_text_with_ai(content: bytes) -> str:
-    """Transcribe an image-only PDF with the configured multimodal model."""
+    """Transcribe an image-only PDF with Gemini's native PDF input.
+
+    OpenAI-compatible providers remain selected for ordinary generation and
+    embeddings. This path uses Gemini only for the capability they lack: inline
+    PDF transcription. Gemini must therefore be configured independently.
+    """
     if not content:
         return ""
+    if not gemini_fallback_configured():
+        raise AIDocumentError(
+            "The selected provider cannot process this scanned PDF and the "
+            "Gemini document fallback is not configured. Set GEMINI_API_KEY "
+            "and GEMINI_MODEL, or upload an OCR/text-bearing PDF."
+        )
     if len(content) <= MAX_DOCUMENT_BYTES:
         segments = [[_document_part(content, "application/pdf")]]
     else:
@@ -474,7 +670,9 @@ async def extract_pdf_text_with_ai(content: bytes) -> str:
 
     async def _transcribe(segment: list[dict[str, Any]]) -> str:
         async with semaphore:
-            return await _generate([prompt, *segment], temperature=0.0)
+            return await _generate(
+                [prompt, *segment], temperature=0.0, provider="gemini"
+            )
 
     outcomes = await asyncio.gather(
         *(_transcribe(segment) for segment in segments), return_exceptions=True
@@ -2477,49 +2675,84 @@ def _embed_endpoint(model: str) -> str:
 
 
 async def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Return an embedding vector for each input string via Gemini.
+    """Return an embedding vector for each input string.
 
     Raises :class:`AIUnavailableError` when no API key is configured so callers
     can fall back to keyword search. The embedding model is configurable via
     ``GEMINI_EMBED_MODEL``.
     """
-    _require_configured()
+    if not embeddings_configured():
+        provider = get_embedding_provider_name()
+        raise AIUnavailableError(
+            f"Embeddings are not configured for provider '{provider}'."
+        )
     if not texts:
         return []
 
-    model = settings.GEMINI_EMBED_MODEL
-    url = _embed_endpoint(model)
+    provider = get_embedding_provider_name()
+    model = get_embedding_model_name()
     vectors: list[list[float]] = []
 
     for start in range(0, len(texts), EMBED_BATCH_SIZE):
         batch = texts[start : start + EMBED_BATCH_SIZE]
-        payload = {
-            "requests": [
-                {
-                    "model": f"models/{model}",
-                    "content": {"parts": [{"text": (t or "")[:MAX_TEXT_CHARS]}]},
-                }
-                for t in batch
-            ]
-        }
+        if provider == "gemini":
+            url = _embed_endpoint(model)
+            payload = {
+                "requests": [
+                    {
+                        "model": f"models/{model}",
+                        "content": {"parts": [{"text": (t or "")[:MAX_TEXT_CHARS]}]},
+                        "outputDimensionality": settings.AI_EMBED_DIMENSIONS,
+                    }
+                    for t in batch
+                ]
+            }
+            params = {"key": settings.GEMINI_API_KEY}
+            headers = None
+        else:
+            base = (
+                settings.OPENAI_API_BASE
+                if provider == "openai"
+                else settings.OPENROUTER_API_BASE
+            )
+            url = f"{base.rstrip('/')}/embeddings"
+            payload = {
+                "model": model,
+                "input": [(text or "")[:MAX_TEXT_CHARS] for text in batch],
+                "dimensions": settings.AI_EMBED_DIMENSIONS,
+            }
+            params = None
+            headers = _openai_headers(provider)
         try:
             resp = await _post_with_retry(
-                url, params={"key": settings.GEMINI_API_KEY}, json=payload
+                url, params=params, headers=headers, json=payload, provider=provider
             )
         except httpx.HTTPError as exc:
-            logger.warning("Gemini embed request failed: %s", exc)
+            logger.warning("%s embed request failed: %s", provider, exc)
             raise AIRequestError(f"AI provider request failed: {exc}") from exc
 
         if resp.status_code != 200:
             detail = _safe_error_detail(resp)
-            logger.warning("Gemini embed returned %s: %s", resp.status_code, detail)
+            logger.warning(
+                "%s embed returned %s: %s", provider, resp.status_code, detail
+            )
             raise AIRequestError(f"AI provider error ({resp.status_code}): {detail}")
 
         try:
             data = resp.json()
-            embeddings = data["embeddings"]
-            for emb in embeddings:
-                vectors.append([float(v) for v in emb["values"]])
+            if provider == "gemini":
+                embeddings = data["embeddings"]
+                batch_vectors = [[float(v) for v in emb["values"]] for emb in embeddings]
+            else:
+                embeddings = sorted(data["data"], key=lambda item: item.get("index", 0))
+                batch_vectors = [[float(v) for v in emb["embedding"]] for emb in embeddings]
+            for vector in batch_vectors:
+                if len(vector) != settings.AI_EMBED_DIMENSIONS:
+                    raise AIRequestError(
+                        f"Embedding provider returned {len(vector)} dimensions; "
+                        f"expected {settings.AI_EMBED_DIMENSIONS}."
+                    )
+                vectors.append(vector)
         except (KeyError, TypeError, ValueError) as exc:
             logger.warning("Unexpected Gemini embed response shape: %s", exc)
             raise AIRequestError("AI provider returned an unexpected response") from exc

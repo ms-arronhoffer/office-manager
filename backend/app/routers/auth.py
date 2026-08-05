@@ -90,6 +90,20 @@ async def _clear_lockout(db: AsyncSession, email: str) -> None:
     await db.commit()
 
 
+async def _sso_enforced(db: AsyncSession, organization_id) -> bool:
+    """True when the user's organization requires single sign-on."""
+    from app.models.organization_sso_config import OrganizationSsoConfig
+
+    result = await db.execute(
+        select(OrganizationSsoConfig).where(
+            OrganizationSsoConfig.organization_id == organization_id,
+            OrganizationSsoConfig.is_enabled.is_(True),
+            OrganizationSsoConfig.enforce_sso.is_(True),
+        )
+    )
+    return result.scalar_one_or_none() is not None
+
+
 # ── MFA helpers ───────────────────────────────────────────────────────────────
 
 async def _make_jwt(db: AsyncSession, user: User) -> str:
@@ -200,6 +214,12 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
+    if user.organization_id is not None and not user.is_super_admin:
+        if await _sso_enforced(db, user.organization_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your organization requires single sign-on. Use the 'Use single sign-on' option.",
+            )
     # Deliberately do not hard-block unverified email addresses here. The
     # frontend uses ``email_verified`` from /auth/me for a softer rollout that
     # does not break existing auth flows or test fixtures.

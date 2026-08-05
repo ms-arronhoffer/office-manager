@@ -198,7 +198,7 @@ const emptyForm: LeaseFormState = {
   notice_period_days: '',
   lease_notice_date: '',
   notice_given_date: '',
-  status: '',
+  status: 'active',
   expiration_year: '',
 };
 

@@ -137,6 +137,18 @@ jobs:
           LANDING_PORT: ${{ secrets.LANDING_PORT }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}	
           GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          QBO_CLIENT_ID: ${{ secrets.QBO_CLIENT_ID }}
+          QBO_CLIENT_SECRET: ${{ secrets.QBO_CLIENT_SECRET }}
+          QBO_REDIRECT_URI: ${{ secrets.QBO_REDIRECT_URI }}
+          QBO_ENVIRONMENT: ${{ vars.QBO_ENVIRONMENT || 'sandbox' }}
+          QBO_API_BASE_URL: ${{ vars.QBO_API_BASE_URL || 'https://sandbox-quickbooks.api.intuit.com/v3/company' }}
+          PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+          PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
+          PLAID_ENV: ${{ vars.PLAID_ENV || 'sandbox' }}
+          PLAID_API_BASE_URL: ${{ vars.PLAID_API_BASE_URL || 'https://sandbox.plaid.com' }}
+          PLAID_COUNTRY_CODES: ${{ vars.PLAID_COUNTRY_CODES || 'US' }}
+          PLAID_REDIRECT_URI: ${{ secrets.PLAID_REDIRECT_URI }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_PRICE_ID_STARTER: ${{ secrets.STRIPE_PRICE_ID_STARTER }}

@@ -12,13 +12,12 @@ import Header from '@cloudscape-design/components/header';
 import Input from '@cloudscape-design/components/input';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Spinner from '@cloudscape-design/components/spinner';
-import SegmentedControl from '@cloudscape-design/components/segmented-control';
 import { billing as billingApi } from '@/api';
 import type { BillingSubscription } from '@/types';
 
 const PLAN_LABELS: Record<string, string> = {
-  starter: 'Core',
-  pro: 'Operations',
+  starter: 'Base',
+  pro: 'Base',
   enterprise: 'Enterprise',
 };
 
@@ -29,37 +28,26 @@ const PLAN_COLOR: Record<string, 'grey' | 'blue' | 'green'> = {
 };
 
 interface PlanCard {
-  plan: 'starter' | 'pro' | 'enterprise';
+  plan: 'pro' | 'enterprise';
   price: string;
-  annualPrice?: string;
   features: string[];
   cta: string | null;
 }
 
 const PLANS: PlanCard[] = [
   {
-    plan: 'starter',
-    price: '$99 / month',
-    annualPrice: '$79 / month, billed annually',
-    features: ['Up to 10 offices', 'Up to 100 active leases', 'Unlimited users', 'Lease management & critical-date alerts', 'Maintenance ticket tracking', 'Resident, owner & vendor portals', 'AI lease detail extraction', 'Basic reporting & CSV export', '90-day audit log'],
-    cta: 'Subscribe to Core',
-  },
-  {
     plan: 'pro',
-    price: '$299 / month',
-    annualPrice: '$249 / month, billed annually',
-    features: ['Up to 50 offices', 'Up to 500 active leases', 'Unlimited users', 'Full maintenance, HVAC & inspections', 'SLA rules & escalations', 'Commercial client portal', 'Advanced analytics & PDF export', 'AI abstracts & digital waivers', 'CAM reconciliation & advanced accounting', 'Guided Buildium migration', 'Full audit log (unlimited)'],
-    cta: 'Upgrade to Operations',
+    price: '$39 / month + $4 per billed lease',
+    features: ['First 3 monthly-active leases included', 'All Portfolio Desk application features', 'Commercial, residential & self-storage operations', 'Accounting, CAM, AP, AR & bank reconciliation', 'HVAC, maintenance, inspections & transitions', 'AI assistant, digital waivers & external portals', 'Unlimited users', 'Monthly lease usage tracked transparently'],
+    cta: 'Subscribe to Base',
   },
   {
     plan: 'enterprise',
-    price: 'From $750 / month',
+    price: 'From $449 / month',
     features: ['Everything in Operations', 'API access & webhooks', 'Custom limits & retention', 'High-volume AI allowance', 'Dedicated onboarding', 'Migration assistance', 'Contractual support response times', 'Private deployment options'],
     cta: null,
   },
 ];
-
-const PLAN_RANK: Record<string, number> = { starter: 0, pro: 1, enterprise: 2 };
 
 const BillingPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -67,7 +55,6 @@ const BillingPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isChangingPlan, setIsChangingPlan] = useState<string | null>(null);
-  const [billingInterval, setBillingInterval] = useState<'monthly' | 'annual'>('monthly');
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [isReactivating, setIsReactivating] = useState(false);
@@ -113,11 +100,11 @@ const BillingPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handlePlanChange = async (plan: 'starter' | 'pro') => {
+  const handlePlanChange = async (plan: 'pro') => {
     setIsChangingPlan(plan);
     setError(null);
     try {
-      const { data } = await billingApi.createCheckout(plan, undefined, billingInterval);
+      const { data } = await billingApi.createCheckout(plan);
       if (data.checkout_url) {
         // No existing subscription yet — redirect to Stripe Checkout.
         window.location.href = data.checkout_url;
@@ -393,27 +380,63 @@ const BillingPage: React.FC = () => {
           </Container>
         )}
 
+        {/* Monthly active-lease billing */}
+        {sub && (
+          <Container
+            header={
+              <Header
+                variant="h2"
+                description="A lease counts once when it has been saved as Active for at least one day in this month. The first three are included in the $39 base fee."
+              >
+                Monthly active leases
+              </Header>
+            }
+          >
+            <ColumnLayout columns={3} variant="text-grid">
+              <SpaceBetween size="xs">
+                <Box variant="awsui-key-label">Active this month</Box>
+                <Box fontSize="display-l" fontWeight="bold">
+                  {sub.billable_units}
+                </Box>
+                <Box variant="small" color="text-body-secondary">
+                  {sub.included_leases} included, {sub.billed_leases} billed at $4 each.
+                </Box>
+              </SpaceBetween>
+              <SpaceBetween size="xs">
+                <Box variant="awsui-key-label">Breakdown</Box>
+                <Box>Commercial leases: {sub.billable_unit_breakdown?.commercial ?? 0}</Box>
+                <Box>Residential leases: {sub.billable_unit_breakdown?.residential ?? 0}</Box>
+              </SpaceBetween>
+              <SpaceBetween size="xs">
+                <Box variant="awsui-key-label">
+                  This period ({sub.billable_period_month})
+                </Box>
+                {sub.billable_unit_snapshot ? (
+                  <>
+                    <Box>{sub.billable_unit_snapshot.billable_units} active leases recorded</Box>
+                    {sub.billable_unit_snapshot.captured_at && (
+                      <Box variant="small" color="text-body-secondary">
+                        Captured{' '}
+                        {new Date(sub.billable_unit_snapshot.captured_at).toLocaleString()}
+                      </Box>
+                    )}
+                  </>
+                ) : (
+                  <Box variant="small" color="text-body-secondary">
+                    Not yet recorded for this period.
+                  </Box>
+                )}
+                <Box fontWeight="bold">
+                  Estimated charge: ${(sub.estimated_monthly_charge_cents / 100).toFixed(2)}
+                </Box>
+              </SpaceBetween>
+            </ColumnLayout>
+          </Container>
+        )}
+
         {/* Plan comparison */}
         <Container
-          header={
-            <Header
-              variant="h2"
-              actions={
-                <SegmentedControl
-                  selectedId={billingInterval}
-                  onChange={({ detail }) =>
-                    setBillingInterval(detail.selectedId as 'monthly' | 'annual')
-                  }
-                  options={[
-                    { id: 'monthly', text: 'Monthly' },
-                    { id: 'annual', text: 'Annual, save up to 20%' },
-                  ]}
-                />
-              }
-            >
-              Plans
-            </Header>
-          }
+          header={<Header variant="h2">Plans</Header>}
         >
           <Cards
             items={PLANS}
@@ -430,9 +453,7 @@ const BillingPage: React.FC = () => {
                   header: 'Price',
                   content: item => (
                     <Box variant="h3" color="text-status-info">
-                      {billingInterval === 'annual' && item.annualPrice
-                        ? item.annualPrice
-                        : item.price}
+                      {item.price}
                     </Box>
                   ),
                 },
@@ -488,16 +509,12 @@ const BillingPage: React.FC = () => {
                     }
                     if (!sub?.billing_configured) return null;
 
-                    // During the trial (or any time before a paid subscription
-                    // exists) offer a direct Subscribe button for both Starter
-                    // and Pro — including the plan currently being trialed — so
-                    // the customer can start paying whenever they choose.
                     if (!hasPaidSubscription) {
                       return (
                         <Button
                           variant={item.plan === 'pro' ? 'primary' : 'normal'}
                           loading={isChangingPlan === item.plan}
-                          onClick={() => handlePlanChange(item.plan as 'starter' | 'pro')}
+                          onClick={() => handlePlanChange('pro')}
                           fullWidth
                         >
                           {`Subscribe to ${PLAN_LABELS[item.plan]}`}
@@ -511,23 +528,21 @@ const BillingPage: React.FC = () => {
                     if (currentPlan === 'enterprise') {
                       return <Box color="text-body-secondary">Contact sales to change plans</Box>;
                     }
-                    const isDowngrade = PLAN_RANK[item.plan] < PLAN_RANK[currentPlan];
-                    const label = isDowngrade ? `Switch to ${PLAN_LABELS[item.plan]}` : item.cta;
                     return (
                       <Button
-                        variant={!isDowngrade && item.plan === 'pro' ? 'primary' : 'normal'}
+                        variant="primary"
                         loading={isChangingPlan === item.plan}
-                        onClick={() => handlePlanChange(item.plan as 'starter' | 'pro')}
+                        onClick={() => handlePlanChange('pro')}
                         fullWidth
                       >
-                        {label}
+                        {item.cta}
                       </Button>
                     );
                   },
                 },
               ],
             }}
-            cardsPerRow={[{ cards: 1 }, { minWidth: 500, cards: 3 }]}
+            cardsPerRow={[{ cards: 1 }, { minWidth: 700, cards: 2 }]}
           />
         </Container>
       </SpaceBetween>

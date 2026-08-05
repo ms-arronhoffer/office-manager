@@ -16,6 +16,8 @@ import ColumnLayout from '@cloudscape-design/components/column-layout';
 import Spinner from '@cloudscape-design/components/spinner';
 import Flashbar from '@cloudscape-design/components/flashbar';
 import Tabs from '@cloudscape-design/components/tabs';
+import Toggle from '@cloudscape-design/components/toggle';
+import Alert from '@cloudscape-design/components/alert';
 import PortalAccessDenied from '@/components/portal/PortalAccessDenied';
 import usePortalSession from '@/hooks/usePortalSession';
 import { residentPortal } from '@/api';
@@ -24,6 +26,7 @@ import type {
   ResidentPortalAnnouncement,
   ResidentPortalBalance,
   ResidentPortalLease,
+  ResidentPortalPaymentMethod,
   ResidentPortalProfile,
   ResidentPortalTicket,
 } from '@/types';
@@ -61,6 +64,16 @@ const formatBytes = (bytes: number) => {
 
 const formatDate = (d: string | null | undefined) => (d ? d.slice(0, 10) : '—');
 
+const methodLabel = (m: ResidentPortalPaymentMethod) => {
+  const brand = m.brand ? m.brand.toUpperCase() : 'Card';
+  const tail = m.last4 ? ` ····${m.last4}` : '';
+  const exp = m.exp_month && m.exp_year ? ` (exp ${m.exp_month}/${m.exp_year})` : '';
+  return `${brand}${tail}${exp}`;
+};
+
+const errorDetail = (err: unknown, fallback: string) =>
+  (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fallback;
+
 const ResidentPortalPage: React.FC = () => {
   const [profile, setProfile] = useState<ResidentPortalProfile | null>(null);
   const [leases, setLeases] = useState<ResidentPortalLease[]>([]);
@@ -68,6 +81,7 @@ const ResidentPortalPage: React.FC = () => {
   const [tickets, setTickets] = useState<ResidentPortalTicket[]>([]);
   const [documents, setDocuments] = useState<Attachment[]>([]);
   const [announcements, setAnnouncements] = useState<ResidentPortalAnnouncement[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<ResidentPortalPaymentMethod[]>([]);
 
   // Maintenance request modal
   const [requestModal, setRequestModal] = useState(false);
@@ -78,21 +92,39 @@ const ResidentPortalPage: React.FC = () => {
   });
   const [submitting, setSubmitting] = useState(false);
 
+  // Payment flow
+  const [payModal, setPayModal] = useState(false);
+  const [payAmount, setPayAmount] = useState('');
+  const [payKey, setPayKey] = useState('');
+  const [payMethodId, setPayMethodId] = useState<string | null>(null);
+  const [paying, setPaying] = useState(false);
+  const [methodModal, setMethodModal] = useState(false);
+  const [methodForm, setMethodForm] = useState<{ token: string; brand: string; last4: string }>({
+    token: '',
+    brand: '',
+    last4: '',
+  });
+  const [savingMethod, setSavingMethod] = useState(false);
+  const [autopayBusy, setAutopayBusy] = useState(false);
+
   const loadData = useCallback(async (activeToken: string) => {
-    const [profileRes, leasesRes, balanceRes, ticketsRes, docsRes, annRes] = await Promise.all([
-      residentPortal.getProfile(activeToken),
-      residentPortal.listLeases(activeToken),
-      residentPortal.getBalance(activeToken),
-      residentPortal.listMaintenanceRequests(activeToken),
-      residentPortal.listDocuments(activeToken),
-      residentPortal.listAnnouncements(activeToken),
-    ]);
+    const [profileRes, leasesRes, balanceRes, ticketsRes, docsRes, annRes, methodsRes] =
+      await Promise.all([
+        residentPortal.getProfile(activeToken),
+        residentPortal.listLeases(activeToken),
+        residentPortal.getBalance(activeToken),
+        residentPortal.listMaintenanceRequests(activeToken),
+        residentPortal.listDocuments(activeToken),
+        residentPortal.listAnnouncements(activeToken),
+        residentPortal.listPaymentMethods(activeToken),
+      ]);
     setProfile(profileRes.data);
     setLeases(leasesRes.data);
     setBalance(balanceRes.data);
     setTickets(ticketsRes.data);
     setDocuments(docsRes.data);
     setAnnouncements(annRes.data);
+    setPaymentMethods(methodsRes.data);
   }, []);
 
   const { token, loading, authError, flash, setFlash } = usePortalSession({
@@ -123,10 +155,119 @@ const ResidentPortalPage: React.FC = () => {
       const res = await residentPortal.listMaintenanceRequests(token);
       setTickets(res.data);
     } catch (err: unknown) {
-      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setFlash({ type: 'error', content: detail || 'Failed to submit maintenance request.' });
+      setFlash({ type: 'error', content: errorDetail(err, 'Failed to submit maintenance request.') });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const refreshPaymentState = async () => {
+    const [balanceRes, methodsRes, leasesRes] = await Promise.all([
+      residentPortal.getBalance(token),
+      residentPortal.listPaymentMethods(token),
+      residentPortal.listLeases(token),
+    ]);
+    setBalance(balanceRes.data);
+    setPaymentMethods(methodsRes.data);
+    setLeases(leasesRes.data);
+  };
+
+  const openPay = () => {
+    setPayAmount(balance?.balance_due ?? '0');
+    setPayMethodId(paymentMethods.find((m) => m.is_default)?.id ?? paymentMethods[0]?.id ?? null);
+    // New key per attempt, reused across retries of that attempt.
+    setPayKey(crypto.randomUUID());
+    setPayModal(true);
+  };
+
+  const handlePay = async () => {
+    const amount = Number(payAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setFlash({ type: 'error', content: 'Enter a payment amount greater than zero.' });
+      return;
+    }
+    setPaying(true);
+    try {
+      const res = await residentPortal.makePayment(token, {
+        amount: payAmount,
+        payment_method_id: payMethodId,
+        method: 'card',
+        idempotency_key: payKey,
+      });
+      setBalance(res.data.balance);
+      setPayModal(false);
+      if (res.data.processor_status === 'unconfigured') {
+        setFlash({
+          type: 'error',
+          content:
+            'Online payments are not switched on for this property yet. Your payment was recorded as pending and no money has been taken. Please contact management to complete it.',
+        });
+      } else {
+        setFlash({ type: 'success', content: 'Payment received. Thank you.' });
+      }
+      await refreshPaymentState();
+    } catch (err: unknown) {
+      setFlash({ type: 'error', content: errorDetail(err, 'Your payment could not be processed.') });
+    } finally {
+      setPaying(false);
+    }
+  };
+
+  const handleSaveMethod = async () => {
+    if (!methodForm.token.trim()) {
+      setFlash({ type: 'error', content: 'A payment token from your bank or card provider is required.' });
+      return;
+    }
+    setSavingMethod(true);
+    try {
+      await residentPortal.createPaymentMethod(token, {
+        processor_token: methodForm.token.trim(),
+        brand: methodForm.brand.trim() || null,
+        last4: methodForm.last4.trim() || null,
+        is_default: paymentMethods.length === 0,
+      });
+      setMethodModal(false);
+      setMethodForm({ token: '', brand: '', last4: '' });
+      setFlash({ type: 'success', content: 'Payment method saved.' });
+      await refreshPaymentState();
+    } catch (err: unknown) {
+      setFlash({ type: 'error', content: errorDetail(err, 'Failed to save payment method.') });
+    } finally {
+      setSavingMethod(false);
+    }
+  };
+
+  const handleDeleteMethod = async (id: string) => {
+    try {
+      await residentPortal.deletePaymentMethod(token, id);
+      setFlash({ type: 'success', content: 'Payment method removed.' });
+      await refreshPaymentState();
+    } catch (err: unknown) {
+      setFlash({ type: 'error', content: errorDetail(err, 'Failed to remove payment method.') });
+    }
+  };
+
+  const handleAutopay = async (enabled: boolean, leaseId: string, methodId: string | null) => {
+    if (enabled && !methodId) {
+      setFlash({ type: 'error', content: 'Save a payment method before turning on autopay.' });
+      return;
+    }
+    setAutopayBusy(true);
+    try {
+      await residentPortal.updateAutopay(token, {
+        enabled,
+        payment_method_id: enabled ? methodId : null,
+        lease_id: leaseId,
+      });
+      setFlash({
+        type: 'success',
+        content: enabled ? 'Autopay is on.' : 'Autopay is off.',
+      });
+      await refreshPaymentState();
+    } catch (err: unknown) {
+      setFlash({ type: 'error', content: errorDetail(err, 'Failed to update autopay.') });
+    } finally {
+      setAutopayBusy(false);
     }
   };
 
@@ -144,6 +285,14 @@ const ResidentPortalPage: React.FC = () => {
 
   const residentName = profile ? `${profile.first_name} ${profile.last_name}`.trim() : '…';
   const currency = balance?.currency ?? leases[0]?.currency ?? 'USD';
+  const activeLease = leases.find((l) => l.status === 'active' || l.status === 'pending') ?? leases[0] ?? null;
+  const balanceDue = Number(balance?.balance_due ?? 0);
+  const methodOptions = paymentMethods.map((m) => ({ label: methodLabel(m), value: m.id }));
+  const autopayMethodId =
+    activeLease?.autopay_payment_method_id ??
+    paymentMethods.find((m) => m.is_default)?.id ??
+    paymentMethods[0]?.id ??
+    null;
 
   return (
     <ContentLayout
@@ -175,7 +324,24 @@ const ResidentPortalPage: React.FC = () => {
               label: 'Overview',
               content: (
                 <SpaceBetween size="l">
-                  <Container header={<Header variant="h2">Account summary</Header>}>
+                  <Container
+                    header={
+                      <Header
+                        variant="h2"
+                        actions={
+                          <Button
+                            variant="primary"
+                            disabled={balanceDue <= 0}
+                            onClick={openPay}
+                          >
+                            Make a payment
+                          </Button>
+                        }
+                      >
+                        Account summary
+                      </Header>
+                    }
+                  >
                     <ColumnLayout columns={3} variant="text-grid">
                       <div>
                         <Box variant="awsui-key-label">Monthly rent</Box>
@@ -216,6 +382,131 @@ const ResidentPortalPage: React.FC = () => {
                         <div>{profile?.phone ?? '—'}</div>
                       </div>
                     </ColumnLayout>
+                  </Container>
+                </SpaceBetween>
+              ),
+            },
+            {
+              id: 'payments',
+              label: 'Payments',
+              content: (
+                <SpaceBetween size="l">
+                  <Container
+                    header={
+                      <Header
+                        variant="h2"
+                        description="Pay your rent balance online."
+                        actions={
+                          <Button variant="primary" disabled={balanceDue <= 0} onClick={openPay}>
+                            Make a payment
+                          </Button>
+                        }
+                      >
+                        Balance due
+                      </Header>
+                    }
+                  >
+                    <SpaceBetween size="m">
+                      <Box variant="awsui-value-large">
+                        {formatMoney(balance?.balance_due, currency)}
+                      </Box>
+                      {balanceDue <= 0 && (
+                        <Alert type="success">You are all paid up. Nothing is due right now.</Alert>
+                      )}
+                      {paymentMethods.length === 0 && (
+                        <Alert type="info">
+                          Add a payment method to pay online or turn on autopay.
+                        </Alert>
+                      )}
+                    </SpaceBetween>
+                  </Container>
+
+                  <Container
+                    header={
+                      <Header
+                        variant="h2"
+                        actions={
+                          <Button iconName="add-plus" onClick={() => setMethodModal(true)}>
+                            Add method
+                          </Button>
+                        }
+                      >
+                        Saved payment methods
+                      </Header>
+                    }
+                  >
+                    <Table
+                      items={paymentMethods}
+                      empty={
+                        <Box textAlign="center" color="inherit">
+                          No saved payment methods.
+                        </Box>
+                      }
+                      columnDefinitions={[
+                        {
+                          id: 'method',
+                          header: 'Method',
+                          cell: (m: ResidentPortalPaymentMethod) => methodLabel(m),
+                        },
+                        {
+                          id: 'default',
+                          header: 'Default',
+                          cell: (m: ResidentPortalPaymentMethod) =>
+                            m.is_default ? <Badge color="green">Default</Badge> : '—',
+                          width: 120,
+                        },
+                        {
+                          id: 'added',
+                          header: 'Added',
+                          cell: (m: ResidentPortalPaymentMethod) => formatDate(m.created_at),
+                          width: 140,
+                        },
+                        {
+                          id: 'actions',
+                          header: '',
+                          cell: (m: ResidentPortalPaymentMethod) => (
+                            <Button variant="link" onClick={() => handleDeleteMethod(m.id)}>
+                              Remove
+                            </Button>
+                          ),
+                          width: 110,
+                        },
+                      ]}
+                    />
+                  </Container>
+
+                  <Container
+                    header={
+                      <Header
+                        variant="h2"
+                        description="Charge your rent automatically each month to a saved method."
+                      >
+                        Autopay
+                      </Header>
+                    }
+                  >
+                    {activeLease ? (
+                      <Toggle
+                        checked={activeLease.autopay_enabled}
+                        disabled={autopayBusy || (!activeLease.autopay_enabled && !autopayMethodId)}
+                        onChange={({ detail }) =>
+                          handleAutopay(detail.checked, activeLease.id, autopayMethodId)
+                        }
+                      >
+                        {activeLease.autopay_enabled
+                          ? `Autopay is on${
+                              autopayMethodId
+                                ? ` using ${
+                                    methodOptions.find((o) => o.value === autopayMethodId)?.label ??
+                                    'your saved method'
+                                  }`
+                                : ''
+                            }`
+                          : 'Autopay is off'}
+                      </Toggle>
+                    ) : (
+                      <Box color="text-status-inactive">No lease on file.</Box>
+                    )}
                   </Container>
                 </SpaceBetween>
               ),
@@ -438,6 +729,101 @@ const ResidentPortalPage: React.FC = () => {
               onChange={({ detail }) =>
                 setRequestForm((f) => ({ ...f, priority: detail.selectedOption.value ?? 'medium' }))
               }
+            />
+          </FormField>
+        </SpaceBetween>
+      </Modal>
+
+      <Modal
+        visible={payModal}
+        onDismiss={() => setPayModal(false)}
+        header="Make a payment"
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => setPayModal(false)}>
+                Cancel
+              </Button>
+              <Button variant="primary" loading={paying} onClick={handlePay}>
+                Pay {formatMoney(payAmount, currency)}
+              </Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="m">
+          <Box>
+            Balance due: <strong>{formatMoney(balance?.balance_due, currency)}</strong>
+          </Box>
+          <FormField
+            label="Amount"
+            description="Defaults to your full balance. You can pay part of it instead."
+          >
+            <Input
+              type="number"
+              inputMode="decimal"
+              value={payAmount}
+              onChange={({ detail }) => setPayAmount(detail.value)}
+            />
+          </FormField>
+          <FormField label="Payment method">
+            {paymentMethods.length > 0 ? (
+              <Select
+                selectedOption={methodOptions.find((o) => o.value === payMethodId) ?? null}
+                options={methodOptions}
+                placeholder="Select a saved method"
+                onChange={({ detail }) => setPayMethodId(detail.selectedOption.value ?? null)}
+              />
+            ) : (
+              <Alert type="info">
+                You have no saved payment methods. Add one from the Payments tab first.
+              </Alert>
+            )}
+          </FormField>
+        </SpaceBetween>
+      </Modal>
+
+      <Modal
+        visible={methodModal}
+        onDismiss={() => setMethodModal(false)}
+        header="Add a payment method"
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => setMethodModal(false)}>
+                Cancel
+              </Button>
+              <Button variant="primary" loading={savingMethod} onClick={handleSaveMethod}>
+                Save
+              </Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="m">
+          <Alert type="info">
+            Card and bank numbers are handled by our payment provider and are never sent to or
+            stored by this site. Paste the token your provider gave you.
+          </Alert>
+          <FormField label="Payment token">
+            <Input
+              value={methodForm.token}
+              onChange={({ detail }) => setMethodForm((f) => ({ ...f, token: detail.value }))}
+              placeholder="pm_..."
+            />
+          </FormField>
+          <FormField label="Brand" description="Shown in your list of methods.">
+            <Input
+              value={methodForm.brand}
+              onChange={({ detail }) => setMethodForm((f) => ({ ...f, brand: detail.value }))}
+              placeholder="e.g. Visa"
+            />
+          </FormField>
+          <FormField label="Last 4 digits" description="Display only.">
+            <Input
+              value={methodForm.last4}
+              onChange={({ detail }) => setMethodForm((f) => ({ ...f, last4: detail.value }))}
+              placeholder="4242"
             />
           </FormField>
         </SpaceBetween>

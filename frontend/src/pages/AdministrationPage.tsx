@@ -36,6 +36,7 @@ const GROUPS: AdminGroup[] = [
     href: '/administration',
     links: [
       { text: 'Users', href: '/users', description: 'Manage user accounts, roles, and access.', roles: ['admin'] },
+      { text: 'Single Sign-On', href: '/admin/sso', description: 'Connect your identity provider so staff sign in with your existing directory.', roles: ['admin'], feature: 'sso' },
       { text: 'Managers', href: '/managers', description: 'Manage office managers and assignments.', roles: ['admin'] },
     ],
   },

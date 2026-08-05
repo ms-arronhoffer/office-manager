@@ -25,7 +25,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth.dependencies import require_feature, require_role
-from app.config import settings
 from app.database import get_db
 from app.models.cam_reconciliation import CamReconciliation
 from app.models.lease import Lease, LeaseCamEntry
@@ -641,5 +640,5 @@ async def ai_review_reconciliation(
         prior_year=prior.year if prior else None,
         summary=review["summary"],
         anomalies=[CamAnomaly(**a) for a in review["anomalies"]],
-        model=settings.GEMINI_MODEL,
+        model=ai_service.get_model_name(),
     )

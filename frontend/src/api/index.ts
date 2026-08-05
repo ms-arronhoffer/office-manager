@@ -7,6 +7,9 @@ import type {
   CategoriesState,
   LegalDocument,
   LegalDocumentMeta,
+  SsoLookupResult,
+  SsoConfig,
+  SsoConfigInput,
   StorageFacility,
   StorageFacilityCreate,
   StorageFacilityUpdate,
@@ -112,6 +115,7 @@ import type {
   OrganizationCreate,
   OrganizationUpdate,
   BillingSubscription,
+  BillableUnitSnapshot,
   ApiKey,
   ApiKeyCreate,
   Webhook,
@@ -119,6 +123,18 @@ import type {
   WebhookUpdate,
   WebhookDelivery,
   BuildiumConnection,
+  QuickBooksConnection,
+  QuickBooksAuthorizeUrl,
+  QuickBooksCallbackInput,
+  QuickBooksSyncResult,
+  QuickBooksAccountMapping,
+  QuickBooksPullAccountsResult,
+  ExternalSyncLog,
+  BankFeedProviderStatus,
+  BankFeedLinkToken,
+  BankFeedConnectionInput,
+  BankFeedConnection,
+  BankFeedSyncResult,
   BuildiumConnectionInput,
   BuildiumTestConnectionResult,
   BuildiumEntityType,
@@ -229,6 +245,12 @@ import type {
   ResidentPortalTicket,
   ResidentPortalMaintenanceCreate,
   ResidentPortalAnnouncement,
+  ResidentPortalPaymentMethod,
+  ResidentPortalPaymentMethodCreate,
+  ResidentPortalPaymentCreate,
+  ResidentPortalPaymentResult,
+  ResidentPortalAutopay,
+  ResidentPortalAutopayUpdate,
   OwnerPortalProfile,
   OwnerPortalProperty,
   OwnerPortalLedgerEntry,
@@ -1081,16 +1103,20 @@ export const recurringTicketRules = {
 export const billing = {
   getSubscription: () => client.get<BillingSubscription>('/billing/subscription'),
 
+  syncUsage: () =>
+    client.post<BillableUnitSnapshot & { reported_quantity: number | null }>(
+      '/billing/usage/sync',
+    ),
+
   createCheckout: (
-    plan: 'starter' | 'pro' | 'enterprise',
+    plan: 'pro' | 'enterprise',
     enterpriseCode?: string,
-    billingInterval: 'monthly' | 'annual' = 'monthly',
   ) =>
     client.post<{ checkout_url: string | null; plan?: string; payment_status?: string }>(
       '/billing/checkout',
       {
         plan,
-        billing_interval: billingInterval,
+        billing_interval: 'monthly',
         ...(enterpriseCode ? { enterprise_code: enterpriseCode } : {}),
       }
     ),
@@ -1161,6 +1187,17 @@ export const operatingExpenses = {
     client.get<OperatingExpenseVariance[]>('/operating-expenses/variance', { params }),
 };
 
+export const sso = {
+  lookup: (params: { slug?: string; email?: string }) =>
+    client.get<SsoLookupResult>('/sso/lookup', { params }),
+
+  getConfig: () => client.get<SsoConfig>('/sso/config'),
+
+  saveConfig: (data: SsoConfigInput) => client.put<SsoConfig>('/sso/config', data),
+
+  deleteConfig: () => client.delete('/sso/config'),
+};
+
 export const buildium = {
   getConnection: () => client.get<BuildiumConnection>('/buildium/connection'),
 
@@ -1186,6 +1223,48 @@ export const buildium = {
   cancelRun: (id: string) => client.post<BuildiumMigrationRun>(`/buildium/runs/${id}/cancel`),
 
   getSummary: () => client.get<Record<string, number>>('/buildium/summary'),
+};
+
+// ─── QuickBooks Online sync ──────────────────────────────────────────────────
+export const quickbooks = {
+  getConnection: () => client.get<QuickBooksConnection>('/quickbooks/connection'),
+
+  getAuthorizeUrl: () => client.get<QuickBooksAuthorizeUrl>('/quickbooks/authorize-url'),
+
+  completeCallback: (data: QuickBooksCallbackInput) =>
+    client.post<QuickBooksConnection>('/quickbooks/callback', data),
+
+  disconnect: () => client.delete('/quickbooks/connection'),
+
+  pullAccounts: () => client.post<QuickBooksPullAccountsResult>('/quickbooks/accounts/pull'),
+
+  listAccountMappings: () =>
+    client.get<QuickBooksAccountMapping[]>('/quickbooks/accounts'),
+
+  updateAccountMapping: (id: string, gl_account_id: string | null) =>
+    client.put<QuickBooksAccountMapping>(`/quickbooks/accounts/${id}`, { gl_account_id }),
+
+  sync: () => client.post<QuickBooksSyncResult>('/quickbooks/sync'),
+
+  listLogs: () => client.get<ExternalSyncLog[]>('/quickbooks/logs'),
+};
+
+// ─── Live bank feed (Plaid) ──────────────────────────────────────────────────
+export const bankFeed = {
+  status: () => client.get<BankFeedProviderStatus>('/bank-feed/status'),
+
+  createLinkToken: () => client.post<BankFeedLinkToken>('/bank-feed/link-token'),
+
+  listConnections: () => client.get<BankFeedConnection[]>('/bank-feed/connections'),
+
+  createConnection: (data: BankFeedConnectionInput) =>
+    client.post<BankFeedConnection>('/bank-feed/connections', data),
+
+  deleteConnection: (id: string) => client.delete(`/bank-feed/connections/${id}`),
+
+  sync: (id: string) => client.post<BankFeedSyncResult>(`/bank-feed/connections/${id}/sync`),
+
+  listLogs: () => client.get<ExternalSyncLog[]>('/bank-feed/logs'),
 };
 
 export const organizations = {
@@ -1581,6 +1660,29 @@ export const residentPortal = {
 
   listAnnouncements: (token: string) =>
     _residentPortalClient(token).get<ResidentPortalAnnouncement[]>('/resident-portal/announcements'),
+
+  listPaymentMethods: (token: string) =>
+    _residentPortalClient(token).get<ResidentPortalPaymentMethod[]>(
+      '/resident-portal/payment-methods',
+    ),
+
+  createPaymentMethod: (token: string, data: ResidentPortalPaymentMethodCreate) =>
+    _residentPortalClient(token).post<ResidentPortalPaymentMethod>(
+      '/resident-portal/payment-methods',
+      data,
+    ),
+
+  deletePaymentMethod: (token: string, id: string) =>
+    _residentPortalClient(token).delete<void>(`/resident-portal/payment-methods/${id}`),
+
+  makePayment: (token: string, data: ResidentPortalPaymentCreate) =>
+    _residentPortalClient(token).post<ResidentPortalPaymentResult>(
+      '/resident-portal/payments',
+      data,
+    ),
+
+  updateAutopay: (token: string, data: ResidentPortalAutopayUpdate) =>
+    _residentPortalClient(token).put<ResidentPortalAutopay>('/resident-portal/autopay', data),
 };
 
 // ─── Owner Portal (external: property-owner self-service, X-Owner-Token) ──────

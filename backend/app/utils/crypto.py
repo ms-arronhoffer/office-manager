@@ -7,10 +7,11 @@ which is already a transitive dependency via ``python-jose[cryptography]``.
 
 The key is read from ``settings.ENCRYPTION_KEY`` — a urlsafe-base64 32-byte
 key as produced by ``Fernet.generate_key()``. When unset, encryption degrades
-to a clearly-marked no-op passthrough (mirroring the SMTP/Stripe/Gemini
-"optional integration" convention) so local/dev environments without the key
-configured don't crash — but a warning is logged, and this must never be relied
-on in production.
+to a clearly-marked no-op passthrough so local/dev environments without the key
+configured don't crash. Every caller stores a genuinely sensitive credential
+(Stripe secret keys, OAuth client secrets, Plaid and QuickBooks tokens), so
+outside a development ``APP_ENV`` the passthrough is refused outright rather
+than silently writing plaintext credentials to the database.
 """
 from __future__ import annotations
 
@@ -23,6 +24,9 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _UNENCRYPTED_PREFIX = "plain:"
+
+# APP_ENV values where an unset ENCRYPTION_KEY is tolerated.
+_DEV_ENVIRONMENTS = {"development", "dev", "local", "test", "testing"}
 
 
 def _get_fernet() -> Fernet | None:
@@ -37,12 +41,25 @@ def _get_fernet() -> Fernet | None:
 
 
 def encrypt_secret(plaintext: str) -> str:
-    """Encrypt ``plaintext`` for storage. Returns a string safe to persist."""
+    """Encrypt ``plaintext`` for storage. Returns a string safe to persist.
+
+    Raises ``RuntimeError`` outside a development environment when no usable
+    ``ENCRYPTION_KEY`` is configured, so a misconfigured deployment fails loudly
+    instead of persisting credentials in the clear.
+    """
     fernet = _get_fernet()
     if fernet is None:
+        env = (settings.APP_ENV or "").strip().lower()
+        if env not in _DEV_ENVIRONMENTS:
+            raise RuntimeError(
+                "ENCRYPTION_KEY is not configured (or is invalid) and APP_ENV is "
+                f"'{settings.APP_ENV}'. Refusing to store a secret unencrypted. "
+                "Generate one with Fernet.generate_key() and set ENCRYPTION_KEY."
+            )
         logger.warning(
             "ENCRYPTION_KEY not configured — storing secret unencrypted. "
-            "Set ENCRYPTION_KEY before using this in production."
+            "Permitted only because APP_ENV is '%s'.",
+            settings.APP_ENV,
         )
         return _UNENCRYPTED_PREFIX + plaintext
     token = fernet.encrypt(plaintext.encode("utf-8"))

@@ -19,6 +19,9 @@ aiosmtplib==3.0.2
 jinja2==3.1.5
 google-auth==2.37.0
 requests==2.32.3
+# Requests supports chardet 3.x-5.x. A transitive chardet 7 install emits a
+# RequestsDependencyWarning during startup.
+chardet>=5.2.0,<6
 pytest==8.3.4
 pytest-asyncio==0.24.0
 slowapi==0.1.9
@@ -30,3 +33,6 @@ pypdf==6.14.2
 markdown==3.7
 sentry-sdk[fastapi]==2.20.0
 boto3==1.35.99
+# Direct dependency for Fernet encryption of stored third-party OAuth tokens
+# (app.utils.crypto). Previously only pulled in transitively by python-jose.
+cryptography>=42.0.0

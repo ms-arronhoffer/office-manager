@@ -179,7 +179,7 @@ def require_feature(feature: str):
         if not ent.has_feature(org, feature):
             # Features that are planned but not yet available get a friendlier
             # "coming soon" message instead of a generic upgrade prompt.
-            _COMING_SOON = {"sso", "custom_fields"}
+            _COMING_SOON = {"custom_fields"}
             if feature in _COMING_SOON:
                 raise HTTPException(
                     status_code=status.HTTP_402_PAYMENT_REQUIRED,

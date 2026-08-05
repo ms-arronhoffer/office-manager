@@ -161,7 +161,10 @@ async def _log_ai_usage(
 
 class AIStatusResponse(BaseModel):
     configured: bool
+    provider: str
     model: str
+    embedding_provider: str
+    embedding_model: str
     # Monthly AI token budget for the caller's org (None == unlimited).
     period: str
     input_tokens_used: int
@@ -459,7 +462,10 @@ async def ai_status(
 
     return AIStatusResponse(
         configured=ai_service.is_configured(),
-        model=settings.GEMINI_MODEL,
+        provider=ai_service.get_provider_name(),
+        model=ai_service.get_model_name(),
+        embedding_provider=ai_service.get_embedding_provider_name(),
+        embedding_model=ai_service.get_embedding_model_name(),
         period=period,
         input_tokens_used=used_input,
         output_tokens_used=used_output,
@@ -496,7 +502,7 @@ async def parse_lease(
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
     await _log_ai_usage(db, current_user.organization_id, "ai_lease_parse")
-    return LeaseParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+    return LeaseParseResponse(suggested=suggested, model=ai_service.get_model_name())
 
 
 # ── Historical lease financial ingestion (all tiers) ─────────────────────────
@@ -544,7 +550,7 @@ async def parse_lease_history(
         period_start=cam_schedule_service.coerce_date(extracted.get("period_start")),
         period_end=cam_schedule_service.coerce_date(extracted.get("period_end")),
         warnings=warnings,
-        model=settings.GEMINI_MODEL,
+        model=ai_service.get_model_name(),
     )
 
 
@@ -677,7 +683,7 @@ async def classify_document(
         reasoning=result["reasoning"],
         fields=result["fields"],
         suggested_matches=suggested_matches,
-        model=settings.GEMINI_MODEL,
+        model=ai_service.get_model_name(),
     )
 
 
@@ -703,7 +709,7 @@ async def _parse_document_with(
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
     await _log_ai_usage(db, org_id, feature)
-    return DocumentParseResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+    return DocumentParseResponse(suggested=suggested, model=ai_service.get_model_name())
 
 
 @router.post(
@@ -796,7 +802,7 @@ async def draft_lease_template(
         name=suggested["name"],
         description=suggested.get("description"),
         body=suggested["body"],
-        model=settings.GEMINI_MODEL,
+        model=ai_service.get_model_name(),
     )
 
 
@@ -914,7 +920,7 @@ async def triage_ticket(
 
     suggested = _map_triage_result(result, categories, vendors)
     await _log_ai_usage(db, current_user.organization_id, "ai_triage")
-    return TicketTriageResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+    return TicketTriageResponse(suggested=suggested, model=ai_service.get_model_name())
 
 
 def _map_triage_result(result: dict, categories, vendors) -> TicketTriageSuggestion:
@@ -1052,7 +1058,7 @@ async def draft_ticket_from_email(
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
     await _log_ai_usage(db, current_user.organization_id, "ai_draft")
-    return TicketEmailDraftResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+    return TicketEmailDraftResponse(suggested=suggested, model=ai_service.get_model_name())
 
 
 # ── Lease abstract suggestions (Pro+) ─────────────────────────────────────────
@@ -1093,7 +1099,7 @@ async def suggest_abstract(
     except ai_service.AIError as exc:
         raise _ai_error_response(exc)
     await _log_ai_usage(db, current_user.organization_id, "ai_abstract")
-    return AbstractSuggestResponse(suggested=suggested, model=settings.GEMINI_MODEL)
+    return AbstractSuggestResponse(suggested=suggested, model=ai_service.get_model_name())
 
 
 @router.post(
@@ -1170,7 +1176,7 @@ async def detect_abstract_gaps(
         )
         for f in findings
     ]
-    return AbstractGapResponse(gaps=gaps, model=settings.GEMINI_MODEL)
+    return AbstractGapResponse(gaps=gaps, model=ai_service.get_model_name())
 
 
 # ── Narrative summary report (Pro+) ───────────────────────────────────────────
@@ -1409,7 +1415,7 @@ async def summary_report(
         narrative_html=report_export.markdown_to_html(narrative),
         recommended_actions=[SummaryActionItem(**a) for a in recommended_actions],
         data=data,
-        model=settings.GEMINI_MODEL,
+        model=ai_service.get_model_name(),
     )
 
 
@@ -1496,7 +1502,7 @@ async def ask_portfolio(
             answer_html=report_export.markdown_to_html(answer),
             citations=citations,
             grounded=False,
-            model=settings.GEMINI_MODEL,
+            model=ai_service.get_model_name(),
         )
 
     context_chunks = [c.model_dump() for c in citations]
@@ -1513,7 +1519,7 @@ async def ask_portfolio(
         answer_html=report_export.markdown_to_html(answer),
         citations=citations,
         grounded=True,
-        model=settings.GEMINI_MODEL,
+        model=ai_service.get_model_name(),
     )
 
 
@@ -1558,7 +1564,7 @@ async def build_report(
         columns=columns,
         filters=filters,
         title=config.get("title", dataset),
-        model=settings.GEMINI_MODEL,
+        model=ai_service.get_model_name(),
     )
 
 
@@ -1643,7 +1649,7 @@ async def assistant_query(
         answer_html=report_export.markdown_to_html(answer),
         citations=citations,
         mode=mode,
-        model=settings.GEMINI_MODEL,
+        model=ai_service.get_model_name(),
     )
 
 
@@ -1731,6 +1737,6 @@ async def data_query(
         columns=result["columns"],
         rows=result["rows"],
         total=result["total"],
-        model=settings.GEMINI_MODEL,
+        model=ai_service.get_model_name(),
         presentation=data_query_service.build_presentation(spec, result),
     )

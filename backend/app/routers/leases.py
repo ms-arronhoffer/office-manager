@@ -47,7 +47,7 @@ from app.schemas.lease import (
 )
 from app.services.activity_service import log_activity, compute_changes
 from app.services.lease_accounting import compute_lease_accounting
-from app.services import cam_schedule_service, lease_limits
+from app.services import cam_schedule_service, lease_limits, metering_service
 from app.utils.tenant_scope import load_or_404
 from app.utils.search_vectors import update_search_vector
 from app.utils.sorting import apply_sorting
@@ -377,8 +377,18 @@ async def create_lease(
         ).scalar_one_or_none()
         await lease_limits.enforce_active_lease_limit(db, org)
 
-    lease = Lease(**payload.model_dump(), organization_id=current_user.organization_id)
+    create_data = payload.model_dump()
+    create_data["status"] = payload.status or "active"
+    lease = Lease(**create_data, organization_id=current_user.organization_id)
     db.add(lease)
+    await db.flush()
+    await metering_service.record_active_lease_month(
+        db,
+        organization_id=current_user.organization_id,
+        lease_type="commercial",
+        lease_id=lease.id,
+        status=lease.status,
+    )
     await db.commit()
     await db.refresh(lease)
 
@@ -440,6 +450,13 @@ async def update_lease(
         if hasattr(lease, field):
             setattr(lease, field, value)
 
+    await metering_service.record_active_lease_month(
+        db,
+        organization_id=org_id,
+        lease_type="commercial",
+        lease_id=lease.id,
+        status=lease.status,
+    )
     await db.commit()
     await db.refresh(lease)
 
@@ -540,8 +557,17 @@ async def clone_lease(
         notice_period_days=original.notice_period_days,
         expiration_year=date.today().year,
         organization_id=org_id,
+        status="active",
     )
     db.add(new_lease)
+    await db.flush()
+    await metering_service.record_active_lease_month(
+        db,
+        organization_id=org_id,
+        lease_type="commercial",
+        lease_id=new_lease.id,
+        status=new_lease.status,
+    )
     await db.commit()
     await db.refresh(new_lease)
 

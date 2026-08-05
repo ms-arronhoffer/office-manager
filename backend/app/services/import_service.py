@@ -334,7 +334,7 @@ async def import_leases(db: AsyncSession, file_bytes: bytes) -> ImportResult:
             notice_period_days=parse_notice_days(safe_str(row.get("Notice Days"))) if safe_str(row.get("Notice Days")) else safe_int(row.get("Notice Days")),
             lease_notice_date=safe_date(row.get("Notice Date")),
             notice_given_date=safe_date(row.get("Notice Given Date")),
-            status=normalize_lease_status(row.get("Status")),
+            status=normalize_lease_status(row.get("Status")) or "active",
             expiration_year=exp_year,
             lease_commencement_date=safe_date(row.get("Lease Commencement Date")),
             accounting_standard=safe_str(row.get("Accounting Standard")),

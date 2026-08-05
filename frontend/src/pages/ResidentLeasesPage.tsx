@@ -128,7 +128,7 @@ const ResidentLeasesPage: React.FC = () => {
   const [editing, setEditing] = useState<ResidentLease | null>(null);
   const [unitId, setUnitId] = useState('');
   const [name, setName] = useState('');
-  const [statusValue, setStatusValue] = useState<ResidentLeaseStatus>('draft');
+  const [statusValue, setStatusValue] = useState<ResidentLeaseStatus>('active');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [rentAmount, setRentAmount] = useState('');
@@ -211,7 +211,7 @@ const ResidentLeasesPage: React.FC = () => {
     setEditing(null);
     setUnitId('');
     setName('');
-    setStatusValue('draft');
+    setStatusValue('active');
     setStartDate('');
     setEndDate('');
     setRentAmount('');

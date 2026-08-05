@@ -378,6 +378,32 @@ export interface EnterpriseCodeInput {
   notes?: string | null
 }
 
+export interface DiscountCode {
+  id: string
+  code: string
+  discount_type: "percent" | "fixed"
+  percent_off: number | null
+  amount_off_cents: number | null
+  duration: "once" | "repeating"
+  duration_in_months: number | null
+  max_redemptions: number | null
+  times_redeemed: number
+  is_active: boolean
+  expires_at: string | null
+  created_at: string
+}
+
+export interface DiscountCodeInput {
+  code: string
+  discount_type: "percent" | "fixed"
+  percent_off?: number
+  amount_off_cents?: number
+  duration: "once" | "repeating"
+  duration_in_months?: number
+  max_redemptions?: number
+  expires_at?: string | null
+}
+
 export interface AuthPayload {
   sub: string
   role: string

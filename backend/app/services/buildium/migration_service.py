@@ -422,7 +422,7 @@ async def migrate_leases(
             raw_status = (safe_str(item.get("LeaseStatus")) or "").lower()
             lease.status = {
                 "active": "active", "past": "ended", "future": "pending",
-            }.get(raw_status, "draft")
+            }.get(raw_status, "active")
             if not dry_run:
                 await db.flush()
                 await _upsert_map(db, organization_id, "lease", buildium_id, lease.id, item)

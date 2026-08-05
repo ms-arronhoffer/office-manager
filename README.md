@@ -2,6 +2,10 @@
 
 A multi-tenant SaaS office and property management platform built with FastAPI, React, and PostgreSQL. Covers the full lifecycle of corporate office portfolios: lease management, HVAC, maintenance, vendors, transitions, billing, and analytics — all in one containerized application.
 
+AI-assisted features can use Google Gemini, OpenAI, or OpenRouter. See
+[AI provider configuration](docs/AI_PROVIDERS.md) for model requirements,
+environment variables, deployment steps, and embedding migration guidance.
+
 ## Tech Stack
 
 - **Backend**: Python 3.12 / FastAPI / SQLAlchemy (async) / Alembic
@@ -759,9 +763,12 @@ docker compose exec db psql -U office_admin -d office_manager
 ### Developer & Integration
 - **API Keys** — `om_`-prefixed tokens with bcrypt-hashed storage, scope system (`read:*`, `write:tickets`, etc.), and management UI
 - **Stripe Billing** — subscription management, Checkout, Customer Portal, dunning enforcement, webhook event handling
+- **Base Subscription Billing** — $39 monthly with the first 3 leases that were Active during the month included, then $4 per additional monthly-active lease; tracked one-use and term discount codes; see [docs/BILLING_SETUP.md](docs/BILLING_SETUP.md)
 - **Google OAuth** — single sign-on with existing Google accounts
 
 ### Security & Access
+- **Information Security Policy** — governance requirements for information handling, identity, tenant isolation, cryptography, secure development, integrations, incident response, backup and recovery; see [docs/INFORMATION_SECURITY_POLICY.md](docs/INFORMATION_SECURITY_POLICY.md)
+- **Data Retention and Disposal Policy** — retention schedule, account termination, legal holds, backup expiry, integration-token disposal, and verified purge requirements; see [docs/DATA_RETENTION_AND_DISPOSAL_POLICY.md](docs/DATA_RETENTION_AND_DISPOSAL_POLICY.md)
 - **TOTP Two-Factor Authentication** — RFC 6238 TOTP (Google Authenticator, Authy, 1Password); mandatory for super-admins, optional for org users; 8 single-use backup codes per enrollment; see [docs/MFA_SETUP.md](docs/MFA_SETUP.md)
 - **Role-Based Access Control** — viewer / editor / accountant / admin / super-admin with org-scoped enforcement
 - **Multi-Tenancy** — complete data isolation between organizations; `organization_id` scoped on all entities

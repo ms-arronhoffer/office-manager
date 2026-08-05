@@ -38,7 +38,7 @@ from app.models.resident import (
     ResidentLeaseOccupant,
 )
 from app.models.user import User
-from app.services import lease_limits
+from app.services import lease_limits, metering_service
 from app.services import leasing_service as svc
 from app.services.leasing_service import LeasingError
 from app.utils.tenant_scope import load_or_404
@@ -218,7 +218,7 @@ class OccupantResponse(BaseModel):
 class ResidentLeaseCreate(BaseModel):
     unit_id: uuid.UUID
     name: str | None = None
-    status: str = "draft"
+    status: str = "active"
     start_date: date | None = None
     end_date: date | None = None
     move_in_date: date | None = None
@@ -710,6 +710,13 @@ async def create_lease(
     lease = ResidentLease(organization_id=org_id, occupants=occupants, **data)
     db.add(lease)
     await db.flush()
+    await metering_service.record_active_lease_month(
+        db,
+        organization_id=org_id,
+        lease_type="residential",
+        lease_id=lease.id,
+        status=lease.status,
+    )
     await svc.sync_unit_status(db, lease.unit_id, org_id)
     await db.commit()
     return await _serialize_lease(db, lease.id, org_id)
@@ -777,6 +784,13 @@ async def update_lease(
         # collection here will not trigger an implicit async lazy-load.
         lease.occupants = await _build_occupants(db, payload.occupants, org_id)
     await db.flush()
+    await metering_service.record_active_lease_month(
+        db,
+        organization_id=org_id,
+        lease_type="residential",
+        lease_id=lease.id,
+        status=lease.status,
+    )
     await svc.sync_unit_status(db, lease.unit_id, org_id)
     await db.commit()
     return await _serialize_lease(db, lease.id, org_id)

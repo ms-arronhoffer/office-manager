@@ -10,13 +10,15 @@ import LeaseAbstractScreen from '../components/screens/LeaseAbstractScreen.astro
 import MaintenanceScreen from '../components/screens/MaintenanceScreen.astro';
 import WaiversScreen from '../components/screens/WaiversScreen.astro';
 import AnalyticsScreen from '../components/screens/AnalyticsScreen.astro';
+import FinanceScreen from '../components/screens/FinanceScreen.astro';
+import ResidentialScreen from '../components/screens/ResidentialScreen.astro';
 
 const sections = [
   {
     eyebrow: 'AI Automation',
     title: 'Let AI read the lease for you',
-    desc: 'Upload a lease and Google Gemini extracts the tenant, dates, rent, escalations, options, and notice windows in seconds, then drafts an abstract and writes your weekly portfolio briefing.',
-    points: ['Key-term extraction from PDFs', 'Auto-drafted lease abstracts', 'Weekly & monthly AI briefings'],
+    desc: 'Choose Gemini, OpenAI, or OpenRouter models to extract tenant details, dates, rent, escalations, options, and notice windows, then draft abstracts and grounded portfolio briefings.',
+    points: ['Provider-neutral model access', 'Lease extraction & abstracts', 'Grounded Q&A & briefings'],
     screen: 'lease',
   },
   {
@@ -32,6 +34,20 @@ const sections = [
     desc: 'Send pre-built or custom waivers to contacts, or let visitors self-serve at a kiosk. Every signature captures consent, attribution, and a tamper-evident audit record.',
     points: ['Reusable waiver templates', 'Self-serve visitor signing', 'Tamper-evident audit trail'],
     screen: 'waivers',
+  },
+  {
+    eyebrow: 'Audit-Grade Finance',
+    title: 'Property operations meet real accounting',
+    desc: 'Post transactions to a double-entry ledger, produce financial statements, reconcile CAM, manage AP and AR, connect bank activity, and track budgets without leaving the portfolio record.',
+    points: ['General ledger & statements', 'CAM, AP, AR & banking', 'Budgeting & lease accounting'],
+    screen: 'finance',
+  },
+  {
+    eyebrow: 'Residential Management',
+    title: 'Commercial and residential, one portfolio',
+    desc: 'Manage units, residents, applications, vacancy listings, recurring rent, deposits, announcements, owners, and trust activity alongside commercial offices and leases.',
+    points: ['Units, residents & applications', 'Rent, deposits & listings', 'Resident & owner portals'],
+    screen: 'residential',
   },
   {
     eyebrow: 'Analytics & Reporting',
@@ -86,6 +102,8 @@ const sections = [
             {s.screen === 'lease' && <LeaseAbstractScreen />}
             {s.screen === 'maintenance' && <MaintenanceScreen />}
             {s.screen === 'waivers' && <WaiversScreen />}
+            {s.screen === 'finance' && <FinanceScreen />}
+            {s.screen === 'residential' && <ResidentialScreen />}
             {s.screen === 'analytics' && <AnalyticsScreen />}
           </div>
         </div>

@@ -22,7 +22,6 @@ from app.auth.dependencies import get_current_user
 from app.models.user import User
 from app.routers.ai import _ai_error_response
 from app.schemas.assistant import AssistantRequest, AssistantResponse
-from app.config import settings
 from app.services import ai_service
 
 router = APIRouter()
@@ -52,7 +51,7 @@ def _can_write_ticket(user: User) -> bool:
 
 def _dispatch(intent: str, params: dict, user: User) -> AssistantResponse:
     """Map a parsed intent onto a route, search query, or confirmable proposal."""
-    model = settings.GEMINI_MODEL
+    model = ai_service.get_model_name()
 
     if intent == "navigate":
         route = _NAV_ROUTES.get(params.get("destination", ""))

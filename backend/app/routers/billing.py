@@ -18,7 +18,12 @@ from app.models.notification import Notification
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.enterprise_activation_code import EnterpriseActivationCode
+from app.models.billing_usage import (
+    SubscriptionDiscountCode,
+    SubscriptionDiscountRedemption,
+)
 from app.services import billing_ledger_service as ledger
+from app.services import metering_service as metering
 from app.services.stripe_settings import StripeSettings, resolve_stripe_settings
 from app.utils.email_client import send_email
 
@@ -199,6 +204,38 @@ async def _get_org(org_id, db: AsyncSession) -> Organization:
     return org
 
 
+async def _report_metered_quantity(db: AsyncSession, org: Organization) -> int | None:
+    """Push the org's billable-unit quantity onto its Stripe subscription item.
+
+    Sets the quantity on the first subscription item so a tiered/graduated price
+    bills the right band. Best-effort: returns ``None`` and leaves billing
+    untouched when Stripe is not configured, when the org has no subscription,
+    or when Stripe rejects the call, so metering can never break the app.
+    """
+    if not org.stripe_subscription_id or org.plan == "enterprise":
+        return None
+    stripe_cfg = await resolve_stripe_settings(db)
+    if not stripe_cfg.secret_key:
+        return None
+    stripe.api_key = stripe_cfg.secret_key
+
+    quantity = metering.billable_quantity(
+        await metering.current_billable_units(db, org.id)
+    )
+    try:
+        sub = stripe.Subscription.retrieve(org.stripe_subscription_id)
+        item_id = sub["items"]["data"][0]["id"]
+        stripe.SubscriptionItem.modify(
+            item_id, quantity=quantity, proration_behavior="none"
+        )
+    except (stripe.error.StripeError, KeyError, IndexError, TypeError) as e:
+        logger.warning(
+            "Could not report metered quantity %s for org %s: %s", quantity, org.id, e
+        )
+        return None
+    return quantity
+
+
 async def _finalize_checkout_session(
     db: AsyncSession, session_obj: dict, stripe_cfg: "StripeSettings"
 ) -> Organization | None:
@@ -230,7 +267,54 @@ async def _finalize_checkout_session(
     org.past_due_since = None
     await db.commit()
     await db.refresh(org)
+    await _record_discount_redemption(db, org, session_obj)
+    await _report_metered_quantity(db, org)
     return org
+
+
+async def _record_discount_redemption(
+    db: AsyncSession, org: Organization, session_obj: dict
+) -> None:
+    """Track a Portfolio Desk-issued promotion code used in Checkout."""
+    session_id = session_obj.get("id")
+    if not session_id:
+        return
+    for discount in session_obj.get("discounts") or []:
+        promotion = discount.get("promotion_code") if isinstance(discount, dict) else None
+        promotion_id = promotion.get("id") if isinstance(promotion, dict) else promotion
+        if not promotion_id:
+            continue
+        code = (
+            await db.execute(
+                select(SubscriptionDiscountCode).where(
+                    SubscriptionDiscountCode.stripe_promotion_code_id == promotion_id
+                )
+            )
+        ).scalar_one_or_none()
+        if code is None:
+            continue
+        existing = (
+            await db.execute(
+                select(SubscriptionDiscountRedemption).where(
+                    SubscriptionDiscountRedemption.discount_code_id == code.id,
+                    SubscriptionDiscountRedemption.organization_id == org.id,
+                    SubscriptionDiscountRedemption.stripe_checkout_session_id == session_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            db.add(
+                SubscriptionDiscountRedemption(
+                    discount_code_id=code.id,
+                    organization_id=org.id,
+                    stripe_checkout_session_id=session_id,
+                    stripe_subscription_id=session_obj.get("subscription"),
+                )
+            )
+            code.times_redeemed += 1
+            if code.max_redemptions and code.times_redeemed >= code.max_redemptions:
+                code.is_active = False
+            await db.commit()
 
 
 # ─── GET /billing/subscription ────────────────────────────────────────────────
@@ -250,6 +334,8 @@ async def get_subscription(
         )
     )
     seat_count = seat_result.scalar_one()
+
+    usage = await metering.metering_summary(db, org.id)
 
     now = datetime.now(timezone.utc)
     trial_ends_at = org.trial_ends_at
@@ -289,6 +375,35 @@ async def get_subscription(
         "max_seats": org.max_seats,
         "seat_count": seat_count,
         "billing_configured": (await resolve_stripe_settings(db)).configured,
+        "billable_units": usage["billable_units"],
+        "billable_unit_breakdown": usage["breakdown"],
+        "billable_unit_floor": usage["floor"],
+        "billable_quantity": usage["billable_quantity"],
+        "included_leases": usage["included_leases"],
+        "billed_leases": usage["billed_leases"],
+        "estimated_monthly_charge_cents": usage["estimated_monthly_charge_cents"],
+        "billable_period_month": usage["period_month"],
+        "billable_unit_snapshot": usage["snapshot"],
+    }
+
+
+# ─── POST /billing/usage/sync ─────────────────────────────────────────────────
+
+@router.post("/usage/sync")
+async def sync_metered_usage(
+    current_user: User = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Snapshot this period's billable units and report them to Stripe."""
+    org = await _get_org(current_user.organization_id, db)
+    snapshot = await metering.capture_snapshot(db, org.id, refresh=True)
+    reported = await _report_metered_quantity(db, org)
+    return {
+        "period_month": snapshot.period_month,
+        "billable_units": snapshot.billable_units,
+        "breakdown": snapshot.breakdown or {},
+        "captured_at": snapshot.captured_at.isoformat() if snapshot.captured_at else None,
+        "reported_quantity": reported,
     }
 
 
@@ -296,7 +411,7 @@ async def get_subscription(
 
 class CheckoutRequest(BaseModel):
     plan: str  # "starter", "pro", or "enterprise"
-    billing_interval: Literal["monthly", "annual"] = "monthly"
+    billing_interval: Literal["monthly"] = "monthly"
     # For the custom-priced Enterprise tier the org admin supplies a "custom ID":
     # either an internal activation code minted by sales, or the bespoke Stripe
     # Price ID provisioned under the Enterprise Product. Ignored for Starter/Pro.
@@ -437,21 +552,27 @@ async def create_checkout_session(
             db, org, payload.enterprise_code, stripe_cfg
         )
     else:
-        price_map = {
-            ("starter", "monthly"): stripe_cfg.price_id_starter,
-            ("starter", "annual"): stripe_cfg.price_id_starter_annual,
-            ("pro", "monthly"): stripe_cfg.price_id_pro,
-            ("pro", "annual"): stripe_cfg.price_id_pro_annual,
-        }
-        price_id = price_map.get((payload.plan, payload.billing_interval))
+        # The standard subscription includes the complete non-Enterprise
+        # feature set. Accept legacy "starter" requests but normalize to pro.
+        if payload.plan not in {"starter", "pro"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown plan '{payload.plan}'.",
+            )
+        price_id = stripe_cfg.price_id_pro
         if not price_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Unknown plan '{payload.plan}' or its "
-                    f"{payload.billing_interval} price is not configured."
-                ),
+                detail="The standard monthly billing price is not configured.",
             )
+
+    checkout_quantity = (
+        1
+        if payload.plan == "enterprise"
+        else metering.billable_quantity(
+            await metering.current_billable_units(db, org.id)
+        )
+    )
 
     if org.stripe_subscription_id and org.payment_status != "canceled":
         # Existing subscription: swap the price in place instead of starting
@@ -463,7 +584,13 @@ async def create_checkout_session(
         item_id = sub["items"]["data"][0]["id"]
         updated = stripe.Subscription.modify(
             org.stripe_subscription_id,
-            items=[{"id": item_id, "price": price_id}],
+            items=[
+                {
+                    "id": item_id,
+                    "price": price_id,
+                    "quantity": checkout_quantity,
+                }
+            ],
             cancel_at_period_end=False,
             proration_behavior="create_prorations",
         )
@@ -478,7 +605,13 @@ async def create_checkout_session(
 
     session_kwargs: dict = {
         "mode": "subscription",
-        "line_items": [{"price": price_id, "quantity": 1}],
+        "line_items": [
+            {
+                "price": price_id,
+                "quantity": checkout_quantity,
+            }
+        ],
+        "allow_promotion_codes": True,
         "success_url": f"{settings.FRONTEND_URL.rstrip('/')}/billing?session_id={{CHECKOUT_SESSION_ID}}",
         "cancel_url": f"{settings.FRONTEND_URL.rstrip('/')}/billing",
         "metadata": {"org_id": str(org.id)},
@@ -514,7 +647,9 @@ async def confirm_checkout_session(
     stripe_cfg = await _require_stripe(db)
 
     try:
-        session_obj = stripe.checkout.Session.retrieve(session_id)
+        session_obj = stripe.checkout.Session.retrieve(
+            session_id, expand=["discounts.promotion_code"]
+        )
     except stripe.error.StripeError:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid checkout session")
 
@@ -670,7 +805,15 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
     if event_type == "checkout.session.completed":
         # New subscription created via checkout
-        await _finalize_checkout_session(db, obj, stripe_cfg)
+        try:
+            completed_session = stripe.checkout.Session.retrieve(
+                obj.get("id"), expand=["discounts.promotion_code"]
+            )
+            await _finalize_checkout_session(db, dict(completed_session), stripe_cfg)
+        except stripe.error.StripeError:
+            # Subscription activation must not fail solely because expansion
+            # was unavailable; the browser confirmation can reconcile later.
+            await _finalize_checkout_session(db, obj, stripe_cfg)
 
     elif event_type == "customer.subscription.updated":
         # Plan change, renewal, or status change (e.g. trialing→active, active→past_due)

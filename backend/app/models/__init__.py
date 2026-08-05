@@ -1,5 +1,6 @@
 from app.models.base import Base
 from app.models.organization import Organization
+from app.models.organization_sso_config import OrganizationSsoConfig, SsoLoginState
 from app.models.user import User
 from app.models.auth_lockout import AuthLockout
 from app.models.office import Manager, Office
@@ -84,6 +85,12 @@ from app.models.lease_document_chunk import LeaseDocumentChunk
 from app.models.saved_report import SavedReport, ReportSchedule, REPORT_FORMATS
 from app.models.knowledge_chunk import KnowledgeChunk
 from app.models.usage_event import UsageEvent
+from app.models.billable_unit_snapshot import BillableUnitSnapshot
+from app.models.billing_usage import (
+    ActiveLeaseMonth,
+    SubscriptionDiscountCode,
+    SubscriptionDiscountRedemption,
+)
 from app.models.impersonation_session import ImpersonationSession
 from app.models.billing_ledger import (
     BillingSubscription, BillingInvoice, BillingCharge,
@@ -112,6 +119,9 @@ from app.models.announcement import (
 from app.models.rent import (
     RentCharge, SecurityDeposit,
     RENT_CHARGE_TYPES, RENT_FREQUENCIES, LATE_FEE_TYPES, DEPOSIT_STATUSES,
+)
+from app.models.resident_payment_method import (
+    ResidentPaymentMethod, PAYMENT_METHOD_PROCESSORS,
 )
 from app.models.leasing_funnel import (
     RentalApplication, ScreeningReport,
@@ -142,9 +152,16 @@ from app.models.buildium import (
     BuildiumConnection, BuildiumEntityMap, BuildiumGLAccountMap, BuildiumMigrationRun,
     BUILDIUM_ENTITY_TYPES, MIGRATION_RUN_STATUSES,
 )
+from app.models.external_sync import (
+    BankFeedConnection, ExternalSyncLog, QuickBooksAccountMap, QuickBooksConnection,
+    QuickBooksEntrySync, CONNECTION_STATUSES, SYNC_CONNECTORS, SYNC_RUN_STATUSES,
+    qbo_external_ref,
+)
 
 __all__ = [
-    "Base", "Organization", "User", "AuthLockout",     "Manager", "Office",    "Lease", "LeaseNote", "LeaseCamEntry", "CAM_CHARGE_TYPES", "CAM_PERIOD_STATUSES",
+    "Base", "Organization", "User", "AuthLockout",
+    "OrganizationSsoConfig", "SsoLoginState",
+    "Manager", "Office",    "Lease", "LeaseNote", "LeaseCamEntry", "CAM_CHARGE_TYPES", "CAM_PERIOD_STATUSES",
     "CAM_RENT_FREQUENCIES", "CAM_REVIEW_STATUSES", "CAM_SOURCES",
     "LeaseRenewal", "LeaseOption",
     "Landlord", "LandlordAdditionalName", "LandlordContact",
@@ -186,6 +203,7 @@ __all__ = [
     "SavedReport", "ReportSchedule", "REPORT_FORMATS",
     "KnowledgeChunk",
     "UsageEvent",
+    "BillableUnitSnapshot",
     "ImpersonationSession",
     "BillingSubscription", "BillingInvoice", "BillingCharge",
     "BillingRefund", "BillingCredit", "BillingCoupon",
@@ -205,6 +223,7 @@ __all__ = [
     "ANNOUNCEMENT_CHANNELS", "ANNOUNCEMENT_STATUSES",
     "RentCharge", "SecurityDeposit",
     "RENT_CHARGE_TYPES", "RENT_FREQUENCIES", "LATE_FEE_TYPES", "DEPOSIT_STATUSES",
+    "ResidentPaymentMethod", "PAYMENT_METHOD_PROCESSORS",
     "RentalApplication", "ScreeningReport",
     "LeaseSignatureRequest", "LeaseSignatureParty",
     "APPLICATION_STATUSES", "SCREENING_STATUSES", "SCREENING_RECOMMENDATIONS",
@@ -222,4 +241,7 @@ __all__ = [
     "EnterpriseActivationCode",
     "BuildiumConnection", "BuildiumEntityMap", "BuildiumGLAccountMap", "BuildiumMigrationRun",
     "BUILDIUM_ENTITY_TYPES", "MIGRATION_RUN_STATUSES",
+    "BankFeedConnection", "ExternalSyncLog", "QuickBooksAccountMap", "QuickBooksConnection",
+    "QuickBooksEntrySync", "CONNECTION_STATUSES", "SYNC_CONNECTORS", "SYNC_RUN_STATUSES",
+    "qbo_external_ref",
 ]

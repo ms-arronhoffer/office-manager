@@ -3,11 +3,15 @@ import LeaseAbstractScreen from './screens/LeaseAbstractScreen.astro';
 import MaintenanceScreen from './screens/MaintenanceScreen.astro';
 import WaiversScreen from './screens/WaiversScreen.astro';
 import AnalyticsScreen from './screens/AnalyticsScreen.astro';
+import FinanceScreen from './screens/FinanceScreen.astro';
+import ResidentialScreen from './screens/ResidentialScreen.astro';
 
 const tabs = [
   { id: 'lease', label: 'AI Lease Abstracts' },
   { id: 'maintenance', label: 'Maintenance Tickets' },
   { id: 'waivers', label: 'Digital Waivers' },
+  { id: 'finance', label: 'Finance' },
+  { id: 'residential', label: 'Residential' },
   { id: 'analytics', label: 'Analytics' },
 ];
 ---
@@ -37,6 +41,8 @@ const tabs = [
       <div data-showcase-panel="lease"><LeaseAbstractScreen /></div>
       <div data-showcase-panel="maintenance" class="hidden"><MaintenanceScreen /></div>
       <div data-showcase-panel="waivers" class="hidden"><WaiversScreen /></div>
+      <div data-showcase-panel="finance" class="hidden"><FinanceScreen /></div>
+      <div data-showcase-panel="residential" class="hidden"><ResidentialScreen /></div>
       <div data-showcase-panel="analytics" class="hidden"><AnalyticsScreen /></div>
     </div>
 
