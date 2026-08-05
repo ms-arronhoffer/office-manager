@@ -14,6 +14,7 @@ resource "aws_secretsmanager_secret_version" "app" {
     # app's stored credential always matches the actual DB master password.
     POSTGRES_PASSWORD      = trimspace(var.db_password)
     JWT_SECRET             = var.jwt_secret
+    ENCRYPTION_KEY         = var.encryption_key
     DEFAULT_ADMIN_PASSWORD = var.default_admin_password
     STRIPE_SECRET_KEY      = var.stripe_secret_key
     GEMINI_API_KEY         = var.gemini_api_key

@@ -305,7 +305,7 @@ terraform output github_actions_deploy_role_arn
 - `AWS_DEPLOY_ROLE_ARN` — role the `deploy` job assumes to run the deploy on
   the EC2 host via SSM (`terraform output github_actions_deploy_role_arn`).
 - `AWS_REGION` — region the ECR registry lives in (e.g. `us-east-2`).
-- `TF_VAR_DB_PASSWORD`, `TF_VAR_JWT_SECRET`, `TF_VAR_DEFAULT_ADMIN_PASSWORD`
+- `TF_VAR_DB_PASSWORD`, `TF_VAR_JWT_SECRET`, `ENCRYPTION_KEY`, `TF_VAR_DEFAULT_ADMIN_PASSWORD`
 - `TF_VAR_STRIPE_SECRET_KEY`, `TF_VAR_GEMINI_API_KEY`, `TF_VAR_SENTRY_DSN` (optional)
 - `GOOGLE_CLIENT_SECRET`, `QBO_CLIENT_SECRET`, `PLAID_SECRET`, `SMTP_USER`,
   `SMTP_PASSWORD`, `NPM_ADMIN_PASSWORD`
@@ -339,7 +339,7 @@ App deploy (for the `deploy` job of `infra-prod.yml`), matching the Terraform ou
     permission granted in `ec2.tf`), the same value Terraform sets on RDS
     (see `secrets.tf`), so the container's password can never diverge from it.
 - `RDS_HOST` (= `terraform output db_address`), `RDS_PORT` (usually `5432`)
-- `JWT_SECRET`, `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PASSWORD`
+- `JWT_SECRET`, `ENCRYPTION_KEY`, `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PASSWORD`
 - `S3_UPLOAD_BUCKET` (= `terraform output uploads_bucket`), `S3_UPLOAD_PREFIX`, `AWS_REGION`
 - `FRONTEND_URL`, `ADMIN_FRONTEND_URL`, `APP_PORT`, `ADMIN_PORT`, `LANDING_PORT`, `BACKEND_PORT`
   - Host ports the stack binds. The bundled Nginx Proxy Manager (see below)

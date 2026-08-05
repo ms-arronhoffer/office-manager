@@ -159,6 +159,17 @@ variable "jwt_secret" {
   sensitive   = true
 }
 
+variable "encryption_key" {
+  description = "Fernet key used to encrypt stored integration credentials."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_-]{43}=$", var.encryption_key))
+    error_message = "encryption_key must be a valid Fernet key generated with Fernet.generate_key()."
+  }
+}
+
 variable "default_admin_password" {
   description = "Initial platform admin password, seeded on first boot."
   type        = string

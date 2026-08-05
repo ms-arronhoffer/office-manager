@@ -66,6 +66,7 @@ jobs:
     env:
       TF_VAR_db_password: ${{ secrets.TF_VAR_DB_PASSWORD }}
       TF_VAR_jwt_secret: ${{ secrets.TF_VAR_JWT_SECRET }}
+      TF_VAR_encryption_key: ${{ secrets.ENCRYPTION_KEY }}
       TF_VAR_default_admin_password: ${{ secrets.TF_VAR_DEFAULT_ADMIN_PASSWORD }}
       TF_VAR_stripe_secret_key: ${{ secrets.TF_VAR_STRIPE_SECRET_KEY }}
       TF_VAR_gemini_api_key: ${{ secrets.TF_VAR_GEMINI_API_KEY }}
@@ -624,7 +625,7 @@ jobs:
           secret_json="$(aws secretsmanager get-secret-value \
             --secret-id "$SECRET_NAME" --region "$REGION" \
             --query SecretString --output text)"
-          for k in POSTGRES_PASSWORD JWT_SECRET DEFAULT_ADMIN_PASSWORD \
+          for k in POSTGRES_PASSWORD JWT_SECRET ENCRYPTION_KEY DEFAULT_ADMIN_PASSWORD \
                    STRIPE_SECRET_KEY GEMINI_API_KEY SENTRY_DSN \
                    GOOGLE_CLIENT_SECRET QBO_CLIENT_SECRET PLAID_SECRET \
                    SMTP_USER SMTP_PASSWORD NPM_ADMIN_PASSWORD; do
@@ -634,7 +635,7 @@ jobs:
           unset secret_json
 
           # Required-by-compose secrets must be present.
-          for req in POSTGRES_PASSWORD JWT_SECRET DEFAULT_ADMIN_PASSWORD; do
+          for req in POSTGRES_PASSWORD JWT_SECRET ENCRYPTION_KEY DEFAULT_ADMIN_PASSWORD; do
             [ -n "${!req:-}" ] || { echo "Missing $req in Secrets Manager secret $SECRET_NAME" >&2; exit 1; }
           done
 
