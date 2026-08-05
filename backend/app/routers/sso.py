@@ -416,12 +416,18 @@ async def callback(
         return _error_redirect("sso_disabled")
 
     try:
+        client_secret = decrypt_secret(config.client_secret_encrypted)
+    except ValueError as exc:
+        logger.error("SSO client secret could not be decrypted for org %s: %s", org.id, exc)
+        return _error_redirect("verification_failed")
+
+    try:
         document = await sso_service.discover(config.issuer)
         tokens = await sso_service.exchange_code(
             document["token_endpoint"],
             code=code,
             client_id=config.client_id,
-            client_secret=decrypt_secret(config.client_secret_encrypted),
+            client_secret=client_secret,
             redirect_uri=login_state.redirect_uri,
             code_verifier=login_state.code_verifier,
         )
