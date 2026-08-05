@@ -159,6 +159,12 @@ variable "jwt_secret" {
   sensitive   = true
 }
 
+variable "encryption_key" {
+  description = "Application key used to encrypt sensitive data at rest."
+  type        = string
+  sensitive   = true
+}
+
 variable "default_admin_password" {
   description = "Initial platform admin password, seeded on first boot."
   type        = string
