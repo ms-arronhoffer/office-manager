@@ -552,6 +552,7 @@ jobs:
           emit SMTP_FROM       "$SMTP_FROM"
           emit SUPPORT_EMAIL   "$SUPPORT_EMAIL"
           emit FRONTEND_URL    "$FRONTEND_URL"
+          emit SSO_CALLBACK_URL "$SSO_CALLBACK_URL"
           emit ADMIN_FRONTEND_URL "$ADMIN_FRONTEND_URL"
           emit DEFAULT_ADMIN_EMAIL "$DEFAULT_ADMIN_EMAIL"
           emit SUPER_ADMIN_EMAILS  "$SUPER_ADMIN_EMAILS"
