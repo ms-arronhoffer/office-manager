@@ -86,6 +86,11 @@ from app.models.saved_report import SavedReport, ReportSchedule, REPORT_FORMATS
 from app.models.knowledge_chunk import KnowledgeChunk
 from app.models.usage_event import UsageEvent
 from app.models.billable_unit_snapshot import BillableUnitSnapshot
+from app.models.billing_usage import (
+    ActiveLeaseMonth,
+    SubscriptionDiscountCode,
+    SubscriptionDiscountRedemption,
+)
 from app.models.impersonation_session import ImpersonationSession
 from app.models.billing_ledger import (
     BillingSubscription, BillingInvoice, BillingCharge,

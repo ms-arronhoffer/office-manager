@@ -94,7 +94,6 @@ export interface SignupResponse {
 export interface BillableUnitBreakdown {
   commercial: number;
   residential: number;
-  self_storage: number;
 }
 
 export interface BillableUnitSnapshot {
@@ -122,6 +121,9 @@ export interface BillingSubscription {
   billable_unit_breakdown: BillableUnitBreakdown;
   billable_unit_floor: number;
   billable_quantity: number;
+  included_leases: number;
+  billed_leases: number;
+  estimated_monthly_charge_cents: number;
   billable_period_month: string;
   billable_unit_snapshot: BillableUnitSnapshot | null;
 }

@@ -1,40 +1,10 @@
-"""Billable-unit metering for per-unit (banded) subscription billing.
+"""Monthly active-lease metering for the Base subscription.
 
-What counts as a billable unit
-------------------------------
-**One billable unit is one space the organisation is actively leasing or
-managing at the moment of measurement.** Concretely, across the three primary
-categories:
-
-* **Commercial** (:class:`~app.models.lease.Lease`): each active lease in the
-  portfolio. A commercial lease *is* the managed space, so the lease is the
-  unit. "Active" follows :mod:`app.services.lease_limits`, the existing single
-  source of truth: any lease that is not ``expired``, ``terminated`` or
-  ``cancelled``, including one with no status set.
-* **Residential** (:class:`~app.models.resident.RentalUnit`): each rental unit
-  with at least one active org-as-lessor lease (``pending`` or ``active``).
-* **Self storage** (:class:`~app.models.self_storage.StorageUnit`): each storage
-  unit with at least one agreement in ``STORAGE_ACTIVE_STATUSES`` (``active``,
-  ``pending_move_out``, ``delinquent``, ``in_lien``).
-
-Three consequences of that definition, all deliberate:
-
-* Residential and storage counts are **distinct by unit**, so two overlapping
-  leases on one space (a renewal signed before the outgoing lease ends) bill
-  once, not twice.
-* **Vacant inventory is free.** A listed but unleased unit, and a draft or
-  terminal lease, are not managed space and do not bill. Customers are charged
-  for occupancy, not for cataloguing their portfolio.
-* Soft-deleted rows never count.
-
-The reported quantity is the unit count raised to :data:`BILLABLE_UNIT_FLOOR`,
-matching the per-unit-with-a-floor shape competitors price on. The floor governs
-only the quantity reported to Stripe; the price bands themselves live in Stripe
-on a tiered/graduated price and the flat plan prices in
-:mod:`app.services.entitlements` are untouched.
-
-The plan caps (``max_offices``, ``max_active_leases``) still apply. Banding runs
-alongside them until a migration off the caps is planned.
+A commercial or residential lease counts once when its saved status is exactly
+``Active`` for any day in the UTC billing month. The append-only monthly ledger
+preserves brief Active periods and carries unchanged Active leases across month
+boundaries. The first three leases are included in the $39 base fee; additional
+leases are $4 each. Enterprise subscriptions bypass standard quantity sync.
 """
 from __future__ import annotations
 
@@ -42,29 +12,26 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.billable_unit_snapshot import BillableUnitSnapshot
+from app.models.billing_usage import ActiveLeaseMonth
 from app.models.lease import Lease
 from app.models.resident import ResidentLease
-from app.models.self_storage import STORAGE_ACTIVE_STATUSES, StorageAgreement
-from app.services.lease_limits import (
-    ACTIVE_RESIDENT_STATUSES,
-    INACTIVE_COMMERCIAL_STATUSES,
-)
 
 logger = logging.getLogger(__name__)
 
-# Minimum quantity reported to the metered price. Customers below the floor pay
-# the floor, which is what makes a per-unit band viable at the small end.
-BILLABLE_UNIT_FLOOR = 10
+# The first three monthly-active leases are included in the $39 base fee.
+INCLUDED_LEASES = 3
+BILLABLE_UNIT_FLOOR = INCLUDED_LEASES
+BASE_FEE_CENTS = 3900
+PER_ADDITIONAL_LEASE_CENTS = 400
 
 # Breakdown keys, in the order shown to a customer.
-CATEGORIES: tuple[str, ...] = ("commercial", "residential", "self_storage")
-
-_ACTIVE_STORAGE_STATUSES = frozenset(s.lower() for s in STORAGE_ACTIVE_STATUSES)
+CATEGORIES: tuple[str, ...] = ("commercial", "residential")
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +39,7 @@ _ACTIVE_STORAGE_STATUSES = frozenset(s.lower() for s in STORAGE_ACTIVE_STATUSES)
 # ---------------------------------------------------------------------------
 
 def build_breakdown(
-    *, commercial: int = 0, residential: int = 0, self_storage: int = 0
+    *, commercial: int = 0, residential: int = 0
 ) -> dict[str, int]:
     """Assemble a per-category breakdown from raw counts.
 
@@ -82,7 +49,6 @@ def build_breakdown(
     return {
         "commercial": max(0, int(commercial)),
         "residential": max(0, int(residential)),
-        "self_storage": max(0, int(self_storage)),
     }
 
 
@@ -92,8 +58,21 @@ def total_units(breakdown: dict[str, int]) -> int:
 
 
 def billable_quantity(units: int, floor: int = BILLABLE_UNIT_FLOOR) -> int:
-    """Raise a unit count to the billing floor."""
+    """Quantity sent to the graduated Stripe Price."""
     return max(int(units), int(floor))
+
+
+def billed_leases(units: int, included: int = INCLUDED_LEASES) -> int:
+    """Return leases charged at $4 after the included allowance."""
+    return max(int(units) - int(included), 0)
+
+
+def estimated_monthly_charge_cents(units: int) -> int:
+    return BASE_FEE_CENTS + billed_leases(units) * PER_ADDITIONAL_LEASE_CENTS
+
+
+def is_billable_active_status(status: str | None) -> bool:
+    return (status or "").strip().lower() == "active"
 
 
 def period_month(when: datetime | None = None) -> str:
@@ -111,6 +90,9 @@ def snapshot_payload(breakdown: dict[str, int]) -> dict:
         "breakdown": {key: breakdown.get(key, 0) for key in CATEGORIES},
         "billable_units": units,
         "billable_quantity": billable_quantity(units),
+        "included_leases": INCLUDED_LEASES,
+        "billed_leases": billed_leases(units),
+        "estimated_monthly_charge_cents": estimated_monthly_charge_cents(units),
         "floor": BILLABLE_UNIT_FLOOR,
     }
 
@@ -119,48 +101,107 @@ def snapshot_payload(breakdown: dict[str, int]) -> dict:
 # Counting
 # ---------------------------------------------------------------------------
 
-async def _count_commercial(db: AsyncSession, org_id: uuid.UUID) -> int:
-    result = await db.execute(
-        select(func.count(Lease.id)).where(
-            Lease.organization_id == org_id,
-            Lease.is_deleted.is_(False),
-            or_(
-                Lease.status.is_(None),
-                func.lower(Lease.status).notin_(INACTIVE_COMMERCIAL_STATUSES),
-            ),
+async def record_active_lease_month(
+    db: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    lease_type: str,
+    lease_id: uuid.UUID,
+    status: str | None,
+    when: datetime | None = None,
+) -> None:
+    """Idempotently record a lease saved as Active in a UTC billing month."""
+    if not is_billable_active_status(status):
+        return
+    moment = when or datetime.now(timezone.utc)
+    await db.execute(
+        pg_insert(ActiveLeaseMonth)
+        .values(
+            id=uuid.uuid4(),
+            organization_id=organization_id,
+            lease_type=lease_type,
+            lease_id=lease_id,
+            period_month=period_month(moment),
+            first_active_at=moment,
+        )
+        .on_conflict_do_nothing(
+            constraint="uq_active_lease_month_org_lease_period"
         )
     )
-    return int(result.scalar_one())
 
 
-async def _count_residential(db: AsyncSession, org_id: uuid.UUID) -> int:
-    result = await db.execute(
-        select(func.count(func.distinct(ResidentLease.unit_id))).where(
-            ResidentLease.organization_id == org_id,
-            ResidentLease.is_deleted.is_(False),
-            func.lower(ResidentLease.status).in_(ACTIVE_RESIDENT_STATUSES),
+async def ensure_current_active_leases(
+    db: AsyncSession, org_id: uuid.UUID, *, when: datetime | None = None
+) -> None:
+    """Carry leases that remain Active into the current billing month."""
+    moment = when or datetime.now(timezone.utc)
+    commercial_ids = (
+        await db.execute(
+            select(Lease.id).where(
+                Lease.organization_id == org_id,
+                Lease.is_deleted.is_(False),
+                func.lower(func.trim(func.coalesce(Lease.status, ""))) == "active",
+            )
         )
-    )
-    return int(result.scalar_one())
-
-
-async def _count_self_storage(db: AsyncSession, org_id: uuid.UUID) -> int:
-    result = await db.execute(
-        select(func.count(func.distinct(StorageAgreement.unit_id))).where(
-            StorageAgreement.organization_id == org_id,
-            StorageAgreement.is_deleted.is_(False),
-            func.lower(StorageAgreement.status).in_(_ACTIVE_STORAGE_STATUSES),
+    ).scalars().all()
+    residential_ids = (
+        await db.execute(
+            select(ResidentLease.id).where(
+                ResidentLease.organization_id == org_id,
+                ResidentLease.is_deleted.is_(False),
+                func.lower(func.trim(func.coalesce(ResidentLease.status, ""))) == "active",
+            )
         )
-    )
-    return int(result.scalar_one())
+    ).scalars().all()
+    for lease_type, identifiers in (
+        ("commercial", commercial_ids),
+        ("residential", residential_ids),
+    ):
+        if not identifiers:
+            continue
+        values = [
+            {
+                "id": uuid.uuid4(),
+                "organization_id": org_id,
+                "lease_type": lease_type,
+                "lease_id": lease_id,
+                "period_month": period_month(moment),
+                "first_active_at": moment,
+            }
+            for lease_id in identifiers
+        ]
+        await db.execute(
+            pg_insert(ActiveLeaseMonth)
+            .values(values)
+            .on_conflict_do_nothing(
+                constraint="uq_active_lease_month_org_lease_period"
+            )
+        )
+    if commercial_ids or residential_ids:
+        await db.commit()
 
 
-async def count_billable_units(db: AsyncSession, org_id: uuid.UUID) -> dict[str, int]:
-    """Return the per-category billable-unit breakdown for an org."""
+async def count_billable_units(
+    db: AsyncSession, org_id: uuid.UUID, *, period: str | None = None
+) -> dict[str, int]:
+    """Count distinct leases observed Active in the requested month."""
+    target_period = period or period_month()
+    if target_period == period_month():
+        await ensure_current_active_leases(db, org_id)
+    rows = (
+        await db.execute(
+            select(ActiveLeaseMonth.lease_type, func.count(ActiveLeaseMonth.id))
+            .where(
+                ActiveLeaseMonth.organization_id == org_id,
+                ActiveLeaseMonth.period_month == target_period,
+            )
+            .group_by(ActiveLeaseMonth.lease_type)
+        )
+    ).all()
+    counts = {lease_type: int(count) for lease_type, count in rows}
     return build_breakdown(
-        commercial=await _count_commercial(db, org_id),
-        residential=await _count_residential(db, org_id),
-        self_storage=await _count_self_storage(db, org_id),
+        commercial=counts.get("commercial", 0),
+        residential=counts.get("residential", 0),
     )
 
 
@@ -204,7 +245,7 @@ async def capture_snapshot(
     if existing is not None and not refresh:
         return existing
 
-    breakdown = await count_billable_units(db, org_id)
+    breakdown = await count_billable_units(db, org_id, period=period)
     units = total_units(breakdown)
 
     if existing is not None:

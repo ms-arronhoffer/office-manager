@@ -763,6 +763,7 @@ docker compose exec db psql -U office_admin -d office_manager
 ### Developer & Integration
 - **API Keys** — `om_`-prefixed tokens with bcrypt-hashed storage, scope system (`read:*`, `write:tickets`, etc.), and management UI
 - **Stripe Billing** — subscription management, Checkout, Customer Portal, dunning enforcement, webhook event handling
+- **Base Subscription Billing** — $39 monthly with the first 3 leases that were Active during the month included, then $4 per additional monthly-active lease; tracked one-use and term discount codes; see [docs/BILLING_SETUP.md](docs/BILLING_SETUP.md)
 - **Google OAuth** — single sign-on with existing Google accounts
 
 ### Security & Access

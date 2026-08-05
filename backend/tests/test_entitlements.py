@@ -31,20 +31,20 @@ def _org(**kwargs):
 
 def test_plan_entitlements_known_plan():
     assert ent.plan_entitlements("pro")["hvac"] is True
-    assert ent.plan_entitlements("starter")["hvac"] is False
+    assert ent.plan_entitlements("starter")["hvac"] is True
 
 
 def test_plan_active_lease_limits_per_tier():
-    assert ent.plan_entitlements("starter")["max_active_leases"] == 100
-    assert ent.plan_entitlements("pro")["max_active_leases"] == 500
+    assert ent.plan_entitlements("starter")["max_active_leases"] is None
+    assert ent.plan_entitlements("pro")["max_active_leases"] is None
     assert ent.plan_entitlements("enterprise")["max_active_leases"] is None
 
 
 def test_plan_prices_match_public_monthly_floor():
     assert ent.PLAN_PRICE_CENTS == {
-        "starter": 9_900,
-        "pro": 29_900,
-        "enterprise": 75_000,
+        "starter": 3_900,
+        "pro": 3_900,
+        "enterprise": 44_900,
     }
 
 
@@ -53,11 +53,11 @@ def test_plan_feature_matrix_matches_public_packaging():
     pro = ent.plan_entitlements("pro")
     enterprise = ent.plan_entitlements("enterprise")
 
-    assert starter["maintenance"] is False
-    assert starter["ai_assist"] is False
-    assert starter["advanced_accounting"] is False
-    assert starter["inspections"] is False
-    assert starter["buildium_migration"] is False
+    assert starter["maintenance"] is True
+    assert starter["ai_assist"] is True
+    assert starter["advanced_accounting"] is True
+    assert starter["inspections"] is True
+    assert starter["buildium_migration"] is True
     assert pro["maintenance"] is True
     assert pro["ai_assist"] is True
     assert pro["advanced_accounting"] is True
@@ -66,7 +66,7 @@ def test_plan_feature_matrix_matches_public_packaging():
     assert pro["api_access"] is False
     assert enterprise["api_access"] is True
     assert enterprise["webhooks"] is True
-    assert enterprise["sso"] is False
+    assert enterprise["sso"] is True
     assert enterprise["custom_fields"] is False
 
 
@@ -152,10 +152,10 @@ def test_is_over_limit_unlimited_is_never_over():
     assert ent.is_over_limit("max_offices", 10_000, org) is False
 
 
-def test_is_over_limit_at_and_below_limit():
-    org = _org(plan="starter")  # max_offices == 10
+def test_base_plan_office_limit_is_unlimited():
+    org = _org(plan="starter")
     assert ent.is_over_limit("max_offices", 9, org) is False
-    assert ent.is_over_limit("max_offices", 10, org) is True
+    assert ent.is_over_limit("max_offices", 10_000, org) is False
 
 
 # ── org_access_state ─────────────────────────────────────────────────────────

@@ -1109,15 +1109,14 @@ export const billing = {
     ),
 
   createCheckout: (
-    plan: 'starter' | 'pro' | 'enterprise',
+    plan: 'pro' | 'enterprise',
     enterpriseCode?: string,
-    billingInterval: 'monthly' | 'annual' = 'monthly',
   ) =>
     client.post<{ checkout_url: string | null; plan?: string; payment_status?: string }>(
       '/billing/checkout',
       {
         plan,
-        billing_interval: billingInterval,
+        billing_interval: 'monthly',
         ...(enterpriseCode ? { enterprise_code: enterpriseCode } : {}),
       }
     ),

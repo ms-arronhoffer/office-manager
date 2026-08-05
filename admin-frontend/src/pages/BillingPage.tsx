@@ -25,8 +25,11 @@ import {
   getEnterpriseCodes,
   createEnterpriseCode,
   revokeEnterpriseCode,
+  getDiscountCodes,
+  createDiscountCode,
+  deactivateDiscountCode,
 } from "../api"
-import type { BillingRow, RevenueMetrics, StripeConfig, EnterpriseCode } from "../types"
+import type { BillingRow, RevenueMetrics, StripeConfig, EnterpriseCode, DiscountCode } from "../types"
 
 const BILLING_PER_PAGE = 20
 
@@ -48,10 +51,7 @@ function StripeIntegrationCard() {
   const [secretKey, setSecretKey] = useState("")
   const [webhookSecret, setWebhookSecret] = useState("")
   const [publishableKey, setPublishableKey] = useState("")
-  const [priceStarter, setPriceStarter] = useState("")
   const [pricePro, setPricePro] = useState("")
-  const [priceStarterAnnual, setPriceStarterAnnual] = useState("")
-  const [priceProAnnual, setPriceProAnnual] = useState("")
   const [productEnterprise, setProductEnterprise] = useState("")
   const [isEnabled, setIsEnabled] = useState(true)
 
@@ -60,10 +60,7 @@ function StripeIntegrationCard() {
       const data = await getStripeConfig()
       setCfg(data)
       setPublishableKey(data.publishable_key || "")
-      setPriceStarter(data.price_id_starter || "")
       setPricePro(data.price_id_pro || "")
-      setPriceStarterAnnual(data.price_id_starter_annual || "")
-      setPriceProAnnual(data.price_id_pro_annual || "")
       setProductEnterprise(data.product_id_enterprise || "")
       setIsEnabled(data.is_enabled)
       setErr("")
@@ -84,10 +81,7 @@ function StripeIntegrationCard() {
       // Only include secret fields when the operator typed a value.
       const payload: Record<string, unknown> = {
         publishable_key: publishableKey,
-        price_id_starter: priceStarter,
         price_id_pro: pricePro,
-        price_id_starter_annual: priceStarterAnnual,
-        price_id_pro_annual: priceProAnnual,
         product_id_enterprise: productEnterprise,
         is_enabled: isEnabled,
       }
@@ -219,46 +213,13 @@ function StripeIntegrationCard() {
             <Label htmlFor="stripe-enabled" className="text-sm">Integration enabled</Label>
           </div>
           <div>
-            <Label htmlFor="stripe-price-starter" className="text-sm">Core monthly price ID ($79)</Label>
-            <Input
-              id="stripe-price-starter"
-              autoComplete="off"
-              placeholder="price_…"
-              value={priceStarter}
-              onChange={(e) => setPriceStarter(e.target.value)}
-              className="mt-2 font-mono"
-            />
-          </div>
-          <div>
-            <Label htmlFor="stripe-price-pro" className="text-sm">Operations monthly price ID ($199)</Label>
+            <Label htmlFor="stripe-price-pro" className="text-sm">Base monthly graduated price ID ($39 + $4 per lease above 3)</Label>
             <Input
               id="stripe-price-pro"
               autoComplete="off"
               placeholder="price_…"
               value={pricePro}
               onChange={(e) => setPricePro(e.target.value)}
-              className="mt-2 font-mono"
-            />
-          </div>
-          <div>
-            <Label htmlFor="stripe-price-starter-annual" className="text-sm">Core annual price ID ($948/year)</Label>
-            <Input
-              id="stripe-price-starter-annual"
-              autoComplete="off"
-              placeholder="price_…"
-              value={priceStarterAnnual}
-              onChange={(e) => setPriceStarterAnnual(e.target.value)}
-              className="mt-2 font-mono"
-            />
-          </div>
-          <div>
-            <Label htmlFor="stripe-price-pro-annual" className="text-sm">Operations annual price ID ($2,988/year)</Label>
-            <Input
-              id="stripe-price-pro-annual"
-              autoComplete="off"
-              placeholder="price_…"
-              value={priceProAnnual}
-              onChange={(e) => setPriceProAnnual(e.target.value)}
               className="mt-2 font-mono"
             />
           </div>
@@ -503,6 +464,61 @@ function EnterpriseCodesCard() {
   )
 }
 
+function DiscountCodesCard() {
+  const [codes, setCodes] = useState<DiscountCode[]>([])
+  const [code, setCode] = useState("")
+  const [type, setType] = useState<"percent" | "fixed">("percent")
+  const [value, setValue] = useState("")
+  const [duration, setDuration] = useState<"once" | "repeating">("once")
+  const [months, setMonths] = useState("3")
+  const [maxRedemptions, setMaxRedemptions] = useState("1")
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState("")
+
+  const load = useCallback(async () => {
+    try { setCodes(await getDiscountCodes()) } catch { setErr("Could not load discount codes.") }
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const create = async () => {
+    setBusy(true); setErr("")
+    try {
+      const numeric = Number(value)
+      await createDiscountCode({
+        code: code.trim().toUpperCase(),
+        discount_type: type,
+        ...(type === "percent" ? { percent_off: numeric } : { amount_off_cents: Math.round(numeric * 100) }),
+        duration,
+        ...(duration === "repeating" ? { duration_in_months: Number(months) } : {}),
+        max_redemptions: Number(maxRedemptions),
+      })
+      setCode(""); setValue(""); await load()
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setErr(detail || "Could not create discount code.")
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <Card className="mb-6 p-6">
+      <div className="flex items-start justify-between mb-4">
+        <div><h2 className="text-lg font-bold">Discount codes</h2><p className="text-sm text-slate-600">Issue Stripe-backed one-use or fixed-term subscription discounts.</p></div>
+      </div>
+      {err && <Alert variant="destructive"><AlertDescription>{err}</AlertDescription></Alert>}
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-5">
+        <div><Label>Code</Label><Input value={code} onChange={e => setCode(e.target.value)} placeholder="WELCOME20" /></div>
+        <div><Label>Type</Label><Select value={type} onValueChange={v => setType(v as "percent" | "fixed")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="percent">Percent</SelectItem><SelectItem value="fixed">Fixed USD</SelectItem></SelectContent></Select></div>
+        <div><Label>{type === "percent" ? "Percent" : "Dollars"}</Label><Input type="number" value={value} onChange={e => setValue(e.target.value)} /></div>
+        <div><Label>Duration</Label><Select value={duration} onValueChange={v => setDuration(v as "once" | "repeating")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="once">One invoice</SelectItem><SelectItem value="repeating">Term</SelectItem></SelectContent></Select></div>
+        <div><Label>{duration === "repeating" ? "Months" : "Max uses"}</Label><Input type="number" value={duration === "repeating" ? months : maxRedemptions} onChange={e => duration === "repeating" ? setMonths(e.target.value) : setMaxRedemptions(e.target.value)} /></div>
+        <div className="pt-6"><Button onClick={create} disabled={busy || !code.trim() || !value}>{busy ? "Creating..." : "Create"}</Button></div>
+      </div>
+      <Table><TableHeader><TableRow><TableHead>Code</TableHead><TableHead>Discount</TableHead><TableHead>Duration</TableHead><TableHead>Uses</TableHead><TableHead>Status</TableHead><TableHead /></TableRow></TableHeader><TableBody>
+        {codes.map(item => <TableRow key={item.id}><TableCell className="font-mono">{item.code}</TableCell><TableCell>{item.discount_type === "percent" ? `${item.percent_off}%` : `$${((item.amount_off_cents || 0) / 100).toFixed(2)}`}</TableCell><TableCell>{item.duration === "once" ? "One invoice" : `${item.duration_in_months} months`}</TableCell><TableCell>{item.times_redeemed} / {item.max_redemptions ?? "unlimited"}</TableCell><TableCell><Badge variant={item.is_active ? "secondary" : "outline"}>{item.is_active ? "Active" : "Inactive"}</Badge></TableCell><TableCell>{item.is_active && <Button variant="outline" size="sm" onClick={async () => { await deactivateDiscountCode(item.id); await load() }}>Deactivate</Button>}</TableCell></TableRow>)}
+      </TableBody></Table>
+    </Card>
+  )
+}
 function RevenueDashboard() {
   const [rev, setRev] = useState<RevenueMetrics | null>(null)
   const [err, setErr] = useState("")
@@ -617,6 +633,7 @@ export default function BillingPage() {
       <StripeIntegrationCard />
 
       <EnterpriseCodesCard />
+      <DiscountCodesCard />
 
       {error && (
         <Alert variant="destructive" className="mb-6">

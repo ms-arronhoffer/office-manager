@@ -77,8 +77,8 @@ PAST_DUE_GRACE_DAYS = 10
 # premium because it includes the real double-entry ledger and CAM
 # reconciliation, which DoorLoop only ships on its top tier.
 PLAN_PRICE_CENTS: dict[str, int] = {
-    "starter": 7900,
-    "pro": 19900,
+    "starter": 3900,
+    "pro": 3900,
     "enterprise": 44900,
 }
 
@@ -91,34 +91,34 @@ def plan_price_cents(plan: str | None) -> int:
 # Per-plan default entitlements. Keep in sync with the landing-page pricing copy.
 PLAN_CATALOG: dict[str, dict[str, Any]] = {
     "starter": {
-        "max_offices": 10,
+        "max_offices": UNLIMITED,
         "max_seats": UNLIMITED,
-        "max_active_leases": 150,
-        "audit_retention_days": 90,
-        "monthly_ai_input_tokens": 1_000_000,
-        "monthly_ai_output_tokens": 250_000,
-        "hvac": False,
+        "max_active_leases": UNLIMITED,
+        "audit_retention_days": UNLIMITED,
+        "monthly_ai_input_tokens": 10_000_000,
+        "monthly_ai_output_tokens": 2_000_000,
+        "hvac": True,
         # Field operations are table stakes at the entry tier: competitors all
         # include maintenance and inspections in their cheapest plan.
         "maintenance": True,
-        "transitions": False,
-        "advanced_analytics": False,
-        "advanced_accounting": False,
+        "transitions": True,
+        "advanced_analytics": True,
+        "advanced_accounting": True,
         "inspections": True,
-        "buildium_migration": False,
-        "pdf_export": False,
+        "buildium_migration": True,
+        "pdf_export": True,
         "api_access": False,
         "webhooks": False,
         "sso": False,
         "custom_fields": False,
-        "ai_assist": False,
-        "digital_waivers": False,
-        "client_portal": False,
+        "ai_assist": True,
+        "digital_waivers": True,
+        "client_portal": True,
     },
     "pro": {
-        "max_offices": 50,
+        "max_offices": UNLIMITED,
         "max_seats": UNLIMITED,
-        "max_active_leases": 500,
+        "max_active_leases": UNLIMITED,
         "audit_retention_days": UNLIMITED,
         "monthly_ai_input_tokens": 10_000_000,
         "monthly_ai_output_tokens": 2_000_000,

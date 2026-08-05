@@ -97,17 +97,20 @@ async def test_subscription_trial_status_reported_from_payment_status(client, db
     assert body["trial_ends_at"] is not None
 
 
-# ─── Starter checkout ───────────────────────────────────────────────────────
+# ─── Base checkout ──────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_checkout_allows_starter_plan(client, db_session, monkeypatch):
+    """Legacy starter requests normalize to the full-feature Base price."""
     org, admin = await _org_admin(db_session)
+    captured = {}
 
     class _FakeSession:
         url = "https://checkout.stripe.com/session/xyz"
 
     monkeypatch.setattr(
-        "stripe.checkout.Session.create", lambda **kwargs: _FakeSession()
+        "stripe.checkout.Session.create",
+        lambda **kwargs: (captured.update(kwargs), _FakeSession())[1],
     )
 
     r = await client.post(
@@ -115,10 +118,12 @@ async def test_checkout_allows_starter_plan(client, db_session, monkeypatch):
     )
     assert r.status_code == 200, r.text
     assert r.json()["checkout_url"] == "https://checkout.stripe.com/session/xyz"
+    assert captured["line_items"] == [{"price": "price_pro", "quantity": 3}]
+    assert captured["allow_promotion_codes"] is True
 
 
 @pytest.mark.asyncio
-async def test_checkout_uses_annual_price(client, db_session, monkeypatch):
+async def test_checkout_rejects_annual_billing(client, db_session, monkeypatch):
     org, admin = await _org_admin(db_session)
     captured = {}
 
@@ -135,8 +140,8 @@ async def test_checkout_uses_annual_price(client, db_session, monkeypatch):
         headers=auth_headers(admin),
         json={"plan": "starter", "billing_interval": "annual"},
     )
-    assert r.status_code == 200, r.text
-    assert captured["line_items"] == [{"price": "price_starter_annual", "quantity": 1}]
+    assert r.status_code == 422, r.text
+    assert captured == {}
 
 
 # ─── In-place plan switch (upgrade/downgrade) ──────────────────────────────
@@ -148,10 +153,10 @@ async def test_checkout_switches_existing_subscription_in_place(client, db_sessi
     )
 
     fake_sub = {
-        "items": {"data": [{"id": "si_1", "price": {"id": "price_starter", "product": "prod_x"}}]},
+        "items": {"data": [{"id": "si_1", "price": {"id": "price_pro", "product": "prod_x"}}]},
     }
     fake_updated = {
-        "items": {"data": [{"price": {"id": "price_starter", "product": "prod_x"}}]},
+        "items": {"data": [{"price": {"id": "price_pro", "product": "prod_x"}}]},
         "cancel_at_period_end": False,
         "current_period_end": int((datetime.now(timezone.utc) + timedelta(days=20)).timestamp()),
     }
@@ -169,11 +174,11 @@ async def test_checkout_switches_existing_subscription_in_place(client, db_sessi
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["checkout_url"] is None
-    assert body["plan"] == "starter"
-    assert modify_calls[0]["items"] == [{"id": "si_1", "price": "price_starter"}]
+    assert body["plan"] == "pro"
+    assert modify_calls[0]["items"] == [{"id": "si_1", "price": "price_pro", "quantity": 3}]
 
     await db_session.refresh(org)
-    assert org.plan == "starter"
+    assert org.plan == "pro"
     assert org.payment_status == "active"
     assert org.is_active is True
 

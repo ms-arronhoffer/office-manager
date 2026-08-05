@@ -182,8 +182,8 @@ Manage your subscription directly from the application. Upgrade, downgrade, or u
 
 | Plan       | Portfolio limit | Key Features                                             | Price/mo |
 |------------|-----------------|----------------------------------------------------------|----------|
-| Core       | 10 locations / 150 active leases | Lease records, alerts, tickets, assets, inspections, CSV, AI extraction | $79 |
-| Operations | 50 locations / 500 active leases | + general ledger, CAM, HVAC, portals, analytics, AI assistant | $199 |
+| Base | First 3 monthly-active leases included | Every non-Enterprise application feature, including accounting, CAM, HVAC, portals, analytics, and AI | $39 + $4 per additional active lease |
+| Enterprise | Custom | Everything in Base plus API access, webhooks, SSO, custom limits, retention, deployment, and support | Custom |
 | Enterprise | Custom | + API/webhooks, custom limits, onboarding, private deployment | From $449 |
 
 *14-day free trial on all plans. No credit card required to start. Custom onboarding is available for an additional charge; scoped data migration starts at $2,500.*

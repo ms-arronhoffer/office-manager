@@ -42,7 +42,7 @@ alembic downgrade -1          # step back one revision
 
 ---
 
-## Current migrations (110 to 115)
+## Current migrations (110 to 116)
 
 | Rev | File | Adds | Fresh-DB safe? |
 |---|---|---|---|
@@ -52,8 +52,9 @@ alembic downgrade -1          # step back one revision
 | 113 | `113_add_org_sso_config.py` | `organization_sso_configs`, `sso_login_states` | Yes, on ORM models |
 | 114 | `114_add_external_connections.py` | QuickBooks and Plaid connections, account mapping, sync logs | Yes, on ORM models |
 | 115 | `115_add_billable_unit_snapshots.py` | `billable_unit_snapshots` | Yes, on ORM models |
+| 116 | `116_active_lease_billing_and_discounts.py` | Monthly active-lease ledger and tracked Stripe discount codes | Yes, on ORM models |
 
-The chain is linear: `109 → 110 → 111 → 112 → 113 → 114 → 115`.
+The chain is linear: `109 → 110 → 111 → 112 → 113 → 114 → 115 → 116`.
 
 ---
 
@@ -130,7 +131,7 @@ Before upgrading a deployed environment:
 
 ```bash
 cd backend
-alembic current      # expect 115 (or later)
+alembic current      # expect 116 (or later)
 ```
 
 ```sql

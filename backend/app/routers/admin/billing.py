@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +19,7 @@ from app.models.billing_ledger import (
     BillingRefund, BillingSubscription,
 )
 from app.models.enterprise_activation_code import EnterpriseActivationCode
+from app.models.billing_usage import SubscriptionDiscountCode
 from app.models.organization import Organization
 from app.models.platform_stripe_config import PlatformStripeConfig
 from app.models.user import User
@@ -543,6 +544,34 @@ class StripeTestOut(BaseModel):
     error: str | None = None
 
 
+class DiscountCodeCreate(BaseModel):
+    code: str = Field(min_length=3, max_length=100)
+    discount_type: str = Field(pattern="^(percent|fixed)$")
+    percent_off: int | None = Field(default=None, ge=1, le=100)
+    amount_off_cents: int | None = Field(default=None, ge=1)
+    duration: str = Field(pattern="^(once|repeating)$")
+    duration_in_months: int | None = Field(default=None, ge=1, le=36)
+    max_redemptions: int | None = Field(default=1, ge=1)
+    expires_at: datetime | None = None
+
+
+class DiscountCodeOut(BaseModel):
+    id: uuid.UUID
+    code: str
+    discount_type: str
+    percent_off: int | None
+    amount_off_cents: int | None
+    duration: str
+    duration_in_months: int | None
+    max_redemptions: int | None
+    times_redeemed: int
+    is_active: bool
+    expires_at: datetime | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 async def _stripe_config_out(db: AsyncSession) -> StripeConfigOut:
     cfg = await stripe_cfg.get_stripe_config(db)
     resolved = await stripe_cfg.resolve_stripe_settings(db)
@@ -658,6 +687,125 @@ async def test_stripe_config(
         cfg.last_verify_error = error
         await db.commit()
     return StripeTestOut(ok=ok, error=error)
+
+
+@router.get("/discount-codes", response_model=list[DiscountCodeOut])
+async def list_discount_codes(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_console_role("super_admin", "finance")),
+):
+    return (
+        await db.execute(
+            select(SubscriptionDiscountCode).order_by(
+                SubscriptionDiscountCode.created_at.desc()
+            )
+        )
+    ).scalars().all()
+
+
+@router.post(
+    "/discount-codes",
+    response_model=DiscountCodeOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_discount_code(
+    payload: DiscountCodeCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_console_role("super_admin", "finance")),
+):
+    code_value = payload.code.strip().upper()
+    if payload.discount_type == "percent" and payload.percent_off is None:
+        raise HTTPException(status_code=422, detail="percent_off is required")
+    if payload.discount_type == "fixed" and payload.amount_off_cents is None:
+        raise HTTPException(status_code=422, detail="amount_off_cents is required")
+    if payload.duration == "repeating" and payload.duration_in_months is None:
+        raise HTTPException(status_code=422, detail="duration_in_months is required")
+    existing = (
+        await db.execute(
+            select(SubscriptionDiscountCode).where(
+                func.upper(SubscriptionDiscountCode.code) == code_value
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="Discount code already exists")
+
+    resolved = await stripe_cfg.resolve_stripe_settings(db)
+    if not resolved.secret_key:
+        raise HTTPException(status_code=503, detail="Stripe is not configured")
+    import stripe
+
+    stripe.api_key = resolved.secret_key
+    coupon_args: dict = {
+        "name": code_value,
+        "duration": payload.duration,
+    }
+    if payload.discount_type == "percent":
+        coupon_args["percent_off"] = payload.percent_off
+    else:
+        coupon_args.update(amount_off=payload.amount_off_cents, currency="usd")
+    if payload.duration == "repeating":
+        coupon_args["duration_in_months"] = payload.duration_in_months
+    try:
+        coupon = stripe.Coupon.create(**coupon_args)
+        promotion_args: dict = {
+            "coupon": coupon.id,
+            "code": code_value,
+        }
+        if payload.max_redemptions:
+            promotion_args["max_redemptions"] = payload.max_redemptions
+        if payload.expires_at:
+            promotion_args["expires_at"] = int(payload.expires_at.timestamp())
+        promotion = stripe.PromotionCode.create(**promotion_args)
+    except stripe.error.StripeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=getattr(exc, "user_message", None) or str(exc),
+        ) from exc
+
+    row = SubscriptionDiscountCode(
+        code=code_value,
+        stripe_coupon_id=coupon.id,
+        stripe_promotion_code_id=promotion.id,
+        discount_type=payload.discount_type,
+        percent_off=payload.percent_off if payload.discount_type == "percent" else None,
+        amount_off_cents=(
+            payload.amount_off_cents if payload.discount_type == "fixed" else None
+        ),
+        duration=payload.duration,
+        duration_in_months=(
+            payload.duration_in_months if payload.duration == "repeating" else None
+        ),
+        max_redemptions=payload.max_redemptions,
+        expires_at=payload.expires_at,
+        created_by_id=current_user.id,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+@router.delete("/discount-codes/{discount_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def deactivate_discount_code(
+    discount_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_console_role("super_admin", "finance")),
+):
+    row = await db.get(SubscriptionDiscountCode, discount_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Discount code not found")
+    resolved = await stripe_cfg.resolve_stripe_settings(db)
+    if resolved.secret_key:
+        import stripe
+
+        stripe.api_key = resolved.secret_key
+        try:
+            stripe.PromotionCode.modify(row.stripe_promotion_code_id, active=False)
+        except stripe.error.StripeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    row.is_active = False
+    await db.commit()
 
 
 # ─── Enterprise activation codes ────────────────────────────────────────────────

@@ -1,67 +1,34 @@
 ---
 const plans = [
   {
-    name: 'Core',
-    price: '$79',
-    annualPrice: '$65',
+    name: 'Base',
+    price: '$39',
     per: '/mo',
-    tagline: 'For teams managing up to 10 offices',
+    tagline: 'All application features, priced by monthly-active leases',
     cta: 'Start Free Trial',
     ctaHref: 'SIGNUP_URL',
-    featured: false,
     features: [
-      'Up to 10 offices',
-      'Up to 150 active leases',
+      'First 3 monthly-active leases included',
+      '$4 per additional active lease per month',
       'Unlimited users',
-      'Commercial & residential lease records',
-      'Critical-date alerts',
-      'Maintenance tickets, assets & preventive schedules',
-      'Property inspections',
-      'Resident, owner & vendor portals',
-      'Vendor & insurance certificate tracking',
-      'Rent roll, operating expenses & basic reports',
-      'CSV and Excel exports',
-      'AI lease detail extraction',
-      '1M AI input + 250K output tokens / month',
-      '90-day audit log',
-      'Email support',
-    ],
-  },
-  {
-    name: 'Operations',
-    price: '$199',
-    annualPrice: '$165',
-    per: '/mo',
-    tagline: 'For growing portfolios up to 50 offices',
-    cta: 'Start Free Trial',
-    ctaHref: 'SIGNUP_URL',
-    featured: true,
-    features: [
-      'Up to 50 offices',
-      'Up to 500 active leases',
-      'Unlimited users',
-      'Everything in Core, plus:',
+      'Commercial, residential & self-storage operations',
       'Double-entry general ledger & financial statements',
       'CAM, AP, AR, budgeting & bank reconciliation',
-      'HVAC service contracts',
-      'SLA rules & escalations',
-      'Transition project management',
-      'Commercial client portal',
+      'Maintenance, HVAC, inspections & transitions',
       'AI abstracts, assistant & operations briefings',
-      '10M AI input + 2M output tokens / month',
       'Digital waivers & e-signatures',
       'Advanced analytics dashboard',
-      'PDF report export',
+      'Resident, owner, vendor & client portals',
       'Guided Buildium migration',
-      'Full audit log (unlimited)',
+      'PDF, CSV & Excel exports',
       'Priority support',
     ],
+    featured: true,
   },
   {
     name: 'Enterprise',
-    price: '$449+',
-    annualPrice: '$375+',
-    per: '/mo',
+    price: 'Custom',
+    per: '',
     tagline: 'For large portfolios & complex requirements',
     cta: 'Contact Sales',
     ctaHref: null,
@@ -71,7 +38,7 @@ const plans = [
       'Unlimited offices',
       'Unlimited active leases',
       'Unlimited users',
-      'Everything in Operations, plus:',
+      'Everything in Base, plus:',
       'API access & webhooks',
       'Enterprise single sign-on (OIDC)',
       'Custom portfolio limits & retention',
@@ -95,20 +62,7 @@ const plans = [
 
     <p class="text-center text-sm text-slate-400 mb-8">All plans include a 14-day free trial. No credit card required.</p>
 
-    <!-- Billing period toggle -->
-    <div class="flex items-center justify-center gap-3 mb-12">
-      <span id="bill-monthly-label" class="text-sm font-semibold text-slate-900">Monthly</span>
-      <button id="billing-toggle" type="button" role="switch" aria-checked="false" aria-label="Toggle annual billing"
-        class="relative inline-flex h-7 w-12 items-center rounded-full bg-slate-200 transition-colors">
-        <span id="billing-knob" class="inline-block h-5 w-5 transform rounded-full bg-white shadow translate-x-1 transition-transform"></span>
-      </button>
-      <span id="bill-annual-label" class="text-sm font-semibold text-slate-400">
-        Annual
-        <span class="ml-1 inline-flex items-center rounded-full bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5">Save up to 20%</span>
-      </span>
-    </div>
-
-    <div class="grid lg:grid-cols-3 gap-8 items-start">
+    <div class="grid lg:grid-cols-2 gap-8 items-start max-w-4xl mx-auto">
       {plans.map(plan => (
         <div class={`relative rounded-2xl p-8 border ${plan.featured ? 'bg-slate-900 border-slate-700 shadow-2xl shadow-slate-900/20' : 'bg-white border-slate-200 shadow-sm'}`}>
           {plan.featured && (
@@ -122,14 +76,8 @@ const plans = [
             <span
               class={`plan-price text-4xl font-black ${plan.featured ? 'text-white' : 'text-slate-900'}`}
               data-monthly={plan.price}
-              data-annual={plan.annualPrice}
             >{plan.price}</span>
             {plan.per && <span class={`text-sm ${plan.featured ? 'text-slate-400' : 'text-slate-500'}`}>{plan.per}</span>}
-            {plan.per && (
-              <div class={`plan-annual-note text-xs mt-1 hidden ${plan.featured ? 'text-slate-400' : 'text-slate-400'}`}>
-                per month, billed annually
-              </div>
-            )}
           </div>
 
           {plan.demoEmail ? (
@@ -162,7 +110,7 @@ const plans = [
     </div>
 
     <p class="mt-8 text-center text-sm text-slate-500">
-      Custom onboarding is available for an additional charge, scoped to your portfolio. Data migration starts at $2,500. Onboarding may be waived with an annual Operations agreement.
+      Custom onboarding is available for an additional charge, scoped to your portfolio. Data migration starts at $2,500.
     </p>
 
     <!-- Risk reversal / guarantee -->
@@ -178,36 +126,3 @@ const plans = [
     </div>
   </div>
 </section>
-
-<script is:inline>
-  (function () {
-    var toggle = document.getElementById('billing-toggle');
-    if (!toggle) return;
-    var knob = document.getElementById('billing-knob');
-    var mLabel = document.getElementById('bill-monthly-label');
-    var aLabel = document.getElementById('bill-annual-label');
-    var prices = Array.prototype.slice.call(document.querySelectorAll('.plan-price'));
-    var notes = Array.prototype.slice.call(document.querySelectorAll('.plan-annual-note'));
-    var annual = false;
-
-    function apply() {
-      toggle.setAttribute('aria-checked', String(annual));
-      toggle.classList.toggle('bg-blue-600', annual);
-      toggle.classList.toggle('bg-slate-200', !annual);
-      knob.classList.toggle('translate-x-6', annual);
-      knob.classList.toggle('translate-x-1', !annual);
-      mLabel.classList.toggle('text-slate-900', !annual);
-      mLabel.classList.toggle('text-slate-400', annual);
-      aLabel.classList.toggle('text-slate-900', annual);
-      aLabel.classList.toggle('text-slate-400', !annual);
-      prices.forEach(function (p) {
-        var v = annual ? p.getAttribute('data-annual') : p.getAttribute('data-monthly');
-        if (v) p.textContent = v;
-      });
-      notes.forEach(function (n) { n.classList.toggle('hidden', !annual); });
-    }
-
-    toggle.addEventListener('click', function () { annual = !annual; apply(); });
-    apply();
-  })();
-</script>

@@ -7,32 +7,37 @@ run without a database.
 from datetime import datetime, timezone
 
 from app.services.metering_service import (
+    BASE_FEE_CENTS,
     BILLABLE_UNIT_FLOOR,
     CATEGORIES,
+    INCLUDED_LEASES,
+    PER_ADDITIONAL_LEASE_CENTS,
     billable_quantity,
+    billed_leases,
     build_breakdown,
+    estimated_monthly_charge_cents,
+    is_billable_active_status,
     period_month,
     snapshot_payload,
     total_units,
 )
 
 
-def test_breakdown_sums_all_three_categories():
-    breakdown = build_breakdown(commercial=4, residential=9, self_storage=7)
-    assert breakdown == {"commercial": 4, "residential": 9, "self_storage": 7}
-    assert total_units(breakdown) == 20
+def test_breakdown_sums_commercial_and_residential_leases():
+    breakdown = build_breakdown(commercial=4, residential=9)
+    assert breakdown == {"commercial": 4, "residential": 9}
+    assert total_units(breakdown) == 13
 
 
 def test_breakdown_defaults_missing_categories_to_zero():
     breakdown = build_breakdown(residential=3)
     assert breakdown["commercial"] == 0
-    assert breakdown["self_storage"] == 0
     assert total_units(breakdown) == 3
 
 
 def test_breakdown_clamps_negative_counts():
-    breakdown = build_breakdown(commercial=-5, residential=2, self_storage=-1)
-    assert breakdown == {"commercial": 0, "residential": 2, "self_storage": 0}
+    breakdown = build_breakdown(commercial=-5, residential=2)
+    assert breakdown == {"commercial": 0, "residential": 2}
     assert total_units(breakdown) == 2
 
 
@@ -44,10 +49,10 @@ def test_empty_org_has_no_billable_units():
     assert total_units(build_breakdown()) == 0
 
 
-def test_quantity_raised_to_floor_for_small_customers():
+def test_quantity_raised_to_three_included_leases():
+    assert INCLUDED_LEASES == 3
     assert billable_quantity(0) == BILLABLE_UNIT_FLOOR
     assert billable_quantity(3) == BILLABLE_UNIT_FLOOR
-    assert billable_quantity(BILLABLE_UNIT_FLOOR) == BILLABLE_UNIT_FLOOR
 
 
 def test_quantity_tracks_units_above_the_floor():
@@ -82,15 +87,19 @@ def test_snapshot_payload_reports_units_and_billed_quantity():
     assert payload["billable_units"] == 2
     assert payload["billable_quantity"] == BILLABLE_UNIT_FLOOR
     assert payload["floor"] == BILLABLE_UNIT_FLOOR
+    assert payload["included_leases"] == 3
+    assert payload["billed_leases"] == 0
+    assert payload["estimated_monthly_charge_cents"] == 3900
     assert set(payload["breakdown"]) == set(CATEGORIES)
 
 
 def test_snapshot_payload_for_a_large_customer():
     payload = snapshot_payload(
-        build_breakdown(commercial=120, residential=300, self_storage=80)
+        build_breakdown(commercial=120, residential=380)
     )
     assert payload["billable_units"] == 500
     assert payload["billable_quantity"] == 500
+    assert payload["billed_leases"] == 497
 
 
 def test_snapshot_payload_always_lists_every_category():
@@ -98,5 +107,24 @@ def test_snapshot_payload_always_lists_every_category():
     assert payload["breakdown"] == {
         "commercial": 0,
         "residential": 4,
-        "self_storage": 0,
     }
+
+
+def test_base_fee_and_per_lease_formula():
+    assert BASE_FEE_CENTS == 3900
+    assert PER_ADDITIONAL_LEASE_CENTS == 400
+    assert billed_leases(0) == 0
+    assert billed_leases(3) == 0
+    assert billed_leases(4) == 1
+    assert billed_leases(10) == 7
+    assert estimated_monthly_charge_cents(0) == 3900
+    assert estimated_monthly_charge_cents(3) == 3900
+    assert estimated_monthly_charge_cents(4) == 4300
+    assert estimated_monthly_charge_cents(10) == 6700
+
+
+def test_only_exact_active_status_is_billable():
+    assert is_billable_active_status("Active") is True
+    assert is_billable_active_status(" active ") is True
+    assert is_billable_active_status("pending") is False
+    assert is_billable_active_status(None) is False

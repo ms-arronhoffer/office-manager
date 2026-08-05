@@ -353,6 +353,22 @@ export async function testStripeConfig(): Promise<{ ok: boolean; error: string |
   return res.data
 }
 
+export async function getDiscountCodes(): Promise<import("../types").DiscountCode[]> {
+  const res = await api.get<import("../types").DiscountCode[]>("/admin/v1/billing/discount-codes")
+  return res.data
+}
+
+export async function createDiscountCode(
+  payload: import("../types").DiscountCodeInput,
+): Promise<import("../types").DiscountCode> {
+  const res = await api.post<import("../types").DiscountCode>("/admin/v1/billing/discount-codes", payload)
+  return res.data
+}
+
+export async function deactivateDiscountCode(codeId: string): Promise<void> {
+  await api.delete(`/admin/v1/billing/discount-codes/${codeId}`)
+}
+
 // ─── Enterprise activation codes ────────────────────────────────────────────
 
 export async function getEnterpriseCodes(): Promise<import("../types").EnterpriseCode[]> {
