@@ -73,6 +73,7 @@ jobs:
       # Folded into the Secrets Manager app secret so the SSM-driven deploy job
       # can assemble the container .env entirely on-box (all optional).
       TF_VAR_google_client_secret: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      TF_VAR_encryption_key: ${{ secrets.ENCRYPTION_KEY }}
       TF_VAR_smtp_user: ${{ secrets.SMTP_USER }}
       TF_VAR_smtp_password: ${{ secrets.SMTP_PASSWORD }}
       TF_VAR_npm_admin_password: ${{ secrets.NPM_ADMIN_PASSWORD }}
@@ -478,6 +479,7 @@ jobs:
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
           SUPPORT_EMAIL: ${{ secrets.SUPPORT_EMAIL }}
           FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          SSO_CALLBACK_URL: ${{ secrets.SSO_CALLBACK_URL }}
           ADMIN_FRONTEND_URL: ${{ secrets.ADMIN_FRONTEND_URL }}
           DEFAULT_ADMIN_EMAIL: ${{ secrets.DEFAULT_ADMIN_EMAIL }}
           SUPER_ADMIN_EMAILS: ${{ secrets.SUPER_ADMIN_EMAILS }}
@@ -530,6 +532,7 @@ jobs:
           emit SMTP_FROM       "$SMTP_FROM"
           emit SUPPORT_EMAIL   "$SUPPORT_EMAIL"
           emit FRONTEND_URL    "$FRONTEND_URL"
+          emit SSO_CALLBACK_URL "${SSO_CALLBACK_URL:-${FRONTEND_URL%/}/api/v1/sso/callback}"
           emit ADMIN_FRONTEND_URL "$ADMIN_FRONTEND_URL"
           emit DEFAULT_ADMIN_EMAIL "$DEFAULT_ADMIN_EMAIL"
           emit SUPER_ADMIN_EMAILS  "$SUPER_ADMIN_EMAILS"
@@ -602,7 +605,7 @@ jobs:
           secret_json="$(aws secretsmanager get-secret-value \
             --secret-id "$SECRET_NAME" --region "$REGION" \
             --query SecretString --output text)"
-          for k in POSTGRES_PASSWORD JWT_SECRET DEFAULT_ADMIN_PASSWORD \
+          for k in POSTGRES_PASSWORD JWT_SECRET DEFAULT_ADMIN_PASSWORD ENCRYPTION_KEY \
                    STRIPE_SECRET_KEY GEMINI_API_KEY SENTRY_DSN \
                    GOOGLE_CLIENT_SECRET SMTP_USER SMTP_PASSWORD NPM_ADMIN_PASSWORD; do
             v="$(printf '%s' "$secret_json" | jq -r --arg k "$k" '.[$k] // empty')"

@@ -127,6 +127,21 @@ def _callback_url() -> str:
     return settings.SSO_CALLBACK_URL
 
 
+def _encrypt_client_secret(secret: str) -> str:
+    """Encrypt an SSO secret or return an actionable deployment error."""
+    try:
+        return encrypt_secret(secret)
+    except RuntimeError as exc:
+        logger.error("SSO secret encryption is unavailable: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "SSO secret storage is unavailable. Configure a valid "
+                "ENCRYPTION_KEY on the backend and restart it."
+            ),
+        ) from exc
+
+
 def _login_redirect(**params: str) -> RedirectResponse:
     """Bounce back to the SPA login page.
 
@@ -498,7 +513,7 @@ async def save_config(
             organization_id=org.id,
             issuer=payload.issuer,
             client_id=payload.client_id,
-            client_secret_encrypted=encrypt_secret(payload.client_secret),
+            client_secret_encrypted=_encrypt_client_secret(payload.client_secret),
         )
         db.add(config)
 
@@ -506,7 +521,7 @@ async def save_config(
     config.issuer = payload.issuer
     config.client_id = payload.client_id
     if payload.client_secret:
-        config.client_secret_encrypted = encrypt_secret(payload.client_secret)
+        config.client_secret_encrypted = _encrypt_client_secret(payload.client_secret)
     config.allowed_email_domains = payload.allowed_email_domains
     config.enforce_sso = payload.enforce_sso
     config.is_enabled = payload.is_enabled

@@ -149,6 +149,11 @@ jobs:
           PLAID_API_BASE_URL: ${{ vars.PLAID_API_BASE_URL || 'https://sandbox.plaid.com' }}
           PLAID_COUNTRY_CODES: ${{ vars.PLAID_COUNTRY_CODES || 'US' }}
           PLAID_REDIRECT_URI: ${{ secrets.PLAID_REDIRECT_URI }}
+          SCREENING_PROVIDER: ${{ vars.SCREENING_PROVIDER || 'transunion' }}
+          SCREENING_API_KEY: ${{ secrets.SCREENING_API_KEY }}
+          SCREENING_API_URL: ${{ vars.SCREENING_API_URL }}
+          SCREENING_POLL_ATTEMPTS: ${{ vars.SCREENING_POLL_ATTEMPTS || '5' }}
+          SCREENING_POLL_INTERVAL_SECONDS: ${{ vars.SCREENING_POLL_INTERVAL_SECONDS || '2.0' }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_PRICE_ID_STARTER: ${{ secrets.STRIPE_PRICE_ID_STARTER }}

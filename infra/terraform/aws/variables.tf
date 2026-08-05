@@ -197,6 +197,13 @@ variable "google_client_secret" {
   default     = ""
 }
 
+variable "encryption_key" {
+  description = "Fernet key used to encrypt stored OAuth and integration secrets."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "smtp_user" {
   description = "SMTP username/login for outbound email (optional)."
   type        = string
