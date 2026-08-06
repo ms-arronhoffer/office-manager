@@ -108,7 +108,7 @@ const App: React.FC = () => {
         <ThemeProvider>
         <FlashbarProvider>
         <UnsavedChangesProvider>
-        <WSProvider token={localStorage.getItem('access_token')}>
+        <WSProvider>
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
@@ -125,6 +125,7 @@ const App: React.FC = () => {
             <Route path="/owner-portal" element={<OwnerPortalPage />} />
             <Route path="/owner-portal/signup" element={<OwnerPortalPage />} />
             <Route path="/sign/:token" element={<WaiverSignPage />} />
+            <Route path="/sign" element={<WaiverSignPage />} />
             <Route path="/lease-sign/:token" element={<LeaseSignPage />} />
             <Route path="/apply/:token" element={<ApplicationPage />} />
             <Route path="/ack/:token" element={<AckPage />} />

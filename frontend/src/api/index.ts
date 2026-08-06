@@ -242,6 +242,7 @@ import type {
   ResidentPortalProfile,
   ResidentPortalLease,
   ResidentPortalBalance,
+  ResidentPortalPaymentConfig,
   ResidentPortalTicket,
   ResidentPortalMaintenanceCreate,
   ResidentPortalAnnouncement,
@@ -280,6 +281,16 @@ export interface MfaEnableResponse {
   backup_codes: string[];
 }
 
+export interface AuthSession {
+  id: string;
+  created_at: string;
+  expires_at: string;
+  last_used_at: string | null;
+  user_agent: string | null;
+  ip_address: string | null;
+  current: boolean;
+}
+
 export const auth = {
   login: (email: string, password: string) =>
     client.post<LoginResponse>('/auth/login', { email, password }),
@@ -296,6 +307,14 @@ export const auth = {
     client.post<User>('/auth/me/accept-legal', { accepted_legal: true }),
 
   refreshToken: () => client.post<TokenResponse>('/auth/refresh'),
+
+  logout: () => client.post('/auth/logout'),
+
+  sessions: () => client.get<AuthSession[]>('/auth/sessions'),
+
+  revokeSession: (id: string) => client.delete(`/auth/sessions/${id}`),
+
+  revokeOtherSessions: () => client.post('/auth/sessions/revoke-others'),
 
   changePassword: (currentPassword: string, newPassword: string) =>
     client.patch('/auth/me/password', { current_password: currentPassword, new_password: newPassword }),
@@ -1267,6 +1286,13 @@ export const bankFeed = {
   listLogs: () => client.get<ExternalSyncLog[]>('/bank-feed/logs'),
 };
 
+export const integrations = {
+  readiness: () => client.get<IntegrationReadiness[]>('/integrations/readiness'),
+
+  verify: (provider: string) =>
+    client.post<IntegrationVerification>(`/integrations/${provider}/verify`),
+};
+
 export const organizations = {
   signup: (data: SignupRequest) =>
     client.post<SignupResponse>('/organizations/signup', data),
@@ -1464,10 +1490,13 @@ const _portalBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 const _portalClient = (token: string) =>
   axios.create({
     baseURL: _portalBase,
-    headers: { 'Content-Type': 'application/json', 'X-Vendor-Token': token },
+    withCredentials: true,
+    headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Vendor-Token': token } : {}) },
   });
 
 export const vendorPortal = {
+  exchange: (token: string) =>
+    axios.post('/api/v1/vendor-portal/exchange', { token }, { withCredentials: true }),
   getProfile: (token: string) =>
     _portalClient(token).get<VendorPortalProfile>('/vendor-portal/me'),
 
@@ -1558,10 +1587,13 @@ export const clientPortalInternal = {
 const _clientPortalClient = (token: string) =>
   axios.create({
     baseURL: _portalBase,
-    headers: { 'Content-Type': 'application/json', 'X-Portal-Token': token },
+    withCredentials: true,
+    headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Portal-Token': token } : {}) },
   });
 
 export const clientPortal = {
+  exchange: (token: string) =>
+    axios.post('/api/v1/client-portal/exchange', { token }, { withCredentials: true }),
   signup: (token: string) =>
     axios
       .create({ baseURL: _portalBase, headers: { 'Content-Type': 'application/json' } })
@@ -1628,10 +1660,13 @@ export const clientPortal = {
 const _residentPortalClient = (token: string) =>
   axios.create({
     baseURL: _portalBase,
-    headers: { 'Content-Type': 'application/json', 'X-Resident-Token': token },
+    withCredentials: true,
+    headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Resident-Token': token } : {}) },
   });
 
 export const residentPortal = {
+  exchange: (token: string) =>
+    axios.post('/api/v1/resident-portal/exchange', { token }, { withCredentials: true }),
   signup: (token: string) =>
     axios
       .create({ baseURL: _portalBase, headers: { 'Content-Type': 'application/json' } })
@@ -1645,6 +1680,11 @@ export const residentPortal = {
 
   getBalance: (token: string) =>
     _residentPortalClient(token).get<ResidentPortalBalance>('/resident-portal/balance'),
+
+  getPaymentConfig: (token: string) =>
+    _residentPortalClient(token).get<ResidentPortalPaymentConfig>(
+      '/resident-portal/payment-config',
+    ),
 
   listMaintenanceRequests: (token: string) =>
     _residentPortalClient(token).get<ResidentPortalTicket[]>('/resident-portal/maintenance-requests'),
@@ -1689,10 +1729,13 @@ export const residentPortal = {
 const _ownerPortalClient = (token: string) =>
   axios.create({
     baseURL: _portalBase,
-    headers: { 'Content-Type': 'application/json', 'X-Owner-Token': token },
+    withCredentials: true,
+    headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Owner-Token': token } : {}) },
   });
 
 export const ownerPortal = {
+  exchange: (token: string) =>
+    axios.post('/api/v1/owner-portal/exchange', { token }, { withCredentials: true }),
   signup: (token: string) =>
     axios
       .create({ baseURL: _portalBase, headers: { 'Content-Type': 'application/json' } })
@@ -2316,14 +2359,17 @@ export const waivers = {
 const _waiverBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 export const waiverPublic = {
-  view: (token: string) =>
-    axios.create({ baseURL: _waiverBase }).get<PublicWaiverView>(`/waivers/sign/${token}`),
+  exchange: (token: string) =>
+    axios.post(`${_waiverBase}/waivers/sign/exchange`, { token }, { withCredentials: true }),
 
-  sign: (token: string, data: WaiverSignSubmission) =>
-    axios.create({ baseURL: _waiverBase }).post<PublicWaiverView>(`/waivers/sign/${token}`, data),
+  view: () =>
+    axios.create({ baseURL: _waiverBase, withCredentials: true }).get<PublicWaiverView>('/waivers/sign/session'),
 
-  decline: (token: string) =>
-    axios.create({ baseURL: _waiverBase }).post<PublicWaiverView>(`/waivers/decline/${token}`),
+  sign: (data: WaiverSignSubmission) =>
+    axios.create({ baseURL: _waiverBase, withCredentials: true }).post<PublicWaiverView>('/waivers/sign/session', data),
+
+  decline: () =>
+    axios.create({ baseURL: _waiverBase, withCredentials: true }).post<PublicWaiverView>('/waivers/decline/session'),
 };
 
 // ─── Email reminders (public, token-based acknowledgement) ───────────────────

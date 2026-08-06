@@ -5,16 +5,16 @@
  *   - App shell / navigations: network-first, fall back to cached index.html so
  *     the SPA still boots offline.
  *   - Built static assets (/assets/*, icons, manifest): stale-while-revalidate.
- *   - API GETs: network-first with a cache fallback so recently viewed field
- *     data (tickets, inspections, offices) stays readable offline. Mutations
- *     (POST/PATCH/PUT/DELETE) are never cached and always hit the network.
+ *   - API GETs: network-only. Authenticated data is never persisted in Cache
+ *     Storage and returns an explicit JSON 503 response while offline.
+ *     Mutations (POST/PATCH/PUT/DELETE) always hit the network.
  *
  * Bump CACHE_VERSION to invalidate old caches on deploy.
  */
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const SHELL_CACHE = `pd-shell-${CACHE_VERSION}`;
 const ASSET_CACHE = `pd-assets-${CACHE_VERSION}`;
-const API_CACHE = `pd-api-${CACHE_VERSION}`;
+const API_CACHE_PREFIX = 'pd-api-';
 
 const SHELL_URLS = [
   '/',
@@ -35,12 +35,16 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  const keep = new Set([SHELL_CACHE, ASSET_CACHE, API_CACHE]);
+  const keep = new Set([SHELL_CACHE, ASSET_CACHE]);
   event.waitUntil(
     caches
       .keys()
       .then((names) =>
-        Promise.all(names.filter((n) => !keep.has(n)).map((n) => caches.delete(n))),
+        Promise.all(
+          names
+            .filter((name) => name.startsWith(API_CACHE_PREFIX) || !keep.has(name))
+            .map((name) => caches.delete(name)),
+        ),
       )
       .then(() => self.clients.claim()),
   );
@@ -48,7 +52,17 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data === 'CLEAR_API_CACHE') event.waitUntil(clearApiCaches());
 });
+
+async function clearApiCaches() {
+  const names = await caches.keys();
+  await Promise.all(
+    names
+      .filter((name) => name.startsWith(API_CACHE_PREFIX))
+      .map((name) => caches.delete(name)),
+  );
+}
 
 function isApiRequest(url) {
   return url.pathname.startsWith('/api/');
@@ -62,18 +76,19 @@ function isAsset(url) {
   );
 }
 
-async function networkFirstApi(request) {
-  const cache = await caches.open(API_CACHE);
+async function networkOnlyApi(request) {
   try {
-    const response = await fetch(request);
-    if (response && response.ok) cache.put(request, response.clone());
-    return response;
+    return await fetch(request, { cache: 'no-store' });
   } catch (err) {
-    const cached = await cache.match(request);
-    if (cached) return cached;
     return new Response(
-      JSON.stringify({ detail: 'Offline: no cached copy of this request.' }),
-      { status: 503, headers: { 'Content-Type': 'application/json' } },
+      JSON.stringify({ detail: 'Offline: authenticated data requires a network connection.' }),
+      {
+        status: 503,
+        headers: {
+          'Cache-Control': 'no-store',
+          'Content-Type': 'application/json',
+        },
+      },
     );
   }
 }
@@ -119,7 +134,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (isApiRequest(url)) {
-    event.respondWith(networkFirstApi(request));
+    event.respondWith(networkOnlyApi(request));
     return;
   }
   if (isAsset(url)) {

@@ -18,13 +18,14 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_role
+from app.auth.portal_sessions import PortalExchangeRequest, set_portal_cookie
 from app.config import settings
 from app.database import async_session, get_db
 from app.models.email import EmailLog
@@ -627,6 +628,53 @@ async def _load_by_token(db: AsyncSession, token: str) -> WaiverRequest:
     if not req:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Waiver not found")
     return req
+
+
+@public_router.post("/sign/exchange", status_code=status.HTTP_204_NO_CONTENT)
+async def exchange_sign_token(
+    payload: PortalExchangeRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    req = await _load_by_token(db, payload.token)
+    if _is_expired(req):
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="This waiver link has expired")
+    expires = _aware(req.expires_at)
+    max_age = max(1, int((expires - _now()).total_seconds())) if expires else 7 * 86400
+    set_portal_cookie(response, "om_waiver_sign", payload.token, "/api/v1/waivers", max_age)
+
+
+@public_router.get("/sign/session", response_model=PublicWaiverView)
+async def public_view_waiver_session(
+    sign_cookie: str | None = Cookie(default=None, alias="om_waiver_sign"),
+    db: AsyncSession = Depends(get_db),
+):
+    if not sign_cookie:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Signing session required")
+    return await public_view_waiver(sign_cookie, db)
+
+
+@public_router.post("/sign/session", response_model=PublicWaiverView)
+async def public_sign_waiver_session(
+    payload: SignSubmission,
+    request: Request,
+    sign_cookie: str | None = Cookie(default=None, alias="om_waiver_sign"),
+    db: AsyncSession = Depends(get_db),
+    user_agent: str | None = Header(None, alias="User-Agent"),
+):
+    if not sign_cookie:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Signing session required")
+    return await public_sign_waiver(sign_cookie, payload, request, db, user_agent)
+
+
+@public_router.post("/decline/session", response_model=PublicWaiverView)
+async def public_decline_waiver_session(
+    sign_cookie: str | None = Cookie(default=None, alias="om_waiver_sign"),
+    db: AsyncSession = Depends(get_db),
+):
+    if not sign_cookie:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Signing session required")
+    return await public_decline_waiver(sign_cookie, db)
 
 
 def _is_expired(req: WaiverRequest) -> bool:

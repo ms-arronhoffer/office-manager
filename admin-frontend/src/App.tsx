@@ -35,8 +35,9 @@ function hasAnyRole(role: ConsoleRole | null | undefined, allowed: ConsoleRole[]
 }
 
 function RequireAdminConsole() {
-  const { payload } = useAuth()
+  const { payload, loading } = useAuth()
   const location = useLocation()
+  if (loading) return null
   if (!payload) return <Navigate to="/login" state={{ from: location }} replace />
   if (!payload.console_role) return <Navigate to="/login" replace />
   return <Outlet />

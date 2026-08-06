@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 
-from fastapi import Depends, HTTPException, status
+import secrets
+
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +12,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.services.console_roles import require_resolved_console_role
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 async def _authenticate_api_key(token: str, db: AsyncSession) -> User:
@@ -43,26 +45,43 @@ async def _authenticate_api_key(token: str, db: AsyncSession) -> User:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    token = credentials.credentials
-    if token.startswith("om_"):
-        return await _authenticate_api_key(token, db)
-    payload = decode_access_token(token)
-    if payload is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
-    if user.organization_id is not None:
-        from app.utils.rls import set_session_org  # local import to avoid cycles
+    from app.auth.sessions import ACCESS_COOKIE, CSRF_COOKIE
 
+    bearer_token = credentials.credentials if credentials else None
+    cookie_token = request.cookies.get(ACCESS_COOKIE)
+    token = bearer_token or cookie_token
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    if cookie_token and not bearer_token and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        csrf_cookie = request.cookies.get(CSRF_COOKIE)
+        csrf_header = request.headers.get("x-csrf-token")
+        if not csrf_cookie or not csrf_header or not secrets.compare_digest(csrf_cookie, csrf_header):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CSRF validation failed")
+    if token.startswith("om_"):
+        user = await _authenticate_api_key(token, db)
+    else:
+        payload = decode_access_token(token)
+        if payload is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if not user or not user.is_active:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+
+    from app.utils.rls import set_session_org, set_system_bypass  # local import avoids cycles
+
+    if user.organization_id is not None:
         await set_session_org(db, user.organization_id)
+    elif user.is_super_admin:
+        # This decision is based on the database record, never a token claim.
+        await set_system_bypass(db)
     return user
 
 

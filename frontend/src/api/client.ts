@@ -4,29 +4,59 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 const apiClient = axios.create({
   baseURL: BASE_URL,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+const refreshClient = axios.create({ baseURL: BASE_URL, withCredentials: true });
+let refreshPromise: Promise<void> | null = null;
 
-// Request interceptor: attach Bearer token
+function getCookie(name: string): string | null {
+  const prefix = `${encodeURIComponent(name)}=`;
+  const value = document.cookie.split('; ').find((item) => item.startsWith(prefix));
+  return value ? decodeURIComponent(value.slice(prefix.length)) : null;
+}
+
+// Cookie-authenticated mutations use a double-submit CSRF token.
 apiClient.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    const method = (config.method || 'get').toUpperCase();
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      const csrfToken = getCookie('om_csrf');
+      if (csrfToken) config.headers['X-CSRF-Token'] = csrfToken;
     }
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// Response interceptor: handle 401
+function refreshSession(): Promise<void> {
+  if (!refreshPromise) {
+    refreshPromise = refreshClient.post('/auth/refresh').then(() => undefined).finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+// Rotate the refresh cookie once, then retry the original request.
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('access_token');
+  async (error) => {
+    const original = error.config as (typeof error.config & { _sessionRetry?: boolean }) | undefined;
+    const url = String(original?.url || '');
+    const isAuthFlow = /\/auth\/(login|refresh|logout|mfa\/)/.test(url);
+    if (error.response?.status === 401 && original && !original._sessionRetry && !isAuthFlow) {
+      original._sessionRetry = true;
+      try {
+        await refreshSession();
+        return apiClient.request(original);
+      } catch {
+        // Fall through to the login redirect when rotation is unavailable.
+      }
+    }
+    if (error.response?.status === 401 && !isAuthFlow) {
       window.location.href = '/login';
     }
     return Promise.reject(error);

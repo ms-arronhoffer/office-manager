@@ -143,6 +143,7 @@ const ClientPortalPage: React.FC = () => {
   const { token, loading, authError, flash, setFlash } = usePortalSession({
     portalPath: '/client-portal',
     signup: clientPortal.signup,
+    exchange: clientPortal.exchange,
     load: loadData,
   });
 

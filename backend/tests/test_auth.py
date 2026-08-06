@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from app.auth.password import hash_password
 from app.models.organization import Organization
+from app.models.refresh_session import RefreshSession
 from app.models.user import User
 from tests.conftest import ADMIN_PASSWORD, auth_headers
 
@@ -18,6 +19,45 @@ async def test_login_success(client, admin_user):
     data = resp.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
+    cookies = resp.headers.get_list("set-cookie")
+    assert any("om_access=" in value and "HttpOnly" in value and "SameSite=lax" in value for value in cookies)
+    assert any("om_refresh=" in value and "HttpOnly" in value and "Path=/api/v1/auth" in value for value in cookies)
+    assert any("om_csrf=" in value and "HttpOnly" not in value for value in cookies)
+
+
+@pytest.mark.asyncio
+async def test_cookie_auth_requires_csrf_for_mutation(client, admin_user):
+    login = await client.post("/api/v1/auth/login", json={
+        "email": "admin@test.com",
+        "password": ADMIN_PASSWORD,
+    })
+    assert login.status_code == 200
+    rejected = await client.post("/api/v1/auth/me/accept-legal", json={"accepted_legal": True})
+    assert rejected.status_code == 403
+    accepted = await client.post(
+        "/api/v1/auth/me/accept-legal",
+        json={"accepted_legal": True},
+        headers={"X-CSRF-Token": client.cookies["om_csrf"]},
+    )
+    assert accepted.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_refresh_rotates_cookie_and_old_token_is_revoked(client, admin_user, db_session):
+    login = await client.post("/api/v1/auth/login", json={
+        "email": "admin@test.com",
+        "password": ADMIN_PASSWORD,
+    })
+    old_token = client.cookies["om_refresh"]
+    refreshed = await client.post("/api/v1/auth/refresh")
+    assert refreshed.status_code == 200
+    assert client.cookies["om_refresh"] != old_token
+
+    old_id = old_token.split(".", 1)[0]
+    old_session = (
+        await db_session.execute(select(RefreshSession).where(RefreshSession.id == old_id))
+    ).scalar_one()
+    assert old_session.revoked_at is not None
 
 
 @pytest.mark.asyncio

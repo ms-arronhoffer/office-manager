@@ -1,22 +1,63 @@
 # External integrations
 
-Setup and operation of the five external services the app talks to. All of them
+Setup and operation of the six external integration surfaces. All of them
 are **optional**: with credentials unset each degrades to a documented no-op
 rather than breaking the feature that uses it.
 
 | Integration | Purpose | Required plan | Config prefix |
 |---|---|---|---|
+| Platform Stripe | SaaS subscriptions and invoices | platform | `STRIPE_` |
 | Payments | Resident rent payments from the portal | any | `PAYMENTS_` |
 | Screening | Credit / criminal / eviction reports | any (residential) | `SCREENING_` |
 | SSO | OIDC single sign-on | Enterprise | `SSO_` |
 | QuickBooks Online | Push journal entries, map accounts | Operations | `QBO_` |
 | Plaid | Live bank feed into reconciliation | Operations | `PLAID_` |
 
-> **Nothing here has been exercised against a live provider.** Every integration
-> is written against the vendors' documented APIs but no token has been
-> exchanged, no journal entry pushed and no transaction imported. Run each in
-> sandbox first and expect to correct field names, date formats and pagination
-> on first contact.
+> **No live certification was performed in this environment.** Real provider
+> credentials are required to establish sandbox or live readiness. Unit and
+> contract tests prove application behavior against controlled HTTP responses;
+> they are not evidence that a vendor account, product entitlement, webhook, or
+> production settlement path is correctly configured.
+
+## Verification matrix
+
+The organization-admin endpoint `GET /api/v1/integrations/readiness` reports
+configuration gaps and available evidence without returning secrets or tokens.
+`POST /api/v1/integrations/{provider}/verify` performs only supported,
+non-mutating checks. Platform Stripe's persisted verification remains managed
+by the platform billing console.
+
+| Integration | Automated contract evidence | Safe sandbox smoke | Persisted/provider evidence | Current certification |
+|---|---|---|---|---|
+| Platform Stripe billing | Account/auth errors, billing lifecycle, webhook behavior | `GET /v1/account` with `sk_test_...` | Platform config stores last verification time/result | Not live-certified here |
+| Resident Stripe payments | PaymentIntent form body, idempotency, success/error shapes | `GET /v1/account` with `sk_test_...`; no PaymentIntent created | No persisted verification; endpoint result is point-in-time | Not live-certified here |
+| Screening | Response normalization, polling/error shapes, PII allowlist | Provider-documented `SCREENING_HEALTH_URL` GET only | Unsupported when vendor has no non-mutating endpoint | Sandbox report required; not live-certified here |
+| QuickBooks Online | OAuth refresh rotation, errors/retry, pagination, journal payloads | Read-only `SELECT * FROM CompanyInfo` against sandbox | Successful OAuth exchange/connection and sync status | Not live-certified here |
+| Plaid | Credential body, error codes, cursor pagination, modified/removed transactions | Sandbox Link token creation; no Item or bank login | Successful Link exchange/account lookup and sync status | Not live-certified here |
+| OIDC SSO | Discovery/token/error shapes, signature/issuer/audience/nonce/domain checks | Discovery document GET against a test tenant | Successful login time is full-flow evidence | Not live-certified here |
+
+The opt-in `.github/workflows/integration-smoke.yml` uses the protected
+`integration-sandbox` repository environment. Each check skips with the missing
+secret names when credentials are absent. The test code refuses Stripe live
+keys and provider URLs that are not recognizably sandbox/test endpoints.
+
+## Manual certification checklist
+
+Complete this once per provider account and again after credential, API version,
+webhook, redirect URI, product entitlement, or production-mode changes.
+
+| Integration | Required certification actions | Evidence fields to retain |
+|---|---|---|
+| Platform Stripe billing | Verify account access; create/cancel a test subscription; deliver and replay signed webhook; confirm invoice, entitlement and failed-payment state | provider account id, mode, test customer/subscription/invoice ids, webhook event ids, timestamps, operator, build SHA, screenshots/log links |
+| Resident Stripe payments | Use Stripe test PaymentMethods for successful card, decline, ACH processing and idempotent retry; confirm no raw payment data is stored; reconcile test receipt | account id, PaymentIntent ids, idempotency key hash, receipt ids, expected/actual statuses, timestamps, operator, build SHA |
+| Screening | Confirm permissible-purpose workflow with counsel/vendor; run vendor-approved synthetic applicant for complete/pending/decline; verify adverse-action fields and PII minimization | sandbox report ids, synthetic applicant id, provider product/package, status sequence, retained-field export, legal approval reference, timestamp/operator/build SHA |
+| QuickBooks Online | Complete sandbox OAuth; pull paginated accounts; map accounts; push one balanced posted journal; retry and prove no duplicate; force token refresh | realm id, QBO journal id/DocNumber, mapping export, refresh timestamp, sync log id, before/after screenshots, operator/build SHA |
+| Plaid | Open Sandbox Link with `user_good`; connect a test institution; sync multiple pages; simulate modified/removed transaction and `ITEM_LOGIN_REQUIRED`; disconnect | item id, institution/account masks only, cursor hashes, imported transaction ids, error/recovery timestamps, operator/build SHA |
+| OIDC SSO | Validate discovery/JWKS; sign in with allowed and denied domains; test nonce/state replay, expiry, wrong audience/issuer, disabled user, enforce-SSO and break-glass access | issuer/tenant id, app registration id, test user ids, redirect URI, test case results, token claim summary without token, timestamps/operator/build SHA |
+
+Record sandbox and live evidence separately. A sandbox pass does not certify live
+merchant onboarding, bank access, screening compliance, IdP policy, network
+allowlists, webhook delivery, settlement, or production entitlements.
 
 ---
 
@@ -50,12 +91,19 @@ Targets a Stripe-style PaymentIntents API.
 ```bash
 PAYMENTS_PROVIDER=stripe
 PAYMENTS_API_KEY=sk_test_...
+PAYMENTS_PUBLISHABLE_KEY=pk_test_...
 PAYMENTS_API_URL=              # override only for a non-Stripe or sandbox endpoint
 ```
 
 Unset, `charge_payment` returns `status="unconfigured"` and captures nothing.
 The portal still records the payment intent and tells the resident no money was
 taken, so the ledger stays consistent without a processor.
+
+The resident portal uses Stripe.js Elements to exchange card details directly
+with Stripe and sends only the resulting `pm_...` PaymentMethod ID to the API.
+The current configuration uses one global Stripe account. Marketplace fund
+routing, connected-account onboarding, and tenant-specific settlement require
+Stripe Connect and are not provided by this payment flow.
 
 ### Flow
 

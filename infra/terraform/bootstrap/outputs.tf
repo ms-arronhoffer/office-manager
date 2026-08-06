@@ -22,3 +22,8 @@ output "github_actions_deploy_role_arn" {
   description = "Role ARN for infra-prod.yml's `deploy` job (SSM-driven remote deploy). Set as the AWS_DEPLOY_ROLE_ARN repository secret."
   value       = aws_iam_role.github_actions_deploy.arn
 }
+
+output "github_actions_recovery_role_arn" {
+  description = "Read-only role ARN for restore-drill.yml. Set as AWS_RECOVERY_DRILL_ROLE_ARN in the protected recovery-drill GitHub environment."
+  value       = aws_iam_role.github_actions_recovery.arn
+}

@@ -5,8 +5,17 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
+  preflight:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   build-and-deploy:
+    needs: preflight
     # Pin to the on-prem "docker-build" self-hosted runner. A bare
     # `runs-on: self-hosted` matches *any* self-hosted runner, including the
     # AWS EC2 host (registered with labels "self-hosted,aws-prod"). When this
@@ -136,7 +145,7 @@ jobs:
           APP_PORT: ${{ secrets.APP_PORT }}
           ADMIN_PORT: ${{ secrets.ADMIN_PORT }}
           LANDING_PORT: ${{ secrets.LANDING_PORT }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}	
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
           ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
           QBO_CLIENT_ID: ${{ secrets.QBO_CLIENT_ID }}
@@ -150,6 +159,10 @@ jobs:
           PLAID_API_BASE_URL: ${{ vars.PLAID_API_BASE_URL || 'https://sandbox.plaid.com' }}
           PLAID_COUNTRY_CODES: ${{ vars.PLAID_COUNTRY_CODES || 'US' }}
           PLAID_REDIRECT_URI: ${{ secrets.PLAID_REDIRECT_URI }}
+          PAYMENTS_PROVIDER: ${{ vars.PAYMENTS_PROVIDER || 'stripe' }}
+          PAYMENTS_API_KEY: ${{ secrets.PAYMENTS_API_KEY }}
+          PAYMENTS_PUBLISHABLE_KEY: ${{ vars.PAYMENTS_PUBLISHABLE_KEY }}
+          PAYMENTS_API_URL: ${{ vars.PAYMENTS_API_URL }}
           SCREENING_PROVIDER: ${{ vars.SCREENING_PROVIDER || 'transunion' }}
           SCREENING_API_KEY: ${{ secrets.SCREENING_API_KEY }}
           SCREENING_API_URL: ${{ vars.SCREENING_API_URL }}

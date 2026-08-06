@@ -51,10 +51,7 @@ const RECONNECT_MAX_MS = 30000;
 // with the same (stale/invalid) token will never succeed, so we stop retrying.
 const AUTH_FAILURE_CODES = new Set([4001, 4003]);
 
-export const WSProvider: React.FC<{ children: React.ReactNode; token: string | null }> = ({
-  children,
-  token,
-}) => {
+export const WSProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef<Set<MessageHandler>>(new Set());
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -66,10 +63,9 @@ export const WSProvider: React.FC<{ children: React.ReactNode; token: string | n
   }, []);
 
   const connect = useCallback(() => {
-    if (!token) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const url = `${WS_BASE}/ws/connect?token=${token}`;
+    const url = `${WS_BASE}/ws/connect`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
@@ -109,10 +105,9 @@ export const WSProvider: React.FC<{ children: React.ReactNode; token: string | n
     ws.onerror = () => {
       ws.close();
     };
-  }, [token, dispatch]);
+  }, [dispatch]);
 
   useEffect(() => {
-    if (!token) return;
     reconnectAttempts.current = 0;
     connect();
     return () => {
@@ -120,7 +115,7 @@ export const WSProvider: React.FC<{ children: React.ReactNode; token: string | n
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [token, connect]);
+  }, [connect]);
 
   const sendPresence = useCallback((entityType: string, entityId: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

@@ -239,7 +239,12 @@ async def create_office(
     # Reload with manager relationship. This awaited query eagerly loads every
     # attribute the response needs, so serialization never triggers lazy IO.
     result = await db.execute(
-        select(Office).options(joinedload(Office.manager), joinedload(Office.gl_account)).where(Office.id == office_id)
+        select(Office)
+        .options(joinedload(Office.manager), joinedload(Office.gl_account))
+        .where(
+            Office.id == office_id,
+            Office.organization_id == current_user.organization_id,
+        )
     )
     return OfficeResponse.model_validate(result.scalar_one(), from_attributes=True)
 

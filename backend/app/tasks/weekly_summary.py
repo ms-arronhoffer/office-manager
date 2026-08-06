@@ -13,6 +13,7 @@ from app.models import EmailReminderRule, EmailLog
 from app.models.lease import Lease
 from app.models.maintenance_ticket import MaintenanceTicket
 from app.utils.email_client import EmailCategory, send_email
+from app.utils.rls import set_system_bypass
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ async def _run(db: AsyncSession) -> None:
     )
     overdue_tickets_list = overdue_result.scalars().all()
 
+    await set_system_bypass(db)
     expiring_result = await db.execute(
         select(Lease).where(
             Lease.lease_expiration != None,  # noqa: E711

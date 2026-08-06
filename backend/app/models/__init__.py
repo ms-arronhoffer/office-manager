@@ -2,6 +2,7 @@ from app.models.base import Base
 from app.models.organization import Organization
 from app.models.organization_sso_config import OrganizationSsoConfig, SsoLoginState
 from app.models.user import User
+from app.models.refresh_session import RefreshSession
 from app.models.auth_lockout import AuthLockout
 from app.models.office import Manager, Office
 from app.models.lease import (

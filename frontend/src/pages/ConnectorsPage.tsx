@@ -14,7 +14,13 @@ import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import Spinner from '@cloudscape-design/components/spinner';
 import Modal from '@cloudscape-design/components/modal';
-import { quickbooks as qboApi, bankFeed as feedApi, bank as bankApi, gl as glApi } from '@/api';
+import {
+  quickbooks as qboApi,
+  bankFeed as feedApi,
+  bank as bankApi,
+  gl as glApi,
+  integrations as integrationsApi,
+} from '@/api';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { openPlaidLink } from '@/lib/plaidLink';
 import type {
@@ -24,6 +30,7 @@ import type {
   BankFeedProviderStatus,
   BankAccount,
   GLAccount,
+  IntegrationReadiness,
 } from '@/types';
 
 function statusIndicator(status: string | null) {
@@ -44,6 +51,7 @@ const ConnectorsPage: React.FC = () => {
   const [feedStatus, setFeedStatus] = useState<BankFeedProviderStatus | null>(null);
   const [connections, setConnections] = useState<BankFeedConnection[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [readiness, setReadiness] = useState<IntegrationReadiness[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -52,18 +60,20 @@ const ConnectorsPage: React.FC = () => {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [qboRes, feedRes, connRes, bankRes, glRes] = await Promise.allSettled([
+    const [qboRes, feedRes, connRes, bankRes, glRes, readinessRes] = await Promise.allSettled([
       qboApi.getConnection(),
       feedApi.status(),
       feedApi.listConnections(),
       bankApi.listAccounts({ active_only: true }),
       glApi.listAccounts(),
+      integrationsApi.readiness(),
     ]);
     if (qboRes.status === 'fulfilled') setQbo(qboRes.value.data);
     if (feedRes.status === 'fulfilled') setFeedStatus(feedRes.value.data);
     if (connRes.status === 'fulfilled') setConnections(connRes.value.data);
     if (bankRes.status === 'fulfilled') setBankAccounts(bankRes.value.data);
     if (glRes.status === 'fulfilled') setGlAccounts(glRes.value.data);
+    if (readinessRes.status === 'fulfilled') setReadiness(readinessRes.value.data);
     setLoading(false);
   }, []);
 
@@ -137,6 +147,24 @@ const ConnectorsPage: React.FC = () => {
     }
   };
 
+  const verifyProvider = async (provider: string) => {
+    setBusy(`verify-${provider}`);
+    try {
+      const response = await integrationsApi.verify(provider);
+      addFlash({
+        type: response.data.ok ? 'success' : 'warning',
+        content: response.data.ok
+          ? `${provider.replaceAll('_', ' ')} verification succeeded.`
+          : response.data.error ?? 'Verification was not successful.',
+      });
+      await load();
+    } catch {
+      addFlash({ type: 'error', content: 'The verification request failed.' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const connectBank = async () => {
     if (!linkAccountId) return;
     setBusy('plaid');
@@ -192,6 +220,78 @@ const ConnectorsPage: React.FC = () => {
       }
     >
       <SpaceBetween size="l">
+        {readiness.length > 0 && (
+          <Container
+            header={
+              <Header
+                variant="h2"
+                description="Configuration and provider evidence only. Live certification requires real credentials and the documented manual checks."
+              >
+                Integration readiness
+              </Header>
+            }
+          >
+            <Table<IntegrationReadiness>
+              variant="embedded"
+              items={readiness}
+              columnDefinitions={[
+                {
+                  id: 'provider',
+                  header: 'Provider',
+                  cell: (item) => item.provider.replaceAll('_', ' '),
+                },
+                {
+                  id: 'configured',
+                  header: 'Configured',
+                  cell: (item) => (
+                    <StatusIndicator type={item.configured ? 'success' : 'stopped'}>
+                      {item.configured ? 'Configured' : 'Missing configuration'}
+                    </StatusIndicator>
+                  ),
+                },
+                {
+                  id: 'verified',
+                  header: 'Verification',
+                  cell: (item) => (
+                    <StatusIndicator
+                      type={item.verified === true ? 'success' : item.verified === false ? 'error' : 'pending'}
+                    >
+                      {item.verified === true
+                        ? 'Verified'
+                        : item.verified === false
+                          ? 'Failed'
+                          : 'Needs verification'}
+                    </StatusIndicator>
+                  ),
+                },
+                { id: 'mode', header: 'Mode', cell: (item) => item.mode },
+                {
+                  id: 'missing',
+                  header: 'Missing',
+                  cell: (item) => item.missing_config.join(', ') || '—',
+                },
+                {
+                  id: 'action',
+                  header: '',
+                  cell: (item) =>
+                    item.verification_supported && item.scope === 'organization' ? (
+                      <Button
+                        variant="inline-link"
+                        loading={busy === `verify-${item.provider}`}
+                        disabled={!item.configured}
+                        onClick={() => verifyProvider(item.provider)}
+                      >
+                        Verify safely
+                      </Button>
+                    ) : (
+                      'Sandbox flow required'
+                    ),
+                },
+              ]}
+            />
+          </Container>
+        )}
+
         {/* ── QuickBooks ── */}
         <Container
           header={

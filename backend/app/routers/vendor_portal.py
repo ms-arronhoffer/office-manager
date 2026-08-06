@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, status, Header, UploadFile
+from fastapi import APIRouter, Cookie, Depends, File, Form, HTTPException, Response, status, Header, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from app.config import settings
 from app.database import get_db
 from app.auth.dependencies import get_current_user
+from app.auth.portal_sessions import PortalExchangeRequest, set_portal_cookie
 from app.models.attachment import Attachment
 from app.models.entity_contact import EntityContact
 from app.models.insurance_certificate import (
@@ -147,8 +148,10 @@ def _cert_to_portal_response(cert: InsuranceCertificate) -> PortalCertResponse:
 
 async def get_portal_vendor(
     x_vendor_token: str = Header(None, alias="X-Vendor-Token"),
+    vendor_cookie: str | None = Cookie(default=None, alias="om_vendor_portal"),
     db: AsyncSession = Depends(get_db),
 ) -> Vendor:
+    x_vendor_token = vendor_cookie or x_vendor_token
     if not x_vendor_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Vendor portal token required")
     result = await db.execute(
@@ -163,6 +166,18 @@ async def get_portal_vendor(
     if vendor.portal_token_expires_at and vendor.portal_token_expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Vendor token expired")
     return vendor
+
+
+@router.post("/vendor-portal/exchange", status_code=status.HTTP_204_NO_CONTENT)
+async def exchange_vendor_token(
+    payload: PortalExchangeRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    vendor = await get_portal_vendor(x_vendor_token=payload.token, vendor_cookie=None, db=db)
+    expires = vendor.portal_token_expires_at
+    max_age = max(1, int((expires - datetime.now(timezone.utc)).total_seconds())) if expires else _TOKEN_TTL_DAYS * 86400
+    set_portal_cookie(response, "om_vendor_portal", payload.token, "/api/v1/vendor-portal", max_age)
 
 
 # ── Internal: generate/refresh portal token (requires JWT admin/editor auth) ─

@@ -19,14 +19,14 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_feature, require_role
-from app.auth.jwt_handler import create_access_token
+from app.auth.sessions import issue_session
 from app.config import settings
 from app.database import get_db
 from app.models.organization import Organization
@@ -145,8 +145,7 @@ def _encrypt_client_secret(secret: str) -> str:
 def _login_redirect(**params: str) -> RedirectResponse:
     """Bounce back to the SPA login page.
 
-    Results travel in the URL fragment so tokens never reach a server access log
-    or the ``Referer`` header of a subsequent request.
+    Only non-secret status values travel in the URL fragment.
     """
     base = settings.FRONTEND_URL.rstrip("/")
     return RedirectResponse(url=f"{base}/login#{urlencode(params)}", status_code=status.HTTP_302_FOUND)
@@ -383,7 +382,7 @@ async def authorize(org_slug: str, db: AsyncSession = Depends(get_db)):
 
 
 async def _callback_impl(
-    *, state: str, code: str, error: str | None, db: AsyncSession
+    *, state: str, code: str, error: str | None, request: Request, db: AsyncSession
 ):
     """Complete the OIDC flow and hand the SPA an application JWT."""
     if error:
@@ -474,21 +473,15 @@ async def _callback_impl(
         await db.commit()
         return _login_redirect(sso_mfa=challenge)
 
-    console_role = await resolve_console_role(db, user)
-    token = create_access_token(
-        {
-            "sub": str(user.id),
-            "role": user.role,
-            "org_id": str(user.organization_id) if user.organization_id else None,
-            "is_super_admin": user.is_super_admin,
-            "console_role": console_role,
-        }
-    )
-    return _login_redirect(sso_token=token)
+    redirect = _login_redirect(sso_success="1")
+    await issue_session(db, user, request, redirect)
+    await db.commit()
+    return redirect
 
 
 @router.get("/callback")
 async def callback(
+    request: Request,
     state: str = Query(default="", max_length=256),
     code: str = Query(default="", max_length=4096),
     error: str | None = Query(default=None, max_length=256),
@@ -496,7 +489,7 @@ async def callback(
 ):
     """Complete SSO without ever exposing an unbranded framework error page."""
     try:
-        return await _callback_impl(state=state, code=code, error=error, db=db)
+        return await _callback_impl(state=state, code=code, error=error, request=request, db=db)
     except Exception:
         await db.rollback()
         logger.exception("Unhandled SSO callback failure")

@@ -1,0 +1,36 @@
+services:
+  backend:
+    logging: &awslogs
+      driver: awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-us-east-2}
+        awslogs-group: ${CLOUDWATCH_LOG_GROUP:?CLOUDWATCH_LOG_GROUP is required for AWS deployment}
+        awslogs-stream: backend
+  frontend:
+    logging:
+      <<: *awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-us-east-2}
+        awslogs-group: ${CLOUDWATCH_LOG_GROUP:?CLOUDWATCH_LOG_GROUP is required for AWS deployment}
+        awslogs-stream: frontend
+  admin-frontend:
+    logging:
+      <<: *awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-us-east-2}
+        awslogs-group: ${CLOUDWATCH_LOG_GROUP:?CLOUDWATCH_LOG_GROUP is required for AWS deployment}
+        awslogs-stream: admin-frontend
+  landing:
+    logging:
+      <<: *awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-us-east-2}
+        awslogs-group: ${CLOUDWATCH_LOG_GROUP:?CLOUDWATCH_LOG_GROUP is required for AWS deployment}
+        awslogs-stream: landing
+  nginx-proxy-manager:
+    logging:
+      <<: *awslogs
+      options:
+        awslogs-region: ${AWS_REGION:-us-east-2}
+        awslogs-group: ${CLOUDWATCH_LOG_GROUP:?CLOUDWATCH_LOG_GROUP is required for AWS deployment}
+        awslogs-stream: nginx-proxy-manager

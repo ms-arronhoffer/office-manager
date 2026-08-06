@@ -69,7 +69,8 @@ from app.routers import (  # noqa: E402
     ai, waivers, document_search, maintenance, saved_reports, assistant,
     support_requests, leasing, resident_portal, announcements, rent,
     leasing_funnel, listings, owners, owner_portal, lease_templates,
-    application_templates, buildium, self_storage, legal, sso,    quickbooks, bank_feed,)
+    application_templates, buildium, self_storage, legal, sso, quickbooks, bank_feed,
+    integrations,)
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit, usage as admin_usage, support_requests as admin_support_requests  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature, require_category  # noqa: E402
 from fastapi import Depends  # noqa: E402
@@ -153,6 +154,7 @@ app.include_router(ar.router, prefix="/api/v1/ar", tags=["Accounts Receivable"],
 app.include_router(bank.router, prefix="/api/v1/bank", tags=["Bank Reconciliation"], dependencies=_accounting_guard)
 app.include_router(quickbooks.router, prefix="/api/v1/quickbooks", tags=["QuickBooks Sync"], dependencies=_accounting_guard)
 app.include_router(bank_feed.router, prefix="/api/v1/bank-feed", tags=["Bank Feed"], dependencies=_accounting_guard)
+app.include_router(integrations.router, prefix="/api/v1/integrations", tags=["Integration Readiness"], dependencies=_org_guard)
 app.include_router(tax.router, prefix="/api/v1/tax", tags=["Tax & 1099"], dependencies=_accounting_guard)
 app.include_router(budgets.router, prefix="/api/v1/budgets", tags=["Budgeting"], dependencies=_accounting_guard)
 app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Property Inspections"], dependencies=_inspections_guard)

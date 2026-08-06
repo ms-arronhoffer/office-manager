@@ -223,3 +223,60 @@ resource "aws_iam_role_policy" "github_actions_deploy" {
   role   = aws_iam_role.github_actions_deploy.id
   policy = data.aws_iam_policy_document.github_actions_deploy.json
 }
+
+# ── Role for manual restore verification drills ──────────────────────────────
+# GitHub environment protection provides the human approval boundary. The role
+# can only list/read this deployment's backup and uploads buckets and cannot
+# connect to RDS or mutate any AWS resource.
+data "aws_iam_policy_document" "github_actions_recovery_assume" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github_actions.arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repository}:environment:recovery-drill"]
+    }
+  }
+}
+
+data "aws_iam_policy_document" "github_actions_recovery" {
+  statement {
+    sid       = "ListRecoveryBuckets"
+    actions   = ["s3:ListBucket"]
+    resources = [
+      "arn:aws:s3:::${var.ecr_project_name}-${var.environment}-backups",
+      "arn:aws:s3:::${var.ecr_project_name}-${var.environment}-uploads",
+    ]
+  }
+
+  statement {
+    sid       = "ReadRecoveryObjects"
+    actions   = ["s3:GetObject"]
+    resources = [
+      "arn:aws:s3:::${var.ecr_project_name}-${var.environment}-backups/*",
+      "arn:aws:s3:::${var.ecr_project_name}-${var.environment}-uploads/*",
+    ]
+  }
+}
+
+resource "aws_iam_role" "github_actions_recovery" {
+  name               = "office-manager-github-actions-recovery"
+  assume_role_policy = data.aws_iam_policy_document.github_actions_recovery_assume.json
+}
+
+resource "aws_iam_role_policy" "github_actions_recovery" {
+  name   = "read-recovery-data"
+  role   = aws_iam_role.github_actions_recovery.id
+  policy = data.aws_iam_policy_document.github_actions_recovery.json
+}

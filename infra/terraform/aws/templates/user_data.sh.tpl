@@ -74,3 +74,57 @@ fi
 # being shipped before running compose, so a stale clone here is fine — this is
 # just a warm cache. Public repo, so no credentials are needed.
 sudo -u ec2-user git clone "https://github.com/${github_repo}.git" "/home/ec2-user/office-manager" || true
+
+# ── Low-cost backend readiness metric ────────────────────────────────────────
+# A host-side timer checks the loopback-only readiness endpoint and publishes a
+# binary custom metric. This provides backend availability alerting without an
+# ALB, Route 53 health check, or public monitoring endpoint.
+cat >/usr/local/bin/publish-backend-readiness <<'SCRIPT'
+#!/bin/bash
+set -u
+ready=0
+if curl --fail --silent --max-time 5 "http://127.0.0.1:${backend_port}/api/v1/readyz" >/dev/null; then
+  ready=1
+fi
+token="$(curl --fail --silent --max-time 2 -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600' -X PUT http://169.254.169.254/latest/api/token || true)"
+instance_id=""
+if [ -n "$token" ]; then
+  instance_id="$(curl --fail --silent --max-time 2 -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/meta-data/instance-id || true)"
+fi
+if [ -n "$instance_id" ]; then
+  aws cloudwatch put-metric-data \
+    --region "${aws_region}" \
+    --namespace "${readiness_namespace}" \
+    --metric-name Ready \
+    --dimensions "InstanceId=$instance_id" \
+    --value "$ready" \
+    --unit Count
+fi
+SCRIPT
+chmod 0755 /usr/local/bin/publish-backend-readiness
+
+cat >/etc/systemd/system/office-manager-readiness.service <<'UNIT'
+[Unit]
+Description=Publish Portfolio Desk backend readiness to CloudWatch
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/publish-backend-readiness
+UNIT
+
+cat >/etc/systemd/system/office-manager-readiness.timer <<'TIMER'
+[Unit]
+Description=Check Portfolio Desk backend readiness every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
+TIMER
+
+systemctl daemon-reload
+systemctl enable --now office-manager-readiness.timer

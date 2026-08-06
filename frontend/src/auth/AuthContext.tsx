@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { auth, organizations } from '@/api';
+import { requestApiCachePurge } from '@/serviceWorkerRegistration';
 import type { User, SignupRequest } from '@/types';
 
 interface AuthContextType {
@@ -8,32 +9,26 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  loginWithToken: (token: string) => Promise<void>;
+  loginWithToken: (token?: string) => Promise<void>;
   googleLogin: (googleToken: string) => Promise<void>;
   signup: (data: SignupRequest) => Promise<void>;
   refreshUser: () => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('access_token'));
+  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadUser = useCallback(async () => {
-    const storedToken = localStorage.getItem('access_token');
-    if (!storedToken) {
-      setIsLoading(false);
-      return;
-    }
     try {
       const response = await auth.getMe();
       setUser(response.data);
-      setToken(storedToken);
+      setToken('cookie');
     } catch {
-      localStorage.removeItem('access_token');
       setToken(null);
       setUser(null);
     } finally {
@@ -46,41 +41,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [loadUser]);
 
   const login = async (email: string, password: string) => {
-    const response = await auth.login(email, password);
-    const access_token = response.data.access_token!;
-    localStorage.setItem('access_token', access_token);
-    setToken(access_token);
+    await auth.login(email, password);
+    setToken('cookie');
     const userResponse = await auth.getMe();
     setUser(userResponse.data);
   };
 
-  const loginWithToken = async (token: string) => {
-    localStorage.setItem('access_token', token);
-    setToken(token);
+  const loginWithToken = async (_token?: string) => {
+    setToken('cookie');
     const userResponse = await auth.getMe();
     setUser(userResponse.data);
   };
 
   const googleLogin = async (googleToken: string) => {
-    const response = await auth.googleAuth(googleToken);
-    const access_token = response.data.access_token!;
-    localStorage.setItem('access_token', access_token);
-    setToken(access_token);
+    await auth.googleAuth(googleToken);
+    setToken('cookie');
     const userResponse = await auth.getMe();
     setUser(userResponse.data);
   };
 
   const signup = async (data: SignupRequest) => {
-    const response = await organizations.signup(data);
-    const { access_token } = response.data;
-    localStorage.setItem('access_token', access_token);
-    setToken(access_token);
+    await organizations.signup(data);
+    setToken('cookie');
     const userResponse = await auth.getMe();
     setUser(userResponse.data);
   };
 
-  const logout = () => {
-    localStorage.removeItem('access_token');
+  const logout = async () => {
+    await requestApiCachePurge();
+    try {
+      await auth.logout();
+    } catch {
+      // Local state is cleared even if the server session already expired.
+    }
     setToken(null);
     setUser(null);
     window.location.href = '/login';

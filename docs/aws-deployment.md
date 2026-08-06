@@ -1,4 +1,4 @@
-# AWS Deployment (Phase 1) — Cost-Effective Launch on us-east-2
+# AWS Deployment (Phase 1) - Cost-Effective Launch on us-east-2
 
 This document describes the Phase 1 AWS architecture for Portfolio Desk,
 sized for **5 tenant organizations at launch, scaling to ~20 within 6–12
@@ -47,13 +47,21 @@ to AWS.
 - **Secrets**: DB password, JWT secret, Stripe/Gemini keys, etc. live in a
   single AWS Secrets Manager secret (`infra/terraform/aws/secrets.tf`); the
   EC2 instance role has read-only access to it.
-- **Backups**: the existing nightly `pg_dump` + `uploads` tar script
-  (`docs/backup-setup.md`) continues to run from the EC2 host into the new
-  Terraform-managed `*-backups` S3 bucket; RDS automated snapshots
-  (7-day retention) provide a second, independent recovery point.
+- **Backups**: nightly `pg_dump` backups and S3 uploads manifests go to the
+  versioned Terraform-managed `*-backups` bucket for 35 days. RDS automated
+  backups retain 14 days as a cost-conscious second recovery path.
+- **Monitoring**: CloudWatch alarms cover EC2 system status with automatic
+  recovery, RDS CPU and free storage, optional RDS connections, and a host-side
+  backend readiness metric. Alarms exist without notification delivery. Setting
+  `alert_email` creates an SNS topic and email subscription.
+- **Logs**: the AWS Compose override sends all container logs to
+  `/<project>/<environment>/containers` with 30-day retention. The base Compose
+  file remains unchanged for local development.
 - **TLS/DNS**: for Phase 1, terminate TLS with Nginx + Let's Encrypt (or a
   CloudFront distribution once static assets move off nginx in Phase 2) and
-  point Route 53 at the EC2 instance's Elastic IP.
+  point Route 53 at the EC2 instance's Elastic IP. Configure HSTS at that TLS
+  terminator as described in `docs/SESSION_SECURITY.md`; the application nginx
+  containers listen on port 80 and intentionally do not emit HSTS.
 
 ## Why this is the cheapest viable setup
 
@@ -78,8 +86,8 @@ When tenant count or traffic outgrows a single EC2 host:
    "data query" workloads.
 3. Move the three SPAs (`frontend`, `admin-frontend`, `landing`) to
    CloudFront + S3 static hosting instead of nginx containers.
-4. Add CloudWatch alarms on ALB 5xx rate, RDS CPU/connections, and ECS task
-   health; centralize container logs to CloudWatch Logs.
+4. Replace the host-side readiness metric with ALB target-health and 5xx alarms
+  when an ALB is introduced.
 
 ## Terraform
 
@@ -95,6 +103,7 @@ Infrastructure-as-code lives in `infra/terraform/aws/`:
 | `s3.tf` | Uploads bucket + backups bucket (versioned, encrypted, lifecycle rules) |
 | `ecr.tf` | Private ECR repos (namespace `office-manager/*`) for the app images + `ecr-push` IAM policy for the build runner |
 | `secrets.tf` | Single Secrets Manager secret with all app credentials |
+| `monitoring.tf` | CloudWatch alarms/log group and optional SNS email routing |
 | `templates/user_data.sh.tpl` | EC2 boot script: installs Docker + the Compose plugin and clones the app repo (no self-hosted runner — deploys are driven remotely via SSM) |
 | `outputs.tf` | RDS endpoint, S3 bucket names, instance id/IP, secret ARN |
 
@@ -140,6 +149,19 @@ terraform init -backend-config=backend.hcl
 terraform plan
 terraform apply
 ```
+
+Review the plan before apply. These recovery changes add versioning and
+lifecycle configuration to the existing backups bucket, alarms, a log group,
+and optional SNS resources. They do not enable Object Lock and do not request
+S3 bucket replacement. The EC2 `user_data` change may replace the EC2 instance,
+depending on provider behavior and current state. The Elastic IP, RDS, S3
+uploads, and backups remain independent. Schedule the apply and confirm the
+exact plan action for `aws_instance.app` before approval.
+
+If `alert_email` is set, confirm the subscription message from AWS after apply.
+Until confirmation, alarms publish to SNS but email is not delivered. Set a
+workload-derived `rds_connections_alarm_threshold` to create that optional
+alarm. Leaving it null avoids a misleading default for the small RDS class.
 
 In CI, the bucket/table names are supplied via the (non-secret) repository
 variables `TF_STATE_BUCKET`, `TF_STATE_LOCK_TABLE`, and optionally
@@ -297,6 +319,7 @@ terraform apply \
 terraform output github_actions_infra_role_arn
 terraform output github_actions_ecr_push_role_arn
 terraform output github_actions_deploy_role_arn
+terraform output github_actions_recovery_role_arn
 ```
 
 - `AWS_INFRA_ROLE_ARN` — role the `infra` job assumes to run Terraform
@@ -305,6 +328,10 @@ terraform output github_actions_deploy_role_arn
   images to ECR (`terraform output github_actions_ecr_push_role_arn`).
 - `AWS_DEPLOY_ROLE_ARN` — role the `deploy` job assumes to run the deploy on
   the EC2 host via SSM (`terraform output github_actions_deploy_role_arn`).
+- `AWS_RECOVERY_DRILL_ROLE_ARN` - read-only role used by `restore-drill.yml`.
+  Create a protected GitHub environment named `recovery-drill`, require an
+  approver, and store this value as an environment secret from
+  `terraform output github_actions_recovery_role_arn` in the bootstrap module.
 - `AWS_REGION` — region the ECR registry lives in (e.g. `us-east-2`).
 - `TF_VAR_DB_PASSWORD`, `TF_VAR_JWT_SECRET`, `TF_VAR_DEFAULT_ADMIN_PASSWORD`
 - `TF_VAR_STRIPE_SECRET_KEY`, `TF_VAR_GEMINI_API_KEY`, `TF_VAR_SENTRY_DSN` (optional)

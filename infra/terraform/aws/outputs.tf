@@ -28,6 +28,16 @@ output "backups_bucket" {
   value       = aws_s3_bucket.backups.bucket
 }
 
+output "cloudwatch_log_group" {
+  description = "CloudWatch Logs group used by the AWS Compose logging override."
+  value       = aws_cloudwatch_log_group.containers.name
+}
+
+output "alerts_topic_arn" {
+  description = "SNS alarm topic ARN when alert_email is configured, otherwise null."
+  value       = try(aws_sns_topic.alerts[0].arn, null)
+}
+
 output "app_secrets_arn" {
   description = "ARN of the Secrets Manager secret holding app credentials."
   value       = aws_secretsmanager_secret.app.arn

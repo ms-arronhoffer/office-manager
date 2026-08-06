@@ -527,7 +527,7 @@ def _initialize_schema() -> None:
         if missing:
             sys.exit(f"[start] create_all did not create these tables: {sorted(missing)}")
 
-        print("[start] Tables created. Stamping alembic at head...")
+        print("[start] Tables created. Stamping before policy migrations...")
         # ``create_all`` builds tables from the ORM models, which do not declare
         # the migration-only full-text ``search_vector`` columns/indexes. Create
         # them before stamping so endpoints that maintain them don't fail after a
@@ -537,7 +537,8 @@ def _initialize_schema() -> None:
         _ensure_self_storage_schema()
         _ensure_reconciled_columns()
         _ensure_manager_name_constraint()
-        _run_alembic("stamp", "head")
+        _run_alembic("stamp", "117")
+        _run_alembic("upgrade", "head")
         return
 
     if not has_alembic_table:
@@ -586,7 +587,8 @@ def _initialize_schema() -> None:
         _ensure_self_storage_schema()
         _ensure_reconciled_columns()
         _ensure_manager_name_constraint()
-        _run_alembic("stamp", "head")
+        _run_alembic("stamp", "117")
+        _run_alembic("upgrade", "head")
         return
 
     print("[start] Running alembic upgrade head...")

@@ -14,10 +14,11 @@ router = APIRouter()
 @router.websocket("/ws/connect")
 async def ws_connect(
     websocket: WebSocket,
-    token: str = Query(...),
+    token: str | None = Query(default=None),
 ):
     """
-    Authenticate via JWT token query param, then maintain a live WebSocket connection.
+    Authenticate from the secure access cookie. Query JWTs remain temporarily
+    supported for non-browser clients during migration.
 
     Client can send JSON messages:
       {"type": "presence", "entity_type": "ticket", "entity_id": "<uuid>"}
@@ -29,7 +30,8 @@ async def ws_connect(
       {"type": "presence_update", "entity_type": "...", "entity_id": "...", "viewers": [...]}
       {"type": "pong"}
     """
-    payload = decode_access_token(token)
+    raw_token = websocket.cookies.get("om_access") or token
+    payload = decode_access_token(raw_token) if raw_token else None
     if payload is None:
         await websocket.close(code=4001, reason="Invalid token")
         return

@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  workflow_call:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: office_manager_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d office_manager_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: office_manager_test
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/office_manager_test
+      DATABASE_URL_SYNC: postgresql://postgres:postgres@localhost:5432/office_manager_test
+      JWT_SECRET: ci-only-jwt-secret
+      DEFAULT_ADMIN_PASSWORD: ci-only-admin-password
+      APP_ENV: test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Compile backend
+        run: python -m compileall -q app scripts tests
+      - name: Check tenant scoping
+        run: python scripts/check_tenant_scoping.py
+      - name: Require one migration head
+        run: |
+          python - <<'PY'
+          from alembic.config import Config
+          from alembic.script import ScriptDirectory
+
+          heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
+          if len(heads) != 1:
+              raise SystemExit(f"Expected exactly one Alembic head, found {len(heads)}: {heads}")
+          print(f"Alembic head: {heads[0]}")
+          PY
+      - name: Upgrade blank database
+        run: alembic upgrade head
+      - name: Run mandatory RLS policy checks
+        run: pytest -q policy_tests tests/test_rls_database.py
+      - name: Run backend tests
+        run: pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run test:run
+      - run: npm run build
+
+  admin-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: admin-frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  landing:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: landing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: landing/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate production Compose configuration
+        env:
+          POSTGRES_PASSWORD: ci-only-postgres-password
+          POSTGRES_HOST: postgres.example.invalid
+          JWT_SECRET: ci-only-jwt-secret
+          DEFAULT_ADMIN_PASSWORD: ci-only-admin-password
+          S3_UPLOAD_BUCKET: ci-only-upload-bucket
+        run: docker compose -f docker-compose.prod.yml config --quiet

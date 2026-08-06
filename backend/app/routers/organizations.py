@@ -3,13 +3,14 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_role, require_super_admin
 from app.auth.jwt_handler import create_access_token
+from app.auth.sessions import issue_session
 from app.auth.password import hash_password
 from app.config import settings
 from app.services.stripe_settings import resolve_stripe_secret_key
@@ -51,6 +52,7 @@ def _slug_from_name(name: str) -> str:
 @limiter.limit("5/hour")
 async def signup(
     request: Request,
+    response: Response,
     payload: SignupRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
@@ -117,12 +119,8 @@ async def signup(
     verification_token = await issue_verification_token(user, db)
     send_verification_email(user, verification_token, background_tasks)
 
-    token = create_access_token({
-        "sub": str(user.id),
-        "role": user.role,
-        "org_id": str(org.id),
-        "is_super_admin": False,
-    })
+    token = await issue_session(db, user, request, response)
+    await db.commit()
     return SignupResponse(access_token=token, organization=OrganizationResponse.model_validate(org))
 
 @router.get("/", response_model=list[OrganizationResponse], dependencies=[Depends(require_super_admin())])

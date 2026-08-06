@@ -1,0 +1,65 @@
+name: AWS Restore Verification Drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_bucket:
+        description: "Terraform backups_bucket output"
+        required: true
+        type: string
+      backup_key:
+        description: "Optional db/db-YYYY-MM-DD.sql.gz key; blank selects latest"
+        required: false
+        type: string
+      uploads_manifest_s3_uri:
+        description: "Optional s3://uploads-bucket/manifest.json to sample-check"
+        required: false
+        type: string
+      confirmation:
+        description: "Type RESTORE_TO_DISPOSABLE_CONTAINER_ONLY"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  restore-verification:
+    environment: recovery-drill
+    runs-on: [self-hosted, Linux, X64, docker-build]
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate safety inputs
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          BACKUP_BUCKET: ${{ inputs.backup_bucket }}
+        run: |
+          set -euo pipefail
+          [ "$CONFIRMATION" = "RESTORE_TO_DISPOSABLE_CONTAINER_ONLY" ] || {
+            echo "::error::Safety confirmation does not match."
+            exit 2
+          }
+          [[ "$BACKUP_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]] || {
+            echo "::error::backup_bucket is not a valid S3 bucket name."
+            exit 2
+          }
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure read-only recovery credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_RECOVERY_DRILL_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-2' }}
+
+      - name: Verify latest backup in a disposable PostgreSQL container
+        env:
+          AWS_DEFAULT_REGION: ${{ vars.AWS_REGION || 'us-east-2' }}
+          S3_BUCKET: ${{ inputs.backup_bucket }}
+          BACKUP_KEY: ${{ inputs.backup_key }}
+          UPLOADS_MANIFEST_S3_URI: ${{ inputs.uploads_manifest_s3_uri }}
+          CONFIRM_DISPOSABLE_RESTORE: ${{ inputs.confirmation }}
+        run: bash ./scripts/verify-backup-restore.sh

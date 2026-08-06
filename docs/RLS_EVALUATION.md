@@ -1,6 +1,6 @@
 # Row-Level Security (RLS) Evaluation — Defense-in-Depth Backstop
 
-**Status:** Evaluated and piloted (opt-in, disabled by default).
+**Status:** Production-enabled defense-in-depth backstop (revision 118).
 **Scope:** P1.5 — "Evaluate Postgres Row-Level Security as a defense-in-depth
 backstop (set `app.current_org` per request), so a missed filter fails
 closed."
@@ -24,62 +24,67 @@ filter degrades to "no rows" instead of "cross-tenant data leak."
    (`get_current_user`, `get_current_org`, `enforce_org_access` in
    `app/auth/dependencies.py`). `SET LOCAL` is transaction-scoped, so it can
    never leak across requests that reuse a pooled connection.
-2. **Policy:** For each opted-in table, a `CREATE POLICY ... USING
-   (organization_id = current_setting('app.current_org', true)::uuid)` plus
-   `ENABLE`/`FORCE ROW LEVEL SECURITY` makes Postgres itself refuse rows
-   outside the caller's org — including for superuser-owned connections
-   using `FORCE`, and for any query shape (raw SQL, ORM, admin scripts).
-3. **Fail mode during rollout:** the pilot policy (see migration `090`) also
-   permits rows when `app.current_org` is unset, so tables/paths that haven't
-   been updated to set the GUC yet (background jobs, `psql`, alembic) are
-   unaffected. This is intentionally **fail-open only when no context is set
-   at all**, and **fail-closed the instant a context is set but doesn't
-   match** — i.e. exactly the "app-level filter was missed" scenario this
-   feature targets, without breaking not-yet-migrated code paths.
-4. **Feature flag:** `settings.RLS_BACKSTOP_ENABLED` (default `False`) gates
-   whether the app sets the GUC at all; the DB-side policy is independent of
-   the flag (once migration `090` is applied, the policy exists and behaves
-   per the fail-mode above regardless of the flag — the flag only controls
-   whether *this app* participates by setting its own context).
+2. **Policy:** Revision `118` uses both `USING` and `WITH CHECK` with
+   `organization_id = NULLIF(current_setting('app.current_org', true), '')::uuid`.
+   Missing/empty context therefore returns no protected rows and rejects
+   inserts/updates. `ENABLE` plus `FORCE ROW LEVEL SECURITY` applies this to
+   table owners as well as ordinary roles.
+3. **Trusted bypass:** `app.rls_bypass='on'` is a separate transaction-local
+   mode. Only backend-controlled platform identities, opaque portal-token
+   resolution, and audited scheduler entry points set it. Request parameters,
+   headers and token claims can never select bypass. Tenant context explicitly
+   sets bypass back to `off`.
+4. **Feature flag:** production Compose defaults `RLS_BACKSTOP_ENABLED=true`;
+   local Compose defaults it to `false`. The database policy is independent of
+   the flag, so any local database migrated to `118` must enable the flag when
+   exercising protected application paths.
 
-## Why only one pilot table today
+## Coverage in revision 118
 
-Several org-scoped tables are also written by **background jobs** that run
-outside any HTTP request (`app/tasks/recurring_tickets.py`,
-`app/tasks/audit_log_pruning.py`, and others under `app/tasks/`). Those jobs
-iterate across all organizations in a single DB session and do not currently
-set `app.current_org` per org before touching each org's rows. Enabling
-`FORCE ROW LEVEL SECURITY` on tables those jobs touch would silently drop
-their writes/reads once a session context happens to be set by an unrelated
-concurrent request on a pooled connection, or would require every background
-job to also set/reset the GUC per org iteration.
+The explicit allowlist is: `leases`, `customers`, `customer_invoices`,
+`customer_receipts`, `vendor_bills`, `vendor_payments`, `gl_accounts`,
+`accounting_periods`, `journal_entries`, `bank_accounts`, `bank_transactions`,
+`bank_reconciliations`, `budgets`, `operating_expenses`, `rent_charges`,
+`security_deposits`, `residents`, `resident_leases`,
+`resident_payment_methods`, `client_portal_accounts`,
+`client_portal_change_requests`, and `rental_units`.
 
-`leases` was chosen as the pilot table because it has no background-job
-dependency (verified by grepping `app/tasks/` for the model) and is
-exclusively read/written through HTTP-request-scoped routers that already go
-through `get_current_user`/`get_current_org`.
+All have a direct `organization_id`. Child tables that only inherit tenancy
+through a parent are intentionally not covered: `customer_invoice_lines`,
+`vendor_bill_lines`, `journal_entry_lines`, `budget_lines`,
+`cam_reconciliation_lines`, and `resident_lease_occupants`. Parent-join RLS
+for those tables needs separate query-plan and cascade testing. Other lower-risk
+org-scoped domains remain protected by ORM scoping and tenant lint, not RLS.
 
-## Rollout plan (recommended follow-up, not yet executed)
+Scheduler paths that reach protected tables use transaction-local system bypass
+(`lease_reminders`, `weekly_summary`, and `scheduled_reports`). Knowledge
+indexing sets tenant context separately for each organization and re-establishes
+it after service commits. Public client/owner/resident portal flows use bypass
+only to resolve an opaque portal or signup token, then immediately switch to the
+resolved account's tenant context.
 
-1. Run the `leases` pilot in a staging environment with
-   `RLS_BACKSTOP_ENABLED=true`, monitor for unexpected empty-result
-   regressions (would indicate a code path reads leases without going
-   through the auth dependency chain, e.g. a Celery/cron task added later).
-2. Update `app/tasks/*` background jobs to explicitly `SET LOCAL
-   app.current_org` (or use `SET app.current_org` + reset) per org inside
-   their iteration loop before touching org-scoped tables.
-3. Extend the same migration pattern (`ENABLE`/`FORCE ROW LEVEL SECURITY` +
-   policy) to the next tier of tables, prioritizing by sensitivity: financial
-   tables (`customer_invoices`, `vendor_bills`, GL tables) before lower-risk
-   ones.
-4. Once all read paths for a table reliably set the GUC, tighten that
-   table's policy to drop the "unset context = allow" clause, making it
-   fail-closed unconditionally (matching the literal ask in P1.5).
-5. Consider a dedicated, lower-privilege Postgres role for the app connection
-   (distinct from the migration/superuser role) so `FORCE ROW LEVEL SECURITY`
-   can't be silently bypassed by a future migration that connects as a
-   table-owner role — today the app and alembic share `POSTGRES_USER`, which
-   works with `FORCE ROW LEVEL SECURITY` but is worth revisiting.
+## Threat model
+
+The bypass protects application availability; it is not a privilege boundary
+against SQL injection or a compromised backend process, because any principal
+that can execute arbitrary SQL on the application connection can call
+`set_config`. The application DB role must not have `SUPERUSER` or `BYPASSRLS`;
+Postgres superusers bypass RLS even with `FORCE`. Keep direct database access and
+the migration role separately controlled. Application-level org predicates
+remain mandatory.
+
+## Rollout and rollback
+
+1. Deploy code with the context helpers and migration `118`; container startup
+   runs `alembic upgrade head` before starting the API. Fresh/create-all schemas
+   stamp at `117` and then execute `118` rather than stamping over the policies.
+2. Production Compose enables `RLS_BACKSTOP_ENABLED`; monitor empty-result and
+   policy-denial errors, portal authentication, reminders, reports and indexing.
+3. To stop request context setting while investigating, set the flag false only
+   after rolling the database back. `alembic downgrade 117` removes revision-118
+   policies and restores the revision-090 fail-open lease pilot policy.
+4. Add future tables only after auditing request, platform, public and background
+   access paths and adding a database-role enforcement test.
 
 ## What NOT to do
 

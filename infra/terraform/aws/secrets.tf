@@ -17,6 +17,7 @@ resource "aws_secretsmanager_secret_version" "app" {
     DEFAULT_ADMIN_PASSWORD = var.default_admin_password
     ENCRYPTION_KEY         = var.encryption_key
     STRIPE_SECRET_KEY      = var.stripe_secret_key
+    PAYMENTS_API_KEY       = var.payments_api_key
     GEMINI_API_KEY         = var.gemini_api_key
     SENTRY_DSN             = var.sentry_dsn
     # Folded in so the SSM-driven deploy can build the whole container .env

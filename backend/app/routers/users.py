@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_role
+from app.auth.sessions import revoke_all_sessions
 from app.auth.password import hash_password
 from app.database import get_db
 from app.models.organization import Organization
@@ -177,6 +178,7 @@ async def deactivate_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     target.is_active = False
+    await revoke_all_sessions(db, target.id)
     await db.commit()
     # Update Stripe subscription quantity (best-effort)
     org_result = await db.execute(select(Organization).where(Organization.id == current_user.organization_id))

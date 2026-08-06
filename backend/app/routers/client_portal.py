@@ -18,7 +18,7 @@ from datetime import datetime, date, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, Cookie, Depends, File, Header, HTTPException, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -28,6 +28,7 @@ from sqlalchemy.orm import selectinload
 from app.config import settings
 from app.database import get_db
 from app.auth.dependencies import get_current_user
+from app.auth.portal_sessions import PortalExchangeRequest, set_portal_cookie
 from app.models.attachment import Attachment
 from app.models.client_portal_account import (
     ClientPortalAccount,
@@ -53,6 +54,7 @@ from app.schemas.entity_contact import (
 )
 from app.services import entitlements as ent
 from app.services.activity_service import log_activity
+from app.utils.rls import set_session_org, set_system_bypass
 from app.utils.notifications import create_notification
 from app.utils import file_storage
 
@@ -378,10 +380,13 @@ async def _scoped_office_ids(db: AsyncSession, account: ClientPortalAccount) -> 
 
 async def get_portal_account(
     x_portal_token: str = Header(None, alias="X-Portal-Token"),
+    portal_cookie: str | None = Cookie(default=None, alias="om_client_portal"),
     db: AsyncSession = Depends(get_db),
 ) -> ClientPortalAccount:
+    x_portal_token = portal_cookie or x_portal_token
     if not x_portal_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Portal token required")
+    await set_system_bypass(db)
     result = await db.execute(
         select(ClientPortalAccount).where(ClientPortalAccount.portal_token == x_portal_token)
     )
@@ -393,6 +398,7 @@ async def get_portal_account(
     expires = _aware(account.portal_token_expires_at)
     if expires and expires < _now():
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Portal token expired")
+    await set_session_org(db, account.organization_id)
     # Gate by the owning organization's plan entitlement.
     await _assert_org_entitled(db, account.organization_id)
     # Sliding-window activity tracking (best-effort; never blocks the request).
@@ -401,7 +407,20 @@ async def get_portal_account(
         await db.commit()
     except Exception:  # noqa: BLE001
         await db.rollback()
+    await set_session_org(db, account.organization_id)
     return account
+
+
+@router.post("/client-portal/exchange", status_code=status.HTTP_204_NO_CONTENT)
+async def exchange_portal_token(
+    payload: PortalExchangeRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    account = await get_portal_account(x_portal_token=payload.token, portal_cookie=None, db=db)
+    expires = _aware(account.portal_token_expires_at)
+    max_age = max(1, int((expires - _now()).total_seconds())) if expires else _PORTAL_TTL_DAYS * 86400
+    set_portal_cookie(response, "om_client_portal", payload.token, "/api/v1/client-portal", max_age)
 
 
 # ── Internal: generate single-use signup invite (JWT admin/editor) ───────────
@@ -468,12 +487,14 @@ async def redeem_signup(
     db: AsyncSession = Depends(get_db),
 ):
     """Redeem a single-use signup token and mint a persistent portal token."""
+    await set_system_bypass(db)
     result = await db.execute(
         select(ClientPortalAccount).where(ClientPortalAccount.signup_token == payload.token)
     )
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or already-used signup link")
+    await set_session_org(db, account.organization_id)
 
     expires = _aware(account.signup_token_expires_at)
     if expires and expires < _now():

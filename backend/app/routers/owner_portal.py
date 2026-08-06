@@ -20,12 +20,13 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_role
+from app.auth.portal_sessions import PortalExchangeRequest, set_portal_cookie
 from app.database import get_db
 from app.models.client_portal_account import ClientPortalAccount
 from app.models.owner import (
@@ -36,6 +37,7 @@ from app.models.owner import (
 )
 from app.models.user import User
 from app.services import owner_service as svc
+from app.utils.rls import set_session_org, set_system_bypass
 
 router = APIRouter()
 
@@ -135,10 +137,13 @@ def _aware(dt: datetime | None) -> datetime | None:
 
 async def get_owner_account(
     x_owner_token: str = Header(None, alias="X-Owner-Token"),
+    owner_cookie: str | None = Cookie(default=None, alias="om_owner_portal"),
     db: AsyncSession = Depends(get_db),
 ) -> ClientPortalAccount:
+    x_owner_token = owner_cookie or x_owner_token
     if not x_owner_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing owner portal token")
+    await set_system_bypass(db)
     account = (
         await db.execute(
             select(ClientPortalAccount).where(
@@ -152,8 +157,21 @@ async def get_owner_account(
     expires = _aware(account.portal_token_expires_at)
     if expires is not None and expires < _now():
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Owner portal token expired")
+    await set_session_org(db, account.organization_id)
     account.last_active_at = _now()
     return account
+
+
+@router.post("/owner-portal/exchange", status_code=status.HTTP_204_NO_CONTENT)
+async def exchange_owner_token(
+    payload: PortalExchangeRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    account = await get_owner_account(x_owner_token=payload.token, owner_cookie=None, db=db)
+    expires = _aware(account.portal_token_expires_at)
+    max_age = max(1, int((expires - _now()).total_seconds())) if expires else _TOKEN_TTL_DAYS * 86400
+    set_portal_cookie(response, "om_owner_portal", payload.token, "/api/v1/owner-portal", max_age)
 
 
 async def _owner_for(db: AsyncSession, account: ClientPortalAccount) -> PropertyOwner:
@@ -231,6 +249,7 @@ async def owner_signup(
     payload: SignupRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    await set_system_bypass(db)
     account = (
         await db.execute(
             select(ClientPortalAccount).where(
@@ -241,6 +260,7 @@ async def owner_signup(
     ).scalar_one_or_none()
     if account is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid signup token")
+    await set_session_org(db, account.organization_id)
     expires = _aware(account.signup_token_expires_at)
     if expires is not None and expires < _now():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Signup token expired")

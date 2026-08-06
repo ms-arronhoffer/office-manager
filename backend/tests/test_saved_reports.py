@@ -151,6 +151,11 @@ async def test_send_scheduled_reports_renders_and_emails(db_session, monkeypatch
     schedule_id = schedule.id
 
     sent: list[str] = []
+    bypass_calls = 0
+
+    async def fake_bypass(db):
+        nonlocal bypass_calls
+        bypass_calls += 1
 
     async def fake_send(to, subject, html_body, attachment_bytes, attachment_filename, attachment_content_type="application/pdf"):
         sent.append(to)
@@ -158,9 +163,11 @@ async def test_send_scheduled_reports_renders_and_emails(db_session, monkeypatch
         return True
 
     monkeypatch.setattr(scheduled_reports, "send_email_with_attachment", fake_send)
+    monkeypatch.setattr(scheduled_reports, "set_system_bypass", fake_bypass)
 
     await scheduled_reports.send_scheduled_reports()
 
+    assert bypass_calls == 1
     assert sent == ["ops@example.com"]
     refreshed = await db_session.get(ReportSchedule, schedule_id)
     await db_session.refresh(refreshed)

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -538,6 +538,18 @@ class StripeConfigIn(BaseModel):
     product_id_enterprise: str | None = None
     is_enabled: bool | None = None
 
+    @field_validator(
+        "price_id_starter",
+        "price_id_pro",
+        "price_id_starter_annual",
+        "price_id_pro_annual",
+    )
+    @classmethod
+    def validate_price_ids(cls, value: str | None, info) -> str | None:
+        if value is None:
+            return None
+        return stripe_cfg.validate_price_id(value, info.field_name)
+
 
 class StripeTestOut(BaseModel):
     ok: bool
@@ -676,7 +688,7 @@ async def test_stripe_config(
         try:
             import stripe
             stripe.api_key = resolved.secret_key
-            stripe.Balance.retrieve()
+            stripe.Account.retrieve()
             ok = True
         except Exception as exc:  # pragma: no cover - network/credential errors
             error = str(exc)

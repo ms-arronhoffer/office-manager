@@ -18,6 +18,8 @@ import Flashbar from '@cloudscape-design/components/flashbar';
 import Tabs from '@cloudscape-design/components/tabs';
 import Toggle from '@cloudscape-design/components/toggle';
 import Alert from '@cloudscape-design/components/alert';
+import { CardElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js';
+import { loadStripe } from '@stripe/stripe-js';
 import PortalAccessDenied from '@/components/portal/PortalAccessDenied';
 import usePortalSession from '@/hooks/usePortalSession';
 import { residentPortal } from '@/api';
@@ -26,6 +28,7 @@ import type {
   ResidentPortalAnnouncement,
   ResidentPortalBalance,
   ResidentPortalLease,
+  ResidentPortalPaymentConfig,
   ResidentPortalPaymentMethod,
   ResidentPortalProfile,
   ResidentPortalTicket,
@@ -74,6 +77,121 @@ const methodLabel = (m: ResidentPortalPaymentMethod) => {
 const errorDetail = (err: unknown, fallback: string) =>
   (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || fallback;
 
+interface AddPaymentMethodModalProps {
+  visible: boolean;
+  token: string;
+  isDefault: boolean;
+  onDismiss: () => void;
+  onSaved: () => Promise<void>;
+  setFlash: (flash: { type: 'success' | 'error'; content: string }) => void;
+}
+
+const AddPaymentMethodModal: React.FC<AddPaymentMethodModalProps> = ({
+  visible,
+  token,
+  isDefault,
+  onDismiss,
+  onSaved,
+  setFlash,
+}) => {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [saving, setSaving] = useState(false);
+  const [cardError, setCardError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    const cardElement = elements?.getElement(CardElement);
+    if (!stripe || !cardElement) {
+      setCardError('Secure card entry is still loading. Please try again.');
+      return;
+    }
+
+    setSaving(true);
+    setCardError(null);
+    try {
+      const result = await stripe.createPaymentMethod({ type: 'card', card: cardElement });
+      if (result.error) {
+        setCardError(result.error.message ?? 'Stripe could not validate this card.');
+        return;
+      }
+
+      const method = result.paymentMethod;
+      if (!method) {
+        setCardError('Stripe did not return a payment method. Please try again.');
+        return;
+      }
+      await residentPortal.createPaymentMethod(token, {
+        processor_token: method.id,
+        brand: method.card?.brand ?? null,
+        last4: method.card?.last4 ?? null,
+        exp_month: method.card?.exp_month ?? null,
+        exp_year: method.card?.exp_year ?? null,
+        is_default: isDefault,
+      });
+      onDismiss();
+      setFlash({ type: 'success', content: 'Payment method saved.' });
+      await onSaved();
+    } catch (err: unknown) {
+      setCardError(errorDetail(err, 'Failed to save payment method.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      onDismiss={onDismiss}
+      header="Add a payment method"
+      footer={
+        <Box float="right">
+          <SpaceBetween direction="horizontal" size="xs">
+            <Button variant="link" onClick={onDismiss}>
+              Cancel
+            </Button>
+            <Button variant="primary" loading={saving} disabled={!stripe} onClick={handleSave}>
+              Save
+            </Button>
+          </SpaceBetween>
+        </Box>
+      }
+    >
+      <SpaceBetween size="m">
+        <Alert type="info">
+          Card details are sent directly to Stripe and never pass through Office Manager.
+        </Alert>
+        {cardError && <Alert type="error">{cardError}</Alert>}
+        <FormField label="Card details">
+          <div
+            style={{
+              border: '1px solid #8d99a8',
+              borderRadius: '2px',
+              padding: '10px 12px',
+              background: '#ffffff',
+            }}
+          >
+            <CardElement
+              onChange={(event) => setCardError(event.error?.message ?? null)}
+              options={{
+                hidePostalCode: false,
+                style: {
+                  base: {
+                    color: '#16191f',
+                    fontFamily: 'Amazon Ember, Helvetica Neue, Roboto, Arial, sans-serif',
+                    fontSize: '16px',
+                    '::placeholder': { color: '#687078' },
+                  },
+                  invalid: { color: '#d13212' },
+                },
+              }}
+            />
+          </div>
+        </FormField>
+      </SpaceBetween>
+    </Modal>
+  );
+};
+
 const ResidentPortalPage: React.FC = () => {
   const [profile, setProfile] = useState<ResidentPortalProfile | null>(null);
   const [leases, setLeases] = useState<ResidentPortalLease[]>([]);
@@ -82,6 +200,9 @@ const ResidentPortalPage: React.FC = () => {
   const [documents, setDocuments] = useState<Attachment[]>([]);
   const [announcements, setAnnouncements] = useState<ResidentPortalAnnouncement[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<ResidentPortalPaymentMethod[]>([]);
+  const [paymentConfig, setPaymentConfig] = useState<ResidentPortalPaymentConfig | null>(null);
+  const [paymentConfigError, setPaymentConfigError] = useState(false);
+  const [stripePromise, setStripePromise] = useState<ReturnType<typeof loadStripe> | null>(null);
 
   // Maintenance request modal
   const [requestModal, setRequestModal] = useState(false);
@@ -99,15 +220,23 @@ const ResidentPortalPage: React.FC = () => {
   const [payMethodId, setPayMethodId] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
   const [methodModal, setMethodModal] = useState(false);
-  const [methodForm, setMethodForm] = useState<{ token: string; brand: string; last4: string }>({
-    token: '',
-    brand: '',
-    last4: '',
-  });
-  const [savingMethod, setSavingMethod] = useState(false);
   const [autopayBusy, setAutopayBusy] = useState(false);
 
   const loadData = useCallback(async (activeToken: string) => {
+    const configRequest = residentPortal
+      .getPaymentConfig(activeToken)
+      .then((response) => {
+        setPaymentConfig(response.data);
+        setPaymentConfigError(false);
+        if (
+          response.data.configured &&
+          response.data.provider.toLowerCase() === 'stripe' &&
+          response.data.publishable_key
+        ) {
+          setStripePromise(loadStripe(response.data.publishable_key));
+        }
+      })
+      .catch(() => setPaymentConfigError(true));
     const [profileRes, leasesRes, balanceRes, ticketsRes, docsRes, annRes, methodsRes] =
       await Promise.all([
         residentPortal.getProfile(activeToken),
@@ -125,11 +254,13 @@ const ResidentPortalPage: React.FC = () => {
     setDocuments(docsRes.data);
     setAnnouncements(annRes.data);
     setPaymentMethods(methodsRes.data);
+    await configRequest;
   }, []);
 
   const { token, loading, authError, flash, setFlash } = usePortalSession({
     portalPath: '/resident-portal',
     signup: residentPortal.signup,
+    exchange: residentPortal.exchange,
     load: loadData,
   });
 
@@ -213,30 +344,6 @@ const ResidentPortalPage: React.FC = () => {
     }
   };
 
-  const handleSaveMethod = async () => {
-    if (!methodForm.token.trim()) {
-      setFlash({ type: 'error', content: 'A payment token from your bank or card provider is required.' });
-      return;
-    }
-    setSavingMethod(true);
-    try {
-      await residentPortal.createPaymentMethod(token, {
-        processor_token: methodForm.token.trim(),
-        brand: methodForm.brand.trim() || null,
-        last4: methodForm.last4.trim() || null,
-        is_default: paymentMethods.length === 0,
-      });
-      setMethodModal(false);
-      setMethodForm({ token: '', brand: '', last4: '' });
-      setFlash({ type: 'success', content: 'Payment method saved.' });
-      await refreshPaymentState();
-    } catch (err: unknown) {
-      setFlash({ type: 'error', content: errorDetail(err, 'Failed to save payment method.') });
-    } finally {
-      setSavingMethod(false);
-    }
-  };
-
   const handleDeleteMethod = async (id: string) => {
     try {
       await residentPortal.deletePaymentMethod(token, id);
@@ -293,6 +400,18 @@ const ResidentPortalPage: React.FC = () => {
     paymentMethods.find((m) => m.is_default)?.id ??
     paymentMethods[0]?.id ??
     null;
+  const stripeAvailable = Boolean(
+    paymentConfig?.configured &&
+      paymentConfig.provider.toLowerCase() === 'stripe' &&
+      stripePromise,
+  );
+  const paymentUnavailableMessage = paymentConfigError
+    ? 'Secure card entry is temporarily unavailable because payment configuration could not be loaded.'
+    : paymentConfig && paymentConfig.provider.toLowerCase() !== 'stripe'
+      ? `Adding cards in the portal is unavailable for the configured ${paymentConfig.provider} provider.`
+      : paymentConfig && !paymentConfig.configured
+        ? 'Online card setup is not configured for this property. Please contact management.'
+        : null;
 
   return (
     <ContentLayout
@@ -426,7 +545,11 @@ const ResidentPortalPage: React.FC = () => {
                       <Header
                         variant="h2"
                         actions={
-                          <Button iconName="add-plus" onClick={() => setMethodModal(true)}>
+                          <Button
+                            iconName="add-plus"
+                            disabled={!stripeAvailable}
+                            onClick={() => setMethodModal(true)}
+                          >
                             Add method
                           </Button>
                         }
@@ -435,6 +558,11 @@ const ResidentPortalPage: React.FC = () => {
                       </Header>
                     }
                   >
+                    {paymentUnavailableMessage && (
+                      <Box margin={{ bottom: 'm' }}>
+                        <Alert type="warning">{paymentUnavailableMessage}</Alert>
+                      </Box>
+                    )}
                     <Table
                       items={paymentMethods}
                       empty={
@@ -783,51 +911,18 @@ const ResidentPortalPage: React.FC = () => {
         </SpaceBetween>
       </Modal>
 
-      <Modal
-        visible={methodModal}
-        onDismiss={() => setMethodModal(false)}
-        header="Add a payment method"
-        footer={
-          <Box float="right">
-            <SpaceBetween direction="horizontal" size="xs">
-              <Button variant="link" onClick={() => setMethodModal(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" loading={savingMethod} onClick={handleSaveMethod}>
-                Save
-              </Button>
-            </SpaceBetween>
-          </Box>
-        }
-      >
-        <SpaceBetween size="m">
-          <Alert type="info">
-            Card and bank numbers are handled by our payment provider and are never sent to or
-            stored by this site. Paste the token your provider gave you.
-          </Alert>
-          <FormField label="Payment token">
-            <Input
-              value={methodForm.token}
-              onChange={({ detail }) => setMethodForm((f) => ({ ...f, token: detail.value }))}
-              placeholder="pm_..."
-            />
-          </FormField>
-          <FormField label="Brand" description="Shown in your list of methods.">
-            <Input
-              value={methodForm.brand}
-              onChange={({ detail }) => setMethodForm((f) => ({ ...f, brand: detail.value }))}
-              placeholder="e.g. Visa"
-            />
-          </FormField>
-          <FormField label="Last 4 digits" description="Display only.">
-            <Input
-              value={methodForm.last4}
-              onChange={({ detail }) => setMethodForm((f) => ({ ...f, last4: detail.value }))}
-              placeholder="4242"
-            />
-          </FormField>
-        </SpaceBetween>
-      </Modal>
+      {stripePromise && (
+        <Elements stripe={stripePromise}>
+          <AddPaymentMethodModal
+            visible={methodModal}
+            token={token}
+            isDefault={paymentMethods.length === 0}
+            onDismiss={() => setMethodModal(false)}
+            onSaved={refreshPaymentState}
+            setFlash={setFlash}
+          />
+        </Elements>
+      )}
     </ContentLayout>
   );
 };

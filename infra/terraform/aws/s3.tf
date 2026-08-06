@@ -36,6 +36,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "uploads" {
     id     = "expire-noncurrent-versions"
     status = "Enabled"
     filter {}
+    noncurrent_version_transition {
+      noncurrent_days = 30
+      storage_class   = "STANDARD_IA"
+    }
     noncurrent_version_expiration {
       noncurrent_days = 90
     }
@@ -56,6 +60,13 @@ resource "aws_s3_bucket_public_access_block" "backups" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_versioning" "backups" {
+  bucket = aws_s3_bucket.backups.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
   bucket = aws_s3_bucket.backups.id
   rule {
@@ -67,12 +78,24 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
 
 resource "aws_s3_bucket_lifecycle_configuration" "backups" {
   bucket = aws_s3_bucket.backups.id
+
+  depends_on = [aws_s3_bucket_versioning.backups]
+
   rule {
     id     = "expire-old-backups"
     status = "Enabled"
     filter {}
+
     expiration {
-      days = 3 # mirrors the retention already documented in docs/backup-setup.md
+      days = var.backup_retention_days
+    }
+
+    noncurrent_version_expiration {
+      noncurrent_days = var.backup_noncurrent_retention_days
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
     }
   }
 }

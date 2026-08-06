@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Container from '@cloudscape-design/components/container';
@@ -16,6 +16,7 @@ import { usePreferences } from '@/context/PreferencesContext';
 import { useAuth } from '@/auth/AuthContext';
 import { auth as authApi } from '@/api';
 import DashboardSettingsModal, { type DashboardWidget } from '@/components/dashboard/DashboardSettingsModal';
+import type { AuthSession } from '@/api';
 
 const DASHBOARD_WIDGETS: DashboardWidget[] = [
   { id: 'stat_cards', label: 'Summary Statistics' },
@@ -39,6 +40,21 @@ const SettingsPage: React.FC = () => {
   const [pwdSaving, setPwdSaving] = useState(false);
   const [pwdError, setPwdError] = useState<string | null>(null);
   const [pwdSuccess, setPwdSuccess] = useState(false);
+  const [sessions, setSessions] = useState<AuthSession[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+
+  const loadSessions = async () => {
+    setSessionsLoading(true);
+    try {
+      setSessions((await authApi.sessions()).data);
+    } finally {
+      setSessionsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadSessions();
+  }, []);
 
   const handleChangePassword = async () => {
     if (newPassword !== confirmPassword) {
@@ -151,6 +167,41 @@ const SettingsPage: React.FC = () => {
             You can save and manage filter presets directly from list pages (Offices, Leases, Maintenance Tickets).
             Use the &quot;Saved filters&quot; dropdown next to the filter bar on any list page.
           </Box>
+        </Container>
+
+        {/* Change Password — internal accounts only */}
+        <Container
+          header={
+            <Header
+              variant="h2"
+              actions={<Button onClick={async () => { await authApi.revokeOtherSessions(); await loadSessions(); }}>Sign out other devices</Button>}
+            >
+              Sessions
+            </Header>
+          }
+        >
+          {sessionsLoading ? (
+            <Box>Loading sessions...</Box>
+          ) : (
+            <SpaceBetween size="s">
+              {sessions.map((session) => (
+                <Box key={session.id} padding="s">
+                  <SpaceBetween direction="horizontal" size="m" alignItems="center">
+                    <Box>
+                      <Box variant="strong">{session.current ? 'This device' : session.user_agent || 'Unknown device'}</Box>
+                      <Box variant="small" color="text-body-secondary">
+                        {session.ip_address || 'Unknown address'} | Started {new Date(session.created_at).toLocaleString()}
+                      </Box>
+                    </Box>
+                    {!session.current && (
+                      <Button onClick={async () => { await authApi.revokeSession(session.id); await loadSessions(); }}>Revoke</Button>
+                    )}
+                  </SpaceBetween>
+                </Box>
+              ))}
+              {sessions.length === 0 && <Box color="text-body-secondary">No active refresh sessions.</Box>}
+            </SpaceBetween>
+          )}
         </Container>
 
         {/* Change Password — internal accounts only */}

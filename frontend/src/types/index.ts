@@ -1401,6 +1401,12 @@ export interface ResidentPortalBalance {
   balance_due: string;
 }
 
+export interface ResidentPortalPaymentConfig {
+  configured: boolean;
+  provider: string;
+  publishable_key: string;
+}
+
 export interface ResidentPortalPaymentMethod {
   id: string;
   processor: string;
@@ -4301,6 +4307,26 @@ export interface BankFeedSyncResult {
   pages: number;
   error: string | null;
   detail: string | null;
+}
+
+export interface IntegrationReadiness {
+  provider: string;
+  scope: 'organization' | 'platform';
+  configured: boolean;
+  verified: boolean | null;
+  verification_supported: boolean;
+  mode: 'sandbox' | 'live' | 'unknown';
+  missing_config: string[];
+  last_verified_at: string | null;
+  last_error: string | null;
+  detail: string | null;
+}
+
+export interface IntegrationVerification {
+  provider: string;
+  ok: boolean;
+  verification_supported: boolean;
+  error: string | null;
 }
 
 // ─── Self Storage ───────────────────────────────────────────────────────────
