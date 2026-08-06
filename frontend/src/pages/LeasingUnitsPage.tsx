@@ -15,6 +15,7 @@ import Link from '@cloudscape-design/components/link';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useAuth } from '@/auth/AuthContext';
+import { canMutateOperationalData } from '@/auth/permissions';
 import { leasing, offices as officesApi, attachments as attachmentsApi } from '@/api';
 import useListCollection from '@/hooks/useListCollection';
 import { exportRowsToCsv } from '@/lib/csv';
@@ -54,7 +55,8 @@ const LeasingUnitsPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const canEditDocuments = user?.role === 'admin' || user?.role === 'editor';
+  const canEdit = canMutateOperationalData(user?.role);
+  const canEditDocuments = canEdit;
   const [units, setUnits] = useState<RentalUnit[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
   const [occupancy, setOccupancy] = useState<OccupancySummary | null>(null);
@@ -286,7 +288,7 @@ const LeasingUnitsPage: React.FC = () => {
       <Box textAlign="center" padding="m">
         <SpaceBetween size="xs">
           <Box>No rental units yet.</Box>
-          <Button onClick={openCreate}>Add your first unit</Button>
+          {canEdit && <Button onClick={openCreate}>Add your first unit</Button>}
         </SpaceBetween>
       </Box>
     ),
@@ -471,9 +473,11 @@ const LeasingUnitsPage: React.FC = () => {
                 >
                   Export selected
                 </Button>
-                <Button variant="primary" onClick={openCreate}>
-                  Add unit
-                </Button>
+                {canEdit && (
+                  <Button variant="primary" onClick={openCreate}>
+                    Add unit
+                  </Button>
+                )}
               </SpaceBetween>
             }
           >
@@ -519,7 +523,7 @@ const LeasingUnitsPage: React.FC = () => {
       />
 
       <CreateWizardModal
-        visible={modalOpen && !editing}
+        visible={canEdit && modalOpen && !editing}
         entityLabel="rental unit"
         onCancel={() => setModalOpen(false)}
         onSubmit={save}
@@ -581,7 +585,7 @@ const LeasingUnitsPage: React.FC = () => {
       />
 
       <EntityFormModal
-        visible={modalOpen && Boolean(editing)}
+        visible={canEdit && modalOpen && Boolean(editing)}
         onCancel={() => setModalOpen(false)}
         title="Edit unit"
         size="large"

@@ -16,11 +16,15 @@ import type { Landlord } from '@/types';
 import { usePreferences } from '@/context/PreferencesContext';
 import ImportModal from '@/components/common/ImportModal';
 import { useAttachmentCounts } from '@/hooks/useAttachmentCounts';
+import { useAuth } from '@/auth/AuthContext';
+import { canMutateOperationalData } from '@/auth/permissions';
 
 const DEFAULT_VISIBLE = ['office_name', 'landlord_company', 'contact_name', 'contact_email', 'contact_phone', 'vendor_id', 'attachments'];
 
 const LandlordsPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canEdit = canMutateOperationalData(user?.role);
   const { getPageSize, setPageSize, getVisibleColumns, setVisibleColumns } = usePreferences();
   const [allLandlords, setAllLandlords] = useState<Landlord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,7 +104,7 @@ const LandlordsPage: React.FC = () => {
           actions={
             <SpaceBetween direction="horizontal" size="xs">
               <Button onClick={fetchLandlords} iconName="refresh" />
-              <Button iconName="upload" onClick={() => setShowImport(true)}>Import</Button>
+              {canEdit && <Button iconName="upload" onClick={() => setShowImport(true)}>Import</Button>}
               <Button
                 iconName="download"
                 onClick={async () => {
@@ -115,9 +119,11 @@ const LandlordsPage: React.FC = () => {
               >
                 Export CSV
               </Button>
-              <Button variant="primary" onClick={() => navigate('/landlords/new')}>
-                Create Landlord
-              </Button>
+              {canEdit && (
+                <Button variant="primary" onClick={() => navigate('/landlords/new')}>
+                  Create Landlord
+                </Button>
+              )}
             </SpaceBetween>
           }
         >
@@ -184,19 +190,19 @@ const LandlordsPage: React.FC = () => {
             <Box textAlign="center" color="inherit" padding="l">
               <SpaceBetween size="m">
                 <b>No landlords</b>
-                <Button onClick={() => navigate('/landlords/new')}>Create landlord</Button>
+                {canEdit && <Button onClick={() => navigate('/landlords/new')}>Create landlord</Button>}
               </SpaceBetween>
             </Box>
           }
         />
       </SpaceBetween>
-      <ImportModal
+      {canEdit && <ImportModal
         visible={showImport}
         onDismiss={() => setShowImport(false)}
         entityName="landlords"
         entityLabel="Landlords"
         onComplete={fetchLandlords}
-      />
+      />}
     </ContentLayout>
   );
 };

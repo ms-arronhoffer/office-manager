@@ -16,6 +16,7 @@ import Checkbox from '@cloudscape-design/components/checkbox';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useAuth } from '@/auth/AuthContext';
+import { canMutateOperationalData } from '@/auth/permissions';
 import { copyToClipboard } from '@/utils/clipboard';
 import { listings, leasing } from '@/api';
 import EmptyState from '@/components/common/EmptyState';
@@ -43,6 +44,7 @@ const listingBadge = (s: ListingStatus) => {
 const VacancyListingsPage: React.FC = () => {
   const { addFlash } = useFlashbar();
   const { user } = useAuth();
+  const canEdit = canMutateOperationalData(user?.role);
   const [items, setItems] = useState<VacancyListing[]>([]);
   const [units, setUnits] = useState<RentalUnit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -407,7 +409,7 @@ const VacancyListingsPage: React.FC = () => {
         header={
           <Header
             counter={`(${items.length})`}
-            actions={
+            actions={canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 <Button iconName="share" onClick={() => setPortalsModalOpen(true)}>
                   Manage portals
@@ -416,7 +418,7 @@ const VacancyListingsPage: React.FC = () => {
                   Add listing
                 </Button>
               </SpaceBetween>
-            }
+            ) : undefined}
           >
             Vacancy listings
           </Header>
@@ -430,7 +432,7 @@ const VacancyListingsPage: React.FC = () => {
           {
             id: 'actions',
             header: 'Actions',
-            cell: (l) => (
+            cell: (l) => canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 {l.status === 'draft' && (
                   <Button variant="inline-link" onClick={() => doAction(l, 'publish')}>
@@ -459,21 +461,21 @@ const VacancyListingsPage: React.FC = () => {
                   Delete
                 </Button>
               </SpaceBetween>
-            ),
+            ) : null,
           },
         ]}
         empty={
           <EmptyState
             title="No listings yet"
             description="Publish vacant units so prospects can find and apply for them."
-            actionLabel="Create your first listing"
-            onAction={openCreate}
+            actionLabel={canEdit ? 'Create your first listing' : undefined}
+            onAction={canEdit ? openCreate : undefined}
           />
         }
       />
 
       <CreateWizardModal
-        visible={modalOpen && !editing}
+        visible={canEdit && modalOpen && !editing}
         entityLabel="listing"
         onCancel={() => setModalOpen(false)}
         onSubmit={save}
@@ -505,7 +507,7 @@ const VacancyListingsPage: React.FC = () => {
       />
 
       <EntityFormModal
-        visible={modalOpen && Boolean(editing)}
+        visible={canEdit && modalOpen && Boolean(editing)}
         onCancel={() => setModalOpen(false)}
         title="Edit listing"
         size="large"
@@ -522,7 +524,7 @@ const VacancyListingsPage: React.FC = () => {
 
       {/* ── Manage portals ─────────────────────────────────────────────── */}
       <Modal
-        visible={portalsModalOpen}
+        visible={canEdit && portalsModalOpen}
         onDismiss={() => setPortalsModalOpen(false)}
         size="large"
         header="Listing portals"
@@ -648,7 +650,7 @@ const VacancyListingsPage: React.FC = () => {
 
       {/* ── Syndicate a listing ────────────────────────────────────────── */}
       <EntityFormModal
-        visible={syndicateModalOpen}
+        visible={canEdit && syndicateModalOpen}
         onCancel={() => setSyndicateModalOpen(false)}
         title={syndicateListing ? `Syndicate: ${syndicateListing.title}` : 'Syndicate listing'}
         cancelLabel="Close"

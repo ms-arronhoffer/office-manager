@@ -1,4 +1,6 @@
 import React, { useCallback, useState } from 'react';
+import { useAuth } from '@/auth/AuthContext';
+import { canMutateOperationalData } from '@/auth/permissions';
 import Header from '@cloudscape-design/components/header';
 import Tabs from '@cloudscape-design/components/tabs';
 import Table from '@cloudscape-design/components/table';
@@ -120,7 +122,8 @@ const HeatPumpsTab: React.FC<{
   state: TabState<HeatPump>;
   onRefresh: () => void;
   officeOptions: SelectOption[];
-}> = ({ state, onRefresh, officeOptions }) => {
+  canEdit: boolean;
+}> = ({ state, onRefresh, officeOptions, canEdit }) => {
   const modal = useCrudModal({ unit_id: '', location_desc: '', make: '', model: '', serial_number: '', install_year: '', refrigerant_type: '', tonnage: '', seer_rating: '', filter_size: '', warranty_expiration: '', last_service_date: '', next_service_date: '', status: 'active', notes: '' });
   const del = useDeleteConfirm();
   const [tabError, setTabError] = useState<string | null>(null);
@@ -186,7 +189,7 @@ const HeatPumpsTab: React.FC<{
       <Table
         header={
           <Header variant="h2" counter={`(${items.length})`}
-            actions={<Button variant="primary" onClick={modal.openCreate}>Add Heat Pump</Button>}
+            actions={canEdit ? <Button variant="primary" onClick={modal.openCreate}>Add Heat Pump</Button> : undefined}
           >
             Heat Pumps
           </Header>
@@ -205,13 +208,13 @@ const HeatPumpsTab: React.FC<{
           { id: 'status', header: 'Status', cell: (r) => r.status ?? '—', width: 110 },
           {
             id: 'actions', header: '', width: 120,
-            cell: (r: HeatPump) => (
+            cell: (r: HeatPump) => canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 <Button variant="inline-icon" iconName="edit" ariaLabel="Edit"
                   onClick={() => modal.openEdit(r.id, { unit_id: r.unit_id, location_desc: r.location_desc ?? '', make: r.make ?? '', model: r.model ?? '', serial_number: r.serial_number ?? '', install_year: r.install_year?.toString() ?? '', refrigerant_type: r.refrigerant_type ?? '', tonnage: r.tonnage?.toString() ?? '', seer_rating: r.seer_rating?.toString() ?? '', filter_size: r.filter_size ?? '', warranty_expiration: r.warranty_expiration ?? '', last_service_date: r.last_service_date ?? '', next_service_date: r.next_service_date ?? '', status: r.status ?? 'active', notes: r.notes ?? '' })} />
                 <Button variant="inline-icon" iconName="remove" ariaLabel="Delete" onClick={() => del.open(r.id)} />
               </SpaceBetween>
-            ),
+            ) : null,
           },
         ]}
         expandableRows={{
@@ -291,7 +294,8 @@ const HeatPumpsTab: React.FC<{
 const PmTasksTab: React.FC<{
   state: TabState<PmTask>;
   onRefresh: () => void;
-}> = ({ state, onRefresh }) => {
+  canEdit: boolean;
+}> = ({ state, onRefresh, canEdit }) => {
   const modal = useCrudModal({ equipment_category: '', equipment_id: '', task_description: '', frequency: '', can_in_house: false, last_pm_date: '', next_due_date: '', status: 'Not Started', notes: '' });
   const del = useDeleteConfirm();
   const [tabError, setTabError] = useState<string | null>(null);
@@ -351,7 +355,7 @@ const PmTasksTab: React.FC<{
       <Table
         header={
           <Header variant="h2" counter={`(${items.length})`}
-            actions={<Button variant="primary" onClick={modal.openCreate}>Add Task</Button>}>
+            actions={canEdit ? <Button variant="primary" onClick={modal.openCreate}>Add Task</Button> : undefined}>
             PM Tasks
           </Header>
         }
@@ -365,13 +369,13 @@ const PmTasksTab: React.FC<{
           { id: 'next_due', header: 'Next Due', cell: (r) => formatDate(r.next_due_date), width: 110 },
           { id: 'status', header: 'Status', cell: (r) => r.status, width: 130 },
           { id: 'actions', header: '', width: 120,
-            cell: (r: PmTask) => (
+            cell: (r: PmTask) => canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 <Button variant="inline-icon" iconName="edit" ariaLabel="Edit"
                   onClick={() => modal.openEdit(r.id, { equipment_category: r.equipment_category, equipment_id: r.equipment_id ?? '', task_description: r.task_description, frequency: r.frequency ?? '', can_in_house: r.can_in_house, last_pm_date: r.last_pm_date ?? '', next_due_date: r.next_due_date ?? '', status: r.status, notes: r.notes ?? '' })} />
                 <Button variant="inline-icon" iconName="remove" ariaLabel="Delete" onClick={() => del.open(r.id)} />
               </SpaceBetween>
-            ),
+            ) : null,
           },
         ]}
         empty={<Box textAlign="center" color="text-body-secondary" padding="l">No PM tasks found</Box>}
@@ -418,7 +422,8 @@ const PmLogTab: React.FC<{
   state: TabState<PmLog>;
   onRefresh: () => void;
   officeOptions: SelectOption[];
-}> = ({ state, onRefresh, officeOptions }) => {
+  canEdit: boolean;
+}> = ({ state, onRefresh, officeOptions, canEdit }) => {
   const modal = useCrudModal({ tech_name: '', date_of_visit: '', location: '', equipment_type: '', equipment_id: '', task: '', status: '', notes: '' });
   const del = useDeleteConfirm();
   const [tabError, setTabError] = useState<string | null>(null);
@@ -477,7 +482,7 @@ const PmLogTab: React.FC<{
       <Table
         header={
           <Header variant="h2" counter={`(${items.length})`}
-            actions={<Button variant="primary" onClick={modal.openCreate}>Add Log Entry</Button>}>
+            actions={canEdit ? <Button variant="primary" onClick={modal.openCreate}>Add Log Entry</Button> : undefined}>
             PM Log
           </Header>
         }
@@ -491,13 +496,13 @@ const PmLogTab: React.FC<{
           { id: 'status', header: 'Status', cell: (r) => r.status ?? '—', width: 110 },
           { id: 'notes', header: 'Notes', cell: (r) => r.notes ?? '—', width: 180 },
           { id: 'actions', header: '', width: 120,
-            cell: (r: PmLog) => (
+            cell: (r: PmLog) => canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 <Button variant="inline-icon" iconName="edit" ariaLabel="Edit"
                   onClick={() => modal.openEdit(r.id, { tech_name: r.tech_name ?? '', date_of_visit: r.date_of_visit ?? '', location: r.location ?? '', equipment_type: r.equipment_type ?? '', equipment_id: r.equipment_id ?? '', task: r.task ?? '', status: r.status ?? '', notes: r.notes ?? '' })} />
                 <Button variant="inline-icon" iconName="remove" ariaLabel="Delete" onClick={() => del.open(r.id)} />
               </SpaceBetween>
-            ),
+            ) : null,
           },
         ]}
         empty={<Box textAlign="center" color="text-body-secondary" padding="l">No PM log entries found</Box>}
@@ -545,7 +550,8 @@ const PmLogTab: React.FC<{
 const IssuesTab: React.FC<{
   state: TabState<HvacIssue>;
   onRefresh: () => void;
-}> = ({ state, onRefresh }) => {
+  canEdit: boolean;
+}> = ({ state, onRefresh, canEdit }) => {
   const modal = useCrudModal({ description: '', issue_date: '', invoice_number: '', cost: '', status: 'open' });
   const del = useDeleteConfirm();
   const [tabError, setTabError] = useState<string | null>(null);
@@ -603,7 +609,7 @@ const IssuesTab: React.FC<{
         header={
           <Header variant="h2" counter={`(${items.length})`}
             description={`Total cost: ${formatCurrency(totalCost)}`}
-            actions={<Button variant="primary" onClick={modal.openCreate}>Create Issue</Button>}>
+            actions={canEdit ? <Button variant="primary" onClick={modal.openCreate}>Create Issue</Button> : undefined}>
             Issues
           </Header>
         }
@@ -615,13 +621,13 @@ const IssuesTab: React.FC<{
           { id: 'cost', header: 'Cost', cell: (r) => formatCurrency(r.cost), width: 100 },
           { id: 'status', header: 'Status', cell: (r) => r.status ?? '—', width: 100 },
           { id: 'actions', header: '', width: 120,
-            cell: (r: HvacIssue) => (
+            cell: (r: HvacIssue) => canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 <Button variant="inline-icon" iconName="edit" ariaLabel="Edit"
                   onClick={() => modal.openEdit(r.id, { description: r.description ?? '', issue_date: r.issue_date ?? '', invoice_number: r.invoice_number ?? '', cost: r.cost?.toString() ?? '', status: r.status ?? 'open' })} />
                 <Button variant="inline-icon" iconName="remove" ariaLabel="Delete" onClick={() => del.open(r.id)} />
               </SpaceBetween>
-            ),
+            ) : null,
           },
         ]}
         empty={<Box textAlign="center" color="text-body-secondary" padding="l">No issues found</Box>}
@@ -663,7 +669,8 @@ const IssuesTab: React.FC<{
 const MaintenanceContractsTab: React.FC<{
   state: TabState<MaintenanceContract>;
   onRefresh: () => void;
-}> = ({ state, onRefresh }) => {
+  canEdit: boolean;
+}> = ({ state, onRefresh, canEdit }) => {
   const modal = useCrudModal({ contractor_name: '', contract_start_date: '', cancellation_notice: '', equipment_covered: '', notes: '' });
   const del = useDeleteConfirm();
   const [tabError, setTabError] = useState<string | null>(null);
@@ -719,7 +726,7 @@ const MaintenanceContractsTab: React.FC<{
       <Table
         header={
           <Header variant="h2" counter={`(${items.length})`}
-            actions={<Button variant="primary" onClick={modal.openCreate}>Add Contract</Button>}>
+            actions={canEdit ? <Button variant="primary" onClick={modal.openCreate}>Add Contract</Button> : undefined}>
             Maintenance Contracts
           </Header>
         }
@@ -731,13 +738,13 @@ const MaintenanceContractsTab: React.FC<{
           { id: 'equipment', header: 'Equipment Covered', cell: (r) => r.equipment_covered ?? '—', width: 200 },
           { id: 'notes', header: 'Notes', cell: (r) => r.notes ?? '—', width: 180 },
           { id: 'actions', header: '', width: 120,
-            cell: (r: MaintenanceContract) => (
+            cell: (r: MaintenanceContract) => canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 <Button variant="inline-icon" iconName="edit" ariaLabel="Edit"
                   onClick={() => modal.openEdit(r.id, { contractor_name: r.contractor_name ?? '', contract_start_date: r.contract_start_date ?? '', cancellation_notice: r.cancellation_notice ?? '', equipment_covered: r.equipment_covered ?? '', notes: r.notes ?? '' })} />
                 <Button variant="inline-icon" iconName="remove" ariaLabel="Delete" onClick={() => del.open(r.id)} />
               </SpaceBetween>
-            ),
+            ) : null,
           },
         ]}
         empty={<Box textAlign="center" color="text-body-secondary" padding="l">No maintenance contracts found</Box>}
@@ -776,7 +783,8 @@ const BackflowsTab: React.FC<{
   state: TabState<Backflow>;
   onRefresh: () => void;
   officeOptions: SelectOption[];
-}> = ({ state, onRefresh, officeOptions }) => {
+  canEdit: boolean;
+}> = ({ state, onRefresh, officeOptions, canEdit }) => {
   const modal = useCrudModal({ location_desc: '', replaced_year: '', last_tested_by: '', last_tested_year: '', reported_to: '', notes: '' });
   const del = useDeleteConfirm();
   const [tabError, setTabError] = useState<string | null>(null);
@@ -833,7 +841,7 @@ const BackflowsTab: React.FC<{
       <Table
         header={
           <Header variant="h2" counter={`(${items.length})`}
-            actions={<Button variant="primary" onClick={modal.openCreate}>Add Backflow</Button>}>
+            actions={canEdit ? <Button variant="primary" onClick={modal.openCreate}>Add Backflow</Button> : undefined}>
             Backflow Devices
           </Header>
         }
@@ -846,13 +854,13 @@ const BackflowsTab: React.FC<{
           { id: 'reported_to', header: 'Reported To', cell: (r) => r.reported_to ?? '—', width: 140 },
           { id: 'notes', header: 'Notes', cell: (r) => r.notes ?? '—', width: 180 },
           { id: 'actions', header: '', width: 120,
-            cell: (r: Backflow) => (
+            cell: (r: Backflow) => canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 <Button variant="inline-icon" iconName="edit" ariaLabel="Edit"
                   onClick={() => modal.openEdit(r.id, { location_desc: r.location_desc ?? '', replaced_year: (r.replaced_year ?? '').toString(), last_tested_by: r.last_tested_by ?? '', last_tested_year: (r.last_tested_year ?? '').toString(), reported_to: r.reported_to ?? '', notes: r.notes ?? '' })} />
                 <Button variant="inline-icon" iconName="remove" ariaLabel="Delete" onClick={() => del.open(r.id)} />
               </SpaceBetween>
-            ),
+            ) : null,
           },
         ]}
         empty={<Box textAlign="center" color="text-body-secondary" padding="l">No backflow devices found</Box>}
@@ -898,6 +906,8 @@ const BackflowsTab: React.FC<{
 type TabId = 'heat-pumps' | 'pm-tasks' | 'pm-log' | 'issues' | 'maintenance-contracts' | 'backflows';
 
 const HqHvacPage: React.FC = () => {
+  const { user } = useAuth();
+  const canEdit = canMutateOperationalData(user?.role);
   const [activeTabId, setActiveTabId] = useState<TabId>('heat-pumps');
   const [officeOptions, setOfficeOptions] = useState<SelectOption[]>([]);
 
@@ -1017,27 +1027,27 @@ const HqHvacPage: React.FC = () => {
         tabs={[
             {
               id: 'heat-pumps', label: 'Heat Pumps',
-              content: <Box padding={{ top: 'm' }}><HeatPumpsTab state={heatPumpsState} onRefresh={refreshActive} officeOptions={officeOptions} /></Box>,
+              content: <Box padding={{ top: 'm' }}><HeatPumpsTab state={heatPumpsState} onRefresh={refreshActive} officeOptions={officeOptions} canEdit={canEdit} /></Box>,
             },
             {
               id: 'pm-tasks', label: 'PM Tasks',
-              content: <Box padding={{ top: 'm' }}><PmTasksTab state={pmTasksState} onRefresh={refreshActive} /></Box>,
+              content: <Box padding={{ top: 'm' }}><PmTasksTab state={pmTasksState} onRefresh={refreshActive} canEdit={canEdit} /></Box>,
             },
             {
               id: 'pm-log', label: 'PM Log',
-              content: <Box padding={{ top: 'm' }}><PmLogTab state={pmLogState} onRefresh={refreshActive} officeOptions={officeOptions} /></Box>,
+              content: <Box padding={{ top: 'm' }}><PmLogTab state={pmLogState} onRefresh={refreshActive} officeOptions={officeOptions} canEdit={canEdit} /></Box>,
             },
             {
               id: 'issues', label: 'Issues',
-              content: <Box padding={{ top: 'm' }}><IssuesTab state={issuesState} onRefresh={refreshActive} /></Box>,
+              content: <Box padding={{ top: 'm' }}><IssuesTab state={issuesState} onRefresh={refreshActive} canEdit={canEdit} /></Box>,
             },
             {
               id: 'maintenance-contracts', label: 'Maintenance Contracts',
-              content: <Box padding={{ top: 'm' }}><MaintenanceContractsTab state={contractsState} onRefresh={refreshActive} /></Box>,
+              content: <Box padding={{ top: 'm' }}><MaintenanceContractsTab state={contractsState} onRefresh={refreshActive} canEdit={canEdit} /></Box>,
             },
             {
               id: 'backflows', label: 'Backflows',
-              content: <Box padding={{ top: 'm' }}><BackflowsTab state={backflowsState} onRefresh={refreshActive} officeOptions={officeOptions} /></Box>,
+              content: <Box padding={{ top: 'm' }}><BackflowsTab state={backflowsState} onRefresh={refreshActive} officeOptions={officeOptions} canEdit={canEdit} /></Box>,
             },
           ]}
         />

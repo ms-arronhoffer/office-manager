@@ -21,6 +21,8 @@ import type {
   ResidentStatus,
   Office,
 } from '@/types';
+import { useAuth } from '@/auth/AuthContext';
+import { canMutateOperationalData } from '@/auth/permissions';
 
 interface Opt { label: string; value: string; }
 
@@ -34,6 +36,8 @@ const statusBadge = (s: string) => {
 
 const AnnouncementsPage: React.FC = () => {
   const { addFlash } = useFlashbar();
+  const { user } = useAuth();
+  const canEdit = canMutateOperationalData(user?.role);
   const [items, setItems] = useState<Announcement[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
   const [loading, setLoading] = useState(true);
@@ -218,11 +222,11 @@ const AnnouncementsPage: React.FC = () => {
         header={
           <Header
             counter={`(${items.length})`}
-            actions={
+            actions={canEdit ? (
               <Button variant="primary" onClick={openCreate}>
                 New announcement
               </Button>
-            }
+            ) : undefined}
           >
             Announcements
           </Header>
@@ -236,7 +240,7 @@ const AnnouncementsPage: React.FC = () => {
           {
             id: 'actions',
             header: 'Actions',
-            cell: (a) => (
+            cell: (a) => canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 {a.status !== 'sent' && (
                   <>
@@ -252,21 +256,21 @@ const AnnouncementsPage: React.FC = () => {
                   Delete
                 </Button>
               </SpaceBetween>
-            ),
+            ) : null,
           },
         ]}
         empty={
           <EmptyState
             title="No announcements yet"
             description="Broadcast notices to residents across your properties."
-            actionLabel="Post your first announcement"
-            onAction={openCreate}
+            actionLabel={canEdit ? 'Post your first announcement' : undefined}
+            onAction={canEdit ? openCreate : undefined}
           />
         }
       />
 
       <CreateWizardModal
-        visible={modalOpen && !editing}
+        visible={canEdit && modalOpen && !editing}
         entityLabel="announcement"
         onCancel={() => setModalOpen(false)}
         onSubmit={save}
@@ -316,7 +320,7 @@ const AnnouncementsPage: React.FC = () => {
       />
 
       <EntityFormModal
-        visible={modalOpen && Boolean(editing)}
+        visible={canEdit && modalOpen && Boolean(editing)}
         onCancel={() => setModalOpen(false)}
         title="Edit announcement"
         submitLabel="Save"

@@ -374,12 +374,8 @@ async def authorize(org_slug: str, db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.get("/callback")
-async def callback(
-    state: str = Query(default="", max_length=256),
-    code: str = Query(default="", max_length=4096),
-    error: str | None = Query(default=None, max_length=256),
-    db: AsyncSession = Depends(get_db),
+async def _callback_impl(
+    *, state: str, code: str, error: str | None, db: AsyncSession
 ):
     """Complete the OIDC flow and hand the SPA an application JWT."""
     if error:
@@ -421,7 +417,7 @@ async def callback(
         client_secret = decrypt_secret(config.client_secret_encrypted)
     except ValueError as exc:
         logger.error("SSO client secret could not be decrypted for org %s: %s", org.id, exc)
-        return _error_redirect("verification_failed")
+        return _error_redirect("configuration_error")
 
     try:
         document = await sso_service.discover(config.issuer)
@@ -482,6 +478,22 @@ async def callback(
         }
     )
     return _login_redirect(sso_token=token)
+
+
+@router.get("/callback")
+async def callback(
+    state: str = Query(default="", max_length=256),
+    code: str = Query(default="", max_length=4096),
+    error: str | None = Query(default=None, max_length=256),
+    db: AsyncSession = Depends(get_db),
+):
+    """Complete SSO without ever exposing an unbranded framework error page."""
+    try:
+        return await _callback_impl(state=state, code=code, error=error, db=db)
+    except Exception:
+        await db.rollback()
+        logger.exception("Unhandled SSO callback failure")
+        return _error_redirect("internal_error")
 
 
 # ── Admin configuration ───────────────────────────────────────────────────────

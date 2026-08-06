@@ -1,10 +1,8 @@
 import { render, screen } from '@testing-library/react';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
-
-// We'll test the RoleGuard component that we're about to create
-// For now, test the concept with a mock
+import RoleGuard from '@/auth/RoleGuard';
 
 const mockUseAuth = vi.fn();
 
@@ -12,20 +10,8 @@ vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => mockUseAuth(),
 }));
 
-// Inline RoleGuard implementation for testing (will match the real one)
-const RoleGuard: React.FC<{ allowedRoles: string[]; children: React.ReactNode }> = ({
-  allowedRoles,
-  children,
-}) => {
-  const { user } = mockUseAuth();
-  if (!user || !allowedRoles.includes(user.role)) {
-    return <div>Access Denied</div>;
-  }
-  return <>{children}</>;
-};
-
 describe('RoleGuard', () => {
-  it('blocks viewer from admin-only route', () => {
+  it('redirects viewer from an operational mutation route', () => {
     mockUseAuth.mockReturnValue({
       user: { id: '1', email: 'v@test.com', display_name: 'Viewer', role: 'viewer', is_active: true },
       isAuthenticated: true,
@@ -33,15 +19,20 @@ describe('RoleGuard', () => {
     });
 
     render(
-      <BrowserRouter>
-        <RoleGuard allowedRoles={['admin']}>
-          <div>Admin Content</div>
-        </RoleGuard>
-      </BrowserRouter>,
+      <MemoryRouter initialEntries={['/offices/wizard']}>
+        <Routes>
+          <Route path="/" element={<div>Dashboard</div>} />
+          <Route path="/offices/wizard" element={
+            <RoleGuard allowedRoles={['admin', 'editor']}>
+              <div>Create Office</div>
+            </RoleGuard>
+          } />
+        </Routes>
+      </MemoryRouter>,
     );
 
-    expect(screen.getByText('Access Denied')).toBeInTheDocument();
-    expect(screen.queryByText('Admin Content')).not.toBeInTheDocument();
+    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.queryByText('Create Office')).not.toBeInTheDocument();
   });
 
   it('allows admin to access admin route', () => {
@@ -52,11 +43,11 @@ describe('RoleGuard', () => {
     });
 
     render(
-      <BrowserRouter>
+      <MemoryRouter>
         <RoleGuard allowedRoles={['admin']}>
           <div>Admin Content</div>
         </RoleGuard>
-      </BrowserRouter>,
+      </MemoryRouter>,
     );
 
     expect(screen.getByText('Admin Content')).toBeInTheDocument();

@@ -151,9 +151,9 @@ const App: React.FC = () => {
                         <Route path="dashboard/sla" element={<DashboardHubPage />} />
                         <Route path="offices" element={<OfficesPage />} />
                         <Route path="offices/new" element={<Navigate to="/offices/wizard" replace />} />
-                        <Route path="offices/wizard" element={<OfficeWizardPage />} />
+                        <Route path="offices/wizard" element={<RoleGuard allowedRoles={['admin', 'editor']}><OfficeWizardPage /></RoleGuard>} />
                         <Route path="offices/:id" element={<OfficeDetailPage />} />
-                        <Route path="offices/:id/edit" element={<OfficeFormPage />} />
+                        <Route path="offices/:id/edit" element={<RoleGuard allowedRoles={['admin', 'editor']}><OfficeFormPage /></RoleGuard>} />
                         <Route path="leases" element={<LeasesPage />} />
                         <Route path="leases/calendar" element={<LeaseCalendarPage />} />
                         <Route path="finance" element={<FinancePage />} />
@@ -186,36 +186,36 @@ const App: React.FC = () => {
                         <Route path="self-storage/reservations" element={<SelfStoragePage />} />
                         <Route path="self-storage/rate-plans" element={<SelfStoragePage />} />
                         <Route path="leases/new" element={<Navigate to="/leases/wizard" replace />} />
-                        <Route path="leases/wizard" element={<LeaseWizardPage />} />
+                        <Route path="leases/wizard" element={<RoleGuard allowedRoles={['admin', 'editor']}><LeaseWizardPage /></RoleGuard>} />
                         <Route path="leases/:id" element={<LeaseDetailPage />} />
-                        <Route path="leases/:id/edit" element={<LeaseFormPage />} />
+                        <Route path="leases/:id/edit" element={<RoleGuard allowedRoles={['admin', 'editor']}><LeaseFormPage /></RoleGuard>} />
                         <Route path="landlords" element={<LandlordsPage />} />
-                        <Route path="landlords/new" element={<LandlordFormPage />} />
+                        <Route path="landlords/new" element={<RoleGuard allowedRoles={['admin', 'editor']}><LandlordFormPage /></RoleGuard>} />
                         <Route path="landlords/:id" element={<LandlordDetailPage />} />
-                        <Route path="landlords/:id/edit" element={<LandlordFormPage />} />
+                        <Route path="landlords/:id/edit" element={<RoleGuard allowedRoles={['admin', 'editor']}><LandlordFormPage /></RoleGuard>} />
                         <Route path="vendors" element={<VendorsPage />} />
-                        <Route path="vendors/new" element={<VendorFormPage />} />
+                        <Route path="vendors/new" element={<RoleGuard allowedRoles={['admin', 'editor']}><VendorFormPage /></RoleGuard>} />
                         <Route path="vendors/:id" element={<VendorDetailPage />} />
-                        <Route path="vendors/:id/edit" element={<VendorFormPage />} />
+                        <Route path="vendors/:id/edit" element={<RoleGuard allowedRoles={['admin', 'editor']}><VendorFormPage /></RoleGuard>} />
                         <Route path="management-companies" element={<ManagementCompaniesPage />} />
-                        <Route path="management-companies/new" element={<ManagementCompanyFormPage />} />
+                        <Route path="management-companies/new" element={<RoleGuard allowedRoles={['admin', 'editor']}><ManagementCompanyFormPage /></RoleGuard>} />
                         <Route path="management-companies/:id" element={<ManagementCompanyDetailPage />} />
                         <Route
                           path="management-companies/:id/edit"
-                          element={<ManagementCompanyFormPage />}
+                          element={<RoleGuard allowedRoles={['admin', 'editor']}><ManagementCompanyFormPage /></RoleGuard>}
                         />
                         <Route path="transitions" element={<TransitionsPage />} />
-                        <Route path="transitions/new" element={<TransitionFormPage />} />
+                        <Route path="transitions/new" element={<RoleGuard allowedRoles={['admin', 'editor']}><TransitionFormPage /></RoleGuard>} />
                         <Route path="transitions/:id" element={<TransitionDetailPage />} />
-                        <Route path="transitions/:id/edit" element={<TransitionFormPage />} />
+                        <Route path="transitions/:id/edit" element={<RoleGuard allowedRoles={['admin', 'editor']}><TransitionFormPage /></RoleGuard>} />
                         <Route path="hvac" element={<HvacPage />} />
                         <Route path="hvac/contracts" element={<HvacPage />} />
                         <Route path="maintenance" element={<MaintenancePage />} />
                         <Route path="maintenance/assets/:id" element={<AssetDetailPage />} />
                         <Route path="maintenance/:category" element={<MaintenancePage />} />
-                        <Route path="hvac-contracts/new" element={<HvacContractFormPage />} />
+                        <Route path="hvac-contracts/new" element={<RoleGuard allowedRoles={['admin', 'editor']}><HvacContractFormPage /></RoleGuard>} />
                         <Route path="hvac-contracts/:id" element={<HvacContractDetailPage />} />
-                        <Route path="hvac-contracts/:id/edit" element={<HvacContractFormPage />} />
+                        <Route path="hvac-contracts/:id/edit" element={<RoleGuard allowedRoles={['admin', 'editor']}><HvacContractFormPage /></RoleGuard>} />
                         <Route path="administration" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
                         <Route path="administration/automation" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
                         <Route path="administration/integrations" element={<RoleGuard allowedRoles={['admin', 'editor']}><AdministrationPage /></RoleGuard>} />
@@ -231,9 +231,9 @@ const App: React.FC = () => {
                         <Route path="ticket-categories" element={<RoleGuard allowedRoles={['admin']}><TicketCategoriesPage /></RoleGuard>} />
                         <Route path="maintenance-topics" element={<RoleGuard allowedRoles={['admin', 'editor']}><MaintenanceTopicsPage /></RoleGuard>} />
                         <Route path="maintenance-tickets" element={<MaintenanceTicketsPage />} />
-                        <Route path="maintenance-tickets/new" element={<MaintenanceTicketFormPage />} />
+                        <Route path="maintenance-tickets/new" element={<RoleGuard allowedRoles={['admin', 'editor']}><MaintenanceTicketFormPage /></RoleGuard>} />
                         <Route path="maintenance-tickets/:id" element={<MaintenanceTicketDetailPage />} />
-                        <Route path="maintenance-tickets/:id/edit" element={<MaintenanceTicketFormPage />} />
+                        <Route path="maintenance-tickets/:id/edit" element={<RoleGuard allowedRoles={['admin', 'editor']}><MaintenanceTicketFormPage /></RoleGuard>} />
                         <Route path="inspections" element={<InspectionsPage />} />
                         <Route path="users" element={<RoleGuard allowedRoles={['admin']}><UsersPage /></RoleGuard>} />
                         <Route path="data-dictionary" element={<RoleGuard allowedRoles={['admin']}><DataDictionaryPage /></RoleGuard>} />

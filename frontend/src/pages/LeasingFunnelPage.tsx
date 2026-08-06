@@ -13,6 +13,8 @@ import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
+import { useAuth } from '@/auth/AuthContext';
+import { canMutateOperationalData } from '@/auth/permissions';
 import { leasingFunnel, leasing, applicationTemplates } from '@/api';
 import type {
   RentalApplication,
@@ -45,6 +47,8 @@ const sigBadge = (s: string) => {
 
 const LeasingFunnelPage: React.FC = () => {
   const { addFlash } = useFlashbar();
+  const { user } = useAuth();
+  const canEdit = canMutateOperationalData(user?.role);
   const [apps, setApps] = useState<RentalApplication[]>([]);
   const [signatures, setSignatures] = useState<LeaseSignatureRequest[]>([]);
   const [units, setUnits] = useState<RentalUnit[]>([]);
@@ -457,14 +461,14 @@ const LeasingFunnelPage: React.FC = () => {
         header={
           <Header
             counter={`(${apps.length})`}
-            actions={
+            actions={canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 <Button onClick={() => setSendOpen(true)}>Send application</Button>
                 <Button variant="primary" onClick={openApp}>
                   Add application
                 </Button>
               </SpaceBetween>
-            }
+            ) : undefined}
           >
             Rental applications
           </Header>
@@ -482,15 +486,17 @@ const LeasingFunnelPage: React.FC = () => {
             header: 'Actions',
             cell: (a) => (
               <SpaceBetween direction="horizontal" size="xs">
-                {a.application_template_id &&
+                {canEdit && a.application_template_id &&
                   (a.status === 'sent' || a.status === 'viewed' || a.status === 'draft') && (
                     <Button variant="inline-link" onClick={() => resend(a)}>
                       Resend
                     </Button>
                   )}
-                <Button variant="inline-link" onClick={() => runScreen(a)}>
-                  Screen
-                </Button>
+                {canEdit && (
+                  <Button variant="inline-link" onClick={() => runScreen(a)}>
+                    Screen
+                  </Button>
+                )}
                 <Button variant="inline-link" onClick={() => viewScreening(a)}>
                   Reports
                 </Button>
@@ -499,17 +505,17 @@ const LeasingFunnelPage: React.FC = () => {
                     View signed
                   </Button>
                 )}
-                {a.status !== 'approved' && a.status !== 'converted' && (
+                {canEdit && a.status !== 'approved' && a.status !== 'converted' && (
                   <Button variant="inline-link" onClick={() => setStatus(a, 'approved')}>
                     Approve
                   </Button>
                 )}
-                {a.status !== 'denied' && a.status !== 'converted' && (
+                {canEdit && a.status !== 'denied' && a.status !== 'converted' && (
                   <Button variant="inline-link" onClick={() => setStatus(a, 'denied')}>
                     Deny
                   </Button>
                 )}
-                {a.status === 'approved' && (
+                {canEdit && a.status === 'approved' && (
                   <Button variant="inline-link" onClick={() => convert(a)}>
                     Convert
                   </Button>
@@ -528,11 +534,11 @@ const LeasingFunnelPage: React.FC = () => {
         header={
           <Header
             counter={`(${signatures.length})`}
-            actions={
+            actions={canEdit ? (
               <Button variant="primary" onClick={openSig}>
                 New signature request
               </Button>
-            }
+            ) : undefined}
           >
             Lease signature requests
           </Header>
@@ -565,7 +571,7 @@ const LeasingFunnelPage: React.FC = () => {
       />
 
       <CreateWizardModal
-        visible={appOpen}
+        visible={canEdit && appOpen}
         entityLabel="rental application"
         onCancel={() => setAppOpen(false)}
         onSubmit={saveApp}
@@ -610,7 +616,7 @@ const LeasingFunnelPage: React.FC = () => {
       />
 
       <CreateWizardModal
-        visible={sendOpen}
+        visible={canEdit && sendOpen}
         entityLabel="application invite"
         onCancel={() => setSendOpen(false)}
         onSubmit={sendFromTemplate}
@@ -675,7 +681,7 @@ const LeasingFunnelPage: React.FC = () => {
       </Modal>
 
       <CreateWizardModal
-        visible={sigOpen}
+        visible={canEdit && sigOpen}
         entityLabel="lease signature request"
         onCancel={() => setSigOpen(false)}
         onSubmit={saveSig}

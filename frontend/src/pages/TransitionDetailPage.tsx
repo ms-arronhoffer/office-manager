@@ -214,14 +214,18 @@ const TransitionDetailPage: React.FC = () => {
               variant="h1"
               actions={
                 <SpaceBetween direction="horizontal" size="xs">
-                  <Button onClick={() => navigate(`/transitions/${id}/edit`)}>Edit</Button>
+                  {(user?.role === 'admin' || user?.role === 'editor') && (
+                    <Button onClick={() => navigate(`/transitions/${id}/edit`)}>Edit</Button>
+                  )}
                   <Button onClick={fetchTransition} iconName="refresh" />
-                  <Button
-                    variant="normal"
-                    onClick={() => confirmDelete({ itemName: pageTitle, onConfirm: handleDelete })}
-                  >
-                    Delete
-                  </Button>
+                  {user?.role === 'admin' && (
+                    <Button
+                      variant="normal"
+                      onClick={() => confirmDelete({ itemName: pageTitle, onConfirm: handleDelete })}
+                    >
+                      Delete
+                    </Button>
+                  )}
                 </SpaceBetween>
               }
             >
