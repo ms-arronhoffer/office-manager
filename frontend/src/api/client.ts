@@ -47,7 +47,8 @@ apiClient.interceptors.response.use(
     const original = error.config as (typeof error.config & { _sessionRetry?: boolean }) | undefined;
     const url = String(original?.url || '');
     const isAuthFlow = /\/auth\/(login|refresh|logout|mfa\/)/.test(url);
-    if (error.response?.status === 401 && original && !original._sessionRetry && !isAuthFlow) {
+    const isPublicAuthPage = /^\/(login|reset-password)(\/|$)/.test(window.location.pathname);
+    if (error.response?.status === 401 && original && !original._sessionRetry && !isAuthFlow && !isPublicAuthPage) {
       original._sessionRetry = true;
       try {
         await refreshSession();
@@ -56,7 +57,7 @@ apiClient.interceptors.response.use(
         // Fall through to the login redirect when rotation is unavailable.
       }
     }
-    if (error.response?.status === 401 && !isAuthFlow) {
+    if (error.response?.status === 401 && !isAuthFlow && !isPublicAuthPage) {
       window.location.href = '/login';
     }
     return Promise.reject(error);

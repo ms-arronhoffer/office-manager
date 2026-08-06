@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models.admin_role import AdminRoleAssignment, CONSOLE_ROLES
 from app.models.organization import Organization
 from app.models.user import User
+from app.auth.sessions import revoke_all_sessions
 from app.services.activity_service import log_activity
 from app.services.console_roles import resolve_console_role
 
@@ -197,6 +198,16 @@ async def patch_user(
 
     update_data = payload.model_dump(exclude_unset=True)
     desired_console_role = update_data.pop("console_role", None) if "console_role" in update_data else ...
+    if user.id == current_user.id and (
+        "role" in update_data
+        or "is_super_admin" in update_data
+        or update_data.get("is_active") is False
+        or desired_console_role is not ...
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot change your own role, console access, or active status.",
+        )
     if desired_console_role is not ... and desired_console_role is not None and desired_console_role not in CONSOLE_ROLES:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid console role")
 
@@ -214,6 +225,9 @@ async def patch_user(
 
     for field, value in update_data.items():
         setattr(user, field, value)
+
+    if update_data.get("is_active") is False:
+        await revoke_all_sessions(db, user.id)
 
     assignment = (
         await db.execute(

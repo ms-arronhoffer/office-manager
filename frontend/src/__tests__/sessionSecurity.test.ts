@@ -16,6 +16,13 @@ describe('browser token handling', () => {
     expect(source('src/api/client.ts')).toContain("post('/auth/refresh')");
   });
 
+  it('does not refresh or redirect an unauthenticated login page', () => {
+    const clientSource = source('src/api/client.ts');
+    expect(clientSource).toContain('isPublicAuthPage');
+    expect(clientSource).toContain('!isPublicAuthPage');
+    expect(source('../admin-frontend/src/api/index.ts')).toContain('isPublicAuthPage');
+  });
+
   it('scrubs portal and signing tokens from the URL', () => {
     expect(source('src/hooks/usePortalSession.ts')).toContain('replaceState');
     expect(source('src/pages/WaiverSignPage.tsx')).toContain("replaceState(null, '', '/sign')");

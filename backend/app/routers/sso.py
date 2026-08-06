@@ -26,7 +26,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import get_current_user, require_feature, require_role
-from app.auth.sessions import issue_session
+from app.auth.sessions import clear_auth_cookies, issue_session
 from app.config import settings
 from app.database import get_db
 from app.models.organization import Organization
@@ -152,7 +152,9 @@ def _login_redirect(**params: str) -> RedirectResponse:
 
 
 def _error_redirect(code: str) -> RedirectResponse:
-    return _login_redirect(sso_error=code)
+    response = _login_redirect(sso_error=code)
+    clear_auth_cookies(response)
+    return response
 
 
 async def _load_enabled_config(
@@ -368,7 +370,7 @@ async def authorize(org_slug: str, db: AsyncSession = Depends(get_db)):
     )
     await db.commit()
 
-    return RedirectResponse(
+    response = RedirectResponse(
         url=sso_service.build_authorize_url(
             document["authorization_endpoint"],
             client_id=config.client_id,
@@ -379,6 +381,8 @@ async def authorize(org_slug: str, db: AsyncSession = Depends(get_db)):
         ),
         status_code=status.HTTP_302_FOUND,
     )
+    clear_auth_cookies(response)
+    return response
 
 
 async def _callback_impl(
@@ -470,6 +474,7 @@ async def _callback_impl(
         challenge = secrets.token_hex(32)
         user.mfa_challenge_token = challenge
         user.mfa_challenge_expires_at = now + timedelta(minutes=_MFA_CHALLENGE_MINUTES)
+        user.mfa_challenge_attempts = 0
         await db.commit()
         return _login_redirect(sso_mfa=challenge)
 

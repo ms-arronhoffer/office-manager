@@ -156,8 +156,19 @@ async def update_user(
     if not target:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    update_data = data.model_dump(exclude_unset=True)
+    if target.id == current_user.id and (
+        "role" in update_data or update_data.get("is_active") is False
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot change your own role or deactivate your own account.",
+        )
+    for field, value in update_data.items():
         setattr(target, field, value)
+
+    if update_data.get("is_active") is False:
+        await revoke_all_sessions(db, target.id)
 
     await db.commit()
     await db.refresh(target)

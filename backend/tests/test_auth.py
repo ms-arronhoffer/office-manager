@@ -26,6 +26,29 @@ async def test_login_success(client, admin_user):
 
 
 @pytest.mark.asyncio
+async def test_inactive_user_cannot_use_existing_bearer_session(client, admin_user, db_session):
+    headers = auth_headers(admin_user)
+    admin_user.is_active = False
+    await db_session.commit()
+
+    response = await client.get("/api/v1/auth/me", headers=headers)
+
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_change_own_role(client, admin_user):
+    response = await client.put(
+        f"/api/v1/users/{admin_user.id}",
+        headers=auth_headers(admin_user),
+        json={"role": "viewer"},
+    )
+
+    assert response.status_code == 400
+    assert "own role" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_cookie_auth_requires_csrf_for_mutation(client, admin_user):
     login = await client.post("/api/v1/auth/login", json={
         "email": "admin@test.com",
