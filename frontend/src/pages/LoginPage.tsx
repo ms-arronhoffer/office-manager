@@ -23,15 +23,119 @@ const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/,
 
 // The callback hands results back in the URL fragment, which browsers never put
 // on the wire, so a session token cannot land in a proxy or server access log.
-const SSO_ERROR_MESSAGES: Record<string, string> = {
-  invalid_state: 'That sign-in link is no longer valid. Please start again.',
-  expired_state: 'That sign-in request expired. Please start again.',
-  invalid_request: 'The identity provider sent an incomplete response. Please try again.',
-  provider_error: 'Your identity provider cancelled or rejected the sign-in.',
-  sso_disabled: 'Single sign-on is not currently enabled for your organization.',
-  verification_failed:
-    'We could not verify your identity provider sign-in. Confirm your account uses an approved email domain, then contact your administrator.',
+interface SsoErrorDetail {
+  title: string;
+  message: string;
+  guidance: string;
+  retryable: boolean;
+}
+
+const SSO_ERRORS: Record<string, SsoErrorDetail> = {
+  account_inactive: {
+    title: 'Your account is not active',
+    message: 'Your identity was verified, but your Portfolio Desk account has been deactivated.',
+    guidance: "Contact your company's Portfolio Desk administrator and ask them to reactivate your account.",
+    retryable: false,
+  },
+  domain_not_allowed: {
+    title: 'Your email domain is not approved',
+    message: 'The email returned by your identity provider is not on this organization’s approved domain list.',
+    guidance: 'Try your company account. If it is already correct, ask your company administrator to review the SSO allowed domains.',
+    retryable: true,
+  },
+  account_conflict: {
+    title: 'This account belongs to another organization',
+    message: 'A Portfolio Desk account with this email is already associated with a different organization.',
+    guidance: 'Contact your company administrator or Portfolio Desk support. Accounts cannot be moved between organizations during sign-in.',
+    retryable: false,
+  },
+  seat_limit: {
+    title: 'Your organization cannot add another user',
+    message: 'Your identity was verified, but your organization has reached its current user limit.',
+    guidance: 'Ask your company administrator to free a user seat or contact Portfolio Desk support.',
+    retryable: false,
+  },
+  email_unverified: {
+    title: 'Your email address is not verified',
+    message: 'Your identity provider did not confirm that your email address is verified.',
+    guidance: 'Verify your work email with your identity provider, then try again. Your company administrator can help if the claim is incorrect.',
+    retryable: true,
+  },
+  identity_missing: {
+    title: 'Your identity provider did not send an email',
+    message: 'Portfolio Desk requires a verified work email address to identify your account.',
+    guidance: 'Ask your identity administrator to include the email and email_verified claims in the OpenID Connect ID token.',
+    retryable: false,
+  },
+  invalid_state: {
+    title: 'This sign-in request is no longer valid',
+    message: 'The request may already have been used, or the browser session may have changed.',
+    guidance: 'Start a new single sign-on request. Do not reuse an old callback or browser-history link.',
+    retryable: true,
+  },
+  expired_state: {
+    title: 'This sign-in request expired',
+    message: 'Single sign-on requests are intentionally short-lived for security.',
+    guidance: 'Start again and complete your identity-provider sign-in without returning to an older tab.',
+    retryable: true,
+  },
+  invalid_request: {
+    title: 'The sign-in response was incomplete',
+    message: 'The identity provider did not return the information required to complete sign-in.',
+    guidance: 'Try again. If it repeats, ask your company administrator to review the registered callback URI.',
+    retryable: true,
+  },
+  provider_error: {
+    title: 'Sign-in was cancelled or declined',
+    message: 'Your identity provider did not complete the sign-in request.',
+    guidance: 'Try again and approve the requested sign-in. Contact your identity administrator if access is blocked by policy.',
+    retryable: true,
+  },
+  provider_rejected: {
+    title: 'The identity provider rejected the sign-in',
+    message: 'The authorization response could not be exchanged for a valid identity.',
+    guidance: 'Try again. If it repeats, ask your company administrator to verify the client secret and exact callback URI.',
+    retryable: true,
+  },
+  provider_unavailable: {
+    title: 'Your identity provider is unavailable',
+    message: 'Portfolio Desk could not reach the configured identity service.',
+    guidance: 'Wait a few minutes and try again. Contact your identity administrator if the service remains unavailable.',
+    retryable: true,
+  },
+  not_configured: {
+    title: 'Single sign-on is not configured',
+    message: 'Portfolio Desk could not find an enabled SSO configuration for this organization.',
+    guidance: 'Confirm the organization or work email you entered, then contact your company administrator if SSO should be enabled.',
+    retryable: true,
+  },
+  sso_disabled: {
+    title: 'Single sign-on is disabled',
+    message: 'Your organization’s SSO connection is currently disabled.',
+    guidance: 'Contact your company administrator to enable or repair the connection.',
+    retryable: false,
+  },
+  configuration_error: {
+    title: 'Your organization’s SSO connection needs attention',
+    message: 'Portfolio Desk could not use the stored identity-provider configuration.',
+    guidance: 'Contact your company administrator and ask them to review or reconnect SSO. Retrying will not help until it is corrected.',
+    retryable: false,
+  },
+  verification_failed: {
+    title: 'We could not verify this sign-in',
+    message: 'The identity response failed one or more security checks.',
+    guidance: 'Try again with your approved company account. Contact your company administrator if the problem continues.',
+    retryable: true,
+  },
+  internal_error: {
+    title: 'Portfolio Desk could not complete sign-in',
+    message: 'An unexpected problem occurred while completing single sign-on.',
+    guidance: 'Try again in a few minutes. If the problem continues, contact your company administrator and provide the reference code below.',
+    retryable: true,
+  },
 };
+
+const DEFAULT_SSO_ERROR: SsoErrorDetail = SSO_ERRORS.internal_error;
 
 // Amount the login form card overlaps the hero banner to create a floating effect.
 const FORM_OVERLAP_OFFSET = '-56px';
@@ -42,7 +146,7 @@ const HERO_IMAGE_SRC = '/images/login-hero-dashboard.png';
 // Cap the hero image height so it never pushes the login form below the fold.
 const HERO_IMAGE_MAX_HEIGHT = '26vh';
 
-type Mode = 'login' | 'forgot' | 'reset' | 'mfa' | 'mfaSetup' | 'mfaBackup' | 'sso';
+type Mode = 'login' | 'forgot' | 'reset' | 'mfa' | 'mfaSetup' | 'mfaBackup' | 'sso' | 'ssoError';
 
 /**
  * Build a user-facing error message from a request failure.
@@ -106,6 +210,7 @@ const LoginPage: React.FC = () => {
 
   // SSO state: an email address or an organization slug to resolve to an IdP.
   const [ssoIdentifier, setSsoIdentifier] = useState('');
+  const [ssoErrorCode, setSsoErrorCode] = useState<string | null>(null);
 
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
 
@@ -159,8 +264,8 @@ const LoginPage: React.FC = () => {
       return;
     }
     if (ssoError) {
-      setError(SSO_ERROR_MESSAGES[ssoError] || 'Single sign-on failed. Please try again.');
-      setMode('login');
+      setSsoErrorCode(ssoError);
+      setMode('ssoError');
       return;
     }
     if (ssoOrg) {
@@ -374,6 +479,10 @@ const LoginPage: React.FC = () => {
 
   // ── Form content per mode ──────────────────────────────────────────────────
   const renderFormHeader = () => {
+    if (mode === 'ssoError') {
+      const detail = SSO_ERRORS[ssoErrorCode || ''] || DEFAULT_SSO_ERROR;
+      return <Header variant="h2">{detail.title}</Header>;
+    }
     if (mode === 'sso') {
       return (
         <Header
@@ -440,6 +549,29 @@ const LoginPage: React.FC = () => {
   };
 
   const renderFormBody = () => {
+    if (mode === 'ssoError') {
+      const detail = SSO_ERRORS[ssoErrorCode || ''] || DEFAULT_SSO_ERROR;
+      return (
+        <SpaceBetween direction="vertical" size="l">
+          <Alert type="error" header={detail.message}>
+            {detail.guidance}
+          </Alert>
+          <Container>
+            <SpaceBetween size="s">
+              <Box variant="awsui-key-label">What you can do</Box>
+              <Box>
+                {detail.retryable
+                  ? 'Start a fresh SSO request below. If the same message returns, contact your company administrator.'
+                  : "Contact your company's Portfolio Desk administrator before trying again."}
+              </Box>
+              <Box variant="small" color="text-body-secondary">
+                Reference: SSO-{(ssoErrorCode || 'internal_error').toUpperCase().replace(/_/g, '-')}
+              </Box>
+            </SpaceBetween>
+          </Container>
+        </SpaceBetween>
+      );
+    }
     if (mode === 'sso') {
       return (
         <SpaceBetween direction="vertical" size="l">
@@ -667,6 +799,21 @@ const LoginPage: React.FC = () => {
   };
 
   const renderFormActions = () => {
+    if (mode === 'ssoError') {
+      const detail = SSO_ERRORS[ssoErrorCode || ''] || DEFAULT_SSO_ERROR;
+      return (
+        <SpaceBetween direction="vertical" size="s">
+          {detail.retryable && (
+            <Button variant="primary" onClick={() => switchMode('sso')} fullWidth>
+              Try single sign-on again
+            </Button>
+          )}
+          <Button variant={detail.retryable ? 'normal' : 'primary'} onClick={() => switchMode('login')} fullWidth>
+            Return to sign in
+          </Button>
+        </SpaceBetween>
+      );
+    }
     if (mode === 'sso') {
       return (
         <SpaceBetween direction="vertical" size="s">

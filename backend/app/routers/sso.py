@@ -223,10 +223,14 @@ async def _resolve_user(
     org: Organization,
     config: OrganizationSsoConfig,
     email: str,
+    first_name: str,
 ) -> User:
     """Match or provision the organization member behind a verified SSO email."""
     if not sso_service.is_domain_allowed(email, list(config.allowed_email_domains or [])):
-        raise SsoError("Email domain is not allowed for this organization.")
+        raise SsoError(
+            "Email domain is not allowed for this organization.",
+            code="domain_not_allowed",
+        )
 
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
 
@@ -234,12 +238,16 @@ async def _resolve_user(
         # An existing account anywhere else in the system must never be pulled
         # into this organization by an SSO login.
         if user.organization_id != org.id:
-            raise SsoError("Account belongs to a different organization.")
+            raise SsoError(
+                "Account belongs to a different organization.",
+                code="account_conflict",
+            )
         if not user.is_active:
-            raise SsoError("Account is inactive.")
+            raise SsoError("Account is inactive.", code="account_inactive")
         if user.auth_provider != "sso":
             user.auth_provider = "sso"
         user.email_verified = True
+        user.display_name = first_name
         return user
 
     seat_limit = ent.get_limit(org, "max_seats")
@@ -252,11 +260,11 @@ async def _resolve_user(
             )
         ).scalar_one()
         if seat_count >= seat_limit:
-            raise SsoError("Organization seat limit reached.")
+            raise SsoError("Organization seat limit reached.", code="seat_limit")
 
     user = User(
         email=email,
-        display_name=email.split("@", 1)[0],
+        display_name=first_name,
         organization_id=org.id,
         auth_provider="sso",
         role=config.default_role,
@@ -314,25 +322,19 @@ async def authorize(org_slug: str, db: AsyncSession = Depends(get_db)):
     """Begin the OIDC flow and redirect the browser to the identity provider."""
     org = await _org_by_slug(db, org_slug)
     if org is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Single sign-on is not configured for that organization.",
-        )
+        return _error_redirect("not_configured")
     config = await _load_enabled_config(db, org)
     if config is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Single sign-on is not configured for that organization.",
-        )
+        return _error_redirect("not_configured")
 
     try:
         document = await sso_service.discover(config.issuer)
     except SsoError as exc:
         logger.warning("SSO discovery failed for org %s: %s", org.id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not reach the identity provider.",
-        ) from exc
+        return _error_redirect("provider_unavailable")
+    except Exception:
+        logger.exception("Unexpected SSO authorize failure for org %s", org.id)
+        return _error_redirect("internal_error")
 
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
@@ -434,11 +436,20 @@ async def callback(
             nonce=login_state.nonce,
         )
         email = sso_service.extract_verified_email(claims)
-        user = await _resolve_user(db, org, config, email)
+        first_name = sso_service.extract_first_name(claims, email)
+        user = await _resolve_user(db, org, config, email, first_name)
     except SsoError as exc:
         await db.rollback()
         logger.warning("SSO callback rejected for org %s: %s", org.id, exc)
-        return _error_redirect("verification_failed")
+        return _error_redirect(exc.code)
+    except ValueError as exc:
+        await db.rollback()
+        logger.error("SSO configuration could not be decrypted for org %s: %s", org.id, exc)
+        return _error_redirect("configuration_error")
+    except Exception:
+        await db.rollback()
+        logger.exception("Unexpected SSO callback failure for org %s", org.id)
+        return _error_redirect("internal_error")
 
     user.last_login_at = now
     config.last_login_at = now

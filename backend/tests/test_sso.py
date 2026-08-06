@@ -66,6 +66,7 @@ def make_id_token(
     email_verified: bool = True,
     expires_in: int = 300,
     sub: str = "idp-user-1",
+    given_name: str | None = "Alice",
 ) -> str:
     now = datetime.now(timezone.utc)
     claims = {
@@ -78,6 +79,8 @@ def make_id_token(
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=expires_in)).timestamp()),
     }
+    if given_name is not None:
+        claims["given_name"] = given_name
     return jose_jwt.encode(claims, _PRIVATE_PEM, algorithm="RS256")
 
 
@@ -199,7 +202,8 @@ async def test_authorize_redirects_with_pkce_and_state(client, db_session, enter
 @pytest.mark.asyncio
 async def test_authorize_unknown_org_is_404(client):
     resp = await client.get(f"{SSO}/no-such-org/authorize")
-    assert resp.status_code == 404
+    assert resp.status_code == 302
+    assert "sso_error=not_configured" in resp.headers["location"]
 
 
 @pytest.mark.asyncio
@@ -316,7 +320,7 @@ async def test_email_outside_allowed_domains_is_rejected(
     id_token_factory(make_id_token(nonce=row.nonce, email="mallory@attacker.test"))
 
     resp = await client.get(f"{SSO}/callback", params={"state": row.state, "code": "c"})
-    assert "sso_error=verification_failed" in resp.headers["location"]
+    assert "sso_error=domain_not_allowed" in resp.headers["location"]
 
     users = (
         await db_session.execute(select(User).where(User.email == "mallory@attacker.test"))
@@ -328,6 +332,35 @@ def test_subdomain_does_not_satisfy_allowed_domain():
     assert sso_service.is_domain_allowed(f"a@{ALLOWED_DOMAIN}", [ALLOWED_DOMAIN]) is True
     assert sso_service.is_domain_allowed(f"a@evil.{ALLOWED_DOMAIN}", [ALLOWED_DOMAIN]) is False
     assert sso_service.is_domain_allowed(f"a@{ALLOWED_DOMAIN}", []) is False
+
+
+@pytest.mark.asyncio
+async def test_inactive_account_receives_actionable_error(
+    client, db_session, enterprise_org, sso_config, id_token_factory
+):
+    inactive = User(
+        email=f"inactive@{ALLOWED_DOMAIN}",
+        display_name="Inactive User",
+        organization_id=enterprise_org.id,
+        auth_provider="sso",
+        role="viewer",
+        is_active=False,
+    )
+    db_session.add(inactive)
+    await db_session.commit()
+
+    await _start_login(client, enterprise_org)
+    row = await _pending_state(db_session)
+    id_token_factory(
+        make_id_token(
+            nonce=row.nonce,
+            email=inactive.email,
+            given_name="Inactive",
+        )
+    )
+
+    resp = await client.get(f"{SSO}/callback", params={"state": row.state, "code": "c"})
+    assert "sso_error=account_inactive" in resp.headers["location"]
 
 
 @pytest.mark.asyncio
@@ -355,7 +388,7 @@ async def test_login_cannot_cross_into_another_organization(
     id_token_factory(make_id_token(nonce=row.nonce))
 
     resp = await client.get(f"{SSO}/callback", params={"state": row.state, "code": "c"})
-    assert "sso_error=verification_failed" in resp.headers["location"]
+    assert "sso_error=account_conflict" in resp.headers["location"]
 
     await db_session.refresh(existing)
     assert existing.organization_id == other_org.id
@@ -390,6 +423,7 @@ async def test_successful_callback_issues_working_jwt(
     assert provisioned.auth_provider == "sso"
     assert provisioned.role == "viewer"
     assert provisioned.email_verified is True
+    assert provisioned.display_name == "Alice"
 
 
 @pytest.mark.asyncio
