@@ -275,6 +275,14 @@ async def _resolve_user(
     return user
 
 
+async def _rollback_sso_rejection(
+    db: AsyncSession, *, org_id: uuid.UUID, exc: SsoError
+) -> RedirectResponse:
+    await db.rollback()
+    logger.warning("SSO callback rejected for org %s: %s", org_id, exc)
+    return _error_redirect(exc.code)
+
+
 # ── Public flow ───────────────────────────────────────────────────────────────
 
 @router.get("/lookup", response_model=SsoLookupResponse)
@@ -412,11 +420,12 @@ async def _callback_impl(
     config = await _load_enabled_config(db, org)
     if config is None:
         return _error_redirect("sso_disabled")
+    org_id = org.id
 
     try:
         client_secret = decrypt_secret(config.client_secret_encrypted)
     except ValueError as exc:
-        logger.error("SSO client secret could not be decrypted for org %s: %s", org.id, exc)
+        logger.error("SSO client secret could not be decrypted for org %s: %s", org_id, exc)
         return _error_redirect("configuration_error")
 
     try:
@@ -441,16 +450,14 @@ async def _callback_impl(
         first_name = sso_service.extract_first_name(claims, email)
         user = await _resolve_user(db, org, config, email, first_name)
     except SsoError as exc:
-        await db.rollback()
-        logger.warning("SSO callback rejected for org %s: %s", org.id, exc)
-        return _error_redirect(exc.code)
+        return await _rollback_sso_rejection(db, org_id=org_id, exc=exc)
     except ValueError as exc:
         await db.rollback()
-        logger.error("SSO configuration could not be decrypted for org %s: %s", org.id, exc)
+        logger.error("SSO configuration could not be decrypted for org %s: %s", org_id, exc)
         return _error_redirect("configuration_error")
     except Exception:
         await db.rollback()
-        logger.exception("Unexpected SSO callback failure for org %s", org.id)
+        logger.exception("Unexpected SSO callback failure for org %s", org_id)
         return _error_redirect("internal_error")
 
     user.last_login_at = now

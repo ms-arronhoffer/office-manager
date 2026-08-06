@@ -1,4 +1,7 @@
 """Deployment-facing SSO configuration behavior."""
+import uuid
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi import HTTPException
 
@@ -28,6 +31,20 @@ def test_encrypt_client_secret_returns_ciphertext(monkeypatch):
 def test_sso_error_preserves_safe_code():
     error = sso_service.SsoError("Account is inactive", code="account_inactive")
     assert error.code == "account_inactive"
+
+
+@pytest.mark.asyncio
+async def test_sso_rejection_survives_session_rollback():
+    db = AsyncMock()
+    error = sso_service.SsoError("Account is inactive", code="account_inactive")
+
+    response = await sso._rollback_sso_rejection(
+        db, org_id=uuid.uuid4(), exc=error
+    )
+
+    db.rollback.assert_awaited_once()
+    assert response.status_code == 302
+    assert "sso_error=account_inactive" in response.headers["location"]
 
 
 def test_extract_first_name_prefers_given_name():
