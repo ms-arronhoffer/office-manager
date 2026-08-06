@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.organization import Organization
 from app.models.organization_sso_config import OrganizationSsoConfig, SsoLoginState
 from app.models.user import User
+from app.routers import sso as sso_router
 from app.services import sso_service
 from app.utils import crypto
 from tests.conftest import auth_headers
@@ -250,6 +251,24 @@ async def test_expired_state_is_rejected(
 
     resp = await client.get(f"{SSO}/callback", params={"state": row.state, "code": "code-1"})
     assert "sso_error=expired_state" in resp.headers["location"]
+
+
+@pytest.mark.asyncio
+async def test_client_secret_decryption_failure_redirects_to_login(
+    client, db_session, enterprise_org, sso_config, monkeypatch
+):
+    await _start_login(client, enterprise_org)
+    row = await _pending_state(db_session)
+
+    def _fail_decryption(_ciphertext: str) -> str:
+        raise ValueError("Stored secret could not be decrypted.")
+
+    monkeypatch.setattr(sso_router, "decrypt_secret", _fail_decryption)
+
+    resp = await client.get(f"{SSO}/callback", params={"state": row.state, "code": "c"})
+
+    assert resp.status_code == 302
+    assert "sso_error=verification_failed" in resp.headers["location"]
 
 
 # ─── ID token validation ───────────────────────────────────────────────────
