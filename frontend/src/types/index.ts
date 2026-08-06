@@ -4311,7 +4311,7 @@ export interface BankFeedSyncResult {
 
 export interface IntegrationReadiness {
   provider: string;
-  scope: 'organization' | 'platform';
+  scope: 'organization';
   configured: boolean;
   verified: boolean | null;
   verification_supported: boolean;
@@ -4320,6 +4320,27 @@ export interface IntegrationReadiness {
   last_verified_at: string | null;
   last_error: string | null;
   detail: string | null;
+  source: 'tenant' | 'legacy_env' | 'unconfigured';
+}
+
+export type TenantIntegrationProvider = 'resident_payments' | 'screening' | 'plaid';
+
+export interface TenantIntegrationConfig {
+  provider: TenantIntegrationProvider;
+  source: 'tenant' | 'legacy_env' | 'unconfigured';
+  is_enabled: boolean;
+  secret_hint: string | null;
+  last_verified_at: string | null;
+  last_verify_ok: boolean | null;
+  last_verify_error: string | null;
+  [key: string]: unknown;
+}
+
+export interface TenantIntegrationConfigInput {
+  is_enabled: boolean;
+  secret?: string;
+  clear_secret?: boolean;
+  settings: Record<string, unknown>;
 }
 
 export interface IntegrationVerification {

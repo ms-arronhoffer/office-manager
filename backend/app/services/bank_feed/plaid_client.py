@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.services.organization_integration_settings import PlaidSettings, legacy_settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,27 +31,30 @@ class PlaidApiError(Exception):
         self.error_code = error_code
 
 
-def is_configured() -> bool:
+def is_configured(config: PlaidSettings | None = None) -> bool:
     """True when Plaid credentials are present."""
-    return bool(settings.PLAID_CLIENT_ID and settings.PLAID_SECRET)
+    config = config or legacy_settings("plaid")
+    return bool(config.is_enabled and config.client_id and config.secret)
 
 
-def country_codes() -> list[str]:
-    return [c.strip().upper() for c in (settings.PLAID_COUNTRY_CODES or "US").split(",") if c.strip()]
+def country_codes(config: PlaidSettings | None = None) -> list[str]:
+    config = config or legacy_settings("plaid")
+    return list(config.country_codes)
 
 
 class PlaidClient:
     """Async client for the subset of Plaid endpoints the bank feed needs."""
 
-    def __init__(self, *, base_url: str | None = None, timeout: float | None = None):
-        self.base_url = (base_url or settings.PLAID_API_BASE_URL).rstrip("/")
-        self.timeout = timeout if timeout is not None else settings.PLAID_TIMEOUT_SECONDS
+    def __init__(self, *, config: PlaidSettings | None = None, base_url: str | None = None, timeout: float | None = None):
+        self.config = config or legacy_settings("plaid")
+        self.base_url = (base_url or self.config.api_base_url).rstrip("/")
+        self.timeout = timeout if timeout is not None else self.config.timeout_seconds
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self.base_url}/{path.lstrip('/')}"
         body = {
-            "client_id": settings.PLAID_CLIENT_ID,
-            "secret": settings.PLAID_SECRET,
+            "client_id": self.config.client_id,
+            "secret": self.config.secret,
             **payload,
         }
         try:
@@ -76,11 +80,11 @@ class PlaidClient:
             "user": {"client_user_id": client_user_id},
             "client_name": client_name,
             "products": ["transactions"],
-            "country_codes": country_codes(),
+            "country_codes": country_codes(self.config),
             "language": "en",
         }
-        if settings.PLAID_REDIRECT_URI:
-            payload["redirect_uri"] = settings.PLAID_REDIRECT_URI
+        if self.config.redirect_uri:
+            payload["redirect_uri"] = self.config.redirect_uri
         return await self._post("link/token/create", payload)
 
     async def exchange_public_token(self, public_token: str) -> dict[str, Any]:
@@ -94,7 +98,12 @@ class PlaidClient:
     async def get_institution(self, institution_id: str) -> dict[str, Any]:
         return await self._post(
             "institutions/get_by_id",
-            {"institution_id": institution_id, "country_codes": country_codes()},
+            {"institution_id": institution_id, "country_codes": country_codes(self.config)},
+        )
+
+    async def get_institutions(self, *, count: int = 1) -> dict[str, Any]:
+        return await self._post(
+            "institutions/get", {"count": count, "offset": 0, "country_codes": country_codes(self.config)}
         )
 
     async def get_item(self, access_token: str) -> dict[str, Any]:

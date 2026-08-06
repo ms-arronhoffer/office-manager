@@ -485,13 +485,18 @@ async def logout(
     response: Response,
     refresh_cookie: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     if refresh_cookie:
         try:
             session_id = refresh_cookie.split(".", 1)[0]
             session = (
-                await db.execute(select(RefreshSession).where(RefreshSession.id == session_id))
+                await db.execute(
+                    select(RefreshSession).where(
+                        RefreshSession.id == session_id,
+                        RefreshSession.user_id == current_user.id,
+                    )
+                )
             ).scalar_one_or_none()
             if session and session.revoked_at is None:
                 session.revoked_at = datetime.now(timezone.utc)

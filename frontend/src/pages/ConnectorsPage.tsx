@@ -14,6 +14,8 @@ import StatusIndicator from '@cloudscape-design/components/status-indicator';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import Spinner from '@cloudscape-design/components/spinner';
 import Modal from '@cloudscape-design/components/modal';
+import Input from '@cloudscape-design/components/input';
+import Checkbox from '@cloudscape-design/components/checkbox';
 import {
   quickbooks as qboApi,
   bankFeed as feedApi,
@@ -31,7 +33,15 @@ import type {
   BankAccount,
   GLAccount,
   IntegrationReadiness,
+  TenantIntegrationConfig,
+  TenantIntegrationProvider,
 } from '@/types';
+
+const configurableProviders = new Set<TenantIntegrationProvider>([
+  'resident_payments',
+  'screening',
+  'plaid',
+]);
 
 function statusIndicator(status: string | null) {
   if (status === 'connected') return <StatusIndicator type="success">Connected</StatusIndicator>;
@@ -57,6 +67,11 @@ const ConnectorsPage: React.FC = () => {
 
   const [linkModal, setLinkModal] = useState(false);
   const [linkAccountId, setLinkAccountId] = useState<string | null>(null);
+  const [configProvider, setConfigProvider] = useState<TenantIntegrationProvider | null>(null);
+  const [config, setConfig] = useState<TenantIntegrationConfig | null>(null);
+  const [configValues, setConfigValues] = useState<Record<string, string>>({});
+  const [configSecret, setConfigSecret] = useState('');
+  const [configEnabled, setConfigEnabled] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,7 +88,9 @@ const ConnectorsPage: React.FC = () => {
     if (connRes.status === 'fulfilled') setConnections(connRes.value.data);
     if (bankRes.status === 'fulfilled') setBankAccounts(bankRes.value.data);
     if (glRes.status === 'fulfilled') setGlAccounts(glRes.value.data);
-    if (readinessRes.status === 'fulfilled') setReadiness(readinessRes.value.data);
+    if (readinessRes.status === 'fulfilled') {
+      setReadiness(readinessRes.value.data.filter((item) => item.provider !== 'platform_stripe'));
+    }
     setLoading(false);
   }, []);
 
@@ -165,6 +182,92 @@ const ConnectorsPage: React.FC = () => {
     }
   };
 
+  const openConfig = async (provider: TenantIntegrationProvider) => {
+    setBusy(`config-${provider}`);
+    try {
+      const response = await integrationsApi.getConfig(provider);
+      const next = response.data;
+      setConfig(next);
+      setConfigEnabled(next.is_enabled);
+      setConfigSecret('');
+      setConfigValues(
+        Object.fromEntries(
+          Object.entries(next)
+            .filter(([, value]) => typeof value === 'string' || typeof value === 'number')
+            .map(([key, value]) => [key, String(value ?? '')]),
+        ),
+      );
+      setConfigProvider(provider);
+    } catch {
+      addFlash({ type: 'error', content: 'Could not load tenant integration settings.' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const setConfigValue = (key: string, value: string) =>
+    setConfigValues((current) => ({ ...current, [key]: value }));
+
+  const configSettings = (): Record<string, unknown> => {
+    if (configProvider === 'resident_payments') {
+      return {
+        provider: 'stripe',
+        publishable_key: configValues.publishable_key ?? '',
+        api_url: configValues.api_url ?? '',
+      };
+    }
+    if (configProvider === 'screening') {
+      return {
+        provider_name: configValues.provider_name ?? '',
+        api_url: configValues.api_url ?? '',
+        health_url: configValues.health_url ?? '',
+        poll_attempts: Number(configValues.poll_attempts || 5),
+        poll_interval_seconds: Number(configValues.poll_interval_seconds || 2),
+      };
+    }
+    return {
+      client_id: configValues.client_id ?? '',
+      environment: configValues.environment ?? 'sandbox',
+      api_base_url: configValues.api_base_url ?? '',
+      country_codes: (configValues.country_codes ?? 'US').split(',').map((code) => code.trim()),
+      redirect_uri: configValues.redirect_uri ?? '',
+    };
+  };
+
+  const saveConfig = async () => {
+    if (!configProvider) return;
+    setBusy(`save-${configProvider}`);
+    try {
+      await integrationsApi.saveConfig(configProvider, {
+        is_enabled: configEnabled,
+        secret: configSecret || undefined,
+        settings: configSettings(),
+      });
+      addFlash({ type: 'success', content: 'Tenant integration settings saved.' });
+      setConfigProvider(null);
+      await load();
+    } catch {
+      addFlash({ type: 'error', content: 'Could not save tenant integration settings.' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteConfig = async () => {
+    if (!configProvider || !window.confirm('Disconnect this tenant integration configuration?')) return;
+    setBusy(`delete-${configProvider}`);
+    try {
+      await integrationsApi.deleteConfig(configProvider);
+      addFlash({ type: 'success', content: 'Tenant integration configuration removed.' });
+      setConfigProvider(null);
+      await load();
+    } catch {
+      addFlash({ type: 'error', content: 'Could not remove tenant integration settings.' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const connectBank = async () => {
     if (!linkAccountId) return;
     setBusy('plaid');
@@ -175,7 +278,7 @@ const ConnectorsPage: React.FC = () => {
           type: 'error',
           content:
             tokenRes.data.detail ??
-            'The bank feed is not configured on this server. Set PLAID_CLIENT_ID and PLAID_SECRET.',
+            'Plaid is not configured for this organization. Configure it in Integration readiness first.',
         });
         return;
       }
@@ -266,6 +369,11 @@ const ConnectorsPage: React.FC = () => {
                 },
                 { id: 'mode', header: 'Mode', cell: (item) => item.mode },
                 {
+                  id: 'source',
+                  header: 'Source',
+                  cell: (item) => item.source === 'legacy_env' ? 'Legacy platform fallback' : item.source,
+                },
+                {
                   id: 'missing',
                   header: 'Missing',
                   cell: (item) => item.missing_config.join(', ') || '—',
@@ -273,19 +381,29 @@ const ConnectorsPage: React.FC = () => {
                 {
                   id: 'action',
                   header: '',
-                  cell: (item) =>
-                    item.verification_supported && item.scope === 'organization' ? (
-                      <Button
-                        variant="inline-link"
-                        loading={busy === `verify-${item.provider}`}
-                        disabled={!item.configured}
-                        onClick={() => verifyProvider(item.provider)}
-                      >
-                        Verify safely
-                      </Button>
-                    ) : (
-                      'Sandbox flow required'
-                    ),
+                  cell: (item) => (
+                    <SpaceBetween direction="horizontal" size="xs">
+                      {configurableProviders.has(item.provider as TenantIntegrationProvider) && (
+                        <Button
+                          variant="inline-link"
+                          loading={busy === `config-${item.provider}`}
+                          onClick={() => openConfig(item.provider as TenantIntegrationProvider)}
+                        >
+                          Configure
+                        </Button>
+                      )}
+                      {item.verification_supported && (
+                        <Button
+                          variant="inline-link"
+                          loading={busy === `verify-${item.provider}`}
+                          disabled={!item.configured}
+                          onClick={() => verifyProvider(item.provider)}
+                        >
+                          Verify safely
+                        </Button>
+                      )}
+                    </SpaceBetween>
+                  ),
                 },
               ]}
             />
@@ -464,9 +582,8 @@ const ConnectorsPage: React.FC = () => {
         >
           <SpaceBetween size="m">
             {!feedStatus?.configured && (
-              <Alert type="info" header="Not configured on this server">
-                Set <code>PLAID_CLIENT_ID</code> and <code>PLAID_SECRET</code> in the backend
-                environment, then restart the API.
+              <Alert type="info" header="Not configured for this organization">
+                Configure Plaid in Integration readiness, then connect a bank account.
               </Alert>
             )}
             {bankAccounts.length === 0 && (
@@ -540,6 +657,67 @@ const ConnectorsPage: React.FC = () => {
           </SpaceBetween>
         </Container>
       </SpaceBetween>
+
+      <Modal
+        visible={configProvider !== null}
+        onDismiss={() => setConfigProvider(null)}
+        header={`Configure ${configProvider?.replaceAll('_', ' ') ?? 'integration'}`}
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              {config?.source === 'tenant' && (
+                <Button loading={busy?.startsWith('delete-')} onClick={deleteConfig}>Disconnect</Button>
+              )}
+              <Button onClick={() => setConfigProvider(null)}>Cancel</Button>
+              <Button variant="primary" loading={busy?.startsWith('save-')} onClick={saveConfig}>
+                Save to tenant
+              </Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="m">
+          {config && (
+            <Alert type={config.source === 'legacy_env' ? 'warning' : 'info'}>
+              Source: {config.source === 'legacy_env' ? 'Legacy platform fallback' : config.source}.
+              {config.secret_hint ? ` Stored secret ${config.secret_hint}.` : ''}
+            </Alert>
+          )}
+          <Checkbox checked={configEnabled} onChange={({ detail }) => setConfigEnabled(detail.checked)}>
+            Enabled for this tenant
+          </Checkbox>
+          {configProvider === 'resident_payments' && (
+            <>
+              <FormField label="Stripe secret API key"><Input type="password" value={configSecret} placeholder={config?.secret_hint ?? ''} onChange={({ detail }) => setConfigSecret(detail.value)} /></FormField>
+              <FormField label="Stripe publishable key"><Input value={configValues.publishable_key ?? ''} onChange={({ detail }) => setConfigValue('publishable_key', detail.value)} /></FormField>
+              <FormField label="Payment API URL"><Input value={configValues.api_url ?? ''} onChange={({ detail }) => setConfigValue('api_url', detail.value)} /></FormField>
+            </>
+          )}
+          {configProvider === 'screening' && (
+            <>
+              <FormField label="Provider name"><Input value={configValues.provider_name ?? ''} onChange={({ detail }) => setConfigValue('provider_name', detail.value)} /></FormField>
+              <FormField label="API key"><Input type="password" value={configSecret} placeholder={config?.secret_hint ?? ''} onChange={({ detail }) => setConfigSecret(detail.value)} /></FormField>
+              <FormField label="API URL"><Input value={configValues.api_url ?? ''} onChange={({ detail }) => setConfigValue('api_url', detail.value)} /></FormField>
+              <FormField label="Health URL"><Input value={configValues.health_url ?? ''} onChange={({ detail }) => setConfigValue('health_url', detail.value)} /></FormField>
+              <ColumnLayout columns={2}>
+                <FormField label="Poll attempts"><Input type="number" value={configValues.poll_attempts ?? '5'} onChange={({ detail }) => setConfigValue('poll_attempts', detail.value)} /></FormField>
+                <FormField label="Poll interval seconds"><Input type="number" value={configValues.poll_interval_seconds ?? '2'} onChange={({ detail }) => setConfigValue('poll_interval_seconds', detail.value)} /></FormField>
+              </ColumnLayout>
+            </>
+          )}
+          {configProvider === 'plaid' && (
+            <>
+              <FormField label="Client ID"><Input value={configValues.client_id ?? ''} onChange={({ detail }) => setConfigValue('client_id', detail.value)} /></FormField>
+              <FormField label="Secret"><Input type="password" value={configSecret} placeholder={config?.secret_hint ?? ''} onChange={({ detail }) => setConfigSecret(detail.value)} /></FormField>
+              <FormField label="Environment"><Select selectedOption={{ label: configValues.environment ?? 'sandbox', value: configValues.environment ?? 'sandbox' }} options={['sandbox', 'development', 'production'].map((value) => ({ label: value, value }))} onChange={({ detail }) => setConfigValue('environment', detail.selectedOption.value ?? 'sandbox')} /></FormField>
+              <FormField label="API base URL"><Input value={configValues.api_base_url ?? ''} onChange={({ detail }) => setConfigValue('api_base_url', detail.value)} /></FormField>
+              <FormField label="Country codes"><Input value={configValues.country_codes ?? 'US'} onChange={({ detail }) => setConfigValue('country_codes', detail.value)} /></FormField>
+              <FormField label="Redirect URI"><Input value={configValues.redirect_uri ?? ''} onChange={({ detail }) => setConfigValue('redirect_uri', detail.value)} /></FormField>
+            </>
+          )}
+          {config?.last_verify_error && <Alert type="error">{config.last_verify_error}</Alert>}
+        </SpaceBetween>
+      </Modal>
 
       <Modal
         visible={linkModal}

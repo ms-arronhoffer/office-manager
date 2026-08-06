@@ -485,14 +485,11 @@ async def portal_balance(
 
 # ─── Resident: saved payment methods ──────────────────────────────────────────
 
-def _payment_config() -> PaymentConfigResponse:
-    provider = (getattr(settings, "PAYMENTS_PROVIDER", "stripe") or "stripe").strip()
-    publishable_key = (getattr(settings, "PAYMENTS_PUBLISHABLE_KEY", "") or "").strip()
-    secret_key = (getattr(settings, "PAYMENTS_API_KEY", "") or "").strip()
+def _payment_config(config) -> PaymentConfigResponse:
     return PaymentConfigResponse(
-        configured=bool(secret_key and publishable_key),
-        provider=provider,
-        publishable_key=publishable_key,
+        configured=bool(config.is_enabled and config.secret_api_key and config.publishable_key),
+        provider=config.provider,
+        publishable_key=config.publishable_key,
     )
 
 
@@ -513,10 +510,13 @@ def _validate_processor_token(token: str, provider: str) -> None:
 @router.get("/resident-portal/payment-config", response_model=PaymentConfigResponse)
 async def payment_config(
     account: ClientPortalAccount = Depends(get_resident_account),
+    db: AsyncSession = Depends(get_db),
 ):
     """Return browser-safe payment configuration for the authenticated portal."""
     account.last_active_at = _now()
-    return _payment_config()
+    from app.services import organization_integration_settings as org_settings
+    config = await org_settings.resolve(db, account.organization_id, "resident_payments")
+    return _payment_config(config)
 
 async def _get_payment_method(
     db: AsyncSession, account: ClientPortalAccount, method_id: uuid.UUID
@@ -581,7 +581,16 @@ async def create_payment_method(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="A processor_token is required.",
         )
-    provider = getattr(settings, "PAYMENTS_PROVIDER", "stripe") or "stripe"
+    from app.services import organization_integration_settings as org_settings
+    payment_config = await org_settings.resolve(
+        db, account.organization_id, "resident_payments"
+    )
+    if not payment_config.is_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Online payments are not enabled for this organization.",
+        )
+    provider = payment_config.provider
     _validate_processor_token(token, provider)
     last4 = (payload.last4 or "").strip()[-4:] or None
 
@@ -719,12 +728,22 @@ async def make_payment(
     # transaction instead of taking the money twice. The client sends a stable
     # key per attempt; the fallback derives one from the facts of this request
     # so a double-submit is still collapsed even from an older client.
+    from app.services import organization_integration_settings as org_settings
+    payment_config = await org_settings.resolve(
+        db, account.organization_id, "resident_payments"
+    )
+    if payload.payment_method_id is not None and method.processor != payment_config.provider:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The saved payment method belongs to a different payment provider. Add a new payment method.",
+        )
     charge = await payment_processor.charge_payment(
         amount,
         method=payload.method,
         payment_token=payment_token,
         description=f"Resident payment for {resident_name}",
         idempotency_key=_payment_idempotency_key(resident_id, amount, plan, payload.idempotency_key),
+        config=payment_config,
     )
     if charge.status == "failed":
         raise HTTPException(

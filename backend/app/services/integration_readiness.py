@@ -13,7 +13,8 @@ from app.config import settings
 from app.models.external_sync import BankFeedConnection, QuickBooksConnection
 from app.models.organization_sso_config import OrganizationSsoConfig
 from app.services import sso_service
-from app.services.stripe_settings import get_stripe_config, resolve_stripe_settings
+from app.services import organization_integration_settings as org_settings
+from app.services.bank_feed.plaid_client import PlaidApiError, PlaidClient
 
 
 def _mode(*, environment: str = "", key: str = "", url: str = "") -> str:
@@ -37,6 +38,7 @@ def _item(
     last_verified_at: datetime | None = None,
     last_error: str | None = None,
     detail: str | None = None,
+    source: str = "tenant",
 ) -> dict:
     return {
         "provider": provider,
@@ -49,30 +51,23 @@ def _item(
         "last_verified_at": last_verified_at,
         "last_error": last_error,
         "detail": detail,
+        "source": source,
     }
 
 
 async def get_readiness(db: AsyncSession, organization_id: uuid.UUID) -> list[dict]:
     """Return readiness metadata without returning credentials or provider tokens."""
-    stripe = await resolve_stripe_settings(db)
-    stripe_row = await get_stripe_config(db)
-    stripe_missing = [
-        name
-        for name, value in (
-            ("STRIPE_SECRET_KEY", stripe.secret_key),
-            ("STRIPE_WEBHOOK_SECRET", stripe.webhook_secret),
-            ("STRIPE_PRICE_ID_PRO", stripe.price_id_pro),
-        )
-        if not value
-    ]
-
-    payment_key = settings.PAYMENTS_API_KEY
-    payment_publishable = settings.PAYMENTS_PUBLISHABLE_KEY
+    payment = await org_settings.resolve(db, organization_id, "resident_payments")
+    payment_row = await org_settings.get_config_row(db, organization_id, "resident_payments")
+    screening = await org_settings.resolve(db, organization_id, "screening")
+    screening_row = await org_settings.get_config_row(db, organization_id, "screening")
+    plaid = await org_settings.resolve(db, organization_id, "plaid")
+    plaid_row = await org_settings.get_config_row(db, organization_id, "plaid")
     payment_missing = [
         name
         for name, value in (
-            ("PAYMENTS_API_KEY", payment_key),
-            ("PAYMENTS_PUBLISHABLE_KEY", payment_publishable),
+            ("secret_api_key", payment.secret_api_key),
+            ("publishable_key", payment.publishable_key),
         )
         if not value
     ]
@@ -80,8 +75,8 @@ async def get_readiness(db: AsyncSession, organization_id: uuid.UUID) -> list[di
     screening_missing = [
         name
         for name, value in (
-            ("SCREENING_API_KEY", settings.SCREENING_API_KEY),
-            ("SCREENING_API_URL", settings.SCREENING_API_URL),
+            ("api_key", screening.api_key),
+            ("api_url", screening.api_url),
         )
         if not value
     ]
@@ -103,27 +98,14 @@ async def get_readiness(db: AsyncSession, organization_id: uuid.UUID) -> list[di
         if not value
     ]
 
-    plaid_connections = (
-        await db.execute(
-            select(BankFeedConnection).where(
-                BankFeedConnection.organization_id == organization_id
-            )
-        )
-    ).scalars().all()
     plaid_missing = [
         name
         for name, value in (
-            ("PLAID_CLIENT_ID", settings.PLAID_CLIENT_ID),
-            ("PLAID_SECRET", settings.PLAID_SECRET),
+            ("client_id", plaid.client_id),
+            ("secret", plaid.secret),
         )
         if not value
     ]
-    plaid_healthy = [c for c in plaid_connections if c.status == "connected" and c.is_enabled]
-    plaid_latest = max(
-        (c.last_sync_at or c.updated_at for c in plaid_connections), default=None
-    )
-    plaid_error = next((c.last_error for c in plaid_connections if c.last_error), None)
-
     sso = (
         await db.execute(
             select(OrganizationSsoConfig).where(
@@ -137,38 +119,30 @@ async def get_readiness(db: AsyncSession, organization_id: uuid.UUID) -> list[di
 
     return [
         _item(
-            "platform_stripe",
-            scope="platform",
-            configured=not stripe_missing,
-            verified=stripe_row.last_verify_ok if stripe_row else None,
-            verification_supported=True,
-            mode=_mode(key=stripe.secret_key),
-            missing_config=stripe_missing,
-            last_verified_at=stripe_row.last_verified_at if stripe_row else None,
-            last_error=stripe_row.last_verify_error if stripe_row else None,
-            detail="Platform subscription billing; credentials are managed by platform administrators.",
-        ),
-        _item(
             "resident_payments",
             scope="organization",
             configured=not payment_missing,
-            verified=None,
-            verification_supported=(settings.PAYMENTS_PROVIDER or "stripe").lower() == "stripe",
-            mode=_mode(key=payment_key, url=settings.PAYMENTS_API_URL),
+            verified=payment_row.last_verify_ok if payment_row else None,
+            verification_supported=payment.provider.lower() == "stripe",
+            mode=_mode(key=payment.secret_api_key, url=payment.api_url),
             missing_config=payment_missing,
-            detail="No persisted verification result; run the safe account check.",
+            last_verified_at=payment_row.last_verified_at if payment_row else None,
+            last_error=payment_row.last_verify_error if payment_row else None,
+            detail="Legacy/platform fallback. Save to tenant before normal operation." if payment.source == "legacy_env" else None,
+            source=payment.source,
         ),
         _item(
             "screening",
             scope="organization",
             configured=not screening_missing,
-            verified=None,
-            verification_supported=bool(settings.SCREENING_HEALTH_URL),
-            mode=_mode(url=settings.SCREENING_API_URL),
+            verified=screening_row.last_verify_ok if screening_row else None,
+            verification_supported=bool(screening.health_url),
+            mode=_mode(url=screening.api_url),
             missing_config=screening_missing,
-            detail=(
-                "Safe verification uses SCREENING_HEALTH_URL. A sandbox report is required when the provider has no non-mutating endpoint."
-            ),
+            last_verified_at=screening_row.last_verified_at if screening_row else None,
+            last_error=screening_row.last_verify_error if screening_row else None,
+            detail="Legacy/platform fallback. Save to tenant before normal operation." if screening.source == "legacy_env" else "A sandbox report is required when no health URL exists.",
+            source=screening.source,
         ),
         _item(
             "quickbooks",
@@ -186,13 +160,14 @@ async def get_readiness(db: AsyncSession, organization_id: uuid.UUID) -> list[di
             "plaid",
             scope="organization",
             configured=not plaid_missing,
-            verified=True if plaid_healthy else (False if plaid_connections else None),
-            verification_supported=False,
-            mode=_mode(environment=settings.PLAID_ENV, url=settings.PLAID_API_BASE_URL),
+            verified=plaid_row.last_verify_ok if plaid_row else None,
+            verification_supported=True,
+            mode=_mode(environment=plaid.environment, url=plaid.api_base_url),
             missing_config=plaid_missing,
-            last_verified_at=plaid_latest,
-            last_error=plaid_error,
-            detail="A successful Link token exchange and account lookup establishes a connection.",
+            last_verified_at=plaid_row.last_verified_at if plaid_row else None,
+            last_error=plaid_row.last_verify_error if plaid_row else None,
+            detail="Legacy/platform fallback. Save to tenant before normal operation." if plaid.source == "legacy_env" else "Safe verification lists one institution without creating an Item.",
+            source=plaid.source,
         ),
         _item(
             "sso",
@@ -209,22 +184,27 @@ async def get_readiness(db: AsyncSession, organization_id: uuid.UUID) -> list[di
 
 
 async def verify_resident_payments(
+    resolved: org_settings.ResidentPaymentsSettings | None = None,
     *, transport: httpx.AsyncBaseTransport | None = None
 ) -> dict:
-    provider = (settings.PAYMENTS_PROVIDER or "stripe").lower()
+    resolved = resolved or org_settings.legacy_settings("resident_payments")
+    if not resolved.is_enabled:
+        return {"provider": "resident_payments", "ok": False, "verification_supported": True,
+                "error": "Resident payments are disabled for this organization."}
+    provider = resolved.provider.lower()
     if provider != "stripe":
         return {"provider": "resident_payments", "ok": False, "verification_supported": False,
                 "error": f"Safe verification is not implemented for payment provider '{provider}'."}
-    if not settings.PAYMENTS_API_KEY:
+    if not resolved.secret_api_key:
         return {"provider": "resident_payments", "ok": False, "verification_supported": True,
                 "error": "PAYMENTS_API_KEY is not configured."}
-    configured_url = settings.PAYMENTS_API_URL or "https://api.stripe.com/v1/payment_intents"
+    configured_url = resolved.api_url or "https://api.stripe.com/v1/payment_intents"
     parsed = urlparse(configured_url)
     account_url = f"{parsed.scheme}://{parsed.netloc}/v1/account"
     try:
         async with httpx.AsyncClient(timeout=15.0, transport=transport) as client:
             response = await client.get(
-                account_url, headers={"Authorization": f"Bearer {settings.PAYMENTS_API_KEY}"}
+                account_url, headers={"Authorization": f"Bearer {resolved.secret_api_key}"}
             )
         if response.status_code != 200:
             return {"provider": "resident_payments", "ok": False, "verification_supported": True,
@@ -240,18 +220,25 @@ async def verify_resident_payments(
                 "error": f"Stripe account verification failed: {exc.__class__.__name__}."}
 
 
-async def verify_screening(*, transport: httpx.AsyncBaseTransport | None = None) -> dict:
-    if not settings.SCREENING_HEALTH_URL:
+async def verify_screening(
+    resolved: org_settings.ScreeningSettings | None = None,
+    *, transport: httpx.AsyncBaseTransport | None = None,
+) -> dict:
+    resolved = resolved or org_settings.legacy_settings("screening")
+    if not resolved.is_enabled:
+        return {"provider": "screening", "ok": False, "verification_supported": bool(resolved.health_url),
+                "error": "Screening is disabled for this organization."}
+    if not resolved.health_url:
         return {"provider": "screening", "ok": False, "verification_supported": False,
                 "error": "No provider-documented non-mutating SCREENING_HEALTH_URL is configured; certify with a sandbox report."}
-    if not settings.SCREENING_API_KEY:
+    if not resolved.api_key:
         return {"provider": "screening", "ok": False, "verification_supported": True,
                 "error": "SCREENING_API_KEY is not configured."}
     try:
         async with httpx.AsyncClient(timeout=15.0, transport=transport) as client:
             response = await client.get(
-                settings.SCREENING_HEALTH_URL,
-                headers={"Authorization": f"Bearer {settings.SCREENING_API_KEY}", "Accept": "application/json"},
+                resolved.health_url,
+                headers={"Authorization": f"Bearer {resolved.api_key}", "Accept": "application/json"},
             )
         ok = 200 <= response.status_code < 300
         return {"provider": "screening", "ok": ok, "verification_supported": True,
@@ -259,6 +246,21 @@ async def verify_screening(*, transport: httpx.AsyncBaseTransport | None = None)
     except httpx.HTTPError as exc:
         return {"provider": "screening", "ok": False, "verification_supported": True,
                 "error": f"Screening health check failed: {exc.__class__.__name__}."}
+
+
+async def verify_plaid(resolved: org_settings.PlaidSettings) -> dict:
+    if not resolved.is_enabled:
+        return {"provider": "plaid", "ok": False, "verification_supported": True,
+                "error": "Plaid is disabled for this organization."}
+    if not resolved.client_id or not resolved.secret:
+        return {"provider": "plaid", "ok": False, "verification_supported": True,
+                "error": "Plaid credentials are not configured."}
+    try:
+        await PlaidClient(config=resolved).get_institutions(count=1)
+        return {"provider": "plaid", "ok": True, "verification_supported": True, "error": None}
+    except PlaidApiError as exc:
+        return {"provider": "plaid", "ok": False, "verification_supported": True,
+                "error": f"Plaid verification failed: {exc}."}
 
 
 async def verify_sso(db: AsyncSession, organization_id: uuid.UUID) -> dict:

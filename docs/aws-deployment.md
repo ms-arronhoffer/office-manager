@@ -343,6 +343,12 @@ terraform output github_actions_recovery_role_arn
   `S3_UPLOAD_BUCKET`, ports, `NPM_*_DOMAIN`, …) is still read by the `deploy`
   job and shipped to the box with the SSM command.
 
+`PAYMENTS_*`, `SCREENING_*`, and `PLAID_*` are legacy fallback/bootstrap
+configuration only. Normal tenant operation stores provider credentials in the
+`organization_integration_configs` table, encrypted with `ENCRYPTION_KEY` and
+isolated by organization RLS. Keep fallback secrets during migration, then
+remove them after every tenant has used **Finance > Connections > Save to tenant**.
+
 If you haven't bootstrapped the OIDC roles yet, `infra/terraform/aws/ecr.tf`
 still exports a legacy `ecr_push_policy_arn` IAM policy you can attach to a
 static-key IAM user as a fallback, but the OIDC roles above are preferred.

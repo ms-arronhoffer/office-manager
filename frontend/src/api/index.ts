@@ -135,6 +135,11 @@ import type {
   BankFeedConnectionInput,
   BankFeedConnection,
   BankFeedSyncResult,
+  IntegrationReadiness,
+  IntegrationVerification,
+  TenantIntegrationConfig,
+  TenantIntegrationConfigInput,
+  TenantIntegrationProvider,
   BuildiumConnectionInput,
   BuildiumTestConnectionResult,
   BuildiumEntityType,
@@ -1291,6 +1296,15 @@ export const integrations = {
 
   verify: (provider: string) =>
     client.post<IntegrationVerification>(`/integrations/${provider}/verify`),
+
+  getConfig: (provider: TenantIntegrationProvider) =>
+    client.get<TenantIntegrationConfig>(`/integrations/config/${provider}`),
+
+  saveConfig: (provider: TenantIntegrationProvider, data: TenantIntegrationConfigInput) =>
+    client.put<TenantIntegrationConfig>(`/integrations/config/${provider}`, data),
+
+  deleteConfig: (provider: TenantIntegrationProvider) =>
+    client.delete(`/integrations/config/${provider}`),
 };
 
 export const organizations = {

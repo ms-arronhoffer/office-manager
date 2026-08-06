@@ -33,6 +33,7 @@ from app.models.external_sync import BankFeedConnection
 from app.models.user import User
 from app.services.bank_feed import sync_service as svc
 from app.services.bank_feed.plaid_client import PlaidApiError, PlaidClient
+from app.services import organization_integration_settings as org_settings
 
 logger = logging.getLogger(__name__)
 
@@ -137,27 +138,30 @@ def _connection_out(
 # ─── Provider status / Link ────────────────────────────────────────────────
 
 @router.get("/status", response_model=ProviderStatusOut)
-async def provider_status(current_user: User = Depends(FinanceUser)):
-    _require_org(current_user)
-    from app.config import settings
-
-    if not svc.is_configured():
+async def provider_status(
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(FinanceUser)
+):
+    config = await org_settings.resolve(db, _require_org(current_user), "plaid")
+    if not config.is_enabled or not config.client_id or not config.secret:
         return ProviderStatusOut(
             configured=False, detail="Bank feed provider is not configured."
         )
-    return ProviderStatusOut(configured=True, environment=settings.PLAID_ENV)
+    return ProviderStatusOut(configured=True, environment=config.environment)
 
 
 @router.post("/link-token", response_model=LinkTokenOut)
-async def create_link_token(current_user: User = Depends(FinanceUser)):
+async def create_link_token(
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(FinanceUser)
+):
     """Mint a short-lived Plaid Link token for the browser widget."""
     org_id = _require_org(current_user)
-    if not svc.is_configured():
+    config = await org_settings.resolve(db, org_id, "plaid")
+    if not config.is_enabled or not config.client_id or not config.secret:
         return LinkTokenOut(
             configured=False, detail="Bank feed provider is not configured."
         )
     try:
-        result = await PlaidClient().create_link_token(
+        result = await PlaidClient(config=config).create_link_token(
             client_user_id=str(org_id), client_name="Portfolio Desk"
         )
     except PlaidApiError as exc:
@@ -194,7 +198,8 @@ async def create_connection(
 ):
     """Exchange the Link public token and bind the Item to a bank account."""
     org_id = _require_org(current_user)
-    if not svc.is_configured():
+    config = await org_settings.resolve(db, org_id, "plaid")
+    if not config.is_enabled or not config.client_id or not config.secret:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Bank feed provider is not configured.",
@@ -206,7 +211,7 @@ async def create_connection(
             status_code=status.HTTP_404_NOT_FOUND, detail="Bank account not found"
         )
 
-    client = PlaidClient()
+    client = PlaidClient(config=config)
     try:
         exchange = await client.exchange_public_token(payload.public_token)
         access_token = exchange.get("access_token")

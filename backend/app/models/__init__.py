@@ -1,6 +1,7 @@
 from app.models.base import Base
 from app.models.organization import Organization
 from app.models.organization_sso_config import OrganizationSsoConfig, SsoLoginState
+from app.models.organization_integration_config import OrganizationIntegrationConfig
 from app.models.user import User
 from app.models.refresh_session import RefreshSession
 from app.models.auth_lockout import AuthLockout
@@ -161,7 +162,7 @@ from app.models.external_sync import (
 
 __all__ = [
     "Base", "Organization", "User", "AuthLockout",
-    "OrganizationSsoConfig", "SsoLoginState",
+    "OrganizationSsoConfig", "SsoLoginState", "OrganizationIntegrationConfig",
     "Manager", "Office",    "Lease", "LeaseNote", "LeaseCamEntry", "CAM_CHARGE_TYPES", "CAM_PERIOD_STATUSES",
     "CAM_RENT_FREQUENCIES", "CAM_REVIEW_STATUSES", "CAM_SOURCES",
     "LeaseRenewal", "LeaseOption",

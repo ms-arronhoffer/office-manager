@@ -42,7 +42,7 @@ alembic downgrade -1          # step back one revision
 
 ---
 
-## Current migrations (110 to 117)
+## Current migrations (110 to 120)
 
 | Rev | File | Adds | Fresh-DB safe? |
 |---|---|---|---|
@@ -54,8 +54,11 @@ alembic downgrade -1          # step back one revision
 | 115 | `115_add_billable_unit_snapshots.py` | `billable_unit_snapshots` | Yes, on ORM models |
 | 116 | `116_active_lease_billing_and_discounts.py` | Monthly active-lease ledger and tracked Stripe discount codes | Yes, on ORM models |
 | 117 | `117_default_lease_status_active.py` | Normalize unset lease statuses and default new leases to Active | Yes, on ORM models |
+| 118 | `118_extend_high_risk_rls.py` | Strict organization RLS for high-risk tenant tables | Migration required |
+| 119 | `119_add_refresh_sessions.py` | Rotating refresh sessions and MFA challenge attempts | Yes, on ORM models |
+| 120 | `120_add_organization_integration_configs.py` | Encrypted organization provider settings with strict RLS | Table is on ORM model; RLS requires migration |
 
-The chain is linear: `109 → 110 → 111 → 112 → 113 → 114 → 115 → 116 → 117`.
+The chain is linear through revision 120.
 
 ---
 

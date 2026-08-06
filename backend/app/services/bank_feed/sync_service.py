@@ -30,6 +30,7 @@ from app.models.bank_account import BankAccount, BankTransaction
 from app.models.external_sync import BankFeedConnection, ExternalSyncLog
 from app.services.bank_feed import plaid_client
 from app.services.bank_feed.plaid_client import PlaidApiError, PlaidClient
+from app.services import organization_integration_settings as org_settings
 from app.utils.crypto import decrypt_secret, encrypt_secret
 
 logger = logging.getLogger(__name__)
@@ -144,9 +145,10 @@ async def disconnect(
 
     Imported transactions are deliberately kept: they may already be reconciled.
     """
-    if is_configured():
+    config = await org_settings.resolve(db, conn.organization_id, "plaid")
+    if plaid_client.is_configured(config):
         try:
-            await (client or PlaidClient()).remove_item(
+            await (client or PlaidClient(config=config)).remove_item(
                 decrypt_secret(conn.access_token_encrypted)
             )
         except (PlaidApiError, ValueError) as exc:
@@ -299,14 +301,15 @@ async def sync_transactions(
     max_pages: int | None = None,
 ) -> dict:
     """Walk /transactions/sync from the stored cursor and apply every page."""
-    if not is_configured():
+    config = await org_settings.resolve(db, conn.organization_id, "plaid")
+    if not plaid_client.is_configured(config):
         return {**unconfigured_status(), "imported": 0, "updated": 0, "deleted": 0}
 
     bank_account = await db.get(BankAccount, conn.bank_account_id)
     if bank_account is None:
         raise PlaidApiError("The linked bank account no longer exists.")
 
-    client = client or PlaidClient()
+    client = client or PlaidClient(config=config)
     max_pages = max_pages or settings.PLAID_MAX_SYNC_PAGES
     cursor_before = conn.last_sync_cursor
     log = ExternalSyncLog(

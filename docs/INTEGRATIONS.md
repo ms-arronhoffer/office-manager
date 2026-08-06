@@ -7,11 +7,11 @@ rather than breaking the feature that uses it.
 | Integration | Purpose | Required plan | Config prefix |
 |---|---|---|---|
 | Platform Stripe | SaaS subscriptions and invoices | platform | `STRIPE_` |
-| Payments | Resident rent payments from the portal | any | `PAYMENTS_` |
-| Screening | Credit / criminal / eviction reports | any (residential) | `SCREENING_` |
+| Payments | Resident rent payments from the portal | any | tenant config; legacy `PAYMENTS_` fallback |
+| Screening | Credit / criminal / eviction reports | any (residential) | tenant config; legacy `SCREENING_` fallback |
 | SSO | OIDC single sign-on | Enterprise | `SSO_` |
 | QuickBooks Online | Push journal entries, map accounts | Operations | `QBO_` |
-| Plaid | Live bank feed into reconciliation | Operations | `PLAID_` |
+| Plaid | Live bank feed into reconciliation | Operations | tenant config; legacy `PLAID_` fallback |
 
 > **No live certification was performed in this environment.** Real provider
 > credentials are required to establish sandbox or live readiness. Unit and
@@ -24,16 +24,16 @@ rather than breaking the feature that uses it.
 The organization-admin endpoint `GET /api/v1/integrations/readiness` reports
 configuration gaps and available evidence without returning secrets or tokens.
 `POST /api/v1/integrations/{provider}/verify` performs only supported,
-non-mutating checks. Platform Stripe's persisted verification remains managed
-by the platform billing console.
+non-mutating checks. Platform Stripe is intentionally absent because it is not
+a tenant/user integration.
 
 | Integration | Automated contract evidence | Safe sandbox smoke | Persisted/provider evidence | Current certification |
 |---|---|---|---|---|
 | Platform Stripe billing | Account/auth errors, billing lifecycle, webhook behavior | `GET /v1/account` with `sk_test_...` | Platform config stores last verification time/result | Not live-certified here |
-| Resident Stripe payments | PaymentIntent form body, idempotency, success/error shapes | `GET /v1/account` with `sk_test_...`; no PaymentIntent created | No persisted verification; endpoint result is point-in-time | Not live-certified here |
+| Resident Stripe payments | PaymentIntent form body, idempotency, success/error shapes | `GET /v1/account` with `sk_test_...`; no PaymentIntent created | Tenant row stores last verification time/result | Not live-certified here |
 | Screening | Response normalization, polling/error shapes, PII allowlist | Provider-documented `SCREENING_HEALTH_URL` GET only | Unsupported when vendor has no non-mutating endpoint | Sandbox report required; not live-certified here |
 | QuickBooks Online | OAuth refresh rotation, errors/retry, pagination, journal payloads | Read-only `SELECT * FROM CompanyInfo` against sandbox | Successful OAuth exchange/connection and sync status | Not live-certified here |
-| Plaid | Credential body, error codes, cursor pagination, modified/removed transactions | Sandbox Link token creation; no Item or bank login | Successful Link exchange/account lookup and sync status | Not live-certified here |
+| Plaid | Credential body, error codes, cursor pagination, modified/removed transactions | `/institutions/get` with count 1; no Item created | Tenant row stores last verification time/result | Not live-certified here |
 | OIDC SSO | Discovery/token/error shapes, signature/issuer/audience/nonce/domain checks | Discovery document GET against a test tenant | Successful login time is full-flow evidence | Not live-certified here |
 
 The opt-in `.github/workflows/integration-smoke.yml` uses the protected
@@ -63,7 +63,7 @@ allowlists, webhook delivery, settlement, or production entitlements.
 
 ## Prerequisite: `ENCRYPTION_KEY`
 
-SSO, QuickBooks and Plaid all persist long-lived credentials. Those are
+SSO, QuickBooks, Payments, Screening and Plaid persist long-lived credentials. Those are
 encrypted at rest through `app.utils.crypto`, which reads `ENCRYPTION_KEY`.
 
 ```bash
@@ -85,6 +85,11 @@ and still decrypt, so upgrading is safe.
 
 ## Payments (resident rent)
 
+Organization admins configure Payments under **Finance > Connections**. The
+secret API key is encrypted at rest and only a masked hint is returned. The
+`PAYMENTS_*` variables below are legacy fallback/bootstrap values used only
+when no tenant row exists. Save the fallback in the tenant form to migrate it.
+
 Charges a resident's tokenised card or bank account from the resident portal.
 Targets a Stripe-style PaymentIntents API.
 
@@ -101,9 +106,9 @@ taken, so the ledger stays consistent without a processor.
 
 The resident portal uses Stripe.js Elements to exchange card details directly
 with Stripe and sends only the resulting `pm_...` PaymentMethod ID to the API.
-The current configuration uses one global Stripe account. Marketplace fund
-routing, connected-account onboarding, and tenant-specific settlement require
-Stripe Connect and are not provided by this payment flow.
+Each organization resolves its own Stripe credentials. Marketplace fund
+routing and connected-account onboarding still require Stripe Connect and are
+not provided by this payment flow.
 
 ### Flow
 
@@ -132,6 +137,10 @@ stores only the opaque processor token plus `brand` and `last4` for display.
 ---
 
 ## Tenant screening
+
+Organization admins configure Screening under **Finance > Connections**. The
+API key is encrypted and each organization has independent URLs and polling
+limits. `SCREENING_*` remains a legacy fallback only when no tenant row exists.
 
 ```bash
 SCREENING_PROVIDER=transunion
@@ -251,6 +260,11 @@ Sandbox uses `https://sandbox-quickbooks.api.intuit.com/v3/company`.
 
 ## Plaid (live bank feed)
 
+Organization admins configure Plaid under **Finance > Connections**. Link,
+token exchange, account lookup, interactive sync, and background sync resolve
+the connection organization's encrypted tenant credentials. `PLAID_*` remains
+a legacy fallback only when no tenant row exists.
+
 ```bash
 PLAID_CLIENT_ID=...
 PLAID_SECRET=...
@@ -294,9 +308,10 @@ reconciliation is unchanged.
 | Intuit rejects the redirect | `QBO_REDIRECT_URI` differs from the app registration, including trailing slash |
 | QuickBooks sync skips everything | Accounts unmapped. Pull the chart of accounts and map them. |
 | Small banks connect, Chase fails | `PLAID_REDIRECT_URI` unset or not registered with Plaid |
-| Payment reports `unconfigured` | `PAYMENTS_API_KEY` unset. Payment recorded, no money taken. |
-| Screening always says "review" | `SCREENING_API_KEY` unset |
+| Payment reports `unconfigured` | Resident Payments is not configured or enabled for the organization. Configure it under Accounting connections. Payment is recorded as pending and no money is taken. |
+| Screening always says "review" | Screening is not configured or enabled for the organization. Configure it under Accounting connections. |
 | SSO callback returns `verification_failed` | Check `aud` matches the client ID, `iss` matches the configured issuer, and the email domain is allowed |
 
-See also [MIGRATIONS.md](MIGRATIONS.md), since every integration above needs the
-schema from revisions 111 to 115.
+See also [MIGRATIONS.md](MIGRATIONS.md). Tenant provider settings require
+revision 120. Existing deployments can continue using environment fallback
+while each organization saves its own encrypted configuration.

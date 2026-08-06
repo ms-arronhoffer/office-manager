@@ -293,11 +293,18 @@ async def run_screening(
     application: RentalApplication,
 ) -> ScreeningReport:
     """Request a screening report for an application and persist the result."""
+    from app.services import organization_integration_settings as org_settings
+
+    config = (
+        await org_settings.resolve(db, organization_id, "screening")
+        if organization_id else org_settings.legacy_settings("screening")
+    )
     result = await screening_client.request_screening(
         first_name=application.applicant_first_name,
         last_name=application.applicant_last_name,
         email=application.applicant_email,
         monthly_income=application.monthly_income,
+        config=config,
     )
     report = ScreeningReport(
         organization_id=organization_id,

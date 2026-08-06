@@ -20,6 +20,10 @@ from decimal import Decimal
 import httpx
 
 from app.config import settings
+from app.services.organization_integration_settings import (
+    ResidentPaymentsSettings,
+    legacy_settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +41,8 @@ class ChargeResult:
     detail: str | None = None
 
 
-def _configured() -> bool:
-    return bool(getattr(settings, "PAYMENTS_API_KEY", None))
+def _configured(config: ResidentPaymentsSettings) -> bool:
+    return bool(config.is_enabled and config.secret_api_key)
 
 
 def _error_detail(resp: httpx.Response) -> str:
@@ -60,6 +64,7 @@ async def charge_payment(
     payment_token: str | None = None,
     description: str | None = None,
     idempotency_key: str | None = None,
+    config: ResidentPaymentsSettings | None = None,
 ) -> ChargeResult:
     """Attempt to capture ``amount`` from a tokenised payment method.
 
@@ -78,7 +83,8 @@ async def charge_payment(
     if amount is None or Decimal(str(amount)) <= 0:
         return ChargeResult(False, "failed", detail="Charge amount must be positive.")
 
-    if not _configured():
+    config = config or legacy_settings("resident_payments")
+    if not _configured(config):
         logger.info(
             "Payment skipped (processor not configured): amount=%s method=%s",
             amount, method,
@@ -88,8 +94,8 @@ async def charge_payment(
     if not payment_token:
         return ChargeResult(False, "failed", detail="A payment_token is required to capture funds.")
 
-    provider = getattr(settings, "PAYMENTS_PROVIDER", "stripe") or "stripe"
-    url = getattr(settings, "PAYMENTS_API_URL", "") or "https://api.stripe.com/v1/payment_intents"
+    provider = config.provider
+    url = config.api_url or "https://api.stripe.com/v1/payment_intents"
     # Amounts are sent in the smallest currency unit (cents).
     cents = int((Decimal(str(amount)) * 100).to_integral_value())
     data = {
@@ -103,7 +109,7 @@ async def charge_payment(
         "description": description or "",
     }
     headers = {
-        "Authorization": "Bearer " + str(settings.PAYMENTS_API_KEY),
+        "Authorization": "Bearer " + config.secret_api_key,
         "Idempotency-Key": idempotency_key or str(uuid.uuid4()),
     }
     try:
