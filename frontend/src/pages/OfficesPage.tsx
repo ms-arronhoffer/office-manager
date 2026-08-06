@@ -20,6 +20,8 @@ import type { FilterOptionSpec } from '@/hooks/useFilterOptions';
 import { useServerCollection } from '@/hooks/useServerCollection';
 import ImportModal from '@/components/common/ImportModal';
 import SavedFiltersDropdown from '@/components/common/SavedFiltersDropdown';
+import { useAuth } from '@/auth/AuthContext';
+import { canMutateOperationalData } from '@/auth/permissions';
 
 const DEFAULT_VISIBLE = ['pinned', 'office_number', 'location_name', 'location_type', 'city', 'state', 'phone_number', 'manager', 'is_active'];
 
@@ -45,6 +47,8 @@ const FILTER_OPTION_SPECS: FilterOptionSpec[] = [
 
 const OfficesPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canEdit = canMutateOperationalData(user?.role);
   const { getPageSize, setPageSize, getVisibleColumns, setVisibleColumns, getPinnedOffices, togglePinnedOffice } = usePreferences();
   const visibleContent = getVisibleColumns('offices') ?? DEFAULT_VISIBLE;
   const [showImport, setShowImport] = useState(false);
@@ -175,10 +179,12 @@ const OfficesPage: React.FC = () => {
                 onApply={setFilterQuery}
               />
               <Button onClick={refresh} iconName="refresh" />
-              <Button iconName="upload" onClick={() => setShowImport(true)}>Import</Button>
-              <Button variant="primary" onClick={() => navigate('/offices/wizard')}>
-                Create office
-              </Button>
+              {canEdit && <Button iconName="upload" onClick={() => setShowImport(true)}>Import</Button>}
+              {canEdit && (
+                <Button variant="primary" onClick={() => navigate('/offices/wizard')}>
+                  Create office
+                </Button>
+              )}
             </SpaceBetween>
           }
         >
@@ -256,21 +262,23 @@ const OfficesPage: React.FC = () => {
             <Box textAlign="center" color="inherit" padding="l">
               <SpaceBetween size="m">
                 <b>No offices</b>
-                <SpaceBetween direction="horizontal" size="xs">
-                  <Button variant="primary" onClick={() => navigate('/offices/wizard')}>Create office</Button>
-                </SpaceBetween>
+                {canEdit && (
+                  <SpaceBetween direction="horizontal" size="xs">
+                    <Button variant="primary" onClick={() => navigate('/offices/wizard')}>Create office</Button>
+                  </SpaceBetween>
+                )}
               </SpaceBetween>
             </Box>
           }
         />
       </SpaceBetween>
-      <ImportModal
+      {canEdit && <ImportModal
         visible={showImport}
         onDismiss={() => setShowImport(false)}
         entityName="offices"
         entityLabel="Offices"
         onComplete={refresh}
-      />
+      />}
     </ContentLayout>
   );
 };

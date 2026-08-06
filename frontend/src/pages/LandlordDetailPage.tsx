@@ -116,15 +116,19 @@ const LandlordDetailPage: React.FC = () => {
             <Header
               variant="h1"
               actions={
-                <SpaceBetween direction="horizontal" size="xs">
-                  <Button onClick={() => navigate(`/landlords/${id}/edit`)}>Edit</Button>
-                  <Button variant="normal" onClick={() => confirmDelete({
-                    itemName: landlord.landlord_company || landlord.contact_name || landlord.office_name || 'Landlord',
-                    onConfirm: handleDelete,
-                  })}>
-                    Delete
-                  </Button>
-                </SpaceBetween>
+                canEdit ? (
+                  <SpaceBetween direction="horizontal" size="xs">
+                    <Button onClick={() => navigate(`/landlords/${id}/edit`)}>Edit</Button>
+                    {user?.role === 'admin' && (
+                      <Button variant="normal" onClick={() => confirmDelete({
+                        itemName: landlord.landlord_company || landlord.contact_name || landlord.office_name || 'Landlord',
+                        onConfirm: handleDelete,
+                      })}>
+                        Delete
+                      </Button>
+                    )}
+                  </SpaceBetween>
+                ) : undefined
               }
             >
               {landlord.landlord_company || landlord.contact_name || landlord.office_name || 'Landlord'}

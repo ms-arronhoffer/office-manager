@@ -15,6 +15,8 @@ import { ai, leaseTemplates } from '@/api';
 import EmptyState from '@/components/common/EmptyState';
 import { aiUploadErrorMessage } from '@/utils/aiUpload';
 import type { LeaseTemplate } from '@/types';
+import { useAuth } from '@/auth/AuthContext';
+import { canMutateOperationalData } from '@/auth/permissions';
 
 // Merge fields available in the backend's build_lease_merge_context()
 // (backend/app/services/leasing_funnel_service.py). Keep this list in sync.
@@ -38,6 +40,8 @@ const MERGE_FIELDS = [
 
 const LeaseTemplatesPage: React.FC = () => {
   const { addFlash } = useFlashbar();
+  const { user } = useAuth();
+  const canEdit = canMutateOperationalData(user?.role);
   const [templates, setTemplates] = useState<LeaseTemplate[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -191,7 +195,7 @@ const LeaseTemplatesPage: React.FC = () => {
           <Header
             counter={`(${templates.length})`}
             description="Reusable lease documents with merge fields, used to generate e-signature requests."
-            actions={
+            actions={canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 <input
                   ref={fileInputRef}
@@ -212,7 +216,7 @@ const LeaseTemplatesPage: React.FC = () => {
                   Add template
                 </Button>
               </SpaceBetween>
-            }
+            ) : undefined}
           >
             Lease templates
           </Header>
@@ -238,7 +242,7 @@ const LeaseTemplatesPage: React.FC = () => {
           {
             id: 'actions',
             header: 'Actions',
-            cell: (t) => (
+            cell: (t) => canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 <Button variant="inline-link" onClick={() => openEdit(t)}>
                   Edit
@@ -247,21 +251,21 @@ const LeaseTemplatesPage: React.FC = () => {
                   Delete
                 </Button>
               </SpaceBetween>
-            ),
+            ) : null,
           },
         ]}
         empty={
           <EmptyState
             title="No lease templates yet"
             description="Templates let you generate and e-sign leases from saved wording."
-            actionLabel="Create your first template"
-            onAction={openCreate}
+            actionLabel={canEdit ? 'Create your first template' : undefined}
+            onAction={canEdit ? openCreate : undefined}
           />
         }
       />
 
       <Modal
-        visible={modalOpen}
+        visible={canEdit && modalOpen}
         onDismiss={() => setModalOpen(false)}
         size="large"
         header={editing ? 'Edit template' : 'Add template'}

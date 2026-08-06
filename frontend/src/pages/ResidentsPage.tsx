@@ -14,6 +14,7 @@ import Link from '@cloudscape-design/components/link';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useAuth } from '@/auth/AuthContext';
+import { canMutateOperationalData } from '@/auth/permissions';
 import { leasing, attachments as attachmentsApi } from '@/api';
 import useListCollection from '@/hooks/useListCollection';
 import { exportRowsToCsv } from '@/lib/csv';
@@ -47,7 +48,8 @@ const ResidentsPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const canEditDocuments = user?.role === 'admin' || user?.role === 'editor';
+  const canEdit = canMutateOperationalData(user?.role);
+  const canEditDocuments = canEdit;
   const [residents, setResidents] = useState<Resident[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<Opt>({ label: 'All statuses', value: '' });
@@ -226,7 +228,7 @@ const ResidentsPage: React.FC = () => {
       <Box textAlign="center" padding="m">
         <SpaceBetween size="xs">
           <Box>No residents yet.</Box>
-          <Button onClick={openCreate}>Add your first resident</Button>
+          {canEdit && <Button onClick={openCreate}>Add your first resident</Button>}
         </SpaceBetween>
       </Box>
     ),
@@ -338,9 +340,11 @@ const ResidentsPage: React.FC = () => {
                 >
                   Export selected
                 </Button>
-                <Button variant="primary" onClick={openCreate}>
-                  Add resident
-                </Button>
+                {canEdit && (
+                  <Button variant="primary" onClick={openCreate}>
+                    Add resident
+                  </Button>
+                )}
               </SpaceBetween>
             }
           >
@@ -389,7 +393,7 @@ const ResidentsPage: React.FC = () => {
       />
 
       <CreateWizardModal
-        visible={modalOpen && !editing}
+        visible={canEdit && modalOpen && !editing}
         entityLabel="resident"
         onCancel={() => setModalOpen(false)}
         onSubmit={save}
@@ -444,7 +448,7 @@ const ResidentsPage: React.FC = () => {
       />
 
       <EntityFormModal
-        visible={modalOpen && Boolean(editing)}
+        visible={canEdit && modalOpen && Boolean(editing)}
         onCancel={() => setModalOpen(false)}
         title="Edit resident"
         size="large"

@@ -43,6 +43,10 @@ _metadata_cache: dict[str, tuple[float, dict]] = {}
 class SsoError(Exception):
     """Raised when an SSO exchange or verification step fails."""
 
+    def __init__(self, message: str, *, code: str = "verification_failed"):
+        super().__init__(message)
+        self.code = code
+
 
 def clear_metadata_cache() -> None:
     _metadata_cache.clear()
@@ -191,7 +195,10 @@ async def exchange_code(
     if response.status_code != 200:
         # The body can echo the submitted client_secret, so it is never logged.
         logger.warning("SSO token exchange failed with status %s", response.status_code)
-        raise SsoError("Identity provider rejected the authorization code.")
+        raise SsoError(
+            "Identity provider rejected the authorization code.",
+            code="provider_rejected",
+        )
     try:
         tokens = response.json()
     except ValueError as exc:
@@ -230,11 +237,27 @@ def extract_verified_email(claims: dict) -> str:
     """
     email = claims.get("email")
     if not isinstance(email, str) or "@" not in email:
-        raise SsoError("ID token did not include an email address.")
+        raise SsoError(
+            "ID token did not include an email address.", code="identity_missing"
+        )
     verified = claims.get("email_verified")
     if verified is False or str(verified).lower() == "false":
-        raise SsoError("Identity provider reported the email address as unverified.")
+        raise SsoError(
+            "Identity provider reported the email address as unverified.",
+            code="email_unverified",
+        )
     return email.strip().lower()
+
+
+def extract_first_name(claims: dict, email: str) -> str:
+    """Return the user's first name from standard OIDC profile claims."""
+    given_name = claims.get("given_name")
+    if isinstance(given_name, str) and given_name.strip():
+        return given_name.strip()[:255]
+    name = claims.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip().split()[0][:255]
+    return email.split("@", 1)[0].strip()[:255]
 
 
 def email_domain(email: str) -> str:

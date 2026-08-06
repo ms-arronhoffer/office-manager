@@ -23,6 +23,8 @@ import ImportModal from '@/components/common/ImportModal';
 import SavedFiltersDropdown from '@/components/common/SavedFiltersDropdown';
 import { useAttachmentCounts } from '@/hooks/useAttachmentCounts';
 import { LEASE_STATUS_OPTIONS, leaseStatusLabel } from '@/constants/leaseStatus';
+import { useAuth } from '@/auth/AuthContext';
+import { canMutateOperationalData } from '@/auth/permissions';
 
 const DEFAULT_VISIBLE = [
   'lease_name',
@@ -90,6 +92,8 @@ const FILTER_OPTION_SPECS: FilterOptionSpec[] = [
 
 const LeasesPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canEdit = canMutateOperationalData(user?.role);
   const [searchParams, setSearchParams] = useSearchParams();
   const { getPageSize, setPageSize, getVisibleColumns, setVisibleColumns } = usePreferences();
   const visibleContent = getVisibleColumns('leases') ?? DEFAULT_VISIBLE;
@@ -215,7 +219,7 @@ const LeasesPage: React.FC = () => {
                 onApply={setFilterQuery}
               />
               <Button onClick={refresh} iconName="refresh" />
-              <Button iconName="upload" onClick={() => setShowImport(true)}>Import</Button>
+              {canEdit && <Button iconName="upload" onClick={() => setShowImport(true)}>Import</Button>}
               <Button iconName="calendar" onClick={() => navigate('/leases/calendar')}>Calendar</Button>
               <Button
                 iconName="download"
@@ -245,9 +249,11 @@ const LeasesPage: React.FC = () => {
               >
                 Export to Calendar (.ics)
               </Button>
-              <Button variant="primary" onClick={() => navigate('/leases/wizard')}>
-                Create lease
-              </Button>
+              {canEdit && (
+                <Button variant="primary" onClick={() => navigate('/leases/wizard')}>
+                  Create lease
+                </Button>
+              )}
             </SpaceBetween>
           }
         >
@@ -344,21 +350,23 @@ const LeasesPage: React.FC = () => {
             <Box textAlign="center" color="inherit" padding="l">
               <SpaceBetween size="m">
                 <b>No leases</b>
-                <SpaceBetween direction="horizontal" size="xs">
-                  <Button variant="primary" onClick={() => navigate('/leases/wizard')}>Create lease</Button>
-                </SpaceBetween>
+                {canEdit && (
+                  <SpaceBetween direction="horizontal" size="xs">
+                    <Button variant="primary" onClick={() => navigate('/leases/wizard')}>Create lease</Button>
+                  </SpaceBetween>
+                )}
               </SpaceBetween>
             </Box>
           }
         />
       </SpaceBetween>
-      <ImportModal
+      {canEdit && <ImportModal
         visible={showImport}
         onDismiss={() => setShowImport(false)}
         entityName="leases"
         entityLabel="Leases"
         onComplete={refresh}
-      />
+      />}
     </ContentLayout>
   );
 };

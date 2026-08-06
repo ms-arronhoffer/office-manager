@@ -650,12 +650,12 @@ const LeaseDetailPage: React.FC = () => {
                   {isFinance && (
                     <Button onClick={() => navigate('/finance')}>Rent roll</Button>
                   )}
-                  <Button loading={renewing} onClick={handleRenew}>Renew Lease</Button>
+                  {canEdit && <Button loading={renewing} onClick={handleRenew}>Renew Lease</Button>}
                   {canEdit && !lease.notice_given_date && (
                     <Button loading={markingNotice} onClick={handleMarkNoticeGiven}>Mark Notice Given</Button>
                   )}
-                  <Button onClick={() => navigate(`/leases/${id}/edit`)}>Edit</Button>
-                  <Button onClick={handleDelete}>Delete</Button>
+                  {canEdit && <Button onClick={() => navigate(`/leases/${id}/edit`)}>Edit</Button>}
+                  {user?.role === 'admin' && <Button onClick={handleDelete}>Delete</Button>}
                 </SpaceBetween>
               }
             >

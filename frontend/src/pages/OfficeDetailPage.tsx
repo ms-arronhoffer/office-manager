@@ -257,10 +257,14 @@ const OfficeDetailPage: React.FC = () => {
             <Header
               variant="h1"
               actions={
-                <SpaceBetween direction="horizontal" size="xs">
-                  <Button onClick={() => navigate(`/offices/${id}/edit`)}>Edit</Button>
-                  <Button onClick={() => confirmDelete({ itemName: office.location_name, onConfirm: handleDelete })}>Delete</Button>
-                </SpaceBetween>
+                (user?.role === 'admin' || user?.role === 'editor') ? (
+                  <SpaceBetween direction="horizontal" size="xs">
+                    <Button onClick={() => navigate(`/offices/${id}/edit`)}>Edit</Button>
+                    {user?.role === 'admin' && (
+                      <Button onClick={() => confirmDelete({ itemName: office.location_name, onConfirm: handleDelete })}>Delete</Button>
+                    )}
+                  </SpaceBetween>
+                ) : undefined
               }
             >
               {office.location_name}

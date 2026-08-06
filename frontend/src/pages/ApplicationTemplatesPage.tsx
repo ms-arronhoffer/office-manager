@@ -16,6 +16,8 @@ import { useFlashbar } from '@/context/FlashbarContext';
 import { applicationTemplates } from '@/api';
 import EmptyState from '@/components/common/EmptyState';
 import type { ApplicationTemplate, ApplicationTemplateField } from '@/types';
+import { useAuth } from '@/auth/AuthContext';
+import { canMutateOperationalData } from '@/auth/permissions';
 
 // Applicant merge fields available in the backend's
 // build_application_merge_context() (backend/app/services/leasing_funnel_service.py).
@@ -36,6 +38,8 @@ const FIELD_TYPES = ['text', 'textarea', 'number', 'date', 'select'];
 
 const ApplicationTemplatesPage: React.FC = () => {
   const { addFlash } = useFlashbar();
+  const { user } = useAuth();
+  const canEdit = canMutateOperationalData(user?.role);
   const [templates, setTemplates] = useState<ApplicationTemplate[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -185,7 +189,7 @@ const ApplicationTemplatesPage: React.FC = () => {
           <Header
             counter={`(${templates.length})`}
             description="Reusable residential application documents with merge fields and applicant-filled fields, used to send an application to a prospect."
-            actions={
+            actions={canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 <Button onClick={openSample} loading={drafting}>
                   Start from sample application
@@ -194,7 +198,7 @@ const ApplicationTemplatesPage: React.FC = () => {
                   Add template
                 </Button>
               </SpaceBetween>
-            }
+            ) : undefined}
           >
             Application templates
           </Header>
@@ -225,7 +229,7 @@ const ApplicationTemplatesPage: React.FC = () => {
           {
             id: 'actions',
             header: 'Actions',
-            cell: (t) => (
+            cell: (t) => canEdit ? (
               <SpaceBetween direction="horizontal" size="xs">
                 <Button variant="inline-link" onClick={() => openEdit(t)}>
                   Edit
@@ -234,21 +238,21 @@ const ApplicationTemplatesPage: React.FC = () => {
                   Delete
                 </Button>
               </SpaceBetween>
-            ),
+            ) : null,
           },
         ]}
         empty={
           <EmptyState
             title="No application templates yet"
             description="Templates define the questions prospects answer when they apply."
-            actionLabel="Create your first template"
-            onAction={openCreate}
+            actionLabel={canEdit ? 'Create your first template' : undefined}
+            onAction={canEdit ? openCreate : undefined}
           />
         }
       />
 
       <Modal
-        visible={modalOpen}
+        visible={canEdit && modalOpen}
         onDismiss={() => setModalOpen(false)}
         size="large"
         header={editing ? 'Edit template' : 'Add template'}

@@ -20,6 +20,8 @@ import { useFilterOptions } from '@/hooks/useFilterOptions';
 import type { FilterOptionSpec } from '@/hooks/useFilterOptions';
 import { useServerCollection } from '@/hooks/useServerCollection';
 import ImportModal from '@/components/common/ImportModal';
+import { useAuth } from '@/auth/AuthContext';
+import { canMutateOperationalData } from '@/auth/permissions';
 
 const DEFAULT_VISIBLE = [
   'hvac_company',
@@ -59,6 +61,8 @@ const FILTER_OPTION_SPECS: FilterOptionSpec[] = [
 
 const HvacContractsPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canEdit = canMutateOperationalData(user?.role);
   const [searchParams, setSearchParams] = useSearchParams();
   const { getPageSize, setPageSize, getVisibleColumns, setVisibleColumns } = usePreferences();
   const urlDueSoon = searchParams.get('due_soon');
@@ -147,7 +151,7 @@ const HvacContractsPage: React.FC = () => {
           actions={
             <SpaceBetween direction="horizontal" size="xs">
               <Button onClick={refresh} iconName="refresh" />
-              <Button iconName="upload" onClick={() => setShowImport(true)}>Import</Button>
+              {canEdit && <Button iconName="upload" onClick={() => setShowImport(true)}>Import</Button>}
               <Button
                 iconName="download"
                 onClick={async () => {
@@ -176,9 +180,11 @@ const HvacContractsPage: React.FC = () => {
               >
                 Export to Calendar (.ics)
               </Button>
-              <Button variant="primary" onClick={() => navigate('/hvac-contracts/new')}>
-                Create Contract
-              </Button>
+              {canEdit && (
+                <Button variant="primary" onClick={() => navigate('/hvac-contracts/new')}>
+                  Create Contract
+                </Button>
+              )}
             </SpaceBetween>
           }
         >
@@ -260,21 +266,23 @@ const HvacContractsPage: React.FC = () => {
             <Box textAlign="center" color="inherit" padding="l">
               <SpaceBetween size="m">
                 <b>No HVAC contracts</b>
-                <Button onClick={() => navigate('/hvac-contracts/new')}>
-                  Create contract
-                </Button>
+                {canEdit && (
+                  <Button onClick={() => navigate('/hvac-contracts/new')}>
+                    Create contract
+                  </Button>
+                )}
               </SpaceBetween>
             </Box>
           }
         />
       </SpaceBetween>
-      <ImportModal
+      {canEdit && <ImportModal
         visible={showImport}
         onDismiss={() => setShowImport(false)}
         entityName="hvac-contracts"
         entityLabel="HVAC Contracts"
         onComplete={refresh}
-      />
+      />}
     </ContentLayout>
   );
 };
