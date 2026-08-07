@@ -358,8 +358,6 @@ terraform output github_actions_recovery_role_arn
   approver, and store this value as an environment secret from
   `terraform output github_actions_recovery_role_arn` in the bootstrap module.
 - `AWS_REGION` — region the ECR registry lives in (e.g. `us-east-2`).
-- `TF_VAR_DB_PASSWORD`, `TF_VAR_JWT_SECRET`, `TF_VAR_DEFAULT_ADMIN_PASSWORD`
-- `TF_VAR_STRIPE_SECRET_KEY`, `TF_VAR_GEMINI_API_KEY`, `TF_VAR_SENTRY_DSN` (optional)
 - `GOOGLE_CLIENT_SECRET`, `QBO_CLIENT_SECRET`, `PLAID_SECRET`, `SMTP_USER`,
   `SMTP_PASSWORD`, `NPM_ADMIN_PASSWORD`
   (optional) — folded into the Secrets Manager app secret by the `infra` job so

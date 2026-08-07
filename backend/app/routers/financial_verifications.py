@@ -187,6 +187,22 @@ def _queue_email(background: BackgroundTasks, row: ApplicantFinancialVerificatio
         org_name=org_name, raw_token=raw_token)
 
 
+def _plaid_link_error_detail(error_code: str | None) -> str:
+    messages = {
+        "INVALID_API_KEYS": "The requesting organization must reconnect its Plaid credentials.",
+        "INVALID_PRODUCT": "Plaid Identity, Auth, or Transactions is not enabled for the requesting organization.",
+        "PRODUCTS_NOT_SUPPORTED": "The requesting organization's Plaid account is not approved for all requested verification products.",
+        "INVALID_CONFIGURATION": "The Plaid application configuration is incomplete. Confirm the applicant redirect and webhook URLs in the Plaid dashboard.",
+        "INVALID_FIELD": "Plaid rejected an application URL or product setting. Confirm the applicant redirect URL in the Plaid dashboard.",
+    }
+    guidance = messages.get(
+        error_code,
+        "The requesting organization must review its Plaid applicant-verification configuration.",
+    )
+    reference = f" Reference: {error_code}." if error_code else ""
+    return f"Plaid could not start the secure bank connection. {guidance}{reference}"
+
+
 @router.get("/financial-verifications/capability", response_model=FinancialVerificationCapabilityOut)
 async def financial_verification_capability(
     db: AsyncSession = Depends(get_db),
@@ -325,11 +341,18 @@ async def _consent(token: str, payload: ConsentInput, request: Request, user_age
             products=["identity", "auth", "transactions"], webhook_url=config.webhook_url or None,
             user_email=application.applicant_email,
             legal_name=f"{application.applicant_first_name} {application.applicant_last_name}".strip(),
+            redirect_uri=config.applicant_redirect_uri or "",
         )
     except PlaidApiError as exc:
         row.status, row.last_error = "error", exc.error_code or "plaid_link_token_error"
+        logger.warning(
+            "Plaid Link token failed for financial verification %s: status=%s code=%s",
+            row.id,
+            exc.status_code,
+            row.last_error,
+        )
         await db.commit()
-        raise HTTPException(502, "Plaid could not start the secure bank connection.") from exc
+        raise HTTPException(502, _plaid_link_error_detail(exc.error_code)) from exc
     row.status = "linking"
     await db.commit()
     return {"link_token": result["link_token"], "status": row.status}
@@ -359,9 +382,13 @@ async def _exchange(token: str, payload: PublicTokenInput, db: AsyncSession) -> 
         row.linked_at, row.status = svc.now(), "processing"
         await db.flush()
         await svc.process_verification(row, row.application, client)
-    except (PlaidApiError, KeyError, ValueError, RuntimeError) as exc:
+    except Exception as exc:
         row.status, row.last_error = "error", getattr(exc, "error_code", None) or type(exc).__name__
         row.access_token_encrypted = None
+        logger.exception(
+            "Applicant financial verification processing failed for verification %s",
+            row.id,
+        )
         await db.commit()
         raise HTTPException(502, "Financial verification could not be completed. Please contact the requesting organization.") from exc
     await db.commit()

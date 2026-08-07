@@ -87,6 +87,7 @@ services:
       STRIPE_PRICE_ID_PRO: ${STRIPE_PRICE_ID_PRO:-}
       STRIPE_PRICE_ID_PRO_ANNUAL: ${STRIPE_PRICE_ID_PRO_ANNUAL:-}
       STRIPE_PRODUCT_ID_ENTERPRISE: ${STRIPE_PRODUCT_ID_ENTERPRISE:-}
+      BUILD_SHA: ${BUILD_SHA:-dev}
     volumes:
       - uploads:/app/uploads
     networks:

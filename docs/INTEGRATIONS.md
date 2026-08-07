@@ -360,6 +360,20 @@ https://dev.app.portfoliodesk.ai/api/v1/leasing-funnel/plaid/webhook
 The frontend host proxies `/api/` to the backend, so a separate API hostname is
 not required. The URL must remain publicly reachable over HTTPS for Plaid.
 
+For OAuth institutions, add this applicant redirect URI to the Plaid dashboard's
+allowed redirect URIs, then save the same value in the tenant Plaid form:
+
+```text
+https://dev.app.portfoliodesk.ai/financial-verify
+```
+
+This is separate from the accounting bank-feed redirect URI. Applicant Link
+uses the public verification page so OAuth users return to their scoped,
+cookie-backed verification session instead of the authenticated Finance page.
+Leave the applicant redirect field blank when testing non-OAuth Sandbox
+institutions. Sending an unregistered redirect causes Plaid `INVALID_FIELD` and
+prevents Link from opening.
+
 The endpoint maps `item_id` to an organization under a narrow trusted RLS
 bypass, switches to that tenant, retrieves Plaid's verification key, verifies
 the ES256 `X-Plaid-Verification` JWT and exact request-body SHA-256 claim, and

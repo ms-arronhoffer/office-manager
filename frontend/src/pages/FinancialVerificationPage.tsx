@@ -56,9 +56,10 @@ const FinancialVerificationPage: React.FC = () => {
       );
       setMessage(exchange.data.message);
       setPageState(exchange.data.status === 'completed' ? 'completed' : 'processing');
-    } catch {
+    } catch (error: unknown) {
       setPageState('error');
-      setMessage('The secure bank verification could not be completed. Contact the requesting organization for assistance.');
+      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setMessage(detail ?? 'The secure bank verification could not be completed. Contact the requesting organization for assistance.');
     }
   };
 

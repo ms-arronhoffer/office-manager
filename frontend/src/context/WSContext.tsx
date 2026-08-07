@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useCallback, useState } from 'react';
+import { useAuth } from '@/auth/AuthContext';
 
 export type WSMessage =
   | { type: 'notification'; notification: NotificationPayload }
@@ -52,6 +53,7 @@ const RECONNECT_MAX_MS = 30000;
 const AUTH_FAILURE_CODES = new Set([4001, 4003]);
 
 export const WSProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated } = useAuth();
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef<Set<MessageHandler>>(new Set());
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -63,6 +65,7 @@ export const WSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   }, []);
 
   const connect = useCallback(() => {
+    if (!isAuthenticated) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     const url = `${WS_BASE}/ws/connect`;
@@ -105,17 +108,17 @@ export const WSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     ws.onerror = () => {
       ws.close();
     };
-  }, [dispatch]);
+  }, [dispatch, isAuthenticated]);
 
   useEffect(() => {
     reconnectAttempts.current = 0;
-    connect();
+    if (isAuthenticated) connect();
     return () => {
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [connect]);
+  }, [connect, isAuthenticated]);
 
   const sendPresence = useCallback((entityType: string, entityId: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

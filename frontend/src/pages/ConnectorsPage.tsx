@@ -234,6 +234,7 @@ const ConnectorsPage: React.FC = () => {
       country_codes: (configValues.country_codes ?? 'US').split(',').map((code) => code.trim()),
       redirect_uri: configValues.redirect_uri ?? '',
       webhook_url: configValues.webhook_url || applicantWebhookUrl,
+      applicant_redirect_uri: configValues.applicant_redirect_uri ?? '',
       applicant_verification_enabled: configValues.applicant_verification_enabled === 'true',
     };
   };
@@ -726,6 +727,16 @@ const ConnectorsPage: React.FC = () => {
                   value={configValues.webhook_url ?? ''}
                   placeholder={applicantWebhookUrl}
                   onChange={({ detail }) => setConfigValue('webhook_url', detail.value)}
+                />
+              </FormField>
+              <FormField
+                label="Applicant OAuth redirect URI"
+                description="Optional. Register this exact URI in Plaid before saving it. Leave blank for non-OAuth Sandbox institutions."
+              >
+                <Input
+                  value={configValues.applicant_redirect_uri ?? ''}
+                  placeholder={`${window.location.origin}/financial-verify`}
+                  onChange={({ detail }) => setConfigValue('applicant_redirect_uri', detail.value)}
                 />
               </FormField>
             </>

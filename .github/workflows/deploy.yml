@@ -175,6 +175,7 @@ jobs:
           STRIPE_PRICE_ID_PRO: ${{ secrets.STRIPE_PRICE_ID_PRO }}
           STRIPE_PRICE_ID_PRO_ANNUAL: ${{ secrets.STRIPE_PRICE_ID_PRO_ANNUAL }}
           STRIPE_PRODUCT_ID_ENTERPRISE: ${{ secrets.STRIPE_PRODUCT_ID_ENTERPRISE }}
+          BUILD_SHA: ${{ github.sha }}
         run: |
           # Recreate every service (backend, frontend, admin-frontend, landing, db)
           # using docker-compose_local.yml, which binds the host ports to all
@@ -216,6 +217,33 @@ jobs:
             attempt=$((attempt + 1))
             sleep 5
           done
+
+          backend_ready=0
+          for _ in $(seq 1 60); do
+            if docker compose -p dev-office-manager -f docker-compose_local.yml exec -T backend \
+              python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/readyz', timeout=3).read()" \
+              >/dev/null 2>&1; then
+              backend_ready=1
+              break
+            fi
+            sleep 5
+          done
+          [ "$backend_ready" -eq 1 ] || { echo "::error::Backend never became ready."; exit 1; }
+
+          reported_sha="$(docker compose -p dev-office-manager -f docker-compose_local.yml exec -T backend \
+            python -c "import json, urllib.request; print(json.load(urllib.request.urlopen('http://localhost:8000/api/v1/health'))['build_sha'])")"
+          [ "$reported_sha" = "$GITHUB_SHA" ] || {
+            echo "::error::Backend build mismatch: expected $GITHUB_SHA, reported $reported_sha"
+            exit 1
+          }
+
+          code_head="$(docker compose -p dev-office-manager -f docker-compose_local.yml exec -T backend alembic heads | awk 'NR==1 {print $1}')"
+          database_head="$(docker compose -p dev-office-manager -f docker-compose_local.yml exec -T backend alembic current | awk 'NR==1 {print $1}')"
+          [ -n "$code_head" ] && [ "$database_head" = "$code_head" ] || {
+            echo "::error::Database migration mismatch: code head $code_head, database head $database_head"
+            exit 1
+          }
+          echo "Verified backend SHA $reported_sha and database revision $database_head."
 
           # Clean up older dangling image layers to save space
           docker image prune -f

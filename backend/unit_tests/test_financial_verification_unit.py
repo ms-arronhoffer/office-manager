@@ -74,6 +74,18 @@ def test_income_aggregation_is_bounded_and_conservative():
     assert "Employer payroll" not in str(result)
 
 
+def test_income_aggregation_tolerates_nullable_and_malformed_provider_fields():
+    result = subject.recurring_income_summary([
+        {"date": "2026-05-01", "amount": -2500, "name": "Payroll", "category": None},
+        {"date": "2026-06-01", "amount": -2500, "name": "Salary", "category": "Income"},
+        {"date": "2026-06-02", "amount": None, "name": "Payroll", "category": []},
+        None,
+    ])
+
+    assert result["recurring_income_monthly"] == Decimal("2500.00")
+    assert result["income_months_observed"] == 2
+
+
 def test_recommendation_is_decision_support_with_reason_codes():
     decision, reasons = subject.recommendation(
         identity_match=False, ownership_match=False, auth_available=True, months_observed=1
@@ -130,6 +142,7 @@ async def test_plaid_client_applicant_products_and_minimized_endpoints(monkeypat
         client_user_id="application-id", client_name="Example Housing",
         products=["identity", "auth", "transactions"],
         webhook_url=config.webhook_url, user_email="jamie@example.com", legal_name="Jamie Applicant",
+        redirect_uri="https://example.com/financial-verify",
     )
     await client.get_identity("access")
     await client.get_auth("access")
@@ -139,6 +152,7 @@ async def test_plaid_client_applicant_products_and_minimized_endpoints(monkeypat
     link_body = _HttpClient.requests[0][1]
     assert link_body["products"] == ["identity", "auth", "transactions"]
     assert link_body["webhook"] == "https://example.com/webhook"
+    assert link_body["redirect_uri"] == "https://example.com/financial-verify"
     assert link_body["user"]["client_user_id"] == "application-id"
     assert ["identity", "get"] in paths
     assert ["auth", "get"] in paths
@@ -186,3 +200,12 @@ async def test_product_not_ready_retains_only_encrypted_token_for_webhook_resume
     assert verification.summary_json["reason_codes"] == ["income_processing"]
     assert verification.access_token_encrypted is not None
     assert client.removed is False
+
+
+def test_plaid_link_errors_are_actionable_without_exposing_credentials():
+    from app.routers.financial_verifications import _plaid_link_error_detail
+
+    detail = _plaid_link_error_detail("INVALID_FIELD")
+    assert "redirect URL" in detail
+    assert "INVALID_FIELD" in detail
+    assert "secret" not in detail.casefold()

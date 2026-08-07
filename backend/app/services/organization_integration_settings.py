@@ -58,6 +58,7 @@ class PlaidSettings:
     source: Source
     webhook_url: str = ""
     applicant_verification_enabled: bool = False
+    applicant_redirect_uri: str = ""
 
 
 IntegrationSettings = ResidentPaymentsSettings | ScreeningSettings | PlaidSettings
@@ -138,6 +139,11 @@ def validate_provider_settings(provider: Provider, values: dict, secret: str) ->
         "webhook_url": _https_url(
             str(values.get("webhook_url", "")), "webhook_url", allow_empty=True
         ),
+        "applicant_redirect_uri": _https_url(
+            str(values.get("applicant_redirect_uri", "")),
+            "applicant_redirect_uri",
+            allow_empty=True,
+        ),
         "applicant_verification_enabled": bool(values.get("applicant_verification_enabled", False)),
     }
 
@@ -165,6 +171,7 @@ def _from_row(provider: Provider, row: OrganizationIntegrationConfig) -> Integra
         country_codes=tuple(data.get("country_codes", ["US"])),
         redirect_uri=data.get("redirect_uri", ""), webhook_url=data.get("webhook_url", ""),
         applicant_verification_enabled=bool(data.get("applicant_verification_enabled", False)),
+        applicant_redirect_uri=data.get("applicant_redirect_uri", ""),
         timeout_seconds=settings.PLAID_TIMEOUT_SECONDS,
         is_enabled=row.is_enabled, source="tenant",
     )
@@ -194,6 +201,7 @@ def legacy_settings(provider: Provider) -> IntegrationSettings:
         environment=settings.PLAID_ENV, api_base_url=settings.PLAID_API_BASE_URL,
         country_codes=tuple(c.strip().upper() for c in (settings.PLAID_COUNTRY_CODES or "US").split(",") if c.strip()),
         redirect_uri=settings.PLAID_REDIRECT_URI, webhook_url="", applicant_verification_enabled=False,
+        applicant_redirect_uri="",
         timeout_seconds=settings.PLAID_TIMEOUT_SECONDS,
         is_enabled=configured, source="legacy_env" if configured else "unconfigured",
     )

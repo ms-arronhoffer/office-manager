@@ -85,6 +85,7 @@ class PlaidClient:
         webhook_url: str | None = None,
         user_email: str | None = None,
         legal_name: str | None = None,
+        redirect_uri: str | None = None,
     ) -> dict[str, Any]:
         user: dict[str, str] = {"client_user_id": client_user_id}
         if user_email:
@@ -98,8 +99,9 @@ class PlaidClient:
             "country_codes": country_codes(self.config),
             "language": "en",
         }
-        if self.config.redirect_uri:
-            payload["redirect_uri"] = self.config.redirect_uri
+        effective_redirect_uri = self.config.redirect_uri if redirect_uri is None else redirect_uri
+        if effective_redirect_uri:
+            payload["redirect_uri"] = effective_redirect_uri
         if webhook_url:
             payload["webhook"] = webhook_url
         return await self._post("link/token/create", payload)

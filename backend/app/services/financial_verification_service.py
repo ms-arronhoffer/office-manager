@@ -117,9 +117,17 @@ def balance_summary(balance_response: dict[str, Any]) -> dict[str, Any]:
 def recurring_income_summary(transactions: list[dict[str, Any]]) -> dict[str, Any]:
     by_month: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     for transaction in transactions:
+        if not isinstance(transaction, dict):
+            continue
         name = str(transaction.get("name") or "").casefold()
-        categories = " ".join(str(v) for v in transaction.get("category", [])).casefold()
-        amount = Decimal(str(transaction.get("amount", 0)))
+        raw_categories = transaction.get("category") or []
+        if isinstance(raw_categories, str):
+            raw_categories = [raw_categories]
+        categories = " ".join(str(value) for value in raw_categories).casefold()
+        try:
+            amount = Decimal(str(transaction.get("amount", 0) or 0))
+        except (ArithmeticError, ValueError):
+            continue
         if amount >= 0 or any(term in name for term in _EXCLUDED_HINTS):
             continue
         if not (any(term in name for term in _INCOME_HINTS) or "income" in categories or "payroll" in categories):

@@ -49,4 +49,11 @@ describe('browser token handling', () => {
     expect(wsSource).toContain('`${WS_BASE}/ws/connect`');
     expect(wsSource).not.toContain('?token=');
   });
+
+  it('does not start authenticated background calls on public routes', () => {
+    expect(source('src/context/WSContext.tsx')).toContain('if (!isAuthenticated) return');
+    expect(source('src/context/SiteSettingsContext.tsx')).toContain(
+      'if (!isPublicRoute(window.location.pathname)) load()',
+    );
+  });
 });
