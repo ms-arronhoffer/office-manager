@@ -475,6 +475,63 @@ def _run_alembic(*args: str) -> None:
         sys.exit(f"[start] alembic command failed: {' '.join(cmd)}")
 
 
+_RLS_PROTECTED_TABLES = (
+    "leases",
+    "customers",
+    "customer_invoices",
+    "customer_receipts",
+    "vendor_bills",
+    "vendor_payments",
+    "gl_accounts",
+    "accounting_periods",
+    "journal_entries",
+    "bank_accounts",
+    "bank_transactions",
+    "bank_reconciliations",
+    "budgets",
+    "operating_expenses",
+    "rent_charges",
+    "security_deposits",
+    "residents",
+    "resident_leases",
+    "resident_payment_methods",
+    "client_portal_accounts",
+    "client_portal_change_requests",
+    "rental_units",
+    "organization_integration_configs",
+    "applicant_financial_verifications",
+    "financial_verification_webhook_events",
+)
+
+
+def _ensure_rls_policies() -> None:
+    """Apply the fail-closed organization policies used by migrations 118+."""
+    present = set(inspect(sync_engine).get_table_names())
+    predicate = (
+        "current_setting('app.rls_bypass', true) = 'on' "
+        "OR organization_id = "
+        "NULLIF(current_setting('app.current_org', true), '')::uuid"
+    )
+
+    with sync_engine.begin() as conn:
+        for table in _RLS_PROTECTED_TABLES:
+            if table not in present:
+                continue
+            if table not in Base.metadata.tables:
+                raise RuntimeError(f"[start] Unknown table for RLS setup: {table}")
+            policy = f"{table}_org_isolation"
+            conn.execute(text(f'DROP POLICY IF EXISTS "{policy}" ON "{table}"'))
+            conn.execute(text(f'ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY'))
+            conn.execute(text(f'ALTER TABLE "{table}" FORCE ROW LEVEL SECURITY'))
+            conn.execute(
+                text(
+                    f'CREATE POLICY "{policy}" ON "{table}" '
+                    f"USING ({predicate}) WITH CHECK ({predicate})"
+                )
+            )
+    print("[start] Ensured fail-closed organization RLS policies exist.")
+
+
 def _initialize_schema() -> None:
     """
     Make sure the database schema is current.
@@ -492,10 +549,9 @@ def _initialize_schema() -> None:
 
        For case 2 sub-case "existing tables but no alembic_version row"
        (i.e. the very first time the app is upgraded after Alembic was
-       wired in), we stamp at the *baseline* revision (the most recent
-       migration the live schema is known to satisfy) before upgrading.
-       Today every release before 007 was applied via `create_all`, so we
-       stamp at 006 and let 007+ run.
+       wired in), we reconcile the schema from current metadata and stamp
+       at head. A create_all schema cannot be mapped safely to a historical
+       migration revision.
     """
     inspector = inspect(sync_engine)
     has_alembic_table = inspector.has_table("alembic_version")
@@ -527,7 +583,7 @@ def _initialize_schema() -> None:
         if missing:
             sys.exit(f"[start] create_all did not create these tables: {sorted(missing)}")
 
-        print("[start] Tables created. Stamping before policy migrations...")
+        print("[start] Tables created. Stamping alembic at head...")
         # ``create_all`` builds tables from the ORM models, which do not declare
         # the migration-only full-text ``search_vector`` columns/indexes. Create
         # them before stamping so endpoints that maintain them don't fail after a
@@ -537,8 +593,8 @@ def _initialize_schema() -> None:
         _ensure_self_storage_schema()
         _ensure_reconciled_columns()
         _ensure_manager_name_constraint()
-        _run_alembic("stamp", "117")
-        _run_alembic("upgrade", "head")
+        _ensure_rls_policies()
+        _run_alembic("stamp", "head")
         return
 
     if not has_alembic_table:
@@ -587,8 +643,8 @@ def _initialize_schema() -> None:
         _ensure_self_storage_schema()
         _ensure_reconciled_columns()
         _ensure_manager_name_constraint()
-        _run_alembic("stamp", "117")
-        _run_alembic("upgrade", "head")
+        _ensure_rls_policies()
+        _run_alembic("stamp", "head")
         return
 
     print("[start] Running alembic upgrade head...")
@@ -614,6 +670,7 @@ def _initialize_schema() -> None:
     # stamped at head on an older release never ran it, and the ORM models
     # cannot declare the column, so heal it here too.
     _ensure_pgvector_columns()
+    _ensure_rls_policies()
 
     # Sanity-check after upgrade: a couple of must-have tables.
     post_inspector = inspect(sync_engine)
@@ -713,6 +770,9 @@ def _ensure_default_org() -> None:
 
 _wait_for_database()
 _initialize_schema()
+if os.getenv("STARTUP_SCHEMA_ONLY") == "1":
+    print("[start] Schema-only initialization complete.")
+    sys.exit(0)
 _ensure_default_org()
 _ensure_default_admin()
 _ensure_super_admins()
@@ -839,4 +899,3 @@ _run_knowledge_reindex()
 sys.exit(subprocess.call([
     "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
 ]))
-
