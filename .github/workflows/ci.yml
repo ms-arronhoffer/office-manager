@@ -65,8 +65,8 @@ jobs:
               raise SystemExit(f"Expected exactly one Alembic head, found {len(heads)}: {heads}")
           print(f"Alembic head: {heads[0]}")
           PY
-      - name: Upgrade blank database
-        run: alembic upgrade head
+      - name: Bootstrap blank database
+        run: STARTUP_SCHEMA_ONLY=1 python start.py
       - name: Run mandatory RLS policy checks
         run: pytest -q policy_tests tests/test_rls_database.py
       - name: Run backend tests
