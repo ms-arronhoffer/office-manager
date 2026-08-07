@@ -3,7 +3,6 @@ name: CI
 on:
   workflow_call:
   pull_request:
-  push:
 
 permissions:
   contents: read
@@ -70,7 +69,7 @@ jobs:
       - name: Run mandatory RLS policy checks
         run: pytest -q policy_tests tests/test_rls_database.py
       - name: Run backend tests
-        run: pytest
+        run: pytest --ignore=policy_tests --ignore=tests/test_rls_database.py
 
   frontend:
     runs-on: ubuntu-latest
