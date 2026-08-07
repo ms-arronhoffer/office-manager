@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 import secrets
 
 import pyotp
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,10 +10,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user
 from app.auth.google_oauth import verify_google_token
 from app.auth.jwt_handler import create_access_token
+from app.auth.sessions import (
+    REFRESH_COOKIE,
+    clear_auth_cookies,
+    issue_session,
+    revoke_all_sessions,
+    rotate_session,
+)
 from app.auth.password_policy import validate_password_strength
 from app.auth.password import hash_password, verify_password
 from app.database import get_db
 from app.models.user import User
+from app.models.refresh_session import RefreshSession
 from app.schemas.user import (
     ChangePasswordRequest,
     GoogleAuthRequest,
@@ -25,6 +33,7 @@ from app.services.email_verification_service import issue_verification_token, se
 from app.services.password_reset_service import issue_password_reset_token, send_password_reset_email
 from app.services import legal_service
 from app.services.console_roles import resolve_console_role
+from app.main import limiter
 
 router = APIRouter()
 
@@ -122,6 +131,7 @@ async def _mint_challenge(db: AsyncSession, user: User) -> str:
     tok = secrets.token_hex(32)
     user.mfa_challenge_token = tok
     user.mfa_challenge_expires_at = datetime.now(timezone.utc) + timedelta(minutes=_MFA_CHALLENGE_MINUTES)
+    user.mfa_challenge_attempts = 0
     await db.commit()
     return tok
 
@@ -161,6 +171,19 @@ async def _verify_totp_or_backup(db: AsyncSession, user: User, code: str) -> Non
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid authentication code")
 
 
+async def _record_mfa_failure(db: AsyncSession, user: User) -> None:
+    user.mfa_challenge_attempts += 1
+    if user.mfa_challenge_attempts >= _MAX_ATTEMPTS:
+        user.mfa_challenge_token = None
+        user.mfa_challenge_expires_at = None
+    await db.commit()
+    if user.mfa_challenge_attempts >= _MAX_ATTEMPTS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Invalid or expired MFA token",
+        )
+
+
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class LoginResponse(BaseModel):
@@ -198,7 +221,12 @@ class MfaDisableRequest(BaseModel):
 # ── Auth endpoints ────────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=LoginResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
     email = payload.email
 
     await _check_lockout(db, email)
@@ -237,12 +265,18 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
         tok = await _mint_challenge(db, user)
         return LoginResponse(mfa_required=True, mfa_token=tok)
 
+    access_token = await issue_session(db, user, request, response)
     await db.commit()
-    return LoginResponse(access_token=await _make_jwt(db, user), token_type="bearer")
+    return LoginResponse(access_token=access_token, token_type="bearer")
 
 
 @router.post("/google", response_model=LoginResponse)
-async def google_auth(payload: GoogleAuthRequest, db: AsyncSession = Depends(get_db)):
+async def google_auth(
+    payload: GoogleAuthRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
     google_info = await verify_google_token(payload.token)
     if not google_info:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token")
@@ -286,13 +320,20 @@ async def google_auth(payload: GoogleAuthRequest, db: AsyncSession = Depends(get
         tok = await _mint_challenge(db, user)
         return LoginResponse(mfa_required=True, mfa_token=tok)
 
-    return LoginResponse(access_token=await _make_jwt(db, user), token_type="bearer")
+    access_token = await issue_session(db, user, request, response)
+    await db.commit()
+    return LoginResponse(access_token=access_token, token_type="bearer")
 
 
 # ── MFA endpoints ─────────────────────────────────────────────────────────────
 
 @router.post("/mfa/setup", response_model=MfaSetupResponse)
-async def mfa_setup(payload: MfaChallengeRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def mfa_setup(
+    request: Request,
+    payload: MfaChallengeRequest,
+    db: AsyncSession = Depends(get_db),
+):
     """Generate a TOTP secret and return QR URI. Call before /mfa/enable."""
     user = await _pop_challenge(db, payload.mfa_token)
     secret = pyotp.random_base32()
@@ -303,7 +344,13 @@ async def mfa_setup(payload: MfaChallengeRequest, db: AsyncSession = Depends(get
 
 
 @router.post("/mfa/enable", response_model=MfaEnableResponse)
-async def mfa_enable(payload: MfaVerifyRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def mfa_enable(
+    payload: MfaVerifyRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
     """Confirm the first TOTP code, enable MFA, return JWT + one-time backup codes."""
     user = await _pop_challenge(db, payload.mfa_token)
 
@@ -312,6 +359,7 @@ async def mfa_enable(payload: MfaVerifyRequest, db: AsyncSession = Depends(get_d
 
     code = payload.code.strip()
     if not pyotp.TOTP(user.totp_secret).verify(code, valid_window=1):
+        await _record_mfa_failure(db, user)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid authentication code")
 
     # Generate backup codes (plaintext → return once; store bcrypt hashes)
@@ -322,29 +370,45 @@ async def mfa_enable(payload: MfaVerifyRequest, db: AsyncSession = Depends(get_d
     user.totp_backup_codes = hashed_codes
     user.mfa_challenge_token = None
     user.mfa_challenge_expires_at = None
+    user.mfa_challenge_attempts = 0
     user.last_login_at = datetime.now(timezone.utc)
+    access_token = await issue_session(db, user, request, response)
     await db.commit()
 
     return MfaEnableResponse(
-        access_token=await _make_jwt(db, user),
+        access_token=access_token,
         backup_codes=plain_codes,
     )
 
 
 @router.post("/mfa/verify", response_model=LoginResponse)
-async def mfa_verify(payload: MfaVerifyRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def mfa_verify(
+    payload: MfaVerifyRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
     """Verify a TOTP code (or backup code) and issue a JWT."""
     user = await _pop_challenge(db, payload.mfa_token)
-    await _verify_totp_or_backup(db, user, payload.code)
+    try:
+        await _verify_totp_or_backup(db, user, payload.code)
+    except HTTPException:
+        await _record_mfa_failure(db, user)
+        raise
     user.mfa_challenge_token = None
     user.mfa_challenge_expires_at = None
+    user.mfa_challenge_attempts = 0
     user.last_login_at = datetime.now(timezone.utc)
+    access_token = await issue_session(db, user, request, response)
     await db.commit()
-    return LoginResponse(access_token=await _make_jwt(db, user), token_type="bearer")
+    return LoginResponse(access_token=access_token, token_type="bearer")
 
 
 @router.post("/mfa/disable", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("5/minute")
 async def mfa_disable(
+    request: Request,
     payload: MfaDisableRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -392,10 +456,125 @@ async def register(
 
 @router.post("/refresh", response_model=LoginResponse)
 async def refresh_token(
+    request: Request,
+    response: Response,
+    refresh_cookie: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
+    db: AsyncSession = Depends(get_db),
+):
+    if refresh_cookie:
+        _, access_token = await rotate_session(db, refresh_cookie, request, response)
+        await db.commit()
+        return LoginResponse(access_token=access_token, token_type="bearer")
+
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        from app.auth.jwt_handler import decode_access_token
+
+        payload = decode_access_token(authorization.split(" ", 1)[1])
+        user_id = payload.get("sub") if payload else None
+        user = (
+            await db.execute(select(User).where(User.id == user_id, User.is_active.is_(True)))
+        ).scalar_one_or_none() if user_id else None
+        if user:
+            return LoginResponse(access_token=await _make_jwt(db, user), token_type="bearer")
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    response: Response,
+    refresh_cookie: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return LoginResponse(access_token=await _make_jwt(db, current_user), token_type="bearer")
+    if refresh_cookie:
+        try:
+            session_id = refresh_cookie.split(".", 1)[0]
+            session = (
+                await db.execute(
+                    select(RefreshSession).where(
+                        RefreshSession.id == session_id,
+                        RefreshSession.user_id == current_user.id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if session and session.revoked_at is None:
+                session.revoked_at = datetime.now(timezone.utc)
+                await db.commit()
+        except ValueError:
+            pass
+    clear_auth_cookies(response)
+
+
+class SessionResponse(BaseModel):
+    id: str
+    created_at: datetime
+    expires_at: datetime
+    last_used_at: datetime | None
+    user_agent: str | None
+    ip_address: str | None
+    current: bool
+
+
+@router.get("/sessions", response_model=list[SessionResponse])
+async def list_sessions(
+    refresh_cookie: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    current_id = refresh_cookie.split(".", 1)[0] if refresh_cookie else None
+    sessions = (
+        await db.execute(
+            select(RefreshSession)
+            .where(RefreshSession.user_id == current_user.id, RefreshSession.revoked_at.is_(None))
+            .order_by(RefreshSession.created_at.desc())
+        )
+    ).scalars().all()
+    return [SessionResponse(
+        id=str(item.id),
+        created_at=item.created_at,
+        expires_at=item.expires_at,
+        last_used_at=item.last_used_at,
+        user_agent=item.user_agent,
+        ip_address=item.ip_address,
+        current=str(item.id) == current_id,
+    ) for item in sessions]
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    session = (
+        await db.execute(
+            select(RefreshSession).where(
+                RefreshSession.id == session_id,
+                RefreshSession.user_id == current_user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if session and session.revoked_at is None:
+        session.revoked_at = datetime.now(timezone.utc)
+        await db.commit()
+
+
+@router.post("/sessions/revoke-others", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_other_sessions(
+    refresh_cookie: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    current_id = None
+    if refresh_cookie:
+        try:
+            import uuid
+            current_id = uuid.UUID(refresh_cookie.split(".", 1)[0])
+        except ValueError:
+            current_id = None
+    await revoke_all_sessions(db, current_user.id, except_id=current_id)
+    await db.commit()
 
 
 @router.get("/me", response_model=UserResponse)
@@ -501,6 +680,7 @@ async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depen
     user.password_hash = hash_password(payload.new_password)
     user.password_reset_token = None
     user.password_reset_expires_at = None
+    await revoke_all_sessions(db, user.id)
     await db.commit()
 
 

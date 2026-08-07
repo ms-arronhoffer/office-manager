@@ -1401,6 +1401,12 @@ export interface ResidentPortalBalance {
   balance_due: string;
 }
 
+export interface ResidentPortalPaymentConfig {
+  configured: boolean;
+  provider: string;
+  publishable_key: string;
+}
+
 export interface ResidentPortalPaymentMethod {
   id: string;
   processor: string;
@@ -3603,6 +3609,54 @@ export interface ScreeningReport {
   completed_at: string | null;
 }
 
+export type FinancialVerificationStatus =
+  | 'invited' | 'viewed' | 'consented' | 'linking' | 'processing' | 'completed'
+  | 'action_required' | 'declined' | 'expired' | 'error' | 'revoked';
+
+export interface FinancialVerificationCapability {
+  available: boolean;
+  plaid_configured: boolean;
+  applicant_verification_enabled: boolean;
+  source: 'tenant' | 'legacy_env' | 'unconfigured';
+  detail: string;
+}
+
+export interface FinancialVerification {
+  id: string;
+  application_id: string;
+  status: FinancialVerificationStatus;
+  expires_at: string;
+  sent_at: string | null;
+  viewed_at: string | null;
+  consented_at: string | null;
+  linked_at: string | null;
+  completed_at: string | null;
+  institution_name: string | null;
+  account_count: number | null;
+  identity_match: boolean | null;
+  ownership_match: boolean | null;
+  available_balance_total: string | null;
+  current_balance_total: string | null;
+  recurring_income_monthly: string | null;
+  income_months_observed: number | null;
+  recommendation: 'verified' | 'review' | 'insufficient' | 'unknown';
+  reason_codes: string[];
+  last_error: string | null;
+  decision_support_disclaimer: string;
+}
+
+export interface PublicFinancialVerification {
+  applicant_first_name: string;
+  organization_name: string;
+  property_unit_label: string | null;
+  status: FinancialVerificationStatus;
+  expires_at: string;
+  disclosure_text: string;
+  consent_version: string;
+  requested_checks: string[];
+  consent_required: boolean;
+}
+
 export interface LeaseSignatureParty {
   id: string;
   signer_name: string;
@@ -4301,6 +4355,47 @@ export interface BankFeedSyncResult {
   pages: number;
   error: string | null;
   detail: string | null;
+}
+
+export interface IntegrationReadiness {
+  provider: string;
+  scope: 'organization';
+  configured: boolean;
+  verified: boolean | null;
+  verification_supported: boolean;
+  mode: 'sandbox' | 'live' | 'unknown';
+  missing_config: string[];
+  last_verified_at: string | null;
+  last_error: string | null;
+  detail: string | null;
+  source: 'tenant' | 'legacy_env' | 'unconfigured';
+}
+
+export type TenantIntegrationProvider = 'resident_payments' | 'screening' | 'plaid';
+
+export interface TenantIntegrationConfig {
+  provider: TenantIntegrationProvider;
+  source: 'tenant' | 'legacy_env' | 'unconfigured';
+  is_enabled: boolean;
+  secret_hint: string | null;
+  last_verified_at: string | null;
+  last_verify_ok: boolean | null;
+  last_verify_error: string | null;
+  [key: string]: unknown;
+}
+
+export interface TenantIntegrationConfigInput {
+  is_enabled: boolean;
+  secret?: string;
+  clear_secret?: boolean;
+  settings: Record<string, unknown>;
+}
+
+export interface IntegrationVerification {
+  provider: string;
+  ok: boolean;
+  verification_supported: boolean;
+  error: string | null;
 }
 
 // ─── Self Storage ───────────────────────────────────────────────────────────

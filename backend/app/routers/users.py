@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_role
+from app.auth.sessions import revoke_all_sessions
 from app.auth.password import hash_password
 from app.database import get_db
 from app.models.organization import Organization
@@ -155,8 +156,19 @@ async def update_user(
     if not target:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    update_data = data.model_dump(exclude_unset=True)
+    if target.id == current_user.id and (
+        "role" in update_data or update_data.get("is_active") is False
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot change your own role or deactivate your own account.",
+        )
+    for field, value in update_data.items():
         setattr(target, field, value)
+
+    if update_data.get("is_active") is False:
+        await revoke_all_sessions(db, target.id)
 
     await db.commit()
     await db.refresh(target)
@@ -177,6 +189,7 @@ async def deactivate_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     target.is_active = False
+    await revoke_all_sessions(db, target.id)
     await db.commit()
     # Update Stripe subscription quantity (best-effort)
     org_result = await db.execute(select(Organization).where(Organization.id == current_user.organization_id))

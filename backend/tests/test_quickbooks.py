@@ -540,6 +540,30 @@ async def test_client_retries_on_429_then_succeeds(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_list_accounts_follows_qbo_start_position_pagination(monkeypatch):
+    import httpx
+
+    first_page = [{"Id": str(index)} for index in range(100)]
+    recorder: list = []
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        _fake_transport(
+            [
+                _FakeResponse(200, {"QueryResponse": {"Account": first_page}}),
+                _FakeResponse(200, {"QueryResponse": {"Account": [{"Id": "last"}]}}),
+            ],
+            recorder,
+        ),
+    )
+    client = QuickBooksClient("token", "realm", max_retries=0)
+    accounts = await client.list_accounts()
+    assert len(accounts) == 101
+    assert "STARTPOSITION 1 MAXRESULTS 100" in recorder[0][2]["params"]["query"]
+    assert "STARTPOSITION 101 MAXRESULTS 100" in recorder[1][2]["params"]["query"]
+
+
+@pytest.mark.asyncio
 async def test_refresh_tokens_rotates_refresh_token(monkeypatch):
     import httpx
 

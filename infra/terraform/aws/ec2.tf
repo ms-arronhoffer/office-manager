@@ -106,6 +106,28 @@ data "aws_iam_policy_document" "app_permissions" {
     resources = [aws_s3_bucket.backups.arn, "${aws_s3_bucket.backups.arn}/*"]
   }
 
+  statement {
+    sid = "WriteContainerLogs"
+    actions = [
+      "logs:CreateLogStream",
+      "logs:DescribeLogStreams",
+      "logs:PutLogEvents",
+    ]
+    resources = ["${aws_cloudwatch_log_group.containers.arn}:*"]
+  }
+
+  statement {
+    sid       = "PublishBackendReadiness"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["${var.project_name}/Application"]
+    }
+  }
+
   # Pull the application images from ECR at deploy time. GetAuthorizationToken
   # backs `docker login`/`aws ecr get-login-password`; the layer/image reads are
   # scoped to just this project's repositories.
@@ -161,7 +183,10 @@ resource "aws_instance" "app" {
   }
 
   user_data = templatefile("${path.module}/templates/user_data.sh.tpl", {
-    github_repo = var.github_repo
+    aws_region               = var.aws_region
+    backend_port             = 4002
+    github_repo              = var.github_repo
+    readiness_namespace      = "${var.project_name}/Application"
   })
 
   tags = {

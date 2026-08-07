@@ -1,6 +1,12 @@
-# Portfolio Desk — S3 Backup Setup
+# Portfolio Desk - S3 Backup and Restore Verification
 
-This guide sets up automated daily backups of the PostgreSQL database and uploaded files to an AWS S3 bucket. Backups older than 3 days are automatically deleted.
+This guide covers daily PostgreSQL backups, uploaded-file evidence, 35-day S3 retention, and restore verification. AWS production also keeps 14 days of RDS automated backups for point-in-time recovery.
+
+## Recovery Objectives
+
+- **Target RPO:** 24 hours or less. Nightly `pg_dump` backups meet this target when the backup job succeeds. RDS automated backups usually provide a finer recovery point within their 14-day window.
+- **Phase 1 target RTO:** 4 hours or less for database restore, application redeploy, uploads validation, DNS/TLS confirmation, and smoke testing. This is an operational target, not an HA guarantee. Single-AZ RDS and one EC2 host can extend recovery when AWS replacement capacity or an operator is unavailable.
+- **Phase 2 trigger:** move to Multi-AZ RDS and redundant compute when contractual availability requires a shorter or assured RTO.
 
 ---
 
@@ -28,15 +34,17 @@ Copying the raw `pgdata` folder while PostgreSQL is running can produce a corrup
 
 ---
 
-### 2. Uploaded Files — `volumes/volumes-YYYY-MM-DD.tar.gz`
+### 2. Uploaded Files
 
-A compressed tar archive of the `uploads` Docker volume. This contains all files that users have attached to records (leases, offices, etc.) through the application.
+AWS production writes uploads directly to the versioned uploads bucket. Each backup run stores `uploads-manifests/uploads-manifest-YYYY-MM-DD.json` in the backups bucket. The manifest records the source bucket and object metadata so a drill can sample-check object availability without downloading customer content.
+
+Legacy local deployments still create `volumes/volumes-YYYY-MM-DD.tar.gz` from the `uploads` Docker volume.
 
 **Contains:**
 - Lease attachments (PDFs, Word documents, images, etc.)
 - Any other files uploaded through the application
 
-**Format:** Gzipped tar archive. The internal path is `/data/uploads/`.
+**Format:** JSON manifest for AWS production, or a gzipped tar archive with internal path `/data/uploads/` for legacy local storage.
 
 ---
 
@@ -58,7 +66,7 @@ A compressed tar archive of the `uploads` Docker volume. This contains all files
 2. Click **Create bucket**.
 3. Choose a name (e.g. `mycompany-office-manager-backups`) and a region close to your server.
 4. Leave **Block all public access** enabled (default).
-5. Enable **Versioning** — optional but recommended.
+5. Enable **Versioning**. The Terraform-managed AWS production bucket enables it automatically.
 6. Click **Create bucket**.
 
 Note down the bucket name — you will need it in Step 3.
@@ -153,14 +161,18 @@ Fill in your values:
 #   mybucket/office-manager/backups
 S3_BUCKET=your-bucket-name
 
-# AWS credentials from Step 2
-AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
-AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-AWS_DEFAULT_REGION=us-east-1
+# AWS production uses the EC2 instance profile. Do not store static keys here.
+AWS_DEFAULT_REGION=us-east-2
+RETENTION_DAYS=35
 
 # Must match your docker-compose .env values (defaults shown)
 POSTGRES_USER=office_admin
 POSTGRES_DB=office_manager
+POSTGRES_HOST=your-rds-endpoint
+POSTGRES_PORT=5432
+AWS_SECRET_ID=office-manager/prod/app-secrets
+S3_UPLOAD_BUCKET=office-manager-prod-uploads
+S3_UPLOAD_PREFIX=uploads
 ```
 
 Save and exit (`Ctrl+O`, `Enter`, `Ctrl+X`).
@@ -194,11 +206,11 @@ Expected output:
 ```
 [2026-04-27 02:00:01] Backing up database...
 [2026-04-27 02:00:04]   Done: 1.2M
-[2026-04-27 02:00:04] Backing up uploads volume...
-[2026-04-27 02:00:06]   Done: 4.5M
+[2026-04-27 02:00:04] Building S3 uploads manifest...
+[2026-04-27 02:00:06]   Manifested 125 objects.
 [2026-04-27 02:00:06] Uploading to s3://your-bucket-name...
 [2026-04-27 02:00:09]   Upload complete.
-[2026-04-27 02:00:09] Pruning backups older than 3 days...
+[2026-04-27 02:00:09] Pruning backups older than 35 days...
 [2026-04-27 02:00:09] Backup finished successfully.
 ```
 
@@ -262,6 +274,22 @@ aws s3 ls s3://your-bucket-name/volumes/
 ---
 
 ## Restoring from Backup
+
+### Preferred verification drill
+
+Run **AWS Restore Verification Drill** from GitHub Actions. The `recovery-drill` GitHub environment must have required reviewers and the `AWS_RECOVERY_DRILL_ROLE_ARN` environment secret. Supply the Terraform `backups_bucket` output, optionally select a backup key and uploads manifest URI, and type `RESTORE_TO_DISPOSABLE_CONTAINER_ONLY`.
+
+The workflow runs `scripts/verify-backup-restore.sh` on the `docker-build` runner. The script refuses external database targets, creates an unexposed disposable PostgreSQL container, restores the selected dump, checks `alembic_version`, verifies the `organizations`, `users`, `offices`, and `leases` tables, records row counts, optionally checks up to 20 uploads from a manifest, and removes the container on exit.
+
+The bootstrap module creates the read-only recovery role. After applying it:
+
+```bash
+cd infra/terraform/bootstrap
+terraform apply
+terraform output -raw github_actions_recovery_role_arn
+```
+
+Store that output as `AWS_RECOVERY_DRILL_ROLE_ARN` in the protected `recovery-drill` GitHub environment. The role can list and read only the production backups and uploads buckets.
 
 > **Before restoring:** The application does not need to be stopped to restore uploaded files, but it is strongly recommended to stop it before restoring the database to avoid data conflicts.
 
@@ -365,14 +393,26 @@ If the server itself is lost and you are rebuilding from scratch:
 
 ## Retention Policy
 
-The backup script automatically deletes files from S3 that are more than **3 days old** on each run. After 3 days of successful backups, you will always have exactly 3 backup sets in S3.
+Current backup objects expire after **35 days**. Versioning protects against accidental overwrite or deletion, and noncurrent backup versions expire after 7 days. Incomplete multipart uploads are removed after 7 days. RDS automated backups retain 14 days by default, which is the cost-conscious choice within the AWS maximum of 35 days.
+
+Backups are not transitioned to Standard-IA because only five days remain after the 30-day minimum-age point and Standard-IA has a 30-day minimum storage charge. Long-lived noncurrent versions in the uploads bucket transition to Standard-IA after 30 days and expire after 90 days.
+
+Object Lock is intentionally not enabled in Phase 1. Enabling it is irreversible and can change deletion and cost behavior. Terraform does not request bucket replacement. Adopt Object Lock only through a separately reviewed plan that confirms an in-place update and defines governance retention, legal hold, and break-glass procedures.
 
 | Day | Files in S3 |
 |-----|-------------|
 | Day 1 | Day 1 |
 | Day 2 | Day 1, Day 2 |
 | Day 3 | Day 1, Day 2, Day 3 |
-| Day 4 | Day 2, Day 3, Day 4 (Day 1 deleted) |
+| Day 35 | Day 1 through Day 35 |
+| Day 36 | Day 2 through Day 36 (Day 1 expired) |
+
+## Drill Cadence and Evidence
+
+- Run the disposable restore verification quarterly and after material backup, database, or lifecycle changes.
+- Run a full recovery exercise at least annually. Include infrastructure recreation, RDS or dump restore, application deploy, uploads checks, secrets access, DNS/TLS, tenant isolation, and critical smoke tests.
+- Record drill date, operator and approver, selected backup key/version, backup creation time, checksum or S3 ETag, migration revision, core table row counts, uploads manifest count and sampled failures, start/end timestamps, measured RPO/RTO, application smoke-test results, exceptions, corrective-action owner, and due date.
+- Keep the GitHub run URL, CloudWatch alarm state, relevant log query, and completed evidence record with the recovery ticket. Never attach dumps, credentials, or customer content.
 
 ---
 

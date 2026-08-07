@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.organization import Organization
 from app.services import document_search_service, knowledge_service
+from app.utils.rls import set_session_org
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ async def _run(db: AsyncSession) -> None:
     total = 0
     for org_id in org_ids:
         try:
+            await set_session_org(db, org_id)
             total += await knowledge_service.reindex_organization(db, org_id)
         except Exception:
             logger.exception("Knowledge reindex failed for org %s", org_id)
@@ -48,6 +50,7 @@ async def _run(db: AsyncSession) -> None:
         # Reconciliation backstop: re-index the org's attachments so any upload
         # that missed indexing is picked up. Org-scoped; failures are isolated.
         try:
+            await set_session_org(db, org_id)
             await document_search_service.reindex_organization_documents(db, org_id)
         except Exception:
             logger.exception("Document reindex failed for org %s", org_id)

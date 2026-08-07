@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { siteSettings as siteSettingsApi } from '@/api';
 import type { SiteSettings } from '@/api';
+import { isPublicRoute } from '@/api/client';
 
 const DEFAULTS: SiteSettings = {
   company_name: 'Portfolio Desk',
@@ -37,7 +38,7 @@ export const SiteSettingsProvider: React.FC<{ children: React.ReactNode }> = ({ 
   };
 
   useEffect(() => {
-    load();
+    if (!isPublicRoute(window.location.pathname)) load();
   }, []);
 
   return (

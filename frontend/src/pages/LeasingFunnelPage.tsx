@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
@@ -12,6 +13,7 @@ import Select from '@cloudscape-design/components/select';
 import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
+import Alert from '@cloudscape-design/components/alert';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useAuth } from '@/auth/AuthContext';
 import { canMutateOperationalData } from '@/auth/permissions';
@@ -20,6 +22,8 @@ import type {
   RentalApplication,
   ApplicationStatus,
   ScreeningReport,
+  FinancialVerification,
+  FinancialVerificationCapability,
   LeaseSignatureRequest,
   LeaseSignaturePartyInput,
   RentalUnit,
@@ -47,6 +51,7 @@ const sigBadge = (s: string) => {
 
 const LeasingFunnelPage: React.FC = () => {
   const { addFlash } = useFlashbar();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const canEdit = canMutateOperationalData(user?.role);
   const [apps, setApps] = useState<RentalApplication[]>([]);
@@ -78,6 +83,14 @@ const LeasingFunnelPage: React.FC = () => {
   // Screening detail modal
   const [screenOpen, setScreenOpen] = useState(false);
   const [screenReports, setScreenReports] = useState<ScreeningReport[]>([]);
+
+  // Applicant financial verification
+  const [financialRequestApp, setFinancialRequestApp] = useState<RentalApplication | null>(null);
+  const [financialOpen, setFinancialOpen] = useState(false);
+  const [financialRows, setFinancialRows] = useState<FinancialVerification[]>([]);
+  const [financialBusy, setFinancialBusy] = useState(false);
+  const [financialCapability, setFinancialCapability] = useState<FinancialVerificationCapability | null>(null);
+  const [financialCapabilityLoading, setFinancialCapabilityLoading] = useState(false);
 
   // Signature modal
   const [sigOpen, setSigOpen] = useState(false);
@@ -229,6 +242,70 @@ const LeasingFunnelPage: React.FC = () => {
       addFlash({ type: 'error', content: 'Failed to load screening reports.' });
     }
   };
+
+  const openFinancialRequest = async (application: RentalApplication) => {
+    setFinancialRequestApp(application);
+    setFinancialCapability(null);
+    setFinancialCapabilityLoading(true);
+    try {
+      const response = await leasingFunnel.financialVerificationCapability();
+      setFinancialCapability(response.data);
+    } catch (error: unknown) {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      setFinancialCapability({
+        available: false,
+        plaid_configured: false,
+        applicant_verification_enabled: false,
+        source: 'unconfigured',
+        detail: status === 404
+          ? 'The backend deployment does not include applicant financial verification yet. Deploy the matching backend release and database migrations before sending a request.'
+          : 'Financial verification readiness could not be checked. Try again or contact your administrator.',
+      });
+    } finally {
+      setFinancialCapabilityLoading(false);
+    }
+  };
+
+  const requestFinancialVerification = async () => {
+    if (!financialRequestApp) return;
+    setFinancialBusy(true);
+    try {
+      await leasingFunnel.requestFinancialVerification(financialRequestApp.id);
+      addFlash({ type: 'success', content: `Financial verification sent to ${financialRequestApp.applicant_email}.` });
+      setFinancialRequestApp(null);
+    } catch (error: unknown) {
+      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      addFlash({ type: 'error', content: detail ?? 'Could not send financial verification.' });
+    } finally {
+      setFinancialBusy(false);
+    }
+  };
+
+  const viewFinancialVerifications = async (a: RentalApplication) => {
+    try {
+      const response = await leasingFunnel.listFinancialVerifications(a.id);
+      setFinancialRows(response.data);
+      setFinancialOpen(true);
+    } catch {
+      addFlash({ type: 'error', content: 'Failed to load financial verification results.' });
+    }
+  };
+
+  const resendFinancial = async (row: FinancialVerification) => {
+    await leasingFunnel.resendFinancialVerification(row.id);
+    setFinancialOpen(false);
+    addFlash({ type: 'success', content: 'Financial verification request re-sent.' });
+  };
+
+  const cancelFinancial = async (row: FinancialVerification) => {
+    await leasingFunnel.cancelFinancialVerification(row.id);
+    setFinancialOpen(false);
+    addFlash({ type: 'success', content: 'Financial verification request cancelled.' });
+  };
+
+  const money = (value: string | null) => value == null
+    ? 'Not available'
+    : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value));
 
   const viewSignedApplication = async (a: RentalApplication) => {
     try {
@@ -494,11 +571,19 @@ const LeasingFunnelPage: React.FC = () => {
                   )}
                 {canEdit && (
                   <Button variant="inline-link" onClick={() => runScreen(a)}>
-                    Screen
+                    Background screening
                   </Button>
                 )}
                 <Button variant="inline-link" onClick={() => viewScreening(a)}>
-                  Reports
+                  Screening reports
+                </Button>
+                {canEdit && ['submitted', 'signed', 'in_review', 'screening'].includes(a.status) && (
+                  <Button variant="inline-link" onClick={() => openFinancialRequest(a)}>
+                    Request financial verification
+                  </Button>
+                )}
+                <Button variant="inline-link" onClick={() => viewFinancialVerifications(a)}>
+                  Financial verification
                 </Button>
                 {a.signed_at && (
                   <Button variant="inline-link" onClick={() => viewSignedApplication(a)}>
@@ -675,6 +760,93 @@ const LeasingFunnelPage: React.FC = () => {
                   <Box>{r.credit_score ?? '—'}</Box>
                 </div>
               </ColumnLayout>
+            ))}
+          </SpaceBetween>
+        )}
+      </Modal>
+
+      <Modal
+        visible={financialRequestApp !== null}
+        onDismiss={() => setFinancialRequestApp(null)}
+        header="Request financial verification (Plaid)"
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button onClick={() => setFinancialRequestApp(null)}>Cancel</Button>
+              <Button
+                variant="primary"
+                loading={financialBusy || financialCapabilityLoading}
+                disabled={!financialCapability?.available}
+                onClick={requestFinancialVerification}
+              >
+                Send request
+              </Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="m">
+          {financialCapability && !financialCapability.available && (
+            <Alert
+              type="warning"
+              header="Financial verification is not ready"
+              action={user?.role === 'admin' ? (
+                <Button onClick={() => navigate('/finance/connections')}>Configure Plaid</Button>
+              ) : undefined}
+            >
+              {financialCapability.detail}
+            </Alert>
+          )}
+          <Box>
+            Send to <strong>{financialRequestApp?.applicant_email}</strong>. The applicant will review a disclosure and must explicitly consent before Plaid Link opens.
+          </Box>
+          <Box variant="h3">Requested checks</Box>
+          <ul>
+            <li>Account ownership and applicant identity match</li>
+            <li>Connected account availability</li>
+            <li>Aggregate current and available balances</li>
+            <li>Recurring income estimate from up to 90 days of transactions</li>
+          </ul>
+          <Box color="text-body-secondary">
+            Financial verification is decision support only. It is separate from background screening and must not automatically approve or deny an application.
+          </Box>
+        </SpaceBetween>
+      </Modal>
+
+      <Modal
+        visible={financialOpen}
+        onDismiss={() => setFinancialOpen(false)}
+        header="Financial verification (Plaid)"
+        size="large"
+        footer={<Box float="right"><Button variant="primary" onClick={() => setFinancialOpen(false)}>Close</Button></Box>}
+      >
+        {financialRows.length === 0 ? <Box>No financial verification requests for this application.</Box> : (
+          <SpaceBetween size="l">
+            {financialRows.map((row) => (
+              <SpaceBetween key={row.id} size="m">
+                <ColumnLayout columns={3} variant="text-grid">
+                  <div><Box variant="awsui-key-label">Status</Box><Box>{row.status.replace('_', ' ')}</Box></div>
+                  <div><Box variant="awsui-key-label">Consent</Box><Box>{row.consented_at ? new Date(row.consented_at).toLocaleString() : 'Not provided'}</Box></div>
+                  <div><Box variant="awsui-key-label">Institution</Box><Box>{row.institution_name ?? 'Not available'}</Box></div>
+                  <div><Box variant="awsui-key-label">Identity match</Box><Box>{row.identity_match == null ? 'Not available' : row.identity_match ? 'Matched' : 'Review needed'}</Box></div>
+                  <div><Box variant="awsui-key-label">Ownership match</Box><Box>{row.ownership_match == null ? 'Not available' : row.ownership_match ? 'Matched' : 'Review needed'}</Box></div>
+                  <div><Box variant="awsui-key-label">Connected accounts</Box><Box>{row.account_count ?? 'Not available'}</Box></div>
+                  <div><Box variant="awsui-key-label">Aggregate available balance</Box><Box>{money(row.available_balance_total)}</Box></div>
+                  <div><Box variant="awsui-key-label">Aggregate current balance</Box><Box>{money(row.current_balance_total)}</Box></div>
+                  <div><Box variant="awsui-key-label">Estimated recurring monthly income</Box><Box>{money(row.recurring_income_monthly)}</Box></div>
+                  <div><Box variant="awsui-key-label">Income months observed</Box><Box>{row.income_months_observed ?? 'Not available'}</Box></div>
+                  <div><Box variant="awsui-key-label">Decision support recommendation</Box><Box>{row.recommendation}</Box></div>
+                  <div><Box variant="awsui-key-label">Reason codes</Box><Box>{row.reason_codes.join(', ') || 'None'}</Box></div>
+                </ColumnLayout>
+                {row.last_error && <Alert type="error">{row.last_error}</Alert>}
+                <Box color="text-body-secondary">{row.decision_support_disclaimer}</Box>
+                {canEdit && ['invited', 'viewed', 'action_required', 'error', 'expired'].includes(row.status) && (
+                  <SpaceBetween direction="horizontal" size="xs">
+                    <Button onClick={() => resendFinancial(row)}>Resend</Button>
+                    <Button onClick={() => cancelFinancial(row)}>Cancel request</Button>
+                  </SpaceBetween>
+                )}
+              </SpaceBetween>
             ))}
           </SpaceBetween>
         )}

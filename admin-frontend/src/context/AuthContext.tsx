@@ -7,10 +7,12 @@ import React, {
   useState,
 } from "react";
 import type { AuthPayload } from "../types";
+import { getConsoleMe } from "../api";
 
 interface AuthContextValue {
   token: string | null;
   payload: AuthPayload | null;
+  loading: boolean;
   setToken: (t: string) => void;
   logout: () => void;
 }
@@ -27,24 +29,40 @@ function decodePayload(token: string): AuthPayload | null {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setTokenState] = useState<string | null>(
-    () => localStorage.getItem("admin_token")
-  );
-  const [payload, setPayload] = useState<AuthPayload | null>(() => {
-    const t = localStorage.getItem("admin_token");
-    return t ? decodePayload(t) : null;
-  });
+  const [token, setTokenState] = useState<string | null>(null);
+  const [payload, setPayload] = useState<AuthPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getConsoleMe()
+      .then((me) => {
+        setTokenState("cookie");
+        setPayload({
+          sub: me.id,
+          role: me.role,
+          org_id: null,
+          is_super_admin: me.is_super_admin,
+          console_role: me.console_role,
+          exp: Math.floor(Date.now() / 1000) + 30 * 60,
+        });
+      })
+      .catch(() => {
+        setTokenState(null);
+        setPayload(null);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const setToken = useCallback((t: string) => {
-    localStorage.setItem("admin_token", t);
-    setTokenState(t);
+    setTokenState("cookie");
     setPayload(decodePayload(t));
+    setLoading(false);
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem("admin_token");
     setTokenState(null);
     setPayload(null);
+    setLoading(false);
   }, []);
 
   // Auto-logout on token expiry
@@ -57,8 +75,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [payload, logout]);
 
   const value = useMemo(
-    () => ({ token, payload, setToken, logout }),
-    [token, payload, setToken, logout]
+    () => ({ token, payload, loading, setToken, logout }),
+    [token, payload, loading, setToken, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

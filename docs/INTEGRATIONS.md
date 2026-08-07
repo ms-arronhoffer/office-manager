@@ -1,28 +1,69 @@
 # External integrations
 
-Setup and operation of the five external services the app talks to. All of them
+Setup and operation of the six external integration surfaces. All of them
 are **optional**: with credentials unset each degrades to a documented no-op
 rather than breaking the feature that uses it.
 
 | Integration | Purpose | Required plan | Config prefix |
 |---|---|---|---|
-| Payments | Resident rent payments from the portal | any | `PAYMENTS_` |
-| Screening | Credit / criminal / eviction reports | any (residential) | `SCREENING_` |
+| Platform Stripe | SaaS subscriptions and invoices | platform | `STRIPE_` |
+| Payments | Resident rent payments from the portal | any | tenant config; legacy `PAYMENTS_` fallback |
+| Screening | Credit / criminal / eviction reports | any (residential) | tenant config; legacy `SCREENING_` fallback |
 | SSO | OIDC single sign-on | Enterprise | `SSO_` |
 | QuickBooks Online | Push journal entries, map accounts | Operations | `QBO_` |
-| Plaid | Live bank feed into reconciliation | Operations | `PLAID_` |
+| Plaid | Live bank feed into reconciliation | Operations | tenant config; legacy `PLAID_` fallback |
 
-> **Nothing here has been exercised against a live provider.** Every integration
-> is written against the vendors' documented APIs but no token has been
-> exchanged, no journal entry pushed and no transaction imported. Run each in
-> sandbox first and expect to correct field names, date formats and pagination
-> on first contact.
+> **No live certification was performed in this environment.** Real provider
+> credentials are required to establish sandbox or live readiness. Unit and
+> contract tests prove application behavior against controlled HTTP responses;
+> they are not evidence that a vendor account, product entitlement, webhook, or
+> production settlement path is correctly configured.
+
+## Verification matrix
+
+The organization-admin endpoint `GET /api/v1/integrations/readiness` reports
+configuration gaps and available evidence without returning secrets or tokens.
+`POST /api/v1/integrations/{provider}/verify` performs only supported,
+non-mutating checks. Platform Stripe is intentionally absent because it is not
+a tenant/user integration.
+
+| Integration | Automated contract evidence | Safe sandbox smoke | Persisted/provider evidence | Current certification |
+|---|---|---|---|---|
+| Platform Stripe billing | Account/auth errors, billing lifecycle, webhook behavior | `GET /v1/account` with `sk_test_...` | Platform config stores last verification time/result | Not live-certified here |
+| Resident Stripe payments | PaymentIntent form body, idempotency, success/error shapes | `GET /v1/account` with `sk_test_...`; no PaymentIntent created | Tenant row stores last verification time/result | Not live-certified here |
+| Screening | Response normalization, polling/error shapes, PII allowlist | Provider-documented `SCREENING_HEALTH_URL` GET only | Unsupported when vendor has no non-mutating endpoint | Sandbox report required; not live-certified here |
+| QuickBooks Online | OAuth refresh rotation, errors/retry, pagination, journal payloads | Read-only `SELECT * FROM CompanyInfo` against sandbox | Successful OAuth exchange/connection and sync status | Not live-certified here |
+| Plaid | Credential body, error codes, cursor pagination, modified/removed transactions | `/institutions/get` with count 1; no Item created | Tenant row stores last verification time/result | Not live-certified here |
+| OIDC SSO | Discovery/token/error shapes, signature/issuer/audience/nonce/domain checks | Discovery document GET against a test tenant | Successful login time is full-flow evidence | Not live-certified here |
+
+The opt-in `.github/workflows/integration-smoke.yml` uses the protected
+`integration-sandbox` repository environment. Each check skips with the missing
+secret names when credentials are absent. The test code refuses Stripe live
+keys and provider URLs that are not recognizably sandbox/test endpoints.
+
+## Manual certification checklist
+
+Complete this once per provider account and again after credential, API version,
+webhook, redirect URI, product entitlement, or production-mode changes.
+
+| Integration | Required certification actions | Evidence fields to retain |
+|---|---|---|
+| Platform Stripe billing | Verify account access; create/cancel a test subscription; deliver and replay signed webhook; confirm invoice, entitlement and failed-payment state | provider account id, mode, test customer/subscription/invoice ids, webhook event ids, timestamps, operator, build SHA, screenshots/log links |
+| Resident Stripe payments | Use Stripe test PaymentMethods for successful card, decline, ACH processing and idempotent retry; confirm no raw payment data is stored; reconcile test receipt | account id, PaymentIntent ids, idempotency key hash, receipt ids, expected/actual statuses, timestamps, operator, build SHA |
+| Screening | Confirm permissible-purpose workflow with counsel/vendor; run vendor-approved synthetic applicant for complete/pending/decline; verify adverse-action fields and PII minimization | sandbox report ids, synthetic applicant id, provider product/package, status sequence, retained-field export, legal approval reference, timestamp/operator/build SHA |
+| QuickBooks Online | Complete sandbox OAuth; pull paginated accounts; map accounts; push one balanced posted journal; retry and prove no duplicate; force token refresh | realm id, QBO journal id/DocNumber, mapping export, refresh timestamp, sync log id, before/after screenshots, operator/build SHA |
+| Plaid | Open Sandbox Link with `user_good`; connect a test institution; sync multiple pages; simulate modified/removed transaction and `ITEM_LOGIN_REQUIRED`; disconnect | item id, institution/account masks only, cursor hashes, imported transaction ids, error/recovery timestamps, operator/build SHA |
+| OIDC SSO | Validate discovery/JWKS; sign in with allowed and denied domains; test nonce/state replay, expiry, wrong audience/issuer, disabled user, enforce-SSO and break-glass access | issuer/tenant id, app registration id, test user ids, redirect URI, test case results, token claim summary without token, timestamps/operator/build SHA |
+
+Record sandbox and live evidence separately. A sandbox pass does not certify live
+merchant onboarding, bank access, screening compliance, IdP policy, network
+allowlists, webhook delivery, settlement, or production entitlements.
 
 ---
 
 ## Prerequisite: `ENCRYPTION_KEY`
 
-SSO, QuickBooks and Plaid all persist long-lived credentials. Those are
+SSO, QuickBooks, Payments, Screening and Plaid persist long-lived credentials. Those are
 encrypted at rest through `app.utils.crypto`, which reads `ENCRYPTION_KEY`.
 
 ```bash
@@ -44,18 +85,30 @@ and still decrypt, so upgrading is safe.
 
 ## Payments (resident rent)
 
+Organization admins configure Payments under **Finance > Connections**. The
+secret API key is encrypted at rest and only a masked hint is returned. The
+`PAYMENTS_*` variables below are legacy fallback/bootstrap values used only
+when no tenant row exists. Save the fallback in the tenant form to migrate it.
+
 Charges a resident's tokenised card or bank account from the resident portal.
 Targets a Stripe-style PaymentIntents API.
 
 ```bash
 PAYMENTS_PROVIDER=stripe
 PAYMENTS_API_KEY=sk_test_...
+PAYMENTS_PUBLISHABLE_KEY=pk_test_...
 PAYMENTS_API_URL=              # override only for a non-Stripe or sandbox endpoint
 ```
 
 Unset, `charge_payment` returns `status="unconfigured"` and captures nothing.
 The portal still records the payment intent and tells the resident no money was
 taken, so the ledger stays consistent without a processor.
+
+The resident portal uses Stripe.js Elements to exchange card details directly
+with Stripe and sends only the resulting `pm_...` PaymentMethod ID to the API.
+Each organization resolves its own Stripe credentials. Marketplace fund
+routing and connected-account onboarding still require Stripe Connect and are
+not provided by this payment flow.
 
 ### Flow
 
@@ -84,6 +137,10 @@ stores only the opaque processor token plus `brand` and `last4` for display.
 ---
 
 ## Tenant screening
+
+Organization admins configure Screening under **Finance > Connections**. The
+API key is encrypted and each organization has independent URLs and polling
+limits. `SCREENING_*` remains a legacy fallback only when no tenant row exists.
 
 ```bash
 SCREENING_PROVIDER=transunion
@@ -203,6 +260,11 @@ Sandbox uses `https://sandbox-quickbooks.api.intuit.com/v3/company`.
 
 ## Plaid (live bank feed)
 
+Organization admins configure Plaid under **Finance > Connections**. Link,
+token exchange, account lookup, interactive sync, and background sync resolve
+the connection organization's encrypted tenant credentials. `PLAID_*` remains
+a legacy fallback only when no tenant row exists.
+
 ```bash
 PLAID_CLIENT_ID=...
 PLAID_SECRET=...
@@ -236,6 +298,123 @@ Sandbox uses `https://sandbox.plaid.com` with test login `user_good` /
 Transactions land in the same model the CSV/OFX import writes to, so
 reconciliation is unchanged.
 
+### Applicant financial verification
+
+Applicant financial verification is a separate consent-gated workflow attached
+to a rental application. It does not use `BankFeedConnection` or
+`ScreeningReport`. Enable it per organization in **Finance > Connections >
+Plaid** after tenant Plaid credentials are saved.
+
+The staff workflow sends a seven-day magic link. The invitation token is stored
+only as a SHA-256 hash. The browser exchanges the URL token for a scoped,
+httpOnly, SameSite cookie and removes the token from browser history. Before
+Plaid Link opens, the applicant sees the requesting organization, application
+context, exact checks, retention summary, and an explicit consent checkbox. A
+link token cannot be created before consent is recorded.
+
+Implemented Plaid products and calls:
+
+| Purpose | Link product or endpoint | Retained result |
+|---|---|---|
+| Identity and owner match | `identity`, then `/identity/get` | Match boolean and normalized score only |
+| Account ownership usability | `auth`, then `/auth/get` | Whether usable auth data exists and aggregate usable account count |
+| Real-time balances | `/accounts/balance/get` | Aggregate current and available totals plus account count |
+| Recent recurring income estimate | `transactions`, then bounded `/transactions/get` for up to 90 days | Monthly estimate, months observed, methodology version, and reason codes |
+
+`balance` is an endpoint, not a Link product. Auth account and routing numbers
+are used only in memory to establish that selected accounts are usable. Raw
+owner identity, addresses, account numbers, routing numbers, account-level
+balances, masks, transaction rows, and transaction descriptions are discarded.
+Plaid credentials are never visible to Portfolio Desk or the requesting
+organization.
+
+The recommendation is limited to `verified`, `review`, or `insufficient` with
+reason codes. It is decision support only. The workflow does not automatically
+approve, deny, or generate adverse action, and it is not a consumer report or
+background screening product. Staff must evaluate results under their own
+documented rental criteria and applicable law. Aggregate balances alone must
+not determine a rental decision.
+
+Identity, auth, and balance checks run immediately after Link. If Transactions
+returns `PRODUCT_NOT_READY`, the request remains in `processing` with only the
+encrypted access token and the already-minimized partial summary. A verified
+`INITIAL_UPDATE` or `SYNC_UPDATES_AVAILABLE` webhook resumes the bounded
+transaction check. After completion or terminal failure, the service calls
+`/item/remove` and clears the encrypted access token. Only the minimized summary
+remains. This short processing window also limits webhook exposure.
+
+### Applicant webhook setup
+
+Set the tenant Plaid applicant webhook URL to:
+
+```text
+https://api.example.com/api/v1/leasing-funnel/plaid/webhook
+```
+
+For the current development application host, use:
+
+```text
+https://dev.app.portfoliodesk.ai/api/v1/leasing-funnel/plaid/webhook
+```
+
+The frontend host proxies `/api/` to the backend, so a separate API hostname is
+not required. The URL must remain publicly reachable over HTTPS for Plaid.
+
+For OAuth institutions, add this applicant redirect URI to the Plaid dashboard's
+allowed redirect URIs, then save the same value in the tenant Plaid form:
+
+```text
+https://dev.app.portfoliodesk.ai/financial-verify
+```
+
+This is separate from the accounting bank-feed redirect URI. Applicant Link
+uses the public verification page so OAuth users return to their scoped,
+cookie-backed verification session instead of the authenticated Finance page.
+Leave the applicant redirect field blank when testing non-OAuth Sandbox
+institutions. Sending an unregistered redirect causes Plaid `INVALID_FIELD` and
+prevents Link from opening.
+
+The endpoint maps `item_id` to an organization under a narrow trusted RLS
+bypass, switches to that tenant, retrieves Plaid's verification key, verifies
+the ES256 `X-Plaid-Verification` JWT and exact request-body SHA-256 claim, and
+deduplicates by event digest. Unsigned or invalid webhooks are rejected. Known
+permission revocations mark the request revoked. Login and Item errors mark it
+action required. Unsupported metadata is logged without tokens or financial
+payload content.
+
+Because Items are removed immediately after successful processing, revocation
+webhooks normally matter only during the linking and short asynchronous
+processing window.
+
+### Applicant sandbox certification checklist
+
+1. Enable Identity, Auth, and Transactions for the Plaid Sandbox team and app.
+2. Register the exact redirect URI for OAuth institutions and the HTTPS webhook
+   URL shown above.
+3. Enable applicant financial verification in the tenant Plaid form.
+4. Send a request to a synthetic submitted application and confirm no link token
+   is returned before consent.
+5. Complete Sandbox Link with Plaid test users for a successful Item, an auth
+   data unavailable case, and an Item login error.
+6. Confirm only hashes, consent evidence, aggregate metrics, match flags,
+   methodology, and reason codes exist in PostgreSQL and API responses.
+7. Search application and provider logs for the test token, access token,
+   account and routing numbers, owner payload, and transaction descriptions.
+   All searches must be empty.
+8. Replay a signed webhook and confirm idempotency. Alter one body byte and
+   confirm signature rejection.
+9. Simulate `PRODUCT_NOT_READY`, then send a signed `INITIAL_UPDATE` webhook and
+   confirm processing resumes exactly once.
+10. Confirm `/item/remove` succeeds and `access_token_encrypted` is cleared after
+   completion.
+11. Record Plaid product approval, webhook test evidence, operator, timestamp,
+    and build SHA. Sandbox success does not certify Production access.
+
+Plaid Assets and Payroll Income are not implemented. They require separate
+product approval and asynchronous or product-specific API flows. Do not present
+either capability to applicants or staff until those flows are designed,
+approved, and certified.
+
 ---
 
 ## Troubleshooting
@@ -246,9 +425,10 @@ reconciliation is unchanged.
 | Intuit rejects the redirect | `QBO_REDIRECT_URI` differs from the app registration, including trailing slash |
 | QuickBooks sync skips everything | Accounts unmapped. Pull the chart of accounts and map them. |
 | Small banks connect, Chase fails | `PLAID_REDIRECT_URI` unset or not registered with Plaid |
-| Payment reports `unconfigured` | `PAYMENTS_API_KEY` unset. Payment recorded, no money taken. |
-| Screening always says "review" | `SCREENING_API_KEY` unset |
+| Payment reports `unconfigured` | Resident Payments is not configured or enabled for the organization. Configure it under Accounting connections. Payment is recorded as pending and no money is taken. |
+| Screening always says "review" | Screening is not configured or enabled for the organization. Configure it under Accounting connections. |
 | SSO callback returns `verification_failed` | Check `aud` matches the client ID, `iss` matches the configured issuer, and the email domain is allowed |
 
-See also [MIGRATIONS.md](MIGRATIONS.md), since every integration above needs the
-schema from revisions 111 to 115.
+See also [MIGRATIONS.md](MIGRATIONS.md). Tenant provider settings require
+revision 120 and applicant financial verification requires revision 121. Existing deployments can continue using environment fallback
+while each organization saves its own encrypted configuration.

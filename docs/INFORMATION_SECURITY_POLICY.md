@@ -239,6 +239,9 @@ Security testing shall include dependency scanning, static analysis, tenant-isol
 - Recovery tests shall verify database integrity, uploaded-file availability, tenant isolation, encryption-key availability, and critical application functions.
 - Backup failures and readiness failures shall generate operational alerts and assigned follow-up.
 - Recovery time objectives shall be defined and approved by management for each production deployment tier.
+- Phase 1 AWS operations target an RPO of no more than 24 hours and an RTO of no more than 4 hours. These are recovery objectives, not a high-availability guarantee.
+- Disposable database restore verification shall run quarterly and after material backup changes. A full production recovery exercise shall run at least annually.
+- Recovery evidence shall identify the backup, migration revision, core row counts, uploads verification, measured RPO/RTO, approver, exceptions, and corrective actions without including customer content or secrets.
 
 ## 15. Incident Response
 

@@ -16,13 +16,12 @@ class Settings(BaseSettings):
     JWT_SECRET: str
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRY_HOURS: int = 8
+    JWT_ACCESS_MINUTES: int = 30
     # Defense-in-depth: when true, every authenticated request sets the
     # Postgres session GUC `app.current_org` so that Row-Level Security
     # policies (see docs/RLS_EVALUATION.md) fail closed even if an app-level
-    # org filter is ever missed. Off by default — enabling it requires the
-    # matching RLS policies to be applied via alembic first (see the
-    # `082_rls_backstop_leases_pilot` migration) or every read on protected
-    # tables will return zero rows.
+    # org filter is ever missed. Production Compose enables this after startup
+    # applies migration 118; local development remains opt-in.
     RLS_BACKSTOP_ENABLED: bool = False
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
@@ -47,16 +46,20 @@ class Settings(BaseSettings):
     SMS_ACCOUNT_SID: str = ""
     SMS_AUTH_TOKEN: str = ""
     SMS_FROM: str = ""
-    # Inbound-payment processor (Stripe-style). Optional; when unset the payment
-    # gateway degrades to a logged no-op (see app.utils.payment_processor).
+    # Legacy bootstrap fallback for tenant payment configuration. Tenant rows
+    # configured in Finance > Connections take precedence for runtime traffic.
     PAYMENTS_PROVIDER: str = "stripe"
     PAYMENTS_API_KEY: str = ""
+    PAYMENTS_PUBLISHABLE_KEY: str = ""
     PAYMENTS_API_URL: str = ""
-    # Tenant-screening provider. Optional; when unset screening returns a
-    # manual-review stub (see app.utils.screening_client).
+    # Legacy bootstrap fallback for tenant screening configuration. New
+    # production tenants should configure this in Finance > Connections.
     SCREENING_PROVIDER: str = "transunion"
     SCREENING_API_KEY: str = ""
     SCREENING_API_URL: str = ""
+    # Optional provider-documented, non-mutating health/authentication endpoint.
+    # Readiness verification is disabled when this is blank.
+    SCREENING_HEALTH_URL: str = ""
     # How long to wait for a provider that answers asynchronously before leaving
     # the report 'pending' for a later refresh.
     SCREENING_POLL_ATTEMPTS: int = 5
@@ -202,9 +205,8 @@ class Settings(BaseSettings):
     # Upper bound on journal entries pushed in a single sync run.
     QBO_PUSH_BATCH_LIMIT: int = 200
 
-    # Plaid live bank feed (see app.services.bank_feed). Optional; when
-    # PLAID_CLIENT_ID/PLAID_SECRET are empty the feed degrades to a logged
-    # no-op exactly like app.utils.payment_processor.
+    # Legacy bootstrap fallback for Plaid. Tenant rows configured in Finance >
+    # Connections take precedence, including in background connection syncs.
     PLAID_CLIENT_ID: str = ""
     PLAID_SECRET: str = ""
     PLAID_ENV: str = "production"

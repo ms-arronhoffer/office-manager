@@ -41,3 +41,4 @@ class User(TimestampMixin, Base):
     totp_backup_codes: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     mfa_challenge_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
     mfa_challenge_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    mfa_challenge_attempts: Mapped[int] = mapped_column(default=0, nullable=False)

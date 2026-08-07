@@ -11,6 +11,8 @@ interface Options {
   portalPath: string;
   /** Redeems a single-use signup token for a persistent portal token. */
   signup?: (signupToken: string) => Promise<{ data: { portal_token: string } }>;
+  /** Exchanges a URL token for a scoped httpOnly portal cookie. */
+  exchange: (token: string) => Promise<unknown>;
   /** Loads the portal's data. Throws so the hook can classify auth failures. */
   load: (activeToken: string) => Promise<void>;
 }
@@ -37,7 +39,7 @@ const statusOf = (err: unknown): number | undefined =>
  * The single-use invite lands on `<portalPath>/signup?token=...` and is
  * exchanged for the persistent `<portalPath>?token=...` link.
  */
-export function usePortalSession({ portalPath, signup, load }: Options): PortalSession {
+export function usePortalSession({ portalPath, signup, exchange, load }: Options): PortalSession {
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -47,7 +49,7 @@ export function usePortalSession({ portalPath, signup, load }: Options): PortalS
   const signupToken = isSignupRoute ? urlToken : '';
   const tokenParam = isSignupRoute ? '' : urlToken;
 
-  const [token, setToken] = useState(tokenParam);
+  const [token, setToken] = useState('');
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(false);
   const [flash, setFlash] = useState<PortalFlash | null>(null);
@@ -73,8 +75,8 @@ export function usePortalSession({ portalPath, signup, load }: Options): PortalS
     try {
       const res = await signup(signupToken);
       const newToken = res.data.portal_token;
-      setToken(newToken);
-      navigate(`${portalPath}?token=${newToken}`, { replace: true });
+      await exchange(newToken);
+      navigate(portalPath, { replace: true });
       return newToken;
     } catch (err: unknown) {
       // Portals report an exhausted invite as either 400 or 410.
@@ -88,7 +90,7 @@ export function usePortalSession({ portalPath, signup, load }: Options): PortalS
       setAuthError(true);
       return '';
     }
-  }, [signup, signupToken, navigate, portalPath]);
+  }, [signup, signupToken, exchange, navigate, portalPath]);
 
   useEffect(() => {
     (async () => {
@@ -96,13 +98,12 @@ export function usePortalSession({ portalPath, signup, load }: Options): PortalS
       let activeToken = tokenParam;
       if (signupToken) {
         activeToken = await redeemSignup();
+      } else if (activeToken) {
+        await exchange(activeToken);
+        window.history.replaceState(null, '', portalPath);
       }
-      if (!activeToken) {
-        setAuthError(true);
-        setLoading(false);
-        return;
-      }
-      await runLoad(activeToken);
+      setToken('cookie');
+      await runLoad('');
       setLoading(false);
     })();
     // Runs once per mount, mirroring the original per-portal behaviour.
@@ -110,8 +111,7 @@ export function usePortalSession({ portalPath, signup, load }: Options): PortalS
   }, []);
 
   const reload = useCallback(async () => {
-    if (!token) return;
-    await runLoad(token);
+    await runLoad('');
   }, [token, runLoad]);
 
   return { token, loading, authError, flash, setFlash, reload };

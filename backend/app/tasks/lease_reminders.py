@@ -6,6 +6,7 @@ from jinja2 import Environment, FileSystemLoader
 from app.database import async_session
 from app.models import Lease, EmailReminderRule, EmailLog
 from app.utils.email_client import EmailCategory, send_email
+from app.utils.rls import set_system_bypass
 from app.services.webhook_service import dispatch_webhook
 from app.services.email_rule_engine import (
     DigestBuffer,
@@ -32,6 +33,7 @@ async def check_lease_reminders():
         rules = rules.scalars().all()
 
         for rule in rules:
+            await set_system_bypass(db)
             today = date.today()
             cutoff = today + timedelta(days=rule.days_before)
             is_expiration = rule.rule_type == "lease_expiration"

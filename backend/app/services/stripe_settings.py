@@ -20,6 +20,14 @@ from app.models.platform_stripe_config import PlatformStripeConfig
 from app.utils.crypto import decrypt_secret
 
 
+def validate_price_id(value: str, field_name: str) -> str:
+    """Return a Stripe Price id or raise an actionable configuration error."""
+    normalized = (value or "").strip()
+    if normalized and not normalized.startswith("price_"):
+        raise ValueError(f"{field_name} must be a Stripe Price ID beginning with 'price_'.")
+    return normalized
+
+
 @dataclass(frozen=True)
 class StripeSettings:
     secret_key: str
@@ -68,12 +76,22 @@ async def resolve_stripe_settings(db: AsyncSession) -> StripeSettings:
     return StripeSettings(
         secret_key=secret_key or env_settings.STRIPE_SECRET_KEY,
         webhook_secret=webhook_secret or env_settings.STRIPE_WEBHOOK_SECRET,
-        price_id_starter=price_starter or env_settings.STRIPE_PRICE_ID_STARTER,
-        price_id_pro=price_pro or env_settings.STRIPE_PRICE_ID_PRO,
-        price_id_starter_annual=(
-            price_starter_annual or env_settings.STRIPE_PRICE_ID_STARTER_ANNUAL
+        price_id_starter=validate_price_id(
+            price_starter or env_settings.STRIPE_PRICE_ID_STARTER,
+            "STRIPE_PRICE_ID_STARTER",
         ),
-        price_id_pro_annual=price_pro_annual or env_settings.STRIPE_PRICE_ID_PRO_ANNUAL,
+        price_id_pro=validate_price_id(
+            price_pro or env_settings.STRIPE_PRICE_ID_PRO,
+            "STRIPE_PRICE_ID_PRO",
+        ),
+        price_id_starter_annual=validate_price_id(
+            price_starter_annual or env_settings.STRIPE_PRICE_ID_STARTER_ANNUAL,
+            "STRIPE_PRICE_ID_STARTER_ANNUAL",
+        ),
+        price_id_pro_annual=validate_price_id(
+            price_pro_annual or env_settings.STRIPE_PRICE_ID_PRO_ANNUAL,
+            "STRIPE_PRICE_ID_PRO_ANNUAL",
+        ),
         product_id_enterprise=product_enterprise or env_settings.STRIPE_PRODUCT_ID_ENTERPRISE,
     )
 

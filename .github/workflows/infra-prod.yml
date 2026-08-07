@@ -54,8 +54,20 @@ env:
   ECR_NAMESPACE: office-manager
 
 jobs:
+  preflight:
+    if: github.event_name == 'push' || github.event.inputs.action == 'apply' || github.event.inputs.action == 'update'
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   # ── Stage 1: ensure the AWS infrastructure is in place ──────────────────────
   infra:
+    needs: preflight
+    if: >-
+      always() &&
+      (needs.preflight.result == 'success' ||
+      (github.event_name == 'workflow_dispatch' &&
+      (github.event.inputs.action == 'plan' || github.event.inputs.action == 'destroy')))
     runs-on: [self-hosted, Linux, X64, docker-build]
     permissions:
       contents: read
@@ -69,6 +81,7 @@ jobs:
       TF_VAR_encryption_key: ${{ secrets.ENCRYPTION_KEY }}
       TF_VAR_default_admin_password: ${{ secrets.TF_VAR_DEFAULT_ADMIN_PASSWORD }}
       TF_VAR_stripe_secret_key: ${{ secrets.TF_VAR_STRIPE_SECRET_KEY }}
+      TF_VAR_payments_api_key: ${{ secrets.PAYMENTS_API_KEY }}
       TF_VAR_gemini_api_key: ${{ secrets.TF_VAR_GEMINI_API_KEY }}
       TF_VAR_sentry_dsn: ${{ secrets.TF_VAR_SENTRY_DSN }}
       # Folded into the Secrets Manager app secret so the SSM-driven deploy job
@@ -300,7 +313,7 @@ jobs:
 
   # ── Stage 2: build the images and push them to ECR ──────────────────────────
   build-and-push:
-    needs: infra
+    needs: [infra, preflight]
     if: github.event_name == 'push' || github.event.inputs.action == 'apply' || github.event.inputs.action == 'update'
     runs-on: [self-hosted, Linux, X64, docker-build]
     permissions:
@@ -485,6 +498,9 @@ jobs:
           PLAID_API_BASE_URL: ${{ vars.PLAID_API_BASE_URL || 'https://production.plaid.com' }}
           PLAID_COUNTRY_CODES: ${{ vars.PLAID_COUNTRY_CODES || 'US' }}
           PLAID_REDIRECT_URI: ${{ secrets.PLAID_REDIRECT_URI }}
+          PAYMENTS_PROVIDER: ${{ vars.PAYMENTS_PROVIDER || 'stripe' }}
+          PAYMENTS_PUBLISHABLE_KEY: ${{ vars.PAYMENTS_PUBLISHABLE_KEY }}
+          PAYMENTS_API_URL: ${{ vars.PAYMENTS_API_URL }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
@@ -508,6 +524,7 @@ jobs:
           NPM_ADMIN_DOMAIN: ${{ secrets.NPM_ADMIN_DOMAIN }}
           NPM_LANDING_DOMAIN: ${{ secrets.NPM_LANDING_DOMAIN }}
           NPM_API_DOMAIN: ${{ secrets.NPM_API_DOMAIN }}
+          CLOUDWATCH_LOG_GROUP: /office-manager/prod/containers
         run: |
           set -euo pipefail
 
@@ -547,6 +564,9 @@ jobs:
           emit PLAID_API_BASE_URL "$PLAID_API_BASE_URL"
           emit PLAID_COUNTRY_CODES "$PLAID_COUNTRY_CODES"
           emit PLAID_REDIRECT_URI "$PLAID_REDIRECT_URI"
+          emit PAYMENTS_PROVIDER "$PAYMENTS_PROVIDER"
+          emit PAYMENTS_PUBLISHABLE_KEY "$PAYMENTS_PUBLISHABLE_KEY"
+          emit PAYMENTS_API_URL "$PAYMENTS_API_URL"
           emit SMTP_HOST       "$SMTP_HOST"
           emit SMTP_PORT       "$SMTP_PORT"
           emit SMTP_FROM       "$SMTP_FROM"
@@ -570,6 +590,7 @@ jobs:
           emit NPM_ADMIN_DOMAIN "$NPM_ADMIN_DOMAIN"
           emit NPM_LANDING_DOMAIN "$NPM_LANDING_DOMAIN"
           emit NPM_API_DOMAIN  "$NPM_API_DOMAIN"
+          emit CLOUDWATCH_LOG_GROUP "$CLOUDWATCH_LOG_GROUP"
           config_b64="$(base64 -w0 "$conf")"
           rm -f "$conf"
 
@@ -591,9 +612,10 @@ jobs:
           # `git config --global`, clone, fetch and checkout die with
           # "fatal: $HOME not set" / exit status 128). Pin it before any git use.
           export HOME="${HOME:-/root}"
+          export BUILD_SHA="$SHA"
           REPO_DIR=/home/ec2-user/office-manager
           PROJECT=prod-office-manager
-          COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.prod.yml)
+          COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.prod.yml -f docker-compose.aws.yml)
 
           # Warm-cache clone may be missing if the box was just rebuilt.
           if [ ! -d "$REPO_DIR/.git" ]; then
@@ -622,11 +644,19 @@ jobs:
           done < "$conf"
           rm -f "$conf"
 
+          # Install or refresh the host-side readiness publisher on every
+          # deploy. Existing instances do not rerun cloud-init user data after
+          # an ordinary in-place update, so this also covers upgraded hosts.
+          AWS_REGION="$REGION" \
+            BACKEND_PORT="${BACKEND_PORT:-4002}" \
+            READINESS_NAMESPACE="office-manager/Application" \
+            bash scripts/install-readiness-monitor.sh
+
           secret_json="$(aws secretsmanager get-secret-value \
             --secret-id "$SECRET_NAME" --region "$REGION" \
             --query SecretString --output text)"
           for k in POSTGRES_PASSWORD JWT_SECRET DEFAULT_ADMIN_PASSWORD ENCRYPTION_KEY \
-                   STRIPE_SECRET_KEY GEMINI_API_KEY SENTRY_DSN \
+                   STRIPE_SECRET_KEY PAYMENTS_API_KEY GEMINI_API_KEY SENTRY_DSN \
                    GOOGLE_CLIENT_SECRET QBO_CLIENT_SECRET PLAID_SECRET \
                    SMTP_USER SMTP_PASSWORD NPM_ADMIN_PASSWORD; do
             v="$(printf '%s' "$secret_json" | jq -r --arg k "$k" '.[$k] // empty')"
@@ -666,6 +696,35 @@ jobs:
             attempt=$((attempt + 1))
             sleep 5
           done
+
+          # A release is not successful until backend code and database schema
+          # match the exact image tag that was deployed.
+          backend_ready=0
+          for _ in $(seq 1 60); do
+            if "${COMPOSE[@]}" exec -T backend python -c \
+              "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/readyz', timeout=3).read()" \
+              >/dev/null 2>&1; then
+              backend_ready=1
+              break
+            fi
+            sleep 5
+          done
+          [ "$backend_ready" -eq 1 ] || { echo "Backend never became ready." >&2; exit 1; }
+
+          reported_sha="$("${COMPOSE[@]}" exec -T backend python -c \
+            "import json, urllib.request; print(json.load(urllib.request.urlopen('http://localhost:8000/api/v1/health'))['build_sha'])")"
+          [ "$reported_sha" = "$SHA" ] || {
+            echo "Backend build mismatch: expected $SHA, reported $reported_sha" >&2
+            exit 1
+          }
+
+          code_head="$("${COMPOSE[@]}" exec -T backend alembic heads | awk 'NR==1 {print $1}')"
+          database_head="$("${COMPOSE[@]}" exec -T backend alembic current | awk 'NR==1 {print $1}')"
+          [ -n "$code_head" ] && [ "$database_head" = "$code_head" ] || {
+            echo "Database migration mismatch: code head $code_head, database head $database_head" >&2
+            exit 1
+          }
+          echo "Verified backend SHA $reported_sha and database revision $database_head."
 
           docker image prune -f
 

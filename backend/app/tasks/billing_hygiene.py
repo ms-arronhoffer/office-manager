@@ -81,7 +81,6 @@ async def _send_trial_email(
     """Send a trial-lifecycle email to all org admins (deduplicated)."""
     try:
         from jinja2 import Environment, FileSystemLoader
-        from app.config import settings
 
         env = Environment(loader=FileSystemLoader("app/templates"))
         template = env.get_template(template_name)
@@ -200,7 +199,6 @@ async def run_billing_hygiene() -> None:
                 # 2 days before lockout — send urgent dunning notice
                 try:
                     from jinja2 import Environment, FileSystemLoader
-                    from app.config import settings
                     env = Environment(loader=FileSystemLoader("app/templates"))
                     template = env.get_template("billing_payment_failed.html")
                     html = template.render(

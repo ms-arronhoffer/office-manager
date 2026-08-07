@@ -1093,7 +1093,10 @@ async def promote_cam_entry(
             joinedload(Lease.notes),
             selectinload(Lease.cam_entries).joinedload(LeaseCamEntry.gl_account),
         )
-        .where(Lease.id == lease_id)
+        .where(
+            Lease.id == lease_id,
+            Lease.organization_id == current_user.organization_id,
+        )
     )
     response = LeaseResponse.model_validate(
         result.unique().scalar_one(), from_attributes=True

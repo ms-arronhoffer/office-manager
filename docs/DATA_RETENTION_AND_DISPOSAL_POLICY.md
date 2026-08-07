@@ -106,6 +106,7 @@ The following schedule defines Portfolio Desk defaults. A signed customer agreem
 | Insurance certificates and vendor compliance records | 7 years after expiration or termination of the vendor relationship, whichever is later | Supports claims and compliance evidence |
 | Contacts and routine communications | Duration of active relationship plus 3 years | Excludes records incorporated into a longer-lived legal, financial, support, or audit record |
 | Tenant screening summaries | Minimum period needed for the leasing decision, dispute, and legally required adverse-action process | The responsible customer must define the applicable schedule; raw reports and unnecessary sensitive fields shall not be retained |
+| Applicant financial verification summaries | 90 days after the rental decision by default, or the configured legal period | Retain only consent evidence, match flags, aggregate balances, income estimate, methodology, and reason codes. Never retain raw identity owners, account or routing numbers, account-level balances, or transaction rows. Remove the Plaid Item and clear its encrypted access token immediately after synchronous processing or revocation when reprocessing is not required. |
 | Support requests and customer service records | 3 years after closure | Security incidents and contractual disputes follow their longer applicable schedules |
 | Billing and subscription records | 7 years after the transaction or fiscal-year close | Payment card numbers are not stored by Portfolio Desk |
 | Application audit logs, Core plan | 90 days | Implemented through nightly organization-scoped pruning |
@@ -120,8 +121,8 @@ The following schedule defines Portfolio Desk defaults. A signed customer agreem
 | Temporary uploads and processing artifacts | No longer than 24 hours after processing unless promoted to a business record | Temporary files shall not become an undocumented archive |
 | Exports and generated reports | 30 days when stored by Portfolio Desk | User-downloaded copies are controlled by the receiving customer |
 | Local in-process caches | Until process restart or configured cache expiry | Caches shall not be the system of record |
-| Daily S3 application backups | 3 days under the current backup lifecycle | Applies to documented `pg_dump` and uploaded-file backup sets |
-| Managed database snapshots | 7 days by default where configured | Deployment-specific settings may provide a longer approved period |
+| Daily S3 application backups | 35 days under the AWS production backup lifecycle | Applies to documented `pg_dump` backups and uploaded-file manifests; noncurrent backup versions expire after 7 days |
+| Managed database snapshots | 14 days by default where configured | Cost-conscious Phase 1 setting; AWS permits up to 35 days |
 | Source code and deployment records | Life of the product plus 7 years | Secrets and production customer data are prohibited from source control |
 
 ## 6. Account Termination and Organization Deletion
@@ -195,7 +196,7 @@ A legal hold suspends normal alteration and deletion for information reasonably 
 ## 10. Backups, Replicas, and Disaster Recovery Copies
 
 - Backup systems shall have documented lifecycle rules and shall not become indefinite archives.
-- The current application backup process retains daily database and uploaded-file backup sets for three days. Managed production database snapshots default to seven days where configured.
+- AWS production retains current daily database backups and uploaded-file manifests for 35 days. Noncurrent backup versions expire after 7 days. Managed production database backups default to 14 days.
 - Deleted active-system data may remain in encrypted backups until the backup naturally expires.
 - Backups shall not ordinarily be altered to remove a single record because doing so can undermine integrity and recoverability.
 - If a backup is restored, disposal actions that occurred after the backup was created shall be replayed before the restored environment is returned to service.
@@ -350,13 +351,13 @@ Revisions and approvals shall be retained.
 | Organization deletion | Customer and super-admin delete endpoints deactivate the organization and cancel billing; data is preserved | Implement or document a verified final purge process after the approved holding period |
 | Soft-deleted entities | Several operational entities support trash and restore | Implement universal 30-day purge or approve category-specific exceptions |
 | Audit logs | Core organizations are pruned nightly after 90 days; Operations and Enterprise default to unlimited | Periodically review unlimited retention and support finite contractual overrides |
-| Backups | S3 database and upload backups expire after 3 days; AWS managed database snapshots default to 7 days where configured | Monitor lifecycle jobs and test restoration and post-restore reapplication of deletions |
+| Backups | Versioned S3 database backups and uploads manifests retain 35 days; noncurrent backup versions retain 7 days; managed database backups retain 14 days | Monitor lifecycle jobs, run quarterly disposable restores, and test post-restore reapplication of deletions |
 | Uploaded files | Stored locally or in S3 and associated through attachment records | Verify object deletion accompanies metadata purge and covers noncurrent versions |
 | QuickBooks | Disconnect deletes the local encrypted connection and mappings according to database relationships | Confirm provider-side revocation procedure and retain only required financial provenance |
 | Plaid | Disconnect calls Plaid Item removal and deletes the local encrypted connection | Verify imported financial records follow the 7-year schedule independently of the token |
 | AI parse cache | In-process cache expires on process restart or eviction | Add explicit source-deletion invalidation if persistent cache behavior is introduced |
 | Embeddings | Organization-scoped chunks and vectors support rebuild | Ensure source deletion triggers derived-data removal and vector synchronization |
-| Logs | Structured logging and optional external error tracking are available | Configure and evidence production retention in each logging provider |
+| Logs | AWS production container logs ship to CloudWatch Logs with 30-day retention; structured logging and optional external error tracking remain available | Review alarm delivery and log retention evidence quarterly |
 | Legal holds | Policy process defined in this document | Implement an operational hold register and deletion-job suppression procedure |
 | Disposal evidence | Activity and job logs provide partial evidence | Implement a standard disposal certificate or ticket checklist for organization purge |
 

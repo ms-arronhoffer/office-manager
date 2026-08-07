@@ -43,6 +43,7 @@ from decimal import Decimal
 import httpx
 
 from app.config import settings
+from app.services.organization_integration_settings import ScreeningSettings, legacy_settings
 
 logger = logging.getLogger(__name__)
 
@@ -149,8 +150,8 @@ class ScreeningResult:
     adverse_action: dict | None = None
 
 
-def _configured() -> bool:
-    return bool(getattr(settings, "SCREENING_API_KEY", None))
+def _configured(config: ScreeningSettings) -> bool:
+    return bool(config.is_enabled and config.api_key and config.api_url)
 
 
 def _clean_str(value: object, limit: int = 200) -> str | None:
@@ -307,17 +308,14 @@ def _manual_result() -> ScreeningResult:
     )
 
 
-def _base_url() -> str:
-    url = (
-        getattr(settings, "SCREENING_API_URL", "")
-        or "https://api.example-screening.com/v1/reports"
-    )
+def _base_url(config: ScreeningSettings) -> str:
+    url = config.api_url or "https://api.example-screening.com/v1/reports"
     return url.rstrip("/")
 
 
-def _headers() -> dict[str, str]:
+def _headers(config: ScreeningSettings) -> dict[str, str]:
     return {
-        "Authorization": "Bearer " + str(settings.SCREENING_API_KEY),
+        "Authorization": "Bearer " + config.api_key,
         "Accept": "application/json",
     }
 
@@ -334,6 +332,7 @@ async def _poll_report(
     report_id: str,
     attempts: int,
     interval: float,
+    config: ScreeningSettings,
 ) -> ScreeningResult:
     """Poll a submitted report until it is terminal or the attempts run out."""
     result = ScreeningResult(
@@ -344,7 +343,7 @@ async def _poll_report(
     )
     for attempt in range(attempts):
         await asyncio.sleep(interval)
-        resp = await http.get(f"{_base_url()}/{report_id}", headers=_headers())
+        resp = await http.get(f"{_base_url(config)}/{report_id}", headers=_headers(config))
         if resp.status_code >= 400:
             logger.warning(
                 "Screening poll failed via %s: HTTP %s (attempt %s)",
@@ -366,6 +365,7 @@ async def request_screening(
     last_name: str,
     email: str,
     monthly_income: Decimal | None = None,
+    config: ScreeningSettings | None = None,
 ) -> ScreeningResult:
     """Request a tenant-screening report for an applicant.
 
@@ -379,13 +379,14 @@ async def request_screening(
     ``manual`` result is returned with a ``review`` recommendation so staff know
     to screen by hand, and the funnel is never blocked on a missing integration.
     """
-    if not _configured():
+    config = config or legacy_settings("screening")
+    if not _configured(config):
         logger.info("Screening skipped (provider not configured) for %s", email)
         return _manual_result()
 
-    provider = getattr(settings, "SCREENING_PROVIDER", "transunion") or "transunion"
-    attempts = int(getattr(settings, "SCREENING_POLL_ATTEMPTS", 5) or 0)
-    interval = float(getattr(settings, "SCREENING_POLL_INTERVAL_SECONDS", 2.0) or 0.0)
+    provider = config.provider_name
+    attempts = config.poll_attempts
+    interval = config.poll_interval_seconds
     payload = {
         "first_name": first_name,
         "last_name": last_name,
@@ -394,7 +395,7 @@ async def request_screening(
     }
     try:
         async with httpx.AsyncClient(timeout=20.0) as http:
-            resp = await http.post(_base_url(), json=payload, headers=_headers())
+            resp = await http.post(_base_url(config), json=payload, headers=_headers(config))
             if resp.status_code >= 400:
                 logger.warning(
                     "Screening failed via %s: HTTP %s", provider, resp.status_code
@@ -406,7 +407,7 @@ async def request_screening(
             result = normalize_screening_response(resp.json(), provider=provider)
             if result.status == "pending" and result.external_ref and attempts > 0:
                 result = await _poll_report(
-                    http, provider, result.external_ref, attempts, interval
+                    http, provider, result.external_ref, attempts, interval, config
                 )
         return result
     except Exception as e:  # pragma: no cover - network failure path

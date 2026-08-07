@@ -136,6 +136,7 @@ const VendorPortalPage: React.FC = () => {
 
   const { token, loading, authError, flash, setFlash, reload: load } = usePortalSession({
     portalPath: '/vendor-portal',
+    exchange: vendorPortal.exchange,
     load: loadData,
   });
 

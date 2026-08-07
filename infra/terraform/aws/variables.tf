@@ -80,6 +80,64 @@ variable "app_eip_allocation_id" {
   default     = "eipalloc-04448fb4ab8eeae33"
 }
 
+# ── Monitoring and alerting ──────────────────────────────────────────────────
+
+variable "alert_email" {
+  description = "Optional email address for CloudWatch alarm notifications. Leave empty to create alarms without an SNS topic or subscription."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.alert_email == "" || can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.alert_email))
+    error_message = "alert_email must be empty or a valid email address."
+  }
+}
+
+variable "cloudwatch_log_retention_days" {
+  description = "Retention for production container logs in CloudWatch Logs."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = contains([1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1096, 1827, 2192, 2557, 2922, 3288, 3653], var.cloudwatch_log_retention_days)
+    error_message = "cloudwatch_log_retention_days must be a CloudWatch Logs supported retention value."
+  }
+}
+
+variable "rds_cpu_alarm_threshold" {
+  description = "RDS CPUUtilization percentage that triggers an alarm."
+  type        = number
+  default     = 80
+
+  validation {
+    condition     = var.rds_cpu_alarm_threshold > 0 && var.rds_cpu_alarm_threshold <= 100
+    error_message = "rds_cpu_alarm_threshold must be greater than 0 and no more than 100."
+  }
+}
+
+variable "rds_free_storage_alarm_gb" {
+  description = "RDS free storage threshold in GiB below which an alarm is raised."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.rds_free_storage_alarm_gb > 0
+    error_message = "rds_free_storage_alarm_gb must be greater than 0."
+  }
+}
+
+variable "rds_connections_alarm_threshold" {
+  description = "Optional RDS DatabaseConnections threshold. Leave null to omit this workload-dependent alarm."
+  type        = number
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.rds_connections_alarm_threshold == null || var.rds_connections_alarm_threshold > 0
+    error_message = "rds_connections_alarm_threshold must be null or greater than zero."
+  }
+}
+
 # ── Database (RDS) ────────────────────────────────────────────────────────────
 
 variable "db_instance_class" {
@@ -125,9 +183,36 @@ variable "db_username" {
 }
 
 variable "db_backup_retention_days" {
-  description = "Automated RDS backup retention window, in days."
+  description = "Automated RDS backup retention window, in days. Defaults to 14 as the cost-conscious complement to 35-day S3 application backups."
+  type        = number
+  default     = 14
+
+  validation {
+    condition     = var.db_backup_retention_days >= 1 && var.db_backup_retention_days <= 35
+    error_message = "db_backup_retention_days must be between 1 and the RDS maximum of 35 days."
+  }
+}
+
+variable "backup_retention_days" {
+  description = "Days to retain current application backup objects in S3."
+  type        = number
+  default     = 35
+
+  validation {
+    condition     = var.backup_retention_days >= 1
+    error_message = "backup_retention_days must be at least 1."
+  }
+}
+
+variable "backup_noncurrent_retention_days" {
+  description = "Days to retain noncurrent backup object versions after a replacement or delete marker is created."
   type        = number
   default     = 7
+
+  validation {
+    condition     = var.backup_noncurrent_retention_days >= 1
+    error_message = "backup_noncurrent_retention_days must be at least 1."
+  }
 }
 
 # ── Secrets ───────────────────────────────────────────────────────────────────
@@ -173,6 +258,13 @@ variable "default_admin_password" {
 
 variable "stripe_secret_key" {
   description = "Stripe secret API key (optional; billing degrades gracefully if empty)."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "payments_api_key" {
+  description = "Resident payment processor secret API key (optional; payments remain uncaptured if empty)."
   type        = string
   sensitive   = true
   default     = ""

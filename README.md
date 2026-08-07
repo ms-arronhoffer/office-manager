@@ -18,6 +18,15 @@ environment variables, deployment steps, and embedding migration guidance.
 - **Payments**: Stripe (subscriptions, webhooks, Customer Portal)
 - **Rate Limiting**: SlowAPI
 
+## Offline Behavior
+
+Portfolio Desk caches only the application shell and static assets needed to
+open the installed PWA while offline. API requests are network-only: portal,
+tenant, and other authenticated data is not stored in browser Cache Storage and
+is unavailable without a network connection. Offline API GET requests return a
+`503` JSON response; create, update, and delete operations also require network
+connectivity.
+
 ## Architecture
 
 ```

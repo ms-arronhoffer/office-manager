@@ -1,15 +1,12 @@
 import axios from 'axios';
 
 // Super-admin endpoints are mounted under /admin/v1 (separate from the tenant
-// /api/v1 base). They require a super-admin JWT, attached below from the same
-// access_token used by the main client.
-const adminClient = axios.create({ baseURL: '/admin/v1' });
+// /api/v1 base). Authentication uses the same secure cookies as the main app.
+const adminClient = axios.create({ baseURL: '/admin/v1', withCredentials: true });
 adminClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token');
-  if (token) {
-    config.headers = config.headers ?? {};
-    config.headers.Authorization = 'Bearer ' + token;
-  }
+  const csrf = document.cookie.split('; ').find((item) => item.startsWith('om_csrf='));
+  if (csrf && !['get', 'head', 'options'].includes((config.method || 'get').toLowerCase()))
+    config.headers['X-CSRF-Token'] = decodeURIComponent(csrf.slice('om_csrf='.length));
   return config;
 });
 
@@ -301,7 +298,7 @@ export const superAdmin = {
   restoreSubscription: (orgId: string) => adminClient.post(`/billing/${orgId}/restore`),
 
   impersonate: (orgId: string) =>
-    adminClient.post<{ token: string; impersonated_user_email: string }>(`/orgs/${orgId}/impersonate`),
+    adminClient.post<{ impersonated_user_id: string; impersonated_user_email: string }>(`/orgs/${orgId}/impersonate`),
 
   listUsers: (params: UserListParams = {}) =>
     adminClient.get<PaginatedUsers>('/users', { params }),

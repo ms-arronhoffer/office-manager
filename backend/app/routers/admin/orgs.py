@@ -6,7 +6,7 @@ import math
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from jose import jwt
 from pydantic import BaseModel, Field
@@ -14,6 +14,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_console_role, require_super_admin
+from app.auth.sessions import set_access_cookie
 from app.config import settings
 from app.database import get_db
 from app.models.activity_log import ActivityLog
@@ -110,7 +111,6 @@ class OrgPatch(BaseModel):
 
 
 class ImpersonateResponse(BaseModel):
-    token: str
     impersonated_user_id: str
     impersonated_user_email: str
 
@@ -738,6 +738,7 @@ async def get_catalog(
 @router.post("/{org_id}/impersonate", response_model=ImpersonateResponse)
 async def impersonate_org(
     org_id: uuid.UUID,
+    response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_console_role("super_admin", "support")),
 ):
@@ -794,9 +795,9 @@ async def impersonate_org(
         entity_label=org.name,
         changes={"target_user_id": str(target.id), "target_email": target.email},
     )
+    set_access_cookie(response, token, max_age=60 * 60)
 
     return ImpersonateResponse(
-        token=token,
         impersonated_user_id=str(target.id),
         impersonated_user_email=target.email,
     )

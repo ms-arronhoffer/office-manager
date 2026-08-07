@@ -130,7 +130,6 @@ const OrganizationsTab: React.FC = () => {
   const impersonate = async (org: AdminOrg) => {
     try {
       const { data } = await superAdmin.impersonate(org.id);
-      localStorage.setItem('access_token', data.token);
       addFlash({ type: 'success', content: `Impersonating ${data.impersonated_user_email}.` });
       window.location.href = '/';
     } catch {

@@ -20,19 +20,39 @@ import type {
   TokenSpendPoint,
 } from "../types"
 
-const api = axios.create({ baseURL: "" })
+const api = axios.create({ baseURL: "", withCredentials: true })
+const refreshApi = axios.create({ baseURL: "", withCredentials: true })
+let refreshPromise: Promise<void> | null = null
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("admin_token")
-  if (token) config.headers.Authorization = "Be" + "arer " + token
+  const csrf = document.cookie.split("; ").find((item) => item.startsWith("om_csrf="))
+  if (csrf && !["get", "head", "options"].includes((config.method || "get").toLowerCase()))
+    config.headers["X-CSRF-Token"] = decodeURIComponent(csrf.slice("om_csrf=".length))
   return config
 })
 
 api.interceptors.response.use(
   (r) => r,
-  (err) => {
-    if (err.response?.status === 401) {
-      localStorage.removeItem("admin_token")
+  async (err) => {
+    const original = err.config as (typeof err.config & { _sessionRetry?: boolean }) | undefined
+    const url = String(original?.url || "")
+    const isAuthFlow = /\/api\/v1\/auth\/(login|refresh|logout|mfa\/)/.test(url)
+    const isPublicAuthPage = /^\/login(\/|$)/.test(window.location.pathname)
+    if (err.response?.status === 401 && original && !original._sessionRetry && !isAuthFlow && !isPublicAuthPage) {
+      original._sessionRetry = true
+      if (!refreshPromise) {
+        refreshPromise = refreshApi.post("/api/v1/auth/refresh").then(() => undefined).finally(() => {
+          refreshPromise = null
+        })
+      }
+      try {
+        await refreshPromise
+        return api.request(original)
+      } catch {
+        // Fall through to the login redirect when rotation is unavailable.
+      }
+    }
+    if (err.response?.status === 401 && !isAuthFlow && !isPublicAuthPage) {
       window.location.href = "/login"
     }
     return Promise.reject(err)

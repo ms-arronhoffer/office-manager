@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
+import httpx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jose import jwt as jose_jwt
@@ -233,7 +234,9 @@ async def test_replayed_state_is_rejected(
     id_token_factory(make_id_token(nonce=row.nonce))
 
     first = await client.get(f"{SSO}/callback", params={"state": row.state, "code": "code-1"})
-    assert "sso_token=" in first.headers["location"]
+    assert "sso_success=1" in first.headers["location"]
+    assert "sso_token=" not in first.headers["location"]
+    assert "om_access=" in first.headers.get("set-cookie", "")
 
     second = await client.get(f"{SSO}/callback", params={"state": row.state, "code": "code-1"})
     assert "sso_error=invalid_state" in second.headers["location"]
@@ -416,7 +419,7 @@ async def test_login_cannot_cross_into_another_organization(
 # ─── Successful login ──────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_successful_callback_issues_working_jwt(
+async def test_successful_callback_issues_cookie_session_without_url_token(
     client, db_session, enterprise_org, sso_config, id_token_factory
 ):
     await _start_login(client, enterprise_org)
@@ -426,12 +429,9 @@ async def test_successful_callback_issues_working_jwt(
     resp = await client.get(f"{SSO}/callback", params={"state": row.state, "code": "c"})
     assert resp.status_code == 302
     location = resp.headers["location"]
-    assert "#" in location and "sso_token=" in location
-
-    from urllib.parse import parse_qs, urlparse
-
-    token = parse_qs(urlparse(location).fragment)["sso_token"][0]
-    me = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert "#" in location and "sso_success=1" in location
+    assert "sso_token=" not in location
+    me = await client.get("/api/v1/auth/me")
     assert me.status_code == 200
     assert me.json()["email"] == f"alice@{ALLOWED_DOMAIN}"
 
@@ -454,7 +454,8 @@ async def test_second_login_reuses_the_same_account(
         row = await _pending_state(db_session)
         id_token_factory(make_id_token(nonce=row.nonce))
         resp = await client.get(f"{SSO}/callback", params={"state": row.state, "code": "c"})
-        assert "sso_token=" in resp.headers["location"]
+        assert "sso_success=1" in resp.headers["location"]
+        assert "sso_token=" not in resp.headers["location"]
 
     users = (
         await db_session.execute(select(User).where(User.email == f"alice@{ALLOWED_DOMAIN}"))
@@ -641,3 +642,65 @@ def test_pkce_challenge_is_s256_of_verifier():
     )
     assert challenge == expected
     assert len(verifier) >= 43
+
+
+class _OidcClient:
+    def __init__(self, response: httpx.Response, recorder: list):
+        self.response = response
+        self.recorder = recorder
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_args):
+        return False
+
+    async def post(self, url, **kwargs):
+        self.recorder.append((url, kwargs))
+        return self.response
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_exchange_contract(monkeypatch):
+    recorder: list = []
+    response = httpx.Response(200, json={"id_token": "signed.jwt", "token_type": "Bearer"})
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: _OidcClient(response, recorder))
+
+    tokens = await sso_service.exchange_code(
+        f"{ISSUER}/token",
+        code="auth-code",
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        redirect_uri="https://app.example.test/callback",
+        code_verifier="pkce-verifier",
+    )
+
+    assert tokens["id_token"] == "signed.jwt"
+    url, request = recorder[0]
+    assert url == f"{ISSUER}/token"
+    assert request["data"] == {
+        "grant_type": "authorization_code",
+        "code": "auth-code",
+        "redirect_uri": "https://app.example.test/callback",
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "code_verifier": "pkce-verifier",
+    }
+
+
+@pytest.mark.asyncio
+async def test_oidc_token_error_does_not_echo_provider_body(monkeypatch):
+    response = httpx.Response(400, json={"error_description": CLIENT_SECRET})
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: _OidcClient(response, []))
+
+    with pytest.raises(sso_service.SsoError) as exc_info:
+        await sso_service.exchange_code(
+            f"{ISSUER}/token",
+            code="bad-code",
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET,
+            redirect_uri="https://app.example.test/callback",
+            code_verifier="pkce-verifier",
+        )
+    assert exc_info.value.code == "provider_rejected"
+    assert CLIENT_SECRET not in str(exc_info.value)

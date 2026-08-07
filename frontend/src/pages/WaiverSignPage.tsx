@@ -29,10 +29,13 @@ const WaiverSignPage: React.FC = () => {
   const [done, setDone] = useState<'signed' | 'declined' | null>(null);
 
   const load = useCallback(async () => {
-    if (!token) return;
     setLoading(true);
     try {
-      const res = await waiverPublic.view(token);
+      if (token) {
+        await waiverPublic.exchange(token);
+        window.history.replaceState(null, '', '/sign');
+      }
+      const res = await waiverPublic.view();
       setWaiver(res.data);
       if (res.data.status === 'signed') setDone('signed');
       if (res.data.status === 'declined') setDone('declined');
@@ -49,7 +52,6 @@ const WaiverSignPage: React.FC = () => {
   }, [load]);
 
   const submit = async () => {
-    if (!token) return;
     if (!signerName.trim() || !signature.trim()) {
       setError('Please enter your name and signature.');
       return;
@@ -61,7 +63,7 @@ const WaiverSignPage: React.FC = () => {
     setSubmitting(true);
     setError(null);
     try {
-      await waiverPublic.sign(token, {
+      await waiverPublic.sign({
         signer_name: signerName,
         signer_email: signerEmail || null,
         signature_type: 'typed',
@@ -84,10 +86,9 @@ const WaiverSignPage: React.FC = () => {
   };
 
   const decline = async () => {
-    if (!token) return;
     setSubmitting(true);
     try {
-      await waiverPublic.decline(token);
+      await waiverPublic.decline();
       setDone('declined');
     } catch {
       setError('Failed to decline.');

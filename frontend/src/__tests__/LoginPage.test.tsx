@@ -7,6 +7,7 @@ import { AuthProvider } from '@/auth/AuthContext';
 import { auth as authApi } from '@/api';
 
 function renderLoginPage() {
+  vi.spyOn(authApi, 'getMe').mockRejectedValueOnce({ response: { status: 401 } });
   return render(
     <BrowserRouter>
       <AuthProvider>

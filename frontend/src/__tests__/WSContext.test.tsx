@@ -46,18 +46,19 @@ describe('WSProvider reconnect behavior', () => {
     vi.restoreAllMocks();
   });
 
-  it('does not reconnect when no token is present', () => {
+  it('connects without putting a token in the URL', () => {
     render(
-      <WSProvider token={null}>
+      <WSProvider>
         <Consumer />
       </WSProvider>,
     );
-    expect(MockWebSocket.instances).toHaveLength(0); // no socket created
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(MockWebSocket.instances[0].url).not.toContain('?token=');
   });
 
   it('reconnects with backoff after a non-auth close', () => {
     render(
-      <WSProvider token="abc">
+      <WSProvider>
         <Consumer />
       </WSProvider>,
     );
@@ -80,7 +81,7 @@ describe('WSProvider reconnect behavior', () => {
 
   it('stops reconnecting when the server rejects the token (4001)', () => {
     render(
-      <WSProvider token="stale">
+      <WSProvider>
         <Consumer />
       </WSProvider>,
     );

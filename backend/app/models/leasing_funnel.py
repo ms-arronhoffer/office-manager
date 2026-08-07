@@ -146,6 +146,9 @@ class RentalApplication(SoftDeleteMixin, TimestampMixin, Base):
     screening_reports: Mapped[list["ScreeningReport"]] = relationship(
         back_populates="application", cascade="all, delete-orphan"
     )
+    financial_verifications: Mapped[list["ApplicantFinancialVerification"]] = relationship(
+        back_populates="application", cascade="all, delete-orphan"
+    )
 
 
 class ScreeningReport(TimestampMixin, Base):
@@ -265,3 +268,4 @@ class LeaseSignatureParty(TimestampMixin, Base):
 
 # Resolved at runtime by SQLAlchemy to avoid a circular import.
 from app.models.resident import RentalUnit  # noqa: E402,F401
+from app.models.financial_verification import ApplicantFinancialVerification  # noqa: E402,F401

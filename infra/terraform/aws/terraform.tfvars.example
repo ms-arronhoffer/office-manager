@@ -5,6 +5,19 @@
 aws_region  = "us-east-2"
 environment = "prod"
 
+# Cost-conscious recovery defaults. RDS supports at most 35 days; daily S3
+# application backups retain a longer independent history.
+db_backup_retention_days         = 14
+backup_retention_days            = 35
+backup_noncurrent_retention_days = 7
+
+# Optional alert delivery. Alarms are always created; SNS is created only when
+# this is set. Confirm the AWS subscription email after apply.
+alert_email = ""
+
+# Tune the workload-dependent connection threshold after observing normal use.
+# rds_connections_alarm_threshold = 70
+
 # Restrict SSH to your office/VPN CIDR(s); leave empty and use SSM Session
 # Manager instead (already granted via the instance's IAM role).
 ssh_allowed_cidrs = ["74.133.78.157/32"]
@@ -26,6 +39,7 @@ app_eip_allocation_id = "eipalloc-04448fb4ab8eeae33"
 # jwt_secret              = "..."
 # default_admin_password  = "..."
 # stripe_secret_key       = "..."
+# payments_api_key        = "..."
 # gemini_api_key          = "..."
 # sentry_dsn              = "..."
 # Additional app secrets folded into the Secrets Manager secret so the

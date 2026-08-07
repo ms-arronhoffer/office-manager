@@ -83,6 +83,7 @@ const OwnerPortalPage: React.FC = () => {
   const { token, loading, authError, flash, setFlash } = usePortalSession({
     portalPath: '/owner-portal',
     signup: ownerPortal.signup,
+    exchange: ownerPortal.exchange,
     load: loadData,
   });
 

@@ -19,6 +19,7 @@ from app.database import async_session
 from app.models.saved_report import ReportSchedule, SavedReport
 from app.services.report_service import DATASET_CONFIGS, ReportService
 from app.utils.email_client import EmailCategory, send_email_with_attachment
+from app.utils.rls import set_system_bypass
 from app.utils.scheduling import compute_next_run
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,7 @@ async def send_scheduled_reports() -> None:
 
     async with async_session() as db:
         try:
+            await set_system_bypass(db)
             result = await db.execute(
                 select(ReportSchedule)
                 .options(selectinload(ReportSchedule.saved_report))

@@ -468,12 +468,19 @@ async def record_rent_payment(
     charge_result = None
     processor_ref = reference
     if method in payment_processor.PAYMENT_METHODS and payment_token:
+        from app.services import organization_integration_settings as org_settings
+
+        payment_config = (
+            await org_settings.resolve(db, organization_id, "resident_payments")
+            if organization_id else org_settings.legacy_settings("resident_payments")
+        )
         charge_result = await payment_processor.charge_payment(
             amount,
             method=method,
             payment_token=payment_token,
             description=f"Rent payment for invoice {invoice.invoice_number or invoice.id}",
             idempotency_key=idempotency_key,
+            config=payment_config,
         )
         if charge_result.captured and charge_result.processor_ref:
             processor_ref = charge_result.processor_ref

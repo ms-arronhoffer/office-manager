@@ -152,6 +152,22 @@ async def test_payment_methods_require_token(client):
     assert resp.status_code == 401
 
 
+async def test_payment_config_is_token_gated_and_browser_safe(
+    client, admin_user, sample_office
+):
+    unauthorized = await client.get(f"{PORTAL}/resident-portal/payment-config")
+    assert unauthorized.status_code == 401
+
+    resident_id, _ = await _seed_resident_with_lease(client, admin_user, sample_office)
+    token = await _activate_portal(client, admin_user, resident_id)
+    response = await client.get(
+        f"{PORTAL}/resident-portal/payment-config", headers=_pt(token)
+    )
+
+    assert response.status_code == 200
+    assert set(response.json()) == {"configured", "provider", "publishable_key"}
+
+
 # ─── Payments ─────────────────────────────────────────────────────────────────
 
 async def test_payment_reduces_balance(client, admin_user, sample_office):

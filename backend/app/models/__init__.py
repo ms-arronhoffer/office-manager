@@ -1,7 +1,9 @@
 from app.models.base import Base
 from app.models.organization import Organization
 from app.models.organization_sso_config import OrganizationSsoConfig, SsoLoginState
+from app.models.organization_integration_config import OrganizationIntegrationConfig
 from app.models.user import User
+from app.models.refresh_session import RefreshSession
 from app.models.auth_lockout import AuthLockout
 from app.models.office import Manager, Office
 from app.models.lease import (
@@ -130,6 +132,10 @@ from app.models.leasing_funnel import (
     LEASE_SIGN_STATUSES, LEASE_PARTY_STATUSES, LEASE_PARTY_ROLES,
     LEASE_SIGNATURE_TYPES,
 )
+from app.models.financial_verification import (
+    ApplicantFinancialVerification, FinancialVerificationWebhookEvent,
+    FINANCIAL_VERIFICATION_STATUSES,
+)
 from app.models.listing import (
     VacancyListing,
     LISTING_STATUSES,
@@ -160,7 +166,7 @@ from app.models.external_sync import (
 
 __all__ = [
     "Base", "Organization", "User", "AuthLockout",
-    "OrganizationSsoConfig", "SsoLoginState",
+    "OrganizationSsoConfig", "SsoLoginState", "OrganizationIntegrationConfig",
     "Manager", "Office",    "Lease", "LeaseNote", "LeaseCamEntry", "CAM_CHARGE_TYPES", "CAM_PERIOD_STATUSES",
     "CAM_RENT_FREQUENCIES", "CAM_REVIEW_STATUSES", "CAM_SOURCES",
     "LeaseRenewal", "LeaseOption",

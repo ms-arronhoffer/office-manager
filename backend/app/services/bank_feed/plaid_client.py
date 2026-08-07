@@ -12,11 +12,13 @@ test environments run without credentials.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Any
 
 import httpx
 
 from app.config import settings
+from app.services.organization_integration_settings import PlaidSettings, legacy_settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,27 +32,30 @@ class PlaidApiError(Exception):
         self.error_code = error_code
 
 
-def is_configured() -> bool:
+def is_configured(config: PlaidSettings | None = None) -> bool:
     """True when Plaid credentials are present."""
-    return bool(settings.PLAID_CLIENT_ID and settings.PLAID_SECRET)
+    config = config or legacy_settings("plaid")
+    return bool(config.is_enabled and config.client_id and config.secret)
 
 
-def country_codes() -> list[str]:
-    return [c.strip().upper() for c in (settings.PLAID_COUNTRY_CODES or "US").split(",") if c.strip()]
+def country_codes(config: PlaidSettings | None = None) -> list[str]:
+    config = config or legacy_settings("plaid")
+    return list(config.country_codes)
 
 
 class PlaidClient:
     """Async client for the subset of Plaid endpoints the bank feed needs."""
 
-    def __init__(self, *, base_url: str | None = None, timeout: float | None = None):
-        self.base_url = (base_url or settings.PLAID_API_BASE_URL).rstrip("/")
-        self.timeout = timeout if timeout is not None else settings.PLAID_TIMEOUT_SECONDS
+    def __init__(self, *, config: PlaidSettings | None = None, base_url: str | None = None, timeout: float | None = None):
+        self.config = config or legacy_settings("plaid")
+        self.base_url = (base_url or self.config.api_base_url).rstrip("/")
+        self.timeout = timeout if timeout is not None else self.config.timeout_seconds
 
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{self.base_url}/{path.lstrip('/')}"
         body = {
-            "client_id": settings.PLAID_CLIENT_ID,
-            "secret": settings.PLAID_SECRET,
+            "client_id": self.config.client_id,
+            "secret": self.config.secret,
             **payload,
         }
         try:
@@ -71,16 +76,34 @@ class PlaidClient:
             )
         return data
 
-    async def create_link_token(self, *, client_user_id: str, client_name: str) -> dict[str, Any]:
+    async def create_link_token(
+        self,
+        *,
+        client_user_id: str,
+        client_name: str,
+        products: list[str] | None = None,
+        webhook_url: str | None = None,
+        user_email: str | None = None,
+        legal_name: str | None = None,
+        redirect_uri: str | None = None,
+    ) -> dict[str, Any]:
+        user: dict[str, str] = {"client_user_id": client_user_id}
+        if user_email:
+            user["email_address"] = user_email
+        if legal_name:
+            user["legal_name"] = legal_name
         payload: dict[str, Any] = {
-            "user": {"client_user_id": client_user_id},
+            "user": user,
             "client_name": client_name,
-            "products": ["transactions"],
-            "country_codes": country_codes(),
+            "products": products or ["transactions"],
+            "country_codes": country_codes(self.config),
             "language": "en",
         }
-        if settings.PLAID_REDIRECT_URI:
-            payload["redirect_uri"] = settings.PLAID_REDIRECT_URI
+        effective_redirect_uri = self.config.redirect_uri if redirect_uri is None else redirect_uri
+        if effective_redirect_uri:
+            payload["redirect_uri"] = effective_redirect_uri
+        if webhook_url:
+            payload["webhook"] = webhook_url
         return await self._post("link/token/create", payload)
 
     async def exchange_public_token(self, public_token: str) -> dict[str, Any]:
@@ -91,10 +114,46 @@ class PlaidClient:
     async def get_accounts(self, access_token: str) -> dict[str, Any]:
         return await self._post("accounts/get", {"access_token": access_token})
 
+    async def get_identity(self, access_token: str) -> dict[str, Any]:
+        return await self._post("identity/get", {"access_token": access_token})
+
+    async def get_auth(self, access_token: str) -> dict[str, Any]:
+        return await self._post("auth/get", {"access_token": access_token})
+
+    async def get_balances(self, access_token: str) -> dict[str, Any]:
+        return await self._post("accounts/balance/get", {"access_token": access_token})
+
+    async def get_transactions(
+        self,
+        access_token: str,
+        *,
+        start_date: date,
+        end_date: date,
+        count: int = 500,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        return await self._post(
+            "transactions/get",
+            {
+                "access_token": access_token,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "options": {"count": count, "offset": offset},
+            },
+        )
+
+    async def get_webhook_verification_key(self, key_id: str) -> dict[str, Any]:
+        return await self._post("webhook_verification_key/get", {"key_id": key_id})
+
     async def get_institution(self, institution_id: str) -> dict[str, Any]:
         return await self._post(
             "institutions/get_by_id",
-            {"institution_id": institution_id, "country_codes": country_codes()},
+            {"institution_id": institution_id, "country_codes": country_codes(self.config)},
+        )
+
+    async def get_institutions(self, *, count: int = 1) -> dict[str, Any]:
+        return await self._post(
+            "institutions/get", {"count": count, "offset": 0, "country_codes": country_codes(self.config)}
         )
 
     async def get_item(self, access_token: str) -> dict[str, Any]:
