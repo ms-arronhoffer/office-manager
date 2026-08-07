@@ -8,8 +8,9 @@ permissions:
   contents: read
 
 jobs:
-  backend:
+  preflight:
     runs-on: [self-hosted, Linux, X64, ubuntu-server-2]
+    timeout-minutes: 60
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -35,9 +36,6 @@ jobs:
       JWT_SECRET: ci-only-jwt-secret
       DEFAULT_ADMIN_PASSWORD: ci-only-admin-password
       APP_ENV: test
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -47,13 +45,26 @@ jobs:
           cache-dependency-path: |
             backend/requirements.txt
             backend/requirements-dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            admin-frontend/package-lock.json
+            landing/package-lock.json
+
       - name: Install backend dependencies
+        working-directory: backend
         run: python -m pip install -r requirements.txt -r requirements-dev.txt
       - name: Compile backend
+        working-directory: backend
         run: python -m compileall -q app scripts tests
       - name: Check tenant scoping
+        working-directory: backend
         run: python scripts/check_tenant_scoping.py
       - name: Require one migration head
+        working-directory: backend
         run: |
           python - <<'PY'
           from alembic.config import Config
@@ -65,62 +76,39 @@ jobs:
           print(f"Alembic head: {heads[0]}")
           PY
       - name: Bootstrap blank database
+        working-directory: backend
         run: STARTUP_SCHEMA_ONLY=1 python start.py
       - name: Run mandatory RLS policy checks
+        working-directory: backend
         run: pytest -q policy_tests tests/test_rls_database.py
       - name: Run backend tests
+        working-directory: backend
         run: pytest --ignore=policy_tests --ignore=tests/test_rls_database.py
 
-  frontend:
-    runs-on: [self-hosted, Linux, X64, ubuntu-server-2]
-    defaults:
-      run:
+      - name: Install frontend dependencies
         working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npm run test:run
-      - run: npm run build
+        run: npm ci
+      - name: Test frontend
+        working-directory: frontend
+        run: npm run test:run
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
 
-  admin-frontend:
-    runs-on: [self-hosted, Linux, X64, ubuntu-server-2]
-    defaults:
-      run:
+      - name: Install admin frontend dependencies
         working-directory: admin-frontend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: admin-frontend/package-lock.json
-      - run: npm ci
-      - run: npm run build
+        run: npm ci
+      - name: Build admin frontend
+        working-directory: admin-frontend
+        run: npm run build
 
-  landing:
-    runs-on: [self-hosted, Linux, X64, ubuntu-server-2]
-    defaults:
-      run:
+      - name: Install landing dependencies
         working-directory: landing
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: landing/package-lock.json
-      - run: npm ci
-      - run: npm run build
+        run: npm ci
+      - name: Build landing
+        working-directory: landing
+        run: npm run build
 
-  compose:
-    runs-on: [self-hosted, Linux, X64, ubuntu-server-2]
-    steps:
-      - uses: actions/checkout@v4
       - name: Validate production Compose configuration
         env:
           POSTGRES_PASSWORD: ci-only-postgres-password

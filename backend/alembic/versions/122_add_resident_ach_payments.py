@@ -20,6 +20,7 @@ _PREDICATE = """(
 
 
 def _enable_rls(table: str) -> None:
+    op.execute(f'DROP POLICY IF EXISTS "{table}_org_isolation" ON "{table}"')
     op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
     op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
     op.execute(
@@ -141,7 +142,6 @@ def downgrade() -> None:
         "autopay_consent_text", "autopay_consent_version",
     ):
         op.drop_column("resident_leases", name)
-    op.execute("DROP POLICY IF EXISTS resident_payment_methods_org_isolation ON resident_payment_methods")
     op.drop_constraint("ck_resident_payment_method_status", "resident_payment_methods", type_="check")
     op.drop_constraint("ck_resident_payment_method_type", "resident_payment_methods", type_="check")
     for name in (
