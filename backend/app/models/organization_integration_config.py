@@ -27,6 +27,8 @@ class OrganizationIntegrationConfig(TimestampMixin, Base):
     provider: Mapped[str] = mapped_column(String(40), nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    webhook_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    webhook_key: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     settings_json: Mapped[dict] = mapped_column(
         JSONB, default=dict, nullable=False, server_default="{}"
     )

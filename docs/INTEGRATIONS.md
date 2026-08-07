@@ -90,8 +90,12 @@ secret API key is encrypted at rest and only a masked hint is returned. The
 `PAYMENTS_*` variables below are legacy fallback/bootstrap values used only
 when no tenant row exists. Save the fallback in the tenant form to migrate it.
 
-Charges a resident's tokenised card or bank account from the resident portal.
-Targets a Stripe-style PaymentIntents API.
+Cards and ACH use different Stripe APIs. Cards use PaymentIntents with a
+client-created `pm_...` PaymentMethod. Plaid Auth returns a short-lived Stripe
+processor bank token (`btok_...`), which the backend attaches to a tenant Stripe
+Customer through `POST /v1/customers/{customer}/sources`. Stripe returns a
+reusable bank source (`ba_...`). A `btok_...` is not a modern `pm_...`
+PaymentMethod and must not be sent to PaymentIntents.
 
 ```bash
 PAYMENTS_PROVIDER=stripe
@@ -133,6 +137,76 @@ collapses a duplicate submit.
 
 Raw card and bank numbers never reach the application. `resident_payment_methods`
 stores only the opaque processor token plus `brand` and `last4` for display.
+
+### Plaid Auth and Stripe ACH setup
+
+Both tenant integration rows must be enabled. Plaid sandbox/development may be
+paired only with Stripe test keys, and Plaid production only with Stripe live
+keys. Platform subscription Stripe configuration is not used and remains absent
+from tenant readiness.
+
+1. In Plaid Dashboard, enable Auth and activate the Stripe processor integration.
+2. Configure tenant Plaid credentials, set `resident_ach_enabled=true`, and set
+   `resident_ach_redirect_uri` when OAuth institutions require a redirect. The
+   resident redirect must be registered in Plaid and is separate from the
+   accounting bank-feed redirect. `resident_ach_webhook_url` is optional.
+3. Configure tenant `resident_payments` with matching Stripe secret and
+   publishable keys.
+4. Create a Stripe webhook endpoint for
+   `/api/v1/resident-payments/stripe/webhook/{webhook_key}` and subscribe to
+   `charge.succeeded`, `charge.failed`, `charge.refunded`, and
+   `charge.dispute.created`.
+5. Save the endpoint signing secret (`whsec_...`) as the tenant
+   `webhook_secret`. It is encrypted separately from the Stripe API key. The
+   organization admin config response returns only masked secret hints and the
+   opaque webhook route key.
+
+Use Plaid Sandbox credentials and Stripe test keys together for testing. Use
+Plaid's Auth-capable sandbox institutions and Stripe's documented ACH test
+behavior. A sandbox pass does not certify live ACH origination, returns,
+merchant onboarding, or NACHA compliance.
+
+### ACH link and payment lifecycle
+
+1. The resident accepts bank-link authorization before Plaid Link opens.
+2. `POST /api/v1/resident-portal/plaid-ach/link-token` creates an Auth-only Link
+   token for that resident.
+3. Link returns a public token and selected opaque account ID.
+   `POST /api/v1/resident-portal/plaid-ach/exchange` exchanges the public token,
+   creates the Stripe `btok_...`, creates or reuses a resident-specific Stripe
+   Customer, and attaches the token as a reusable `ba_...` source.
+4. The Plaid Item is removed immediately in success and failure cleanup. The
+   access token, Item ID, account number, routing number, credentials, and
+   `btok_...` are discarded and never persisted.
+5. The application retains only `cus_...`, `ba_...`, bank display name, account
+   type, last four digits, method status, and consent evidence.
+6. ACH initiation uses Stripe `POST /v1/charges` with the stored Customer and
+   bank source. It creates a `processing` resident payment attempt but no AR
+   receipt or GL entry.
+7. A verified `charge.succeeded` webhook atomically posts receipts and
+   `Dr Cash / Cr Accounts Receivable`. Webhook replay is a no-op.
+8. Failure before settlement creates no receipt. A refund, dispute, or return
+   after settlement marks the attempt returned, marks the original receipt
+   reversed, and posts `Dr Accounts Receivable / Cr Cash` without deleting the
+   audit history.
+
+The webhook is primary. No polling reconciliation job is currently installed.
+Operational monitoring must alert on stale `processing` attempts until a
+reconciliation task is added.
+
+### Authorization and autopay
+
+The resident portal records the versioned bank-link authorization text,
+timestamp, IP address, and user agent on the saved ACH method. Enabling ACH
+autopay requires a separate recurring debit authorization and records equivalent
+evidence on the lease. Property managers remain responsible for approved NACHA
+authorization language, notice, revocation, retention, and return handling in
+their jurisdictions and operating model.
+
+The current application stores the autopay toggle and selected active card or
+ACH method, but there is no resident autopay charging scheduler in the task
+system. Do not represent the toggle as automatic monthly charging until a
+scheduler is implemented using the same attempt and settlement lifecycle.
 
 ---
 

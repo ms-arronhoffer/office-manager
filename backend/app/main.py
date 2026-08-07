@@ -70,7 +70,7 @@ from app.routers import (  # noqa: E402
     support_requests, leasing, resident_portal, announcements, rent,
     leasing_funnel, financial_verifications, listings, owners, owner_portal, lease_templates,
     application_templates, buildium, self_storage, legal, sso, quickbooks, bank_feed,
-    integrations,)
+    integrations, resident_payment_webhooks,)
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit, usage as admin_usage, support_requests as admin_support_requests  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature, require_category  # noqa: E402
 from fastapi import Depends  # noqa: E402
@@ -172,6 +172,11 @@ app.include_router(financial_verifications.public_router, prefix="/api/v1/leasin
 app.include_router(listings.router, prefix="/api/v1/listings", tags=["Vacancy Listings"], dependencies=_residential_guard)
 app.include_router(listings.public_router, prefix="/api/v1/listings", tags=["Vacancy Listings (Public)"])
 app.include_router(resident_portal.router, prefix="/api/v1", tags=["Resident Portal"])
+app.include_router(
+    resident_payment_webhooks.router,
+    prefix="/api/v1",
+    tags=["Resident Payment Webhooks"],
+)
 app.include_router(owners.trust_router, prefix="/api/v1/owners/trust-accounts", tags=["Owner Trust Accounts"], dependencies=_residential_guard)
 app.include_router(owners.router, prefix="/api/v1/owners", tags=["Owner Accounting"], dependencies=_residential_guard)
 app.include_router(owner_portal.router, prefix="/api/v1", tags=["Owner Portal"])

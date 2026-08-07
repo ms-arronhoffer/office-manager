@@ -69,7 +69,9 @@ def invoice_total(invoice: CustomerInvoice) -> Decimal:
 
 def amount_received(invoice: CustomerInvoice) -> Decimal:
     """Sum of receipts recorded against the invoice."""
-    return _q(sum((_q(r.amount) for r in invoice.receipts), Decimal("0")))
+    return _q(
+        sum((_q(r.amount) for r in invoice.receipts if r.reversed_at is None), Decimal("0"))
+    )
 
 
 def balance_due(invoice: CustomerInvoice) -> Decimal:
@@ -194,6 +196,7 @@ async def post_receipt_to_gl(
     receipt: CustomerReceipt,
     *,
     posted_by_id: uuid.UUID | None = None,
+    commit: bool = True,
 ):
     """Post a receipt: ``Dr Cash / Cr Accounts Receivable``.
 
@@ -215,7 +218,10 @@ async def post_receipt_to_gl(
 
     amount = _q(receipt.amount)
     if amount <= 0:
-        await db.commit()
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
         return None
 
     lines = [
@@ -234,8 +240,11 @@ async def post_receipt_to_gl(
         commit=False,
     )
     receipt.journal_entry_id = entry.id
-    await db.commit()
-    await db.refresh(entry)
+    if commit:
+        await db.commit()
+        await db.refresh(entry)
+    else:
+        await db.flush()
     return entry
 
 
@@ -253,6 +262,44 @@ async def remove_receipt_entry(
         db, organization_id, source=AR_SOURCE, source_ref=_receipt_ref(receipt),
         commit=commit,
     )
+
+
+async def reverse_receipt_in_gl(
+    db: AsyncSession,
+    organization_id: uuid.UUID | None,
+    receipt: CustomerReceipt,
+    *,
+    commit: bool = True,
+) -> None:
+    """Reverse a settled receipt without deleting the original audit record."""
+    if receipt.reversed_at is not None:
+        return
+    from datetime import datetime, timezone
+    from app.services import gl_service
+
+    await gl_service.seed_default_accounts(db, organization_id)
+    await gl_service.ensure_accounts(db, organization_id, AR_ACCOUNTS)
+    account_map = await gl_service.get_account_map(db, organization_id)
+    amount = _q(receipt.amount)
+    entry = await gl_service.create_journal_entry(
+        db,
+        organization_id,
+        entry_date=date.today(),
+        lines=[
+            {"account_id": account_map["Accounts Receivable"].id, "debit": amount, "credit": 0},
+            {"account_id": account_map["Cash"].id, "debit": 0, "credit": amount},
+        ],
+        memo=f"ACH return reversal for receipt {receipt.id}",
+        source=AR_SOURCE,
+        source_ref=f"receipt-reversal:{receipt.id}",
+        commit=False,
+    )
+    receipt.reversed_at = datetime.now(timezone.utc)
+    receipt.reversal_journal_entry_id = entry.id
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
 
 
 async def remove_invoice_entry(

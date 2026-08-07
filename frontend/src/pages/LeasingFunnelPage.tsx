@@ -49,6 +49,21 @@ const sigBadge = (s: string) => {
   return <Badge color={color as 'green' | 'red' | 'blue'}>{s}</Badge>;
 };
 
+const financialReasonText: Record<string, string> = {
+  identity_not_matched:
+    'The name, email, and phone on the rental application did not sufficiently match the owner identity returned by the financial institution.',
+  ownership_not_established:
+    'Account ownership could not be established because the applicant identity did not match an owner on the connected accounts.',
+  auth_data_unavailable:
+    'The institution did not provide usable account ownership data through Plaid Auth.',
+  limited_income_history:
+    'Fewer than two months of qualifying recurring income deposits were identified.',
+  income_processing:
+    'Plaid is still preparing transaction history. The result will update after the signed webhook arrives.',
+  identity_ownership_and_history_supported:
+    'Applicant identity, account ownership, and sufficient income history were supported by the returned data.',
+};
+
 const LeasingFunnelPage: React.FC = () => {
   const { addFlash } = useFlashbar();
   const navigate = useNavigate();
@@ -828,8 +843,8 @@ const LeasingFunnelPage: React.FC = () => {
                   <div><Box variant="awsui-key-label">Status</Box><Box>{row.status.replace('_', ' ')}</Box></div>
                   <div><Box variant="awsui-key-label">Consent</Box><Box>{row.consented_at ? new Date(row.consented_at).toLocaleString() : 'Not provided'}</Box></div>
                   <div><Box variant="awsui-key-label">Institution</Box><Box>{row.institution_name ?? 'Not available'}</Box></div>
-                  <div><Box variant="awsui-key-label">Identity match</Box><Box>{row.identity_match == null ? 'Not available' : row.identity_match ? 'Matched' : 'Review needed'}</Box></div>
-                  <div><Box variant="awsui-key-label">Ownership match</Box><Box>{row.ownership_match == null ? 'Not available' : row.ownership_match ? 'Matched' : 'Review needed'}</Box></div>
+                  <div><Box variant="awsui-key-label">Identity match</Box><Box>{row.identity_match == null ? 'Not available' : row.identity_match ? 'Matched' : 'Processed: no match'}</Box></div>
+                  <div><Box variant="awsui-key-label">Ownership match</Box><Box>{row.ownership_match == null ? 'Not available' : row.ownership_match ? 'Matched' : 'Processed: no match'}</Box></div>
                   <div><Box variant="awsui-key-label">Connected accounts</Box><Box>{row.account_count ?? 'Not available'}</Box></div>
                   <div><Box variant="awsui-key-label">Aggregate available balance</Box><Box>{money(row.available_balance_total)}</Box></div>
                   <div><Box variant="awsui-key-label">Aggregate current balance</Box><Box>{money(row.current_balance_total)}</Box></div>
@@ -838,6 +853,20 @@ const LeasingFunnelPage: React.FC = () => {
                   <div><Box variant="awsui-key-label">Decision support recommendation</Box><Box>{row.recommendation}</Box></div>
                   <div><Box variant="awsui-key-label">Reason codes</Box><Box>{row.reason_codes.join(', ') || 'None'}</Box></div>
                 </ColumnLayout>
+                {row.status === 'completed' && row.reason_codes.length > 0 && (
+                  <Alert type={row.recommendation === 'verified' ? 'success' : 'warning'} header="What this result means">
+                    <ul>
+                      {row.reason_codes.map((code) => (
+                        <li key={code}>{financialReasonText[code] ?? code.replaceAll('_', ' ')}</li>
+                      ))}
+                    </ul>
+                    {row.reason_codes.includes('identity_not_matched') && (
+                      <Box margin={{ top: 's' }}>
+                        Confirm the application name, email, and phone belong to the connected account owner. In Plaid Sandbox, use applicant details that match the selected test institution's synthetic owner data.
+                      </Box>
+                    )}
+                  </Alert>
+                )}
                 {row.last_error && <Alert type="error">{row.last_error}</Alert>}
                 <Box color="text-body-secondary">{row.decision_support_disclaimer}</Box>
                 {canEdit && ['invited', 'viewed', 'action_required', 'error', 'expired'].includes(row.status) && (

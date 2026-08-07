@@ -36,7 +36,7 @@ class ChargeResult:
     """Outcome of a charge attempt."""
 
     captured: bool
-    status: str  # "captured" | "unconfigured" | "failed"
+    status: str  # "succeeded" | "processing" | "unconfigured" | "failed"
     processor_ref: str | None = None
     detail: str | None = None
 
@@ -62,8 +62,10 @@ async def charge_payment(
     *,
     method: str,
     payment_token: str | None = None,
+    stripe_customer_id: str | None = None,
     description: str | None = None,
     idempotency_key: str | None = None,
+    metadata: dict[str, str] | None = None,
     config: ResidentPaymentsSettings | None = None,
 ) -> ChargeResult:
     """Attempt to capture ``amount`` from a tokenised payment method.
@@ -98,16 +100,34 @@ async def charge_payment(
     url = config.api_url or "https://api.stripe.com/v1/payment_intents"
     # Amounts are sent in the smallest currency unit (cents).
     cents = int((Decimal(str(amount)) * 100).to_integral_value())
-    data = {
-        "amount": cents,
-        "currency": "usd",
-        "payment_method": payment_token,
-        "payment_method_types[]": "us_bank_account" if method == "ach" else "card",
-        "confirm": "true",
-        # The resident is not necessarily at the keyboard (autopay, retries).
-        "off_session": "true",
-        "description": description or "",
-    }
+    if method == "ach":
+        if not payment_token.startswith("ba_") or not (stripe_customer_id or "").startswith("cus_"):
+            return ChargeResult(
+                False, "failed", detail="ACH requires a saved Stripe customer bank source."
+            )
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        url = f"{parsed.scheme}://{parsed.netloc}/v1/charges"
+        data = {
+            "amount": cents,
+            "currency": "usd",
+            "customer": stripe_customer_id,
+            "source": payment_token,
+            "description": description or "",
+        }
+    else:
+        data = {
+            "amount": cents,
+            "currency": "usd",
+            "payment_method": payment_token,
+            "payment_method_types[]": "card",
+            "confirm": "true",
+            "off_session": "true",
+            "description": description or "",
+        }
+    for key, value in (metadata or {}).items():
+        data[f"metadata[{key}]"] = value
     headers = {
         "Authorization": "Bearer " + config.secret_api_key,
         "Idempotency-Key": idempotency_key or str(uuid.uuid4()),
@@ -127,17 +147,17 @@ async def charge_payment(
         except Exception:  # pragma: no cover - non-JSON body
             body = {}
         ref = body.get("id")
-        intent_status = body.get("status")
-        # ACH debits settle asynchronously, so "processing" is a healthy outcome
-        # but is not money in the bank yet.
-        if intent_status not in (None, "succeeded"):
+        processor_status = body.get("status")
+        if method == "ach" and processor_status == "pending":
+            return ChargeResult(False, "processing", processor_ref=ref)
+        if processor_status not in (None, "succeeded"):
             return ChargeResult(
                 False,
                 "failed",
                 processor_ref=ref,
-                detail=f"Payment not captured (processor status '{intent_status}').",
+                detail=f"Payment not captured (processor status '{processor_status}').",
             )
-        return ChargeResult(True, "captured", processor_ref=ref or str(uuid.uuid4()))
+        return ChargeResult(True, "succeeded", processor_ref=ref or str(uuid.uuid4()))
     except Exception as e:  # pragma: no cover - network failure path
         logger.warning("Payment error via %s: %s", provider, e)
         return ChargeResult(False, "failed", detail=str(e))

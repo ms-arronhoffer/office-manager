@@ -114,6 +114,10 @@ class CustomerInvoice(TimestampMixin, Base):
     journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("journal_entries.id", ondelete="SET NULL"), nullable=True
     )
+    reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reversal_journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("journal_entries.id", ondelete="SET NULL"), nullable=True
+    )
 
     customer: Mapped["Customer"] = relationship(back_populates="invoices")
     lines: Mapped[list["CustomerInvoiceLine"]] = relationship(

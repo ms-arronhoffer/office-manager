@@ -448,6 +448,7 @@ async def record_rent_payment(
     reference: str | None = None,
     created_by_id: uuid.UUID | None = None,
     idempotency_key: str | None = None,
+    commit: bool = True,
 ) -> dict:
     """Charge a resident (via the processor) and record the receipt in the GL.
 
@@ -497,15 +498,41 @@ async def record_rent_payment(
     db.add(receipt)
     await db.flush()
     await ar_service.post_receipt_to_gl(
-        db, organization_id, receipt, posted_by_id=created_by_id
+        db, organization_id, receipt, posted_by_id=created_by_id, commit=commit
     )
-    await db.commit()
-    await db.refresh(receipt)
+    if commit:
+        await db.commit()
+        await db.refresh(receipt)
+    else:
+        await db.flush()
     return {
         "receipt": receipt,
         "captured": bool(charge_result and charge_result.captured),
         "processor_status": charge_result.status if charge_result else "offline",
     }
+
+
+async def record_settled_resident_payment(
+    db: AsyncSession,
+    organization_id: uuid.UUID,
+    invoice: CustomerInvoice,
+    amount: Decimal,
+    *,
+    method: str,
+    processor_ref: str,
+) -> dict:
+    """Post a processor-confirmed payment without making another processor call."""
+    return await record_rent_payment(
+        db,
+        organization_id,
+        invoice,
+        amount,
+        method=method,
+        payment_token=None,
+        receipt_date=date.today(),
+        reference=processor_ref,
+        commit=False,
+    )
 
 
 # ---------------------------------------------------------------------------

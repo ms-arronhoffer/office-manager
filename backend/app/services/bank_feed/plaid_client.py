@@ -111,6 +111,19 @@ class PlaidClient:
             "item/public_token/exchange", {"public_token": public_token}
         )
 
+    async def create_stripe_bank_account_token(
+        self, access_token: str, account_id: str
+    ) -> dict[str, Any]:
+        """Create Plaid's short-lived Stripe bank account token for one account."""
+        return await self._post(
+            "processor/stripe/bank_account_token/create",
+            {
+                "access_token": access_token,
+                "account_id": account_id,
+                "processor": "stripe",
+            },
+        )
+
     async def get_accounts(self, access_token: str) -> dict[str, Any]:
         return await self._post("accounts/get", {"access_token": access_token})
 

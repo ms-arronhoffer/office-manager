@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+import secrets
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -39,6 +40,8 @@ class IntegrationConfigInput(BaseModel):
     is_enabled: bool = True
     secret: str | None = None
     clear_secret: bool = False
+    webhook_secret: str | None = None
+    clear_webhook_secret: bool = False
     settings: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -47,6 +50,7 @@ class IntegrationConfigOut(BaseModel):
     source: Literal["tenant", "legacy_env", "unconfigured"]
     is_enabled: bool
     secret_hint: str | None = None
+    webhook_secret_hint: str | None = None
     last_verified_at: datetime | None = None
     last_verify_ok: bool | None = None
     last_verify_error: str | None = None
@@ -121,6 +125,16 @@ async def put_config(
     row.settings_json = validated
     row.is_enabled = payload.is_enabled
     row.secret_encrypted = encrypt_secret(secret) if secret else None
+    if provider_name == "resident_payments":
+        webhook_secret = (payload.webhook_secret or "").strip()
+        if webhook_secret:
+            if not webhook_secret.startswith("whsec_"):
+                raise HTTPException(status_code=422, detail="Stripe webhook secret must start with whsec_.")
+            row.webhook_secret_encrypted = encrypt_secret(webhook_secret)
+        elif payload.clear_webhook_secret:
+            row.webhook_secret_encrypted = None
+        if not row.webhook_key:
+            row.webhook_key = secrets.token_urlsafe(32)
     row.updated_by_id = current_user.id
     row.last_verified_at = None
     row.last_verify_ok = None
@@ -147,6 +161,7 @@ async def delete_config(
     # silently reconnect an integration the organization explicitly removed.
     row.is_enabled = False
     row.secret_encrypted = None
+    row.webhook_secret_encrypted = None
     row.settings_json = {}
     row.last_verified_at = None
     row.last_verify_ok = None

@@ -32,6 +32,14 @@ describe('applicant financial verification security surface', () => {
     expect(staff).toContain('It is separate from background screening');
   });
 
+  it('explains completed identity and ownership non-matches', () => {
+    expect(staff).toContain('Processed: no match');
+    expect(staff).toContain('What this result means');
+    expect(staff).toContain("synthetic owner data");
+    expect(staff).toContain('identity_not_matched');
+    expect(staff).toContain('ownership_not_established');
+  });
+
   it('preflights backend capability before enabling Send request', () => {
     expect(api).toContain('financialVerificationCapability');
     expect(staff).toContain('financialCapabilityLoading');

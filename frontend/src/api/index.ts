@@ -1726,6 +1726,18 @@ export const residentPortal = {
       data,
     ),
 
+  createAchLinkToken: (token: string, consentAccepted: boolean) =>
+    _residentPortalClient(token).post<{ link_token: string }>(
+      '/resident-portal/plaid-ach/link-token',
+      { consent_accepted: consentAccepted },
+    ),
+
+  exchangeAch: (token: string, data: ResidentPortalAchExchange) =>
+    _residentPortalClient(token).post<ResidentPortalPaymentMethod>(
+      '/resident-portal/plaid-ach/exchange',
+      data,
+    ),
+
   deletePaymentMethod: (token: string, id: string) =>
     _residentPortalClient(token).delete<void>(`/resident-portal/payment-methods/${id}`),
 

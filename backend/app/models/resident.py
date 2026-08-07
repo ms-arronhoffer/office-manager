@@ -216,6 +216,11 @@ class ResidentLease(SoftDeleteMixin, TimestampMixin, Base):
     autopay_payment_method_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("resident_payment_methods.id", ondelete="SET NULL"), nullable=True
     )
+    autopay_consent_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    autopay_consent_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    autopay_consented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    autopay_consent_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    autopay_consent_user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # send the lease for e-signature without re-selecting a template, and drives
     # which custom merge fields (``template_field_values``) the lease captures.

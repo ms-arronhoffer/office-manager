@@ -18,11 +18,13 @@ import Flashbar from '@cloudscape-design/components/flashbar';
 import Tabs from '@cloudscape-design/components/tabs';
 import Toggle from '@cloudscape-design/components/toggle';
 import Alert from '@cloudscape-design/components/alert';
+import Checkbox from '@cloudscape-design/components/checkbox';
 import { CardElement, Elements, useElements, useStripe } from '@stripe/react-stripe-js';
 import { loadStripe } from '@stripe/stripe-js';
 import PortalAccessDenied from '@/components/portal/PortalAccessDenied';
 import usePortalSession from '@/hooks/usePortalSession';
 import { residentPortal } from '@/api';
+import { openPlaidLink } from '@/lib/plaidLink';
 import type {
   Attachment,
   ResidentPortalAnnouncement,
@@ -68,6 +70,12 @@ const formatBytes = (bytes: number) => {
 const formatDate = (d: string | null | undefined) => (d ? d.slice(0, 10) : '—');
 
 const methodLabel = (m: ResidentPortalPaymentMethod) => {
+  if (m.method_type === 'ach') {
+    const bank = m.bank_name || 'Bank account';
+    const type = m.account_type ? ` ${m.account_type}` : '';
+    const tail = m.last4 ? ` ending ${m.last4}` : '';
+    return `${bank}${type}${tail}`;
+  }
   const brand = m.brand ? m.brand.toUpperCase() : 'Card';
   const tail = m.last4 ? ` ····${m.last4}` : '';
   const exp = m.exp_month && m.exp_year ? ` (exp ${m.exp_month}/${m.exp_year})` : '';
@@ -220,7 +228,13 @@ const ResidentPortalPage: React.FC = () => {
   const [payMethodId, setPayMethodId] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
   const [methodModal, setMethodModal] = useState(false);
+  const [bankModal, setBankModal] = useState(false);
+  const [bankConsent, setBankConsent] = useState(false);
+  const [bankBusy, setBankBusy] = useState(false);
+  const [bankError, setBankError] = useState<string | null>(null);
+  const [recurringConsent, setRecurringConsent] = useState(false);
   const [autopayBusy, setAutopayBusy] = useState(false);
+  const [autopaySelection, setAutopaySelection] = useState<string | null>(null);
 
   const loadData = useCallback(async (activeToken: string) => {
     const configRequest = residentPortal
@@ -305,7 +319,11 @@ const ResidentPortalPage: React.FC = () => {
 
   const openPay = () => {
     setPayAmount(balance?.balance_due ?? '0');
-    setPayMethodId(paymentMethods.find((m) => m.is_default)?.id ?? paymentMethods[0]?.id ?? null);
+    setPayMethodId(
+      paymentMethods.find((m) => m.is_default && m.status === 'active')?.id ??
+        paymentMethods.find((m) => m.status === 'active')?.id ??
+        null,
+    );
     // New key per attempt, reused across retries of that attempt.
     setPayKey(crypto.randomUUID());
     setPayModal(true);
@@ -319,10 +337,15 @@ const ResidentPortalPage: React.FC = () => {
     }
     setPaying(true);
     try {
+      const selectedMethod = paymentMethods.find((method) => method.id === payMethodId);
+      if (!selectedMethod) {
+        setFlash({ type: 'error', content: 'Select a saved payment method.' });
+        return;
+      }
       const res = await residentPortal.makePayment(token, {
         amount: payAmount,
         payment_method_id: payMethodId,
-        method: 'card',
+        method: selectedMethod.method_type,
         idempotency_key: payKey,
       });
       setBalance(res.data.balance);
@@ -333,6 +356,11 @@ const ResidentPortalPage: React.FC = () => {
           content:
             'Online payments are not switched on for this property yet. Your payment was recorded as pending and no money has been taken. Please contact management to complete it.',
         });
+      } else if (res.data.processor_status === 'processing') {
+        setFlash({
+          type: 'success',
+          content: 'Bank payment submitted. Your balance will update after settlement.',
+        });
       } else {
         setFlash({ type: 'success', content: 'Payment received. Thank you.' });
       }
@@ -341,6 +369,39 @@ const ResidentPortalPage: React.FC = () => {
       setFlash({ type: 'error', content: errorDetail(err, 'Your payment could not be processed.') });
     } finally {
       setPaying(false);
+    }
+  };
+
+  const handleConnectBank = async () => {
+    if (!bankConsent) {
+      setBankError('Accept the bank-link authorization before continuing.');
+      return;
+    }
+    setBankBusy(true);
+    setBankError(null);
+    try {
+      const link = await residentPortal.createAchLinkToken(token, true);
+      const result = await openPlaidLink(link.data.link_token);
+      if (!result) return;
+      const selectedAccountId = result.metadata.accounts?.[0]?.id;
+      if (!selectedAccountId) {
+        throw new Error('Select one bank account in Plaid Link.');
+      }
+      await residentPortal.exchangeAch(token, {
+        public_token: result.publicToken,
+        account_id: selectedAccountId,
+        institution_name: result.metadata.institution?.name ?? null,
+        is_default: paymentMethods.length === 0,
+        consent_accepted: true,
+      });
+      setBankModal(false);
+      setBankConsent(false);
+      setFlash({ type: 'success', content: 'Bank account connected.' });
+      await refreshPaymentState();
+    } catch (err: unknown) {
+      setBankError(errorDetail(err, err instanceof Error ? err.message : 'Failed to connect bank account.'));
+    } finally {
+      setBankBusy(false);
     }
   };
 
@@ -365,6 +426,7 @@ const ResidentPortalPage: React.FC = () => {
         enabled,
         payment_method_id: enabled ? methodId : null,
         lease_id: leaseId,
+        recurring_consent_accepted: enabled && recurringConsent,
       });
       setFlash({
         type: 'success',
@@ -394,12 +456,19 @@ const ResidentPortalPage: React.FC = () => {
   const currency = balance?.currency ?? leases[0]?.currency ?? 'USD';
   const activeLease = leases.find((l) => l.status === 'active' || l.status === 'pending') ?? leases[0] ?? null;
   const balanceDue = Number(balance?.balance_due ?? 0);
-  const methodOptions = paymentMethods.map((m) => ({ label: methodLabel(m), value: m.id }));
+  const methodOptions = paymentMethods
+    .filter((m) => m.status === 'active')
+    .map((m) => ({ label: methodLabel(m), value: m.id }));
+  const autopayMethodOptions = paymentMethods
+    .filter((m) => m.status === 'active' && m.method_type === 'ach')
+    .map((m) => ({ label: methodLabel(m), value: m.id }));
   const autopayMethodId =
     activeLease?.autopay_payment_method_id ??
-    paymentMethods.find((m) => m.is_default)?.id ??
-    paymentMethods[0]?.id ??
+    autopaySelection ??
+    paymentMethods.find((m) => m.is_default && m.status === 'active' && m.method_type === 'ach')?.id ??
+    paymentMethods.find((m) => m.status === 'active' && m.method_type === 'ach')?.id ??
     null;
+  const autopayMethod = paymentMethods.find((m) => m.id === autopayMethodId);
   const stripeAvailable = Boolean(
     paymentConfig?.configured &&
       paymentConfig.provider.toLowerCase() === 'stripe' &&
@@ -545,13 +614,24 @@ const ResidentPortalPage: React.FC = () => {
                       <Header
                         variant="h2"
                         actions={
-                          <Button
-                            iconName="add-plus"
-                            disabled={!stripeAvailable}
-                            onClick={() => setMethodModal(true)}
-                          >
-                            Add method
-                          </Button>
+                          <SpaceBetween direction="horizontal" size="xs">
+                            <Button
+                              iconName="add-plus"
+                              disabled={!stripeAvailable}
+                              onClick={() => setMethodModal(true)}
+                            >
+                              Add card
+                            </Button>
+                            <Button
+                              disabled={!paymentConfig?.plaid_ach_available}
+                              onClick={() => {
+                                setBankError(null);
+                                setBankModal(true);
+                              }}
+                            >
+                              Connect bank account
+                            </Button>
+                          </SpaceBetween>
                         }
                       >
                         Saved payment methods
@@ -561,6 +641,13 @@ const ResidentPortalPage: React.FC = () => {
                     {paymentUnavailableMessage && (
                       <Box margin={{ bottom: 'm' }}>
                         <Alert type="warning">{paymentUnavailableMessage}</Alert>
+                      </Box>
+                    )}
+                    {paymentConfig && !paymentConfig.plaid_ach_available && (
+                      <Box margin={{ bottom: 'm' }}>
+                        <Alert type="info">
+                          Bank account connection is unavailable for this property.
+                        </Alert>
                       </Box>
                     )}
                     <Table
@@ -607,31 +694,89 @@ const ResidentPortalPage: React.FC = () => {
                     header={
                       <Header
                         variant="h2"
-                        description="Charge your rent automatically each month to a saved method."
+                        description="Debit finalized rent invoices automatically on or after their due date."
                       >
                         Autopay
                       </Header>
                     }
                   >
                     {activeLease ? (
-                      <Toggle
-                        checked={activeLease.autopay_enabled}
-                        disabled={autopayBusy || (!activeLease.autopay_enabled && !autopayMethodId)}
-                        onChange={({ detail }) =>
-                          handleAutopay(detail.checked, activeLease.id, autopayMethodId)
-                        }
-                      >
-                        {activeLease.autopay_enabled
-                          ? `Autopay is on${
-                              autopayMethodId
-                                ? ` using ${
-                                    methodOptions.find((o) => o.value === autopayMethodId)?.label ??
-                                    'your saved method'
-                                  }`
-                                : ''
-                            }`
-                          : 'Autopay is off'}
-                      </Toggle>
+                      <SpaceBetween size="s">
+                        {!activeLease.autopay_enabled && (
+                          <FormField label="Autopay bank account">
+                            <Select
+                              selectedOption={autopayMethodOptions.find((option) => option.value === autopayMethodId) ?? null}
+                              options={autopayMethodOptions}
+                              placeholder="Connect or select a bank account"
+                              empty="No active bank account is connected."
+                              onChange={({ detail }) => setAutopaySelection(detail.selectedOption.value ?? null)}
+                            />
+                          </FormField>
+                        )}
+                        {autopayMethod?.method_type === 'ach' && !activeLease.autopay_enabled && (
+                          <Checkbox
+                            checked={recurringConsent}
+                            onChange={({ detail }) => setRecurringConsent(detail.checked)}
+                          >
+                            I authorize recurring ACH debits for amounts due under my lease until I disable autopay or revoke authorization.
+                          </Checkbox>
+                        )}
+                        <Toggle
+                          checked={activeLease.autopay_enabled}
+                          disabled={
+                            autopayBusy ||
+                            (!activeLease.autopay_enabled && !autopayMethodId) ||
+                            (!activeLease.autopay_enabled && autopayMethod?.method_type === 'ach' && !recurringConsent)
+                          }
+                          onChange={({ detail }) =>
+                            handleAutopay(detail.checked, activeLease.id, autopayMethodId)
+                          }
+                        >
+                          {activeLease.autopay_enabled
+                            ? `Autopay is on${
+                                autopayMethodId
+                                  ? ` using ${
+                                      methodOptions.find((o) => o.value === autopayMethodId)?.label ??
+                                      'your saved method'
+                                    }`
+                                  : ''
+                              }`
+                            : 'Autopay is off'}
+                        </Toggle>
+                        {activeLease.autopay_enabled && !activeLease.autopay_last_status && (
+                          <Box color="text-status-inactive">
+                            No scheduled debit has run yet. Autopay checks due rent each morning.
+                          </Box>
+                        )}
+                        {activeLease.autopay_last_status && (
+                          <Alert
+                            type={
+                              activeLease.autopay_last_status === 'succeeded'
+                                ? 'success'
+                                : activeLease.autopay_last_status === 'processing'
+                                  ? 'info'
+                                  : 'warning'
+                            }
+                            header={
+                              activeLease.autopay_last_status === 'succeeded'
+                                ? 'Latest scheduled debit settled'
+                                : activeLease.autopay_last_status === 'processing'
+                                  ? 'Latest scheduled debit is processing'
+                                  : activeLease.autopay_last_status === 'returned'
+                                    ? 'Latest scheduled debit was returned'
+                                    : 'Latest scheduled debit failed'
+                            }
+                          >
+                            {activeLease.autopay_last_attempt_at
+                              ? `Attempted ${formatDate(activeLease.autopay_last_attempt_at)}. `
+                              : ''}
+                            {activeLease.autopay_last_detail ??
+                              (activeLease.autopay_last_status === 'processing'
+                                ? 'Your balance will update after bank settlement.'
+                                : 'Review your saved bank account before the next rent due date.')}
+                          </Alert>
+                        )}
+                      </SpaceBetween>
                     ) : (
                       <Box color="text-status-inactive">No lease on file.</Box>
                     )}
@@ -859,6 +1004,34 @@ const ResidentPortalPage: React.FC = () => {
               }
             />
           </FormField>
+        </SpaceBetween>
+      </Modal>
+
+      <Modal
+        visible={bankModal}
+        onDismiss={() => setBankModal(false)}
+        header="Connect bank account"
+        footer={
+          <Box float="right">
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" onClick={() => setBankModal(false)}>
+                Cancel
+              </Button>
+              <Button variant="primary" loading={bankBusy} disabled={!bankConsent} onClick={handleConnectBank}>
+                Continue to Plaid
+              </Button>
+            </SpaceBetween>
+          </Box>
+        }
+      >
+        <SpaceBetween size="m">
+          <Alert type="info">
+            Plaid securely links your selected bank account. Office Manager never receives your bank credentials, account number, or routing number.
+          </Alert>
+          {bankError && <Alert type="error">{bankError}</Alert>}
+          <Checkbox checked={bankConsent} onChange={({ detail }) => setBankConsent(detail.checked)}>
+            I authorize this property manager and its payment processor to link my selected bank account for resident payments. Saving an account does not initiate a debit.
+          </Checkbox>
         </SpaceBetween>
       </Modal>
 

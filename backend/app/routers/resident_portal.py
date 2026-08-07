@@ -23,7 +23,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,11 +45,13 @@ from app.models.resident import (
     ResidentLeaseOccupant,
 )
 from app.models.resident_payment_method import ResidentPaymentMethod
+from app.models.resident_payment_attempt import ResidentPaymentAttempt
 from app.models.user import User
 from app.schemas.attachment import AttachmentResponse
 from app.services import ar_service
 from app.services import rent_service as rent_svc
 from app.services.rent_service import RentError
+from app.services import resident_ach_service
 from app.utils import payment_processor
 from app.utils.rls import set_session_org, set_system_bypass
 
@@ -107,6 +109,9 @@ class PortalLease(BaseModel):
     unit_name: str | None
     autopay_enabled: bool = False
     autopay_payment_method_id: uuid.UUID | None = None
+    autopay_last_status: str | None = None
+    autopay_last_attempt_at: datetime | None = None
+    autopay_last_detail: str | None = None
 
 
 class BalanceSummary(BaseModel):
@@ -120,6 +125,8 @@ class PaymentConfigResponse(BaseModel):
     configured: bool
     provider: str
     publishable_key: str
+    plaid_ach_available: bool = False
+    plaid_ach_unavailable_reason: str | None = None
 
 
 class PaymentMethodCreate(BaseModel):
@@ -136,7 +143,11 @@ class PaymentMethodCreate(BaseModel):
 class PaymentMethodResponse(BaseModel):
     id: uuid.UUID
     processor: str
+    method_type: str
+    status: str
     brand: str | None
+    bank_name: str | None
+    account_type: str | None
     last4: str | None
     exp_month: int | None
     exp_year: int | None
@@ -161,12 +172,30 @@ class PortalPaymentResponse(BaseModel):
     detail: str | None = None
     receipt_ids: list[uuid.UUID]
     balance: BalanceSummary
+    attempt_id: uuid.UUID | None = None
 
 
 class AutopayUpdate(BaseModel):
     enabled: bool
     payment_method_id: uuid.UUID | None = None
     lease_id: uuid.UUID | None = None
+    recurring_consent_accepted: bool = False
+
+
+class AchLinkTokenRequest(BaseModel):
+    consent_accepted: bool
+
+
+class AchLinkTokenResponse(BaseModel):
+    link_token: str
+
+
+class AchExchangeRequest(BaseModel):
+    public_token: str
+    account_id: str
+    institution_name: str | None = None
+    is_default: bool = False
+    consent_accepted: bool
 
 
 class AutopayResponse(BaseModel):
@@ -400,6 +429,22 @@ async def portal_leases(
     db: AsyncSession = Depends(get_db),
 ):
     leases = await _load_resident_leases(db, account.entity_id)
+    lease_ids = [lease.id for lease in leases]
+    attempts = (
+        await db.execute(
+            select(ResidentPaymentAttempt)
+            .where(
+                ResidentPaymentAttempt.organization_id == account.organization_id,
+                ResidentPaymentAttempt.resident_id == account.entity_id,
+                ResidentPaymentAttempt.lease_id.in_(lease_ids),
+                ResidentPaymentAttempt.idempotency_key.startswith("resident-autopay:"),
+            )
+            .order_by(ResidentPaymentAttempt.created_at.desc())
+        )
+    ).scalars().all() if lease_ids else []
+    latest_attempts = {}
+    for attempt in attempts:
+        latest_attempts.setdefault(attempt.lease_id, attempt)
     await db.commit()
     return [
         PortalLease(
@@ -417,6 +462,11 @@ async def portal_leases(
             unit_name=l.unit.name if l.unit else None,
             autopay_enabled=bool(l.autopay_enabled),
             autopay_payment_method_id=l.autopay_payment_method_id,
+            autopay_last_status=(latest_attempts[l.id].status if l.id in latest_attempts else None),
+            autopay_last_attempt_at=(latest_attempts[l.id].created_at if l.id in latest_attempts else None),
+            autopay_last_detail=(
+                latest_attempts[l.id].failure_detail if l.id in latest_attempts else None
+            ),
         )
         for l in leases
     ]
@@ -485,11 +535,16 @@ async def portal_balance(
 
 # ─── Resident: saved payment methods ──────────────────────────────────────────
 
-def _payment_config(config) -> PaymentConfigResponse:
+def _payment_config(config=None, capability=None) -> PaymentConfigResponse:
+    if config is None:
+        from app.services.organization_integration_settings import legacy_settings
+        config = legacy_settings("resident_payments")
     return PaymentConfigResponse(
         configured=bool(config.is_enabled and config.secret_api_key and config.publishable_key),
         provider=config.provider,
         publishable_key=config.publishable_key,
+        plaid_ach_available=bool(capability and capability.available),
+        plaid_ach_unavailable_reason=capability.reason if capability else None,
     )
 
 
@@ -516,7 +571,111 @@ async def payment_config(
     account.last_active_at = _now()
     from app.services import organization_integration_settings as org_settings
     config = await org_settings.resolve(db, account.organization_id, "resident_payments")
-    return _payment_config(config)
+    plaid = await org_settings.resolve(db, account.organization_id, "plaid")
+    capability = resident_ach_service.ach_capability(plaid, config)
+    return _payment_config(config, capability)
+
+
+async def _resident_ach_configs(db: AsyncSession, account: ClientPortalAccount):
+    from app.services import organization_integration_settings as org_settings
+
+    plaid = await org_settings.resolve(db, account.organization_id, "plaid")
+    payments = await org_settings.resolve(db, account.organization_id, "resident_payments")
+    capability = resident_ach_service.ach_capability(plaid, payments)
+    if not capability.available:
+        raise HTTPException(status_code=503, detail=capability.reason)
+    return plaid, payments
+
+
+@router.post("/resident-portal/plaid-ach/link-token", response_model=AchLinkTokenResponse)
+async def create_resident_ach_link_token(
+    payload: AchLinkTokenRequest,
+    account: ClientPortalAccount = Depends(get_resident_account),
+    db: AsyncSession = Depends(get_db),
+):
+    if not payload.consent_accepted:
+        raise HTTPException(status_code=422, detail="Bank-link authorization is required.")
+    resident = await _resident_for(db, account)
+    plaid, _ = await _resident_ach_configs(db, account)
+    result = await resident_ach_service.PlaidClient(config=plaid).create_link_token(
+        client_user_id=f"resident:{resident.id}",
+        client_name="Portfolio Desk Resident Payments",
+        products=["auth"],
+        user_email=resident.email,
+        legal_name=f"{resident.first_name} {resident.last_name}".strip(),
+        redirect_uri=plaid.resident_ach_redirect_uri or None,
+        webhook_url=plaid.resident_ach_webhook_url or None,
+    )
+    return AchLinkTokenResponse(link_token=result["link_token"])
+
+
+@router.post(
+    "/resident-portal/plaid-ach/exchange",
+    response_model=PaymentMethodResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def exchange_resident_ach(
+    payload: AchExchangeRequest,
+    request: Request,
+    account: ClientPortalAccount = Depends(get_resident_account),
+    db: AsyncSession = Depends(get_db),
+):
+    if not payload.consent_accepted:
+        raise HTTPException(status_code=422, detail="Bank-link authorization is required.")
+    if not payload.public_token.strip() or not payload.account_id.strip():
+        raise HTTPException(status_code=422, detail="Plaid public token and selected account are required.")
+    resident = await _resident_for(db, account)
+    plaid, payments = await _resident_ach_configs(db, account)
+    existing = list((await db.execute(select(ResidentPaymentMethod).where(
+        ResidentPaymentMethod.organization_id == account.organization_id,
+        ResidentPaymentMethod.resident_id == resident.id,
+    ))).scalars().all())
+    customer_id = next((m.stripe_customer_id for m in existing if m.stripe_customer_id), None)
+    try:
+        customer_id, source = await resident_ach_service.exchange_and_attach(
+            plaid_config=plaid,
+            payment_config=payments,
+            public_token=payload.public_token.strip(),
+            account_id=payload.account_id.strip(),
+            resident_id=resident.id,
+            resident_name=f"{resident.first_name} {resident.last_name}".strip(),
+            resident_email=resident.email,
+            existing_customer_id=customer_id,
+        )
+    except Exception as exc:
+        log.warning("Resident ACH setup failed for resident %s: %s", resident.id, exc.__class__.__name__)
+        raise HTTPException(status_code=502, detail="The bank account could not be connected.") from exc
+    make_default = payload.is_default or not existing
+    if make_default:
+        for saved in existing:
+            saved.is_default = False
+    method = ResidentPaymentMethod(
+        organization_id=account.organization_id,
+        resident_id=resident.id,
+        processor="stripe",
+        processor_token=source["id"],
+        method_type="ach",
+        status=(
+            "failed"
+            if source.get("status") in {"verification_failed", "errored"}
+            else "active"
+        ),
+        stripe_customer_id=customer_id,
+        bank_name=(source.get("bank_name") or payload.institution_name or "Bank")[:120],
+        account_type=(source.get("account_holder_type") or "checking")[:40],
+        brand=None,
+        last4=str(source.get("last4") or "")[-4:] or None,
+        is_default=make_default,
+        consent_version=resident_ach_service.ACH_CONSENT_VERSION,
+        consent_text=resident_ach_service.ACH_CONSENT_TEXT,
+        consented_at=_now(),
+        consent_ip=request.client.host if request.client else None,
+        consent_user_agent=(request.headers.get("user-agent") or "")[:500] or None,
+    )
+    db.add(method)
+    await db.commit()
+    await db.refresh(method)
+    return PaymentMethodResponse.model_validate(method)
 
 async def _get_payment_method(
     db: AsyncSession, account: ClientPortalAccount, method_id: uuid.UUID
@@ -645,6 +804,17 @@ async def delete_payment_method(
         if lease.autopay_payment_method_id == method.id:
             lease.autopay_payment_method_id = None
             lease.autopay_enabled = False
+    if method.method_type == "ach" and method.stripe_customer_id:
+        from app.services import organization_integration_settings as org_settings
+        payments = await org_settings.resolve(db, account.organization_id, "resident_payments")
+        try:
+            await resident_ach_service.detach_bank_source(
+                payments,
+                customer_id=method.stripe_customer_id,
+                source_id=method.processor_token,
+            )
+        except resident_ach_service.ResidentAchError:
+            log.warning("Stripe bank source detach failed for method %s", method.id)
     await db.delete(method)
     account.last_active_at = _now()
     await db.commit()
@@ -688,12 +858,6 @@ async def make_payment(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Payment amount must be greater than zero.",
         )
-    if payload.method not in payment_processor.PAYMENT_METHODS:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Unsupported payment method.",
-        )
-
     outstanding = await _outstanding_invoices(db, customer_id, account.organization_id)
     total_due = sum((ar_service.balance_due(i) for i in outstanding), Decimal("0.00"))
     if total_due <= 0:
@@ -707,9 +871,15 @@ async def make_payment(
         )
 
     payment_token = None
+    method = None
     if payload.payment_method_id is not None:
         method = await _get_payment_method(db, account, payload.payment_method_id)
+        if method.status != "active":
+            raise HTTPException(status_code=409, detail="The selected payment method is not active.")
         payment_token = method.processor_token
+    if method is None:
+        raise HTTPException(status_code=422, detail="A saved payment method is required.")
+    payment_type = method.method_type
 
     # Allocate oldest invoice first, resolved before any write so a later commit
     # cannot expire the invoices this plan was built from.
@@ -737,18 +907,107 @@ async def make_payment(
             status_code=status.HTTP_409_CONFLICT,
             detail="The saved payment method belongs to a different payment provider. Add a new payment method.",
         )
+    key = _payment_idempotency_key(resident_id, amount, plan, payload.idempotency_key)
+    attempt = None
+    if payment_type == "ach":
+        attempt = (await db.execute(select(ResidentPaymentAttempt).where(
+            ResidentPaymentAttempt.organization_id == account.organization_id,
+            ResidentPaymentAttempt.idempotency_key == key,
+        ))).scalar_one_or_none()
+        if attempt is not None:
+            if attempt.status in {"failed", "returned"}:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="This bank payment attempt cannot be retried. Start a new payment.",
+                )
+            summary = await _balance_summary(db, account, resident_id, customer_id)
+            succeeded = attempt.status == "succeeded"
+            return PortalPaymentResponse(
+                amount_applied=attempt.amount if succeeded else Decimal("0.00"),
+                captured=succeeded,
+                processor_status=attempt.status,
+                detail=(
+                    "Bank payment settled."
+                    if succeeded
+                    else "Bank payment submitted. Your balance will update after settlement."
+                ),
+                receipt_ids=[attempt.receipt_id] if attempt.receipt_id else [],
+                balance=summary,
+                attempt_id=attempt.id,
+            )
+        resident_leases = await _load_resident_leases(db, resident_id)
+        attempt = ResidentPaymentAttempt(
+            id=uuid.uuid4(),
+            organization_id=account.organization_id,
+            resident_id=resident_id,
+            lease_id=resident_leases[0].id if resident_leases else None,
+            invoice_id=plan[0][0] if plan else None,
+            payment_method_id=method.id,
+            amount=amount,
+            method_type="ach",
+            idempotency_key=key,
+            status="processing",
+            allocation_json=[
+                {"invoice_id": str(invoice_id), "amount": str(portion)}
+                for invoice_id, portion in plan
+            ],
+        )
+        db.add(attempt)
+        await db.commit()
     charge = await payment_processor.charge_payment(
         amount,
-        method=payload.method,
+        method=payment_type,
         payment_token=payment_token,
+        stripe_customer_id=method.stripe_customer_id,
         description=f"Resident payment for {resident_name}",
-        idempotency_key=_payment_idempotency_key(resident_id, amount, plan, payload.idempotency_key),
+        idempotency_key=key,
+        metadata=(
+            {"resident_payment_attempt_id": str(attempt.id)}
+            if attempt is not None
+            else None
+        ),
         config=payment_config,
     )
     if charge.status == "failed":
+        if attempt is not None:
+            attempt.status = "failed"
+            attempt.failure_detail = charge.detail
+            attempt.failed_at = _now()
+            await db.commit()
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=charge.detail or "Your payment could not be processed.",
+        )
+
+    if payment_type == "ach":
+        attempt = (await db.execute(
+            select(ResidentPaymentAttempt)
+            .where(ResidentPaymentAttempt.id == attempt.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )).scalar_one()
+        attempt.processor_ref = attempt.processor_ref or charge.processor_ref
+        if charge.status == "succeeded":
+            await resident_ach_service.settle_attempt(db, attempt)
+        elif charge.status != "processing":
+            attempt.status = "failed"
+            attempt.failure_detail = charge.detail or "The bank payment was not accepted."
+            attempt.failed_at = _now()
+        await db.commit()
+        summary = await _balance_summary(db, account, resident_id, customer_id)
+        succeeded = attempt.status == "succeeded"
+        return PortalPaymentResponse(
+            amount_applied=amount if succeeded else Decimal("0.00"),
+            captured=succeeded,
+            processor_status=attempt.status,
+            detail=(
+                "Bank payment settled."
+                if succeeded
+                else "Bank payment submitted. Your balance will update after settlement."
+            ),
+            receipt_ids=[attempt.receipt_id] if attempt.receipt_id else [],
+            balance=summary,
+            attempt_id=attempt.id,
         )
 
     # Record through the shared rent path so the GL, AR aging and receipt history
@@ -774,7 +1033,7 @@ async def make_payment(
                 account.organization_id,
                 invoice,
                 portion,
-                method=payload.method,
+                method=payment_type,
                 receipt_date=date.today(),
                 reference=charge.processor_ref,
             )
@@ -815,6 +1074,7 @@ async def make_payment(
 @router.put("/resident-portal/autopay", response_model=AutopayResponse)
 async def update_autopay(
     payload: AutopayUpdate,
+    request: Request,
     account: ClientPortalAccount = Depends(get_resident_account),
     db: AsyncSession = Depends(get_db),
 ):
@@ -842,8 +1102,25 @@ async def update_autopay(
                 detail="A saved payment method is required to enable autopay.",
             )
         method = await _get_payment_method(db, account, payload.payment_method_id)
+        if method.status != "active":
+            raise HTTPException(status_code=409, detail="The selected payment method is not active.")
+        if method.method_type != "ach":
+            raise HTTPException(
+                status_code=422,
+                detail="Scheduled autopay currently requires a connected bank account.",
+            )
+        if method.method_type == "ach" and not payload.recurring_consent_accepted:
+            raise HTTPException(status_code=422, detail="Recurring ACH authorization is required.")
         lease.autopay_payment_method_id = method.id
         lease.autopay_enabled = True
+        if method.method_type == "ach":
+            lease.autopay_consent_version = resident_ach_service.AUTOPAY_CONSENT_VERSION
+            lease.autopay_consent_text = resident_ach_service.AUTOPAY_CONSENT_TEXT
+            lease.autopay_consented_at = _now()
+            lease.autopay_consent_ip = request.client.host if request.client else None
+            lease.autopay_consent_user_agent = (
+                request.headers.get("user-agent") or ""
+            )[:500] or None
     else:
         lease.autopay_enabled = False
         lease.autopay_payment_method_id = None

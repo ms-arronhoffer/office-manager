@@ -1392,6 +1392,9 @@ export interface ResidentPortalLease {
   unit_name: string | null;
   autopay_enabled: boolean;
   autopay_payment_method_id: string | null;
+  autopay_last_status: string | null;
+  autopay_last_attempt_at: string | null;
+  autopay_last_detail: string | null;
 }
 
 export interface ResidentPortalBalance {
@@ -1405,12 +1408,18 @@ export interface ResidentPortalPaymentConfig {
   configured: boolean;
   provider: string;
   publishable_key: string;
+  plaid_ach_available: boolean;
+  plaid_ach_unavailable_reason: string | null;
 }
 
 export interface ResidentPortalPaymentMethod {
   id: string;
   processor: string;
+  method_type: 'card' | 'ach';
+  status: 'active' | 'verification_pending' | 'failed' | 'revoked';
   brand: string | null;
+  bank_name: string | null;
+  account_type: string | null;
   last4: string | null;
   exp_month: number | null;
   exp_year: number | null;
@@ -1441,12 +1450,22 @@ export interface ResidentPortalPaymentResult {
   detail: string | null;
   receipt_ids: string[];
   balance: ResidentPortalBalance;
+  attempt_id: string | null;
+}
+
+export interface ResidentPortalAchExchange {
+  public_token: string;
+  account_id: string;
+  institution_name?: string | null;
+  is_default?: boolean;
+  consent_accepted: boolean;
 }
 
 export interface ResidentPortalAutopayUpdate {
   enabled: boolean;
   payment_method_id?: string | null;
   lease_id?: string | null;
+  recurring_consent_accepted?: boolean;
 }
 
 export interface ResidentPortalAutopay {
@@ -4378,6 +4397,7 @@ export interface TenantIntegrationConfig {
   source: 'tenant' | 'legacy_env' | 'unconfigured';
   is_enabled: boolean;
   secret_hint: string | null;
+  webhook_secret_hint?: string | null;
   last_verified_at: string | null;
   last_verify_ok: boolean | null;
   last_verify_error: string | null;
@@ -4388,6 +4408,8 @@ export interface TenantIntegrationConfigInput {
   is_enabled: boolean;
   secret?: string;
   clear_secret?: boolean;
+  webhook_secret?: string;
+  clear_webhook_secret?: boolean;
   settings: Record<string, unknown>;
 }
 

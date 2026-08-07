@@ -31,6 +31,8 @@ class ResidentPaymentsSettings:
     api_url: str
     is_enabled: bool
     source: Source
+    webhook_secret: str = ""
+    webhook_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,9 @@ class PlaidSettings:
     webhook_url: str = ""
     applicant_verification_enabled: bool = False
     applicant_redirect_uri: str = ""
+    resident_ach_enabled: bool = False
+    resident_ach_redirect_uri: str = ""
+    resident_ach_webhook_url: str = ""
 
 
 IntegrationSettings = ResidentPaymentsSettings | ScreeningSettings | PlaidSettings
@@ -145,6 +150,17 @@ def validate_provider_settings(provider: Provider, values: dict, secret: str) ->
             allow_empty=True,
         ),
         "applicant_verification_enabled": bool(values.get("applicant_verification_enabled", False)),
+        "resident_ach_enabled": bool(values.get("resident_ach_enabled", False)),
+        "resident_ach_redirect_uri": _https_url(
+            str(values.get("resident_ach_redirect_uri", "")),
+            "resident_ach_redirect_uri",
+            allow_empty=True,
+        ),
+        "resident_ach_webhook_url": _https_url(
+            str(values.get("resident_ach_webhook_url", "")),
+            "resident_ach_webhook_url",
+            allow_empty=True,
+        ),
     }
 
 
@@ -156,6 +172,11 @@ def _from_row(provider: Provider, row: OrganizationIntegrationConfig) -> Integra
             provider=data.get("provider", "stripe"), secret_api_key=secret,
             publishable_key=data.get("publishable_key", ""), api_url=data.get("api_url", ""),
             is_enabled=row.is_enabled, source="tenant",
+            webhook_secret=(
+                decrypt_secret(row.webhook_secret_encrypted)
+                if row.webhook_secret_encrypted else ""
+            ),
+            webhook_key=row.webhook_key or "",
         )
     if provider == "screening":
         return ScreeningSettings(
@@ -172,6 +193,9 @@ def _from_row(provider: Provider, row: OrganizationIntegrationConfig) -> Integra
         redirect_uri=data.get("redirect_uri", ""), webhook_url=data.get("webhook_url", ""),
         applicant_verification_enabled=bool(data.get("applicant_verification_enabled", False)),
         applicant_redirect_uri=data.get("applicant_redirect_uri", ""),
+        resident_ach_enabled=bool(data.get("resident_ach_enabled", False)),
+        resident_ach_redirect_uri=data.get("resident_ach_redirect_uri", ""),
+        resident_ach_webhook_url=data.get("resident_ach_webhook_url", ""),
         timeout_seconds=settings.PLAID_TIMEOUT_SECONDS,
         is_enabled=row.is_enabled, source="tenant",
     )
@@ -201,7 +225,8 @@ def legacy_settings(provider: Provider) -> IntegrationSettings:
         environment=settings.PLAID_ENV, api_base_url=settings.PLAID_API_BASE_URL,
         country_codes=tuple(c.strip().upper() for c in (settings.PLAID_COUNTRY_CODES or "US").split(",") if c.strip()),
         redirect_uri=settings.PLAID_REDIRECT_URI, webhook_url="", applicant_verification_enabled=False,
-        applicant_redirect_uri="",
+        applicant_redirect_uri="", resident_ach_enabled=False,
+        resident_ach_redirect_uri="", resident_ach_webhook_url="",
         timeout_seconds=settings.PLAID_TIMEOUT_SECONDS,
         is_enabled=configured, source="legacy_env" if configured else "unconfigured",
     )
@@ -231,7 +256,10 @@ def safe_config(provider: Provider, resolved: IntegrationSettings, row=None) -> 
     data = asdict(resolved)
     secret_name = {"resident_payments": "secret_api_key", "screening": "api_key", "plaid": "secret"}[provider]
     secret = str(data.pop(secret_name, ""))
+    webhook_secret = str(data.pop("webhook_secret", ""))
     data["secret_hint"] = mask_secret(secret) if secret else None
+    if provider == "resident_payments":
+        data["webhook_secret_hint"] = mask_secret(webhook_secret) if webhook_secret else None
     data["provider"] = provider
     data["last_verified_at"] = row.last_verified_at if row else None
     data["last_verify_ok"] = row.last_verify_ok if row else None

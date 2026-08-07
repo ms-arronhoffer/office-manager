@@ -19,4 +19,12 @@ describe('tenant integration configuration surface', () => {
     expect(source).toContain('Save to tenant');
     expect(source).toContain('Disconnect');
   });
+
+  it('configures resident ACH and tenant Stripe settlement webhooks', () => {
+    expect(source).toContain('Enable resident ACH bank linking');
+    expect(source).toContain('webhook_secret:');
+    expect(source).toContain('/api/v1/resident-payments/stripe/webhook/');
+    expect(source).toContain('charge.succeeded');
+    expect(source).toContain('charge.dispute.created');
+  });
 });

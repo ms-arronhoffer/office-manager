@@ -71,6 +71,7 @@ const ConnectorsPage: React.FC = () => {
   const [config, setConfig] = useState<TenantIntegrationConfig | null>(null);
   const [configValues, setConfigValues] = useState<Record<string, string>>({});
   const [configSecret, setConfigSecret] = useState('');
+  const [configWebhookSecret, setConfigWebhookSecret] = useState('');
   const [configEnabled, setConfigEnabled] = useState(true);
 
   const load = useCallback(async () => {
@@ -190,6 +191,7 @@ const ConnectorsPage: React.FC = () => {
       setConfig(next);
       setConfigEnabled(next.is_enabled);
       setConfigSecret('');
+      setConfigWebhookSecret('');
       setConfigValues(
         Object.fromEntries(
           Object.entries(next)
@@ -209,6 +211,9 @@ const ConnectorsPage: React.FC = () => {
     setConfigValues((current) => ({ ...current, [key]: value }));
 
   const applicantWebhookUrl = `${window.location.origin}/api/v1/leasing-funnel/plaid/webhook`;
+  const residentStripeWebhookUrl = configValues.webhook_key
+    ? `${window.location.origin}/api/v1/resident-payments/stripe/webhook/${configValues.webhook_key}`
+    : '';
 
   const configSettings = (): Record<string, unknown> => {
     if (configProvider === 'resident_payments') {
@@ -236,6 +241,9 @@ const ConnectorsPage: React.FC = () => {
       webhook_url: configValues.webhook_url || applicantWebhookUrl,
       applicant_redirect_uri: configValues.applicant_redirect_uri ?? '',
       applicant_verification_enabled: configValues.applicant_verification_enabled === 'true',
+      resident_ach_redirect_uri: configValues.resident_ach_redirect_uri ?? '',
+      resident_ach_webhook_url: configValues.resident_ach_webhook_url ?? '',
+      resident_ach_enabled: configValues.resident_ach_enabled === 'true',
     };
   };
 
@@ -246,6 +254,10 @@ const ConnectorsPage: React.FC = () => {
       await integrationsApi.saveConfig(configProvider, {
         is_enabled: configEnabled,
         secret: configSecret || undefined,
+        webhook_secret:
+          configProvider === 'resident_payments' && configWebhookSecret
+            ? configWebhookSecret
+            : undefined,
         settings: configSettings(),
       });
       addFlash({ type: 'success', content: 'Tenant integration settings saved.' });
@@ -696,6 +708,18 @@ const ConnectorsPage: React.FC = () => {
               <FormField label="Stripe secret API key"><Input type="password" value={configSecret} placeholder={config?.secret_hint ?? ''} onChange={({ detail }) => setConfigSecret(detail.value)} /></FormField>
               <FormField label="Stripe publishable key"><Input value={configValues.publishable_key ?? ''} onChange={({ detail }) => setConfigValue('publishable_key', detail.value)} /></FormField>
               <FormField label="Payment API URL"><Input value={configValues.api_url ?? ''} onChange={({ detail }) => setConfigValue('api_url', detail.value)} /></FormField>
+              <FormField
+                label="Stripe webhook signing secret"
+                description="Create a Stripe webhook for the endpoint below, then enter its whsec_ signing secret."
+              >
+                <Input type="password" value={configWebhookSecret} placeholder={config?.webhook_secret_hint ?? ''} onChange={({ detail }) => setConfigWebhookSecret(detail.value)} />
+              </FormField>
+              <FormField
+                label="Resident payment webhook endpoint"
+                description="Subscribe to charge.succeeded, charge.failed, charge.refunded, and charge.dispute.created. Save once to generate the endpoint."
+              >
+                <Input value={residentStripeWebhookUrl} readOnly placeholder="Save this tenant configuration to generate the endpoint." />
+              </FormField>
             </>
           )}
           {configProvider === 'screening' && (
@@ -719,6 +743,13 @@ const ConnectorsPage: React.FC = () => {
               <FormField label="Country codes"><Input value={configValues.country_codes ?? 'US'} onChange={({ detail }) => setConfigValue('country_codes', detail.value)} /></FormField>
               <FormField label="Redirect URI"><Input value={configValues.redirect_uri ?? ''} onChange={({ detail }) => setConfigValue('redirect_uri', detail.value)} /></FormField>
               <Checkbox checked={configValues.applicant_verification_enabled === 'true'} onChange={({ detail }) => setConfigValue('applicant_verification_enabled', String(detail.checked))}>Enable applicant financial verification</Checkbox>
+              <Checkbox checked={configValues.resident_ach_enabled === 'true'} onChange={({ detail }) => setConfigValue('resident_ach_enabled', String(detail.checked))}>Enable resident ACH bank linking</Checkbox>
+              <FormField label="Resident ACH OAuth redirect URI" description="Optional. Register this exact URL in Plaid before using OAuth institutions.">
+                <Input value={configValues.resident_ach_redirect_uri ?? ''} placeholder={`${window.location.origin}/resident-portal`} onChange={({ detail }) => setConfigValue('resident_ach_redirect_uri', detail.value)} />
+              </FormField>
+              <FormField label="Resident ACH Plaid webhook URL" description="Optional Plaid Item webhook for resident bank-link status events.">
+                <Input value={configValues.resident_ach_webhook_url ?? ''} onChange={({ detail }) => setConfigValue('resident_ach_webhook_url', detail.value)} />
+              </FormField>
               <FormField
                 label="Applicant verification webhook URL"
                 description="Public HTTPS endpoint Plaid uses for signed verification status events."

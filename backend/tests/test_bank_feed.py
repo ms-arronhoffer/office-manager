@@ -528,6 +528,31 @@ async def test_client_injects_credentials_into_body(monkeypatch, plaid_on):
 
 
 @pytest.mark.asyncio
+async def test_stripe_processor_token_contract_uses_only_opaque_ids(monkeypatch, plaid_on):
+    import httpx
+
+    recorder: list = []
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        _fake_transport(_FakeResponse(200, {"bank_account_token": "btok_1"}), recorder),
+    )
+
+    result = await PlaidClient().create_stripe_bank_account_token(
+        "access-opaque", "account-opaque"
+    )
+
+    assert result == {"bank_account_token": "btok_1"}
+    url, body = recorder[0]
+    assert url.endswith("/processor/stripe/bank_account_token/create")
+    assert body["access_token"] == "access-opaque"
+    assert body["account_id"] == "account-opaque"
+    assert body["processor"] == "stripe"
+    assert "account_number" not in body
+    assert "routing_number" not in body
+
+
+@pytest.mark.asyncio
 async def test_client_surfaces_plaid_error_code(monkeypatch, plaid_on):
     import httpx
 

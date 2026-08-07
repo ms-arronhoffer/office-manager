@@ -125,6 +125,9 @@ from app.models.rent import (
 from app.models.resident_payment_method import (
     ResidentPaymentMethod, PAYMENT_METHOD_PROCESSORS,
 )
+from app.models.resident_payment_attempt import (
+    ResidentPaymentAttempt, ResidentPaymentWebhookEvent,
+)
 from app.models.leasing_funnel import (
     RentalApplication, ScreeningReport,
     LeaseSignatureRequest, LeaseSignatureParty,
@@ -229,7 +232,8 @@ __all__ = [
     "ANNOUNCEMENT_CHANNELS", "ANNOUNCEMENT_STATUSES",
     "RentCharge", "SecurityDeposit",
     "RENT_CHARGE_TYPES", "RENT_FREQUENCIES", "LATE_FEE_TYPES", "DEPOSIT_STATUSES",
-    "ResidentPaymentMethod", "PAYMENT_METHOD_PROCESSORS",
+    "ResidentPaymentMethod", "ResidentPaymentAttempt", "ResidentPaymentWebhookEvent",
+    "PAYMENT_METHOD_PROCESSORS",
     "RentalApplication", "ScreeningReport",
     "LeaseSignatureRequest", "LeaseSignatureParty",
     "APPLICATION_STATUSES", "SCREENING_STATUSES", "SCREENING_RECOMMENDATIONS",
