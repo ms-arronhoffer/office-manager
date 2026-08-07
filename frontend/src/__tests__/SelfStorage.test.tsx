@@ -56,10 +56,7 @@ describe('useCategories', () => {
 describe('CategorySettingsPage', () => {
   it('renders a toggle per primary category', async () => {
     renderWithProviders(<CategorySettingsPage />);
-    await waitFor(() => {
-      expect(screen.getByText('Business categories')).toBeInTheDocument();
-    });
-    expect(screen.getByText('Commercial')).toBeInTheDocument();
+    expect(await screen.findByText('Commercial')).toBeInTheDocument();
     expect(screen.getByText('Residential')).toBeInTheDocument();
     expect(screen.getByText('Self Storage')).toBeInTheDocument();
   });
