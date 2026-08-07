@@ -351,6 +351,15 @@ Set the tenant Plaid applicant webhook URL to:
 https://api.example.com/api/v1/leasing-funnel/plaid/webhook
 ```
 
+For the current development application host, use:
+
+```text
+https://dev.app.portfoliodesk.ai/api/v1/leasing-funnel/plaid/webhook
+```
+
+The frontend host proxies `/api/` to the backend, so a separate API hostname is
+not required. The URL must remain publicly reachable over HTTPS for Plaid.
+
 The endpoint maps `item_id` to an organization under a narrow trusted RLS
 bypass, switches to that tenant, retrieves Plaid's verification key, verifies
 the ES256 `X-Plaid-Verification` JWT and exact request-body SHA-256 claim, and

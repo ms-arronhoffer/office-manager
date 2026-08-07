@@ -208,6 +208,8 @@ const ConnectorsPage: React.FC = () => {
   const setConfigValue = (key: string, value: string) =>
     setConfigValues((current) => ({ ...current, [key]: value }));
 
+  const applicantWebhookUrl = `${window.location.origin}/api/v1/leasing-funnel/plaid/webhook`;
+
   const configSettings = (): Record<string, unknown> => {
     if (configProvider === 'resident_payments') {
       return {
@@ -231,7 +233,7 @@ const ConnectorsPage: React.FC = () => {
       api_base_url: configValues.api_base_url ?? '',
       country_codes: (configValues.country_codes ?? 'US').split(',').map((code) => code.trim()),
       redirect_uri: configValues.redirect_uri ?? '',
-      webhook_url: configValues.webhook_url ?? '',
+      webhook_url: configValues.webhook_url || applicantWebhookUrl,
       applicant_verification_enabled: configValues.applicant_verification_enabled === 'true',
     };
   };
@@ -716,7 +718,16 @@ const ConnectorsPage: React.FC = () => {
               <FormField label="Country codes"><Input value={configValues.country_codes ?? 'US'} onChange={({ detail }) => setConfigValue('country_codes', detail.value)} /></FormField>
               <FormField label="Redirect URI"><Input value={configValues.redirect_uri ?? ''} onChange={({ detail }) => setConfigValue('redirect_uri', detail.value)} /></FormField>
               <Checkbox checked={configValues.applicant_verification_enabled === 'true'} onChange={({ detail }) => setConfigValue('applicant_verification_enabled', String(detail.checked))}>Enable applicant financial verification</Checkbox>
-              <FormField label="Applicant verification webhook URL"><Input value={configValues.webhook_url ?? ''} onChange={({ detail }) => setConfigValue('webhook_url', detail.value)} /></FormField>
+              <FormField
+                label="Applicant verification webhook URL"
+                description="Public HTTPS endpoint Plaid uses for signed verification status events."
+              >
+                <Input
+                  value={configValues.webhook_url ?? ''}
+                  placeholder={applicantWebhookUrl}
+                  onChange={({ detail }) => setConfigValue('webhook_url', detail.value)}
+                />
+              </FormField>
             </>
           )}
           {config?.last_verify_error && <Alert type="error">{config.last_verify_error}</Alert>}

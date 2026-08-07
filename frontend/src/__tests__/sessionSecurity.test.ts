@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { isPublicRoute } from '@/api/client';
 
 const source = (relativePath: string) =>
   fs.readFileSync(path.resolve(process.cwd(), relativePath), 'utf8');
@@ -18,9 +19,24 @@ describe('browser token handling', () => {
 
   it('does not refresh or redirect an unauthenticated login page', () => {
     const clientSource = source('src/api/client.ts');
-    expect(clientSource).toContain('isPublicAuthPage');
-    expect(clientSource).toContain('!isPublicAuthPage');
+    expect(clientSource).toContain('isPublicRoute');
+    expect(clientSource).toContain('!publicRoute');
     expect(source('../admin-frontend/src/api/index.ts')).toContain('isPublicAuthPage');
+  });
+
+  it.each([
+    '/financial-verify/3xvTdCpmoY20ilvmJDUFZOa3Jlc79Kylfa89_ow7H80',
+    '/financial-verify',
+    '/apply/application-token',
+    '/sign/waiver-token',
+    '/resident-portal',
+  ])('does not redirect public route %s to login', (pathname) => {
+    expect(isPublicRoute(pathname)).toBe(true);
+  });
+
+  it('keeps authenticated application routes protected', () => {
+    expect(isPublicRoute('/residential/applications')).toBe(false);
+    expect(isPublicRoute('/finance/connections')).toBe(false);
   });
 
   it('scrubs portal and signing tokens from the URL', () => {

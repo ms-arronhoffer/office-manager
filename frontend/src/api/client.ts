@@ -40,6 +40,26 @@ function refreshSession(): Promise<void> {
   return refreshPromise;
 }
 
+export function isPublicRoute(pathname: string): boolean {
+  const publicRoots = [
+    '/login',
+    '/reset-password',
+    '/signup',
+    '/legal',
+    '/verify-email',
+    '/vendor-portal',
+    '/client-portal',
+    '/resident-portal',
+    '/owner-portal',
+    '/sign',
+    '/lease-sign',
+    '/apply',
+    '/financial-verify',
+    '/ack',
+  ];
+  return publicRoots.some((root) => pathname === root || pathname.startsWith(`${root}/`));
+}
+
 // Rotate the refresh cookie once, then retry the original request.
 apiClient.interceptors.response.use(
   (response) => response,
@@ -47,8 +67,8 @@ apiClient.interceptors.response.use(
     const original = error.config as (typeof error.config & { _sessionRetry?: boolean }) | undefined;
     const url = String(original?.url || '');
     const isAuthFlow = /\/auth\/(login|refresh|logout|mfa\/)/.test(url);
-    const isPublicAuthPage = /^\/(login|reset-password)(\/|$)/.test(window.location.pathname);
-    if (error.response?.status === 401 && original && !original._sessionRetry && !isAuthFlow && !isPublicAuthPage) {
+    const publicRoute = isPublicRoute(window.location.pathname);
+    if (error.response?.status === 401 && original && !original._sessionRetry && !isAuthFlow && !publicRoute) {
       original._sessionRetry = true;
       try {
         await refreshSession();
@@ -57,7 +77,7 @@ apiClient.interceptors.response.use(
         // Fall through to the login redirect when rotation is unavailable.
       }
     }
-    if (error.response?.status === 401 && !isAuthFlow && !isPublicAuthPage) {
+    if (error.response?.status === 401 && !isAuthFlow && !publicRoute) {
       window.location.href = '/login';
     }
     return Promise.reject(error);
