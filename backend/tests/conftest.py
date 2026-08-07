@@ -35,7 +35,7 @@ _test_engine = create_async_engine(_settings.DATABASE_URL, echo=False, poolclass
 _test_session = async_sessionmaker(_test_engine, class_=AsyncSession, expire_on_commit=False)
 
 
-@pytest_asyncio.fixture(scope="session", autouse=True)
+@pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
 async def setup_database():
     """Create all tables once per test session."""
     async with _test_engine.begin() as conn:
