@@ -4,6 +4,9 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from app.models.customer_invoice import Customer
+from app.models.organization import Organization
+
 
 _ROLE = "office_manager_rls_test"
 _POLICY = "customers_org_isolation_test"
@@ -20,19 +23,18 @@ async def test_database_rls_fail_closed_write_check_and_bypass(db_session) -> No
     customer_a = uuid.uuid4()
     customer_b = uuid.uuid4()
 
-    await db_session.execute(
-        text(
-            "INSERT INTO organizations (id, name, slug) "
-            "VALUES (:a, 'RLS A', :slug_a), (:b, 'RLS B', :slug_b)"
-        ),
-        {"a": org_a, "b": org_b, "slug_a": f"rls-a-{org_a}", "slug_b": f"rls-b-{org_b}"},
+    db_session.add_all(
+        [
+            Organization(id=org_a, name="RLS A", slug=f"rls-a-{org_a}"),
+            Organization(id=org_b, name="RLS B", slug=f"rls-b-{org_b}"),
+        ]
     )
-    await db_session.execute(
-        text(
-            "INSERT INTO customers (id, organization_id, name) "
-            "VALUES (:customer_a, :org_a, 'A'), (:customer_b, :org_b, 'B')"
-        ),
-        {"customer_a": customer_a, "org_a": org_a, "customer_b": customer_b, "org_b": org_b},
+    await db_session.flush()
+    db_session.add_all(
+        [
+            Customer(id=customer_a, organization_id=org_a, name="A"),
+            Customer(id=customer_b, organization_id=org_b, name="B"),
+        ]
     )
     await db_session.commit()
 
@@ -68,7 +70,11 @@ async def test_database_rls_fail_closed_write_check_and_bypass(db_session) -> No
         with pytest.raises(DBAPIError):
             async with db_session.begin_nested():
                 await db_session.execute(
-                    text("INSERT INTO customers (id, organization_id, name) VALUES (:id, :org, 'blocked')"),
+                    text(
+                        "INSERT INTO customers "
+                        "(id, organization_id, name, created_at, updated_at) "
+                        "VALUES (:id, :org, 'blocked', now(), now())"
+                    ),
                     {"id": uuid.uuid4(), "org": org_b},
                 )
 
@@ -77,6 +83,7 @@ async def test_database_rls_fail_closed_write_check_and_bypass(db_session) -> No
 
         # Both settings are transaction-local and disappear after commit.
         await db_session.commit()
+        await db_session.execute(text(f'SET ROLE "{_ROLE}"'))
         assert (await db_session.scalar(text("SELECT count(*) FROM customers"))) == 0
     finally:
         await db_session.rollback()
@@ -84,5 +91,6 @@ async def test_database_rls_fail_closed_write_check_and_bypass(db_session) -> No
         await db_session.execute(text(f'DROP POLICY IF EXISTS "{_POLICY}" ON customers'))
         await db_session.execute(text("ALTER TABLE customers NO FORCE ROW LEVEL SECURITY"))
         await db_session.execute(text("ALTER TABLE customers DISABLE ROW LEVEL SECURITY"))
+        await db_session.execute(text(f'DROP OWNED BY "{_ROLE}"'))
         await db_session.execute(text(f'DROP ROLE IF EXISTS "{_ROLE}"'))
         await db_session.commit()
