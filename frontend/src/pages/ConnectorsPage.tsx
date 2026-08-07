@@ -193,7 +193,7 @@ const ConnectorsPage: React.FC = () => {
       setConfigValues(
         Object.fromEntries(
           Object.entries(next)
-            .filter(([, value]) => typeof value === 'string' || typeof value === 'number')
+            .filter(([, value]) => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
             .map(([key, value]) => [key, String(value ?? '')]),
         ),
       );
@@ -231,6 +231,8 @@ const ConnectorsPage: React.FC = () => {
       api_base_url: configValues.api_base_url ?? '',
       country_codes: (configValues.country_codes ?? 'US').split(',').map((code) => code.trim()),
       redirect_uri: configValues.redirect_uri ?? '',
+      webhook_url: configValues.webhook_url ?? '',
+      applicant_verification_enabled: configValues.applicant_verification_enabled === 'true',
     };
   };
 
@@ -713,6 +715,8 @@ const ConnectorsPage: React.FC = () => {
               <FormField label="API base URL"><Input value={configValues.api_base_url ?? ''} onChange={({ detail }) => setConfigValue('api_base_url', detail.value)} /></FormField>
               <FormField label="Country codes"><Input value={configValues.country_codes ?? 'US'} onChange={({ detail }) => setConfigValue('country_codes', detail.value)} /></FormField>
               <FormField label="Redirect URI"><Input value={configValues.redirect_uri ?? ''} onChange={({ detail }) => setConfigValue('redirect_uri', detail.value)} /></FormField>
+              <Checkbox checked={configValues.applicant_verification_enabled === 'true'} onChange={({ detail }) => setConfigValue('applicant_verification_enabled', String(detail.checked))}>Enable applicant financial verification</Checkbox>
+              <FormField label="Applicant verification webhook URL"><Input value={configValues.webhook_url ?? ''} onChange={({ detail }) => setConfigValue('webhook_url', detail.value)} /></FormField>
             </>
           )}
           {config?.last_verify_error && <Alert type="error">{config.last_verify_error}</Alert>}

@@ -166,7 +166,15 @@ async def get_readiness(db: AsyncSession, organization_id: uuid.UUID) -> list[di
             missing_config=plaid_missing,
             last_verified_at=plaid_row.last_verified_at if plaid_row else None,
             last_error=plaid_row.last_verify_error if plaid_row else None,
-            detail="Legacy/platform fallback. Save to tenant before normal operation." if plaid.source == "legacy_env" else "Safe verification lists one institution without creating an Item.",
+            detail=(
+                "Legacy/platform fallback. Save to tenant before normal operation."
+                if plaid.source == "legacy_env"
+                else (
+                    "Applicant financial verification is enabled. Safe credential verification lists one institution without creating an Item."
+                    if plaid.applicant_verification_enabled
+                    else "Bank feeds are available. Applicant financial verification is disabled."
+                )
+            ),
             source=plaid.source,
         ),
         _item(

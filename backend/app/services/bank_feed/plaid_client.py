@@ -12,6 +12,7 @@ test environments run without credentials.
 from __future__ import annotations
 
 import logging
+from datetime import date
 from typing import Any
 
 import httpx
@@ -75,16 +76,32 @@ class PlaidClient:
             )
         return data
 
-    async def create_link_token(self, *, client_user_id: str, client_name: str) -> dict[str, Any]:
+    async def create_link_token(
+        self,
+        *,
+        client_user_id: str,
+        client_name: str,
+        products: list[str] | None = None,
+        webhook_url: str | None = None,
+        user_email: str | None = None,
+        legal_name: str | None = None,
+    ) -> dict[str, Any]:
+        user: dict[str, str] = {"client_user_id": client_user_id}
+        if user_email:
+            user["email_address"] = user_email
+        if legal_name:
+            user["legal_name"] = legal_name
         payload: dict[str, Any] = {
-            "user": {"client_user_id": client_user_id},
+            "user": user,
             "client_name": client_name,
-            "products": ["transactions"],
+            "products": products or ["transactions"],
             "country_codes": country_codes(self.config),
             "language": "en",
         }
         if self.config.redirect_uri:
             payload["redirect_uri"] = self.config.redirect_uri
+        if webhook_url:
+            payload["webhook"] = webhook_url
         return await self._post("link/token/create", payload)
 
     async def exchange_public_token(self, public_token: str) -> dict[str, Any]:
@@ -94,6 +111,37 @@ class PlaidClient:
 
     async def get_accounts(self, access_token: str) -> dict[str, Any]:
         return await self._post("accounts/get", {"access_token": access_token})
+
+    async def get_identity(self, access_token: str) -> dict[str, Any]:
+        return await self._post("identity/get", {"access_token": access_token})
+
+    async def get_auth(self, access_token: str) -> dict[str, Any]:
+        return await self._post("auth/get", {"access_token": access_token})
+
+    async def get_balances(self, access_token: str) -> dict[str, Any]:
+        return await self._post("accounts/balance/get", {"access_token": access_token})
+
+    async def get_transactions(
+        self,
+        access_token: str,
+        *,
+        start_date: date,
+        end_date: date,
+        count: int = 500,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        return await self._post(
+            "transactions/get",
+            {
+                "access_token": access_token,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "options": {"count": count, "offset": offset},
+            },
+        )
+
+    async def get_webhook_verification_key(self, key_id: str) -> dict[str, Any]:
+        return await self._post("webhook_verification_key/get", {"key_id": key_id})
 
     async def get_institution(self, institution_id: str) -> dict[str, Any]:
         return await self._post(

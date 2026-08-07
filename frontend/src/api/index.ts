@@ -2428,6 +2428,8 @@ import type {
   RentalApplicationCreate,
   RentalApplicationUpdate,
   ScreeningReport,
+  FinancialVerification,
+  PublicFinancialVerification,
   LeaseSignatureRequest,
   LeaseSignatureCreate,
   LeaseSignatureFromTemplate,
@@ -2551,6 +2553,14 @@ export const leasingFunnel = {
     client.post<ScreeningReport>(`/leasing-funnel/applications/${id}/screen`),
   listScreening: (id: string) =>
     client.get<ScreeningReport[]>(`/leasing-funnel/applications/${id}/screening`),
+  requestFinancialVerification: (id: string) =>
+    client.post<FinancialVerification>(`/leasing-funnel/applications/${id}/financial-verifications`),
+  listFinancialVerifications: (id: string) =>
+    client.get<FinancialVerification[]>(`/leasing-funnel/applications/${id}/financial-verifications`),
+  resendFinancialVerification: (id: string) =>
+    client.post<FinancialVerification>(`/leasing-funnel/financial-verifications/${id}/resend`),
+  cancelFinancialVerification: (id: string) =>
+    client.post<FinancialVerification>(`/leasing-funnel/financial-verifications/${id}/cancel`),
   downloadSignedApplication: (id: string) =>
     client.get(`/leasing-funnel/applications/${id}/signed-pdf`, { responseType: 'blob' }),
   convert: (id: string) =>
@@ -2626,6 +2636,36 @@ export const leasingFunnelPublic = {
     axios
       .create({ baseURL: _leaseSignBase })
       .post<PublicApplicationView>(`/leasing-funnel/apply/${token}`, data),
+};
+
+const financialVerificationClient = axios.create({
+  baseURL: _leaseSignBase,
+  withCredentials: true,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+export const financialVerificationPublic = {
+  exchangeSession: (token: string) =>
+    financialVerificationClient.post('/leasing-funnel/financial-verifications/exchange-session', { token }),
+  view: () =>
+    financialVerificationClient.get<PublicFinancialVerification>('/leasing-funnel/financial-verification-session'),
+  consent: () =>
+    financialVerificationClient.post<{ link_token: string; status: string }>(
+      '/leasing-funnel/financial-verification-session/consent', { accepted: true },
+    ),
+  exchange: (publicToken: string, institutionName?: string) =>
+    financialVerificationClient.post<{ status: string; message: string }>(
+      '/leasing-funnel/financial-verification-session/exchange',
+      { public_token: publicToken, institution_name: institutionName },
+    ),
+  status: () =>
+    financialVerificationClient.get<{ status: string; message: string }>(
+      '/leasing-funnel/financial-verification-session/status',
+    ),
+  decline: () =>
+    financialVerificationClient.post<{ status: string; message: string }>(
+      '/leasing-funnel/financial-verification-session/decline',
+    ),
 };
 
 export const listings = {

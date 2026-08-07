@@ -132,6 +132,10 @@ from app.models.leasing_funnel import (
     LEASE_SIGN_STATUSES, LEASE_PARTY_STATUSES, LEASE_PARTY_ROLES,
     LEASE_SIGNATURE_TYPES,
 )
+from app.models.financial_verification import (
+    ApplicantFinancialVerification, FinancialVerificationWebhookEvent,
+    FINANCIAL_VERIFICATION_STATUSES,
+)
 from app.models.listing import (
     VacancyListing,
     LISTING_STATUSES,

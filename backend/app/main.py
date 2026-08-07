@@ -68,7 +68,7 @@ from app.routers import (  # noqa: E402
     lease_abstract, management_companies, contacts, client_portal,
     ai, waivers, document_search, maintenance, saved_reports, assistant,
     support_requests, leasing, resident_portal, announcements, rent,
-    leasing_funnel, listings, owners, owner_portal, lease_templates,
+    leasing_funnel, financial_verifications, listings, owners, owner_portal, lease_templates,
     application_templates, buildium, self_storage, legal, sso, quickbooks, bank_feed,
     integrations,)
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit, usage as admin_usage, support_requests as admin_support_requests  # noqa: E402
@@ -167,6 +167,8 @@ app.include_router(announcements.router, prefix="/api/v1/announcements", tags=["
 app.include_router(rent.router, prefix="/api/v1/rent", tags=["Rent Collection"], dependencies=_residential_guard)
 app.include_router(leasing_funnel.router, prefix="/api/v1/leasing-funnel", tags=["Leasing Funnel"], dependencies=_residential_guard)
 app.include_router(leasing_funnel.public_router, prefix="/api/v1/leasing-funnel", tags=["Leasing Funnel (Public)"])
+app.include_router(financial_verifications.router, prefix="/api/v1/leasing-funnel", tags=["Financial Verification"], dependencies=_residential_guard)
+app.include_router(financial_verifications.public_router, prefix="/api/v1/leasing-funnel", tags=["Financial Verification (Public)"])
 app.include_router(listings.router, prefix="/api/v1/listings", tags=["Vacancy Listings"], dependencies=_residential_guard)
 app.include_router(listings.public_router, prefix="/api/v1/listings", tags=["Vacancy Listings (Public)"])
 app.include_router(resident_portal.router, prefix="/api/v1", tags=["Resident Portal"])

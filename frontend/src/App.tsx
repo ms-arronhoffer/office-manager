@@ -63,6 +63,7 @@ const WaiversPage = lazy(() => import('@/pages/WaiversPage'));
 const WaiverSignPage = lazy(() => import('@/pages/WaiverSignPage'));
 const LeaseSignPage = lazy(() => import('@/pages/LeaseSignPage'));
 const ApplicationPage = lazy(() => import('@/pages/ApplicationPage'));
+const FinancialVerificationPage = lazy(() => import('@/pages/FinancialVerificationPage'));
 const AckPage = lazy(() => import('@/pages/AckPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
@@ -128,6 +129,8 @@ const App: React.FC = () => {
             <Route path="/sign" element={<WaiverSignPage />} />
             <Route path="/lease-sign/:token" element={<LeaseSignPage />} />
             <Route path="/apply/:token" element={<ApplicationPage />} />
+            <Route path="/financial-verify/:token" element={<FinancialVerificationPage />} />
+            <Route path="/financial-verify" element={<FinancialVerificationPage />} />
             <Route path="/ack/:token" element={<AckPage />} />
             <Route
               path="/onboarding"

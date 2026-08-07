@@ -298,6 +298,100 @@ Sandbox uses `https://sandbox.plaid.com` with test login `user_good` /
 Transactions land in the same model the CSV/OFX import writes to, so
 reconciliation is unchanged.
 
+### Applicant financial verification
+
+Applicant financial verification is a separate consent-gated workflow attached
+to a rental application. It does not use `BankFeedConnection` or
+`ScreeningReport`. Enable it per organization in **Finance > Connections >
+Plaid** after tenant Plaid credentials are saved.
+
+The staff workflow sends a seven-day magic link. The invitation token is stored
+only as a SHA-256 hash. The browser exchanges the URL token for a scoped,
+httpOnly, SameSite cookie and removes the token from browser history. Before
+Plaid Link opens, the applicant sees the requesting organization, application
+context, exact checks, retention summary, and an explicit consent checkbox. A
+link token cannot be created before consent is recorded.
+
+Implemented Plaid products and calls:
+
+| Purpose | Link product or endpoint | Retained result |
+|---|---|---|
+| Identity and owner match | `identity`, then `/identity/get` | Match boolean and normalized score only |
+| Account ownership usability | `auth`, then `/auth/get` | Whether usable auth data exists and aggregate usable account count |
+| Real-time balances | `/accounts/balance/get` | Aggregate current and available totals plus account count |
+| Recent recurring income estimate | `transactions`, then bounded `/transactions/get` for up to 90 days | Monthly estimate, months observed, methodology version, and reason codes |
+
+`balance` is an endpoint, not a Link product. Auth account and routing numbers
+are used only in memory to establish that selected accounts are usable. Raw
+owner identity, addresses, account numbers, routing numbers, account-level
+balances, masks, transaction rows, and transaction descriptions are discarded.
+Plaid credentials are never visible to Portfolio Desk or the requesting
+organization.
+
+The recommendation is limited to `verified`, `review`, or `insufficient` with
+reason codes. It is decision support only. The workflow does not automatically
+approve, deny, or generate adverse action, and it is not a consumer report or
+background screening product. Staff must evaluate results under their own
+documented rental criteria and applicable law. Aggregate balances alone must
+not determine a rental decision.
+
+Identity, auth, and balance checks run immediately after Link. If Transactions
+returns `PRODUCT_NOT_READY`, the request remains in `processing` with only the
+encrypted access token and the already-minimized partial summary. A verified
+`INITIAL_UPDATE` or `SYNC_UPDATES_AVAILABLE` webhook resumes the bounded
+transaction check. After completion or terminal failure, the service calls
+`/item/remove` and clears the encrypted access token. Only the minimized summary
+remains. This short processing window also limits webhook exposure.
+
+### Applicant webhook setup
+
+Set the tenant Plaid applicant webhook URL to:
+
+```text
+https://api.example.com/api/v1/leasing-funnel/plaid/webhook
+```
+
+The endpoint maps `item_id` to an organization under a narrow trusted RLS
+bypass, switches to that tenant, retrieves Plaid's verification key, verifies
+the ES256 `X-Plaid-Verification` JWT and exact request-body SHA-256 claim, and
+deduplicates by event digest. Unsigned or invalid webhooks are rejected. Known
+permission revocations mark the request revoked. Login and Item errors mark it
+action required. Unsupported metadata is logged without tokens or financial
+payload content.
+
+Because Items are removed immediately after successful processing, revocation
+webhooks normally matter only during the linking and short asynchronous
+processing window.
+
+### Applicant sandbox certification checklist
+
+1. Enable Identity, Auth, and Transactions for the Plaid Sandbox team and app.
+2. Register the exact redirect URI for OAuth institutions and the HTTPS webhook
+   URL shown above.
+3. Enable applicant financial verification in the tenant Plaid form.
+4. Send a request to a synthetic submitted application and confirm no link token
+   is returned before consent.
+5. Complete Sandbox Link with Plaid test users for a successful Item, an auth
+   data unavailable case, and an Item login error.
+6. Confirm only hashes, consent evidence, aggregate metrics, match flags,
+   methodology, and reason codes exist in PostgreSQL and API responses.
+7. Search application and provider logs for the test token, access token,
+   account and routing numbers, owner payload, and transaction descriptions.
+   All searches must be empty.
+8. Replay a signed webhook and confirm idempotency. Alter one body byte and
+   confirm signature rejection.
+9. Simulate `PRODUCT_NOT_READY`, then send a signed `INITIAL_UPDATE` webhook and
+   confirm processing resumes exactly once.
+10. Confirm `/item/remove` succeeds and `access_token_encrypted` is cleared after
+   completion.
+11. Record Plaid product approval, webhook test evidence, operator, timestamp,
+    and build SHA. Sandbox success does not certify Production access.
+
+Plaid Assets and Payroll Income are not implemented. They require separate
+product approval and asynchronous or product-specific API flows. Do not present
+either capability to applicants or staff until those flows are designed,
+approved, and certified.
+
 ---
 
 ## Troubleshooting
@@ -313,5 +407,5 @@ reconciliation is unchanged.
 | SSO callback returns `verification_failed` | Check `aud` matches the client ID, `iss` matches the configured issuer, and the email domain is allowed |
 
 See also [MIGRATIONS.md](MIGRATIONS.md). Tenant provider settings require
-revision 120. Existing deployments can continue using environment fallback
+revision 120 and applicant financial verification requires revision 121. Existing deployments can continue using environment fallback
 while each organization saves its own encrypted configuration.
