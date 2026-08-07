@@ -1,13 +1,12 @@
-import asyncio
 import os
 import uuid
 from typing import AsyncGenerator
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 # Point at the test database BEFORE importing app code
 os.environ["POSTGRES_DB"] = "office_manager_test"
@@ -32,18 +31,11 @@ ACCOUNTANT_PASSWORD = "Accountant123!"
 # Build test settings (picks up POSTGRES_DB=office_manager_test)
 _settings = Settings()
 
-_test_engine = create_async_engine(_settings.DATABASE_URL, echo=False)
+_test_engine = create_async_engine(_settings.DATABASE_URL, echo=False, poolclass=NullPool)
 _test_session = async_sessionmaker(_test_engine, class_=AsyncSession, expire_on_commit=False)
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest_asyncio.fixture(scope="session", autouse=True)
+@pytest_asyncio.fixture(scope="session", loop_scope="session", autouse=True)
 async def setup_database():
     """Create all tables once per test session."""
     async with _test_engine.begin() as conn:
