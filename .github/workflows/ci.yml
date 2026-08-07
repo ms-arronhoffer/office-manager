@@ -3,14 +3,13 @@ name: CI
 on:
   workflow_call:
   pull_request:
-  push:
 
 permissions:
   contents: read
 
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, ubuntu-server-2]
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -70,10 +69,10 @@ jobs:
       - name: Run mandatory RLS policy checks
         run: pytest -q policy_tests tests/test_rls_database.py
       - name: Run backend tests
-        run: pytest
+        run: pytest --ignore=policy_tests --ignore=tests/test_rls_database.py
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, ubuntu-server-2]
     defaults:
       run:
         working-directory: frontend
@@ -89,7 +88,7 @@ jobs:
       - run: npm run build
 
   admin-frontend:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, ubuntu-server-2]
     defaults:
       run:
         working-directory: admin-frontend
@@ -104,7 +103,7 @@ jobs:
       - run: npm run build
 
   landing:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, ubuntu-server-2]
     defaults:
       run:
         working-directory: landing
@@ -119,7 +118,7 @@ jobs:
       - run: npm run build
 
   compose:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, ubuntu-server-2]
     steps:
       - uses: actions/checkout@v4
       - name: Validate production Compose configuration
