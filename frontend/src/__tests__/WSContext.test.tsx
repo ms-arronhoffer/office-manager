@@ -3,6 +3,10 @@ import { render, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { WSProvider, useWS } from '@/context/WSContext';
 
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ isAuthenticated: true }),
+}));
+
 // Minimal controllable WebSocket mock so we can drive open/close events.
 class MockWebSocket {
   static OPEN = 1;
