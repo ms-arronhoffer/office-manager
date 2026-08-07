@@ -612,6 +612,7 @@ jobs:
           # `git config --global`, clone, fetch and checkout die with
           # "fatal: $HOME not set" / exit status 128). Pin it before any git use.
           export HOME="${HOME:-/root}"
+          export BUILD_SHA="$SHA"
           REPO_DIR=/home/ec2-user/office-manager
           PROJECT=prod-office-manager
           COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.prod.yml -f docker-compose.aws.yml)
@@ -695,6 +696,35 @@ jobs:
             attempt=$((attempt + 1))
             sleep 5
           done
+
+          # A release is not successful until backend code and database schema
+          # match the exact image tag that was deployed.
+          backend_ready=0
+          for _ in $(seq 1 60); do
+            if "${COMPOSE[@]}" exec -T backend python -c \
+              "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/readyz', timeout=3).read()" \
+              >/dev/null 2>&1; then
+              backend_ready=1
+              break
+            fi
+            sleep 5
+          done
+          [ "$backend_ready" -eq 1 ] || { echo "Backend never became ready." >&2; exit 1; }
+
+          reported_sha="$("${COMPOSE[@]}" exec -T backend python -c \
+            "import json, urllib.request; print(json.load(urllib.request.urlopen('http://localhost:8000/api/v1/health'))['build_sha'])")"
+          [ "$reported_sha" = "$SHA" ] || {
+            echo "Backend build mismatch: expected $SHA, reported $reported_sha" >&2
+            exit 1
+          }
+
+          code_head="$("${COMPOSE[@]}" exec -T backend alembic heads | awk 'NR==1 {print $1}')"
+          database_head="$("${COMPOSE[@]}" exec -T backend alembic current | awk 'NR==1 {print $1}')"
+          [ -n "$code_head" ] && [ "$database_head" = "$code_head" ] || {
+            echo "Database migration mismatch: code head $code_head, database head $database_head" >&2
+            exit 1
+          }
+          echo "Verified backend SHA $reported_sha and database revision $database_head."
 
           docker image prune -f
 

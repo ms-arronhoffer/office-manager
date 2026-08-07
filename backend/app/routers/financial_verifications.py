@@ -50,6 +50,14 @@ class PublicTokenInput(BaseModel):
     institution_name: str | None = None
 
 
+class FinancialVerificationCapabilityOut(BaseModel):
+    available: bool
+    plaid_configured: bool
+    applicant_verification_enabled: bool
+    source: str
+    detail: str
+
+
 class FinancialVerificationOut(BaseModel):
     id: uuid.UUID
     application_id: uuid.UUID
@@ -177,6 +185,29 @@ def _queue_email(background: BackgroundTasks, row: ApplicantFinancialVerificatio
         recipient=application.applicant_email,
         applicant_name=f"{application.applicant_first_name} {application.applicant_last_name}".strip(),
         org_name=org_name, raw_token=raw_token)
+
+
+@router.get("/financial-verifications/capability", response_model=FinancialVerificationCapabilityOut)
+async def financial_verification_capability(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    config = await org_settings.resolve(db, current_user.organization_id, "plaid")
+    plaid_configured = is_configured(config)
+    enabled = bool(config.applicant_verification_enabled)
+    if not plaid_configured:
+        detail = "Plaid is not configured for this organization. An administrator must configure it under Finance > Connections."
+    elif not enabled:
+        detail = "Plaid is configured, but applicant financial verification is disabled. An administrator must enable it under Finance > Connections."
+    else:
+        detail = "Plaid applicant financial verification is ready."
+    return FinancialVerificationCapabilityOut(
+        available=plaid_configured and enabled,
+        plaid_configured=plaid_configured,
+        applicant_verification_enabled=enabled,
+        source=config.source,
+        detail=detail,
+    )
 
 
 @router.post("/applications/{app_id}/financial-verifications", response_model=FinancialVerificationOut, status_code=201)

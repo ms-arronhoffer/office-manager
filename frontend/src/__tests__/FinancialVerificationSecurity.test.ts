@@ -31,4 +31,12 @@ describe('applicant financial verification security surface', () => {
     expect(staff).toContain('Financial verification (Plaid)');
     expect(staff).toContain('It is separate from background screening');
   });
+
+  it('preflights backend capability before enabling Send request', () => {
+    expect(api).toContain('financialVerificationCapability');
+    expect(staff).toContain('financialCapabilityLoading');
+    expect(staff).toContain('disabled={!financialCapability?.available}');
+    expect(staff).toContain('backend deployment does not include applicant financial verification');
+    expect(staff).toContain("navigate('/finance/connections')");
+  });
 });

@@ -88,6 +88,31 @@ async def test_staff_create_returns_no_raw_token_and_stores_hash(client, db_sess
     assert row.invitation_token_hash not in response.text
 
 
+async def test_capability_distinguishes_configured_from_enabled(client, db_session, admin_user, monkeypatch):
+    await _org_user(db_session, admin_user)
+
+    async def disabled(*_args):
+        return SimpleNamespace(
+            is_enabled=True,
+            client_id="client",
+            secret="secret",
+            applicant_verification_enabled=False,
+            source="tenant",
+        )
+
+    monkeypatch.setattr("app.routers.financial_verifications.org_settings.resolve", disabled)
+    response = await client.get(
+        f"{BASE}/financial-verifications/capability",
+        headers=auth_headers(admin_user),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["plaid_configured"] is True
+    assert response.json()["applicant_verification_enabled"] is False
+    assert response.json()["available"] is False
+    assert "disabled" in response.json()["detail"]
+
+
 async def test_public_session_requires_consent_and_handles_expiry_decline(client, db_session, admin_user):
     org = await _org_user(db_session, admin_user)
     application = await _application(db_session, org)

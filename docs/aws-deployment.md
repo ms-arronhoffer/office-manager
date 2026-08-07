@@ -280,10 +280,35 @@ One workflow targets the `prod` branch; `main`'s existing `deploy.yml`
   repo), the next deploy runs against it unchanged — there is no self-hosted
   runner registration to lose on `terraform apply`.
 
+  Before the remote command reports success, it now verifies three release
+  invariants: the backend readiness endpoint succeeds, `/api/v1/health` reports
+  the exact commit SHA being deployed, and the database Alembic revision equals
+  the migration head bundled in that backend image. A partial frontend/backend
+  rollout or a missing migration therefore fails deployment instead of leaving
+  a mixed release serving traffic.
+
   Keeping build and deploy in separate jobs keeps the low-powered EC2 host out
   of the image build path (it only pulls and runs). The ECR repositories, the
   EC2 instance role's pull permissions, and the `ecr-push` IAM policy are all
   provisioned by `infra/terraform/aws/ecr.tf`.
+
+### Troubleshooting: frontend feature appears but backend endpoint is missing
+
+This indicates a mixed release. Check the running backend before changing tenant
+configuration:
+
+```bash
+docker compose -p prod-office-manager -f docker-compose.prod.yml -f docker-compose.aws.yml \
+  exec -T backend alembic heads
+docker compose -p prod-office-manager -f docker-compose.prod.yml -f docker-compose.aws.yml \
+  exec -T backend alembic current
+curl -fsS http://127.0.0.1:${BACKEND_PORT:-4002}/api/v1/health
+```
+
+Do not run a migration copied from a newer checkout against an older backend
+image. Redeploy all images from one commit so code, migrations, and frontend
+contracts advance together. The deploy SHA/schema gate prevents recurrence once
+the updated workflow is active.
 
 ### Troubleshooting: `permission denied ... /var/run/docker.sock`
 

@@ -3613,6 +3613,14 @@ export type FinancialVerificationStatus =
   | 'invited' | 'viewed' | 'consented' | 'linking' | 'processing' | 'completed'
   | 'action_required' | 'declined' | 'expired' | 'error' | 'revoked';
 
+export interface FinancialVerificationCapability {
+  available: boolean;
+  plaid_configured: boolean;
+  applicant_verification_enabled: boolean;
+  source: 'tenant' | 'legacy_env' | 'unconfigured';
+  detail: string;
+}
+
 export interface FinancialVerification {
   id: string;
   application_id: string;

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Header from '@cloudscape-design/components/header';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
@@ -12,6 +13,7 @@ import Select from '@cloudscape-design/components/select';
 import Box from '@cloudscape-design/components/box';
 import Badge from '@cloudscape-design/components/badge';
 import ColumnLayout from '@cloudscape-design/components/column-layout';
+import Alert from '@cloudscape-design/components/alert';
 import { useFlashbar } from '@/context/FlashbarContext';
 import { useAuth } from '@/auth/AuthContext';
 import { canMutateOperationalData } from '@/auth/permissions';
@@ -21,6 +23,7 @@ import type {
   ApplicationStatus,
   ScreeningReport,
   FinancialVerification,
+  FinancialVerificationCapability,
   LeaseSignatureRequest,
   LeaseSignaturePartyInput,
   RentalUnit,
@@ -48,6 +51,7 @@ const sigBadge = (s: string) => {
 
 const LeasingFunnelPage: React.FC = () => {
   const { addFlash } = useFlashbar();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const canEdit = canMutateOperationalData(user?.role);
   const [apps, setApps] = useState<RentalApplication[]>([]);
@@ -85,6 +89,8 @@ const LeasingFunnelPage: React.FC = () => {
   const [financialOpen, setFinancialOpen] = useState(false);
   const [financialRows, setFinancialRows] = useState<FinancialVerification[]>([]);
   const [financialBusy, setFinancialBusy] = useState(false);
+  const [financialCapability, setFinancialCapability] = useState<FinancialVerificationCapability | null>(null);
+  const [financialCapabilityLoading, setFinancialCapabilityLoading] = useState(false);
 
   // Signature modal
   const [sigOpen, setSigOpen] = useState(false);
@@ -237,6 +243,29 @@ const LeasingFunnelPage: React.FC = () => {
     }
   };
 
+  const openFinancialRequest = async (application: RentalApplication) => {
+    setFinancialRequestApp(application);
+    setFinancialCapability(null);
+    setFinancialCapabilityLoading(true);
+    try {
+      const response = await leasingFunnel.financialVerificationCapability();
+      setFinancialCapability(response.data);
+    } catch (error: unknown) {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      setFinancialCapability({
+        available: false,
+        plaid_configured: false,
+        applicant_verification_enabled: false,
+        source: 'unconfigured',
+        detail: status === 404
+          ? 'The backend deployment does not include applicant financial verification yet. Deploy the matching backend release and database migrations before sending a request.'
+          : 'Financial verification readiness could not be checked. Try again or contact your administrator.',
+      });
+    } finally {
+      setFinancialCapabilityLoading(false);
+    }
+  };
+
   const requestFinancialVerification = async () => {
     if (!financialRequestApp) return;
     setFinancialBusy(true);
@@ -244,8 +273,9 @@ const LeasingFunnelPage: React.FC = () => {
       await leasingFunnel.requestFinancialVerification(financialRequestApp.id);
       addFlash({ type: 'success', content: `Financial verification sent to ${financialRequestApp.applicant_email}.` });
       setFinancialRequestApp(null);
-    } catch {
-      addFlash({ type: 'error', content: 'Could not send financial verification. Confirm Plaid applicant verification is enabled.' });
+    } catch (error: unknown) {
+      const detail = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      addFlash({ type: 'error', content: detail ?? 'Could not send financial verification.' });
     } finally {
       setFinancialBusy(false);
     }
@@ -548,7 +578,7 @@ const LeasingFunnelPage: React.FC = () => {
                   Screening reports
                 </Button>
                 {canEdit && ['submitted', 'signed', 'in_review', 'screening'].includes(a.status) && (
-                  <Button variant="inline-link" onClick={() => setFinancialRequestApp(a)}>
+                  <Button variant="inline-link" onClick={() => openFinancialRequest(a)}>
                     Request financial verification
                   </Button>
                 )}
@@ -743,12 +773,30 @@ const LeasingFunnelPage: React.FC = () => {
           <Box float="right">
             <SpaceBetween direction="horizontal" size="xs">
               <Button onClick={() => setFinancialRequestApp(null)}>Cancel</Button>
-              <Button variant="primary" loading={financialBusy} onClick={requestFinancialVerification}>Send request</Button>
+              <Button
+                variant="primary"
+                loading={financialBusy || financialCapabilityLoading}
+                disabled={!financialCapability?.available}
+                onClick={requestFinancialVerification}
+              >
+                Send request
+              </Button>
             </SpaceBetween>
           </Box>
         }
       >
         <SpaceBetween size="m">
+          {financialCapability && !financialCapability.available && (
+            <Alert
+              type="warning"
+              header="Financial verification is not ready"
+              action={user?.role === 'admin' ? (
+                <Button onClick={() => navigate('/finance/connections')}>Configure Plaid</Button>
+              ) : undefined}
+            >
+              {financialCapability.detail}
+            </Alert>
+          )}
           <Box>
             Send to <strong>{financialRequestApp?.applicant_email}</strong>. The applicant will review a disclosure and must explicitly consent before Plaid Link opens.
           </Box>

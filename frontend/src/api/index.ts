@@ -2429,6 +2429,7 @@ import type {
   RentalApplicationUpdate,
   ScreeningReport,
   FinancialVerification,
+  FinancialVerificationCapability,
   PublicFinancialVerification,
   LeaseSignatureRequest,
   LeaseSignatureCreate,
@@ -2553,6 +2554,8 @@ export const leasingFunnel = {
     client.post<ScreeningReport>(`/leasing-funnel/applications/${id}/screen`),
   listScreening: (id: string) =>
     client.get<ScreeningReport[]>(`/leasing-funnel/applications/${id}/screening`),
+  financialVerificationCapability: () =>
+    client.get<FinancialVerificationCapability>('/leasing-funnel/financial-verifications/capability'),
   requestFinancialVerification: (id: string) =>
     client.post<FinancialVerification>(`/leasing-funnel/applications/${id}/financial-verifications`),
   listFinancialVerifications: (id: string) =>
