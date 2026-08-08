@@ -54,20 +54,14 @@ env:
   ECR_NAMESPACE: office-manager
 
 jobs:
-  preflight:
-    if: github.event_name == 'push' || github.event.inputs.action == 'apply' || github.event.inputs.action == 'update'
-    uses: ./.github/workflows/ci.yml
-    permissions:
-      contents: read
-
   # ── Stage 1: ensure the AWS infrastructure is in place ──────────────────────
   infra:
-    needs: preflight
     if: >-
-      always() &&
-      (needs.preflight.result == 'success' ||
-      (github.event_name == 'workflow_dispatch' &&
-      (github.event.inputs.action == 'plan' || github.event.inputs.action == 'destroy')))
+      github.event_name == 'push' ||
+      github.event.inputs.action == 'plan' ||
+      github.event.inputs.action == 'apply' ||
+      github.event.inputs.action == 'update' ||
+      github.event.inputs.action == 'destroy'
     runs-on: [self-hosted, Linux, X64, docker-build]
     permissions:
       contents: read
@@ -313,7 +307,7 @@ jobs:
 
   # ── Stage 2: build the images and push them to ECR ──────────────────────────
   build-and-push:
-    needs: [infra, preflight]
+    needs: infra
     if: github.event_name == 'push' || github.event.inputs.action == 'apply' || github.event.inputs.action == 'update'
     runs-on: [self-hosted, Linux, X64, docker-build]
     permissions:
