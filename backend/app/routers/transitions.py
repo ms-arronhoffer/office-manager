@@ -2,6 +2,7 @@ import math
 import uuid
 import csv
 import io
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -271,7 +272,7 @@ async def update_checklist_item(
     item_id: uuid.UUID,
     payload: ChecklistItemUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
     result = await db.execute(
         select(TransitionChecklistItem).where(
@@ -284,7 +285,12 @@ async def update_checklist_item(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Checklist item not found")
 
     for field, value in payload.model_dump(exclude_unset=True).items():
+        if field == "is_complete":
+            continue
         setattr(item, field, value)
+
+    if payload.is_complete is not None and payload.is_complete != item.is_complete:
+        await _set_completion(db, item, complete=payload.is_complete, user=current_user)
 
     await db.commit()
     await db.refresh(item)
@@ -299,7 +305,7 @@ async def toggle_checklist_item(
     transition_id: uuid.UUID,
     item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
     result = await db.execute(
         select(TransitionChecklistItem).where(
@@ -311,7 +317,46 @@ async def toggle_checklist_item(
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Checklist item not found")
 
-    item.is_complete = not item.is_complete
+    await _set_completion(db, item, complete=not item.is_complete, user=current_user)
     await db.commit()
     await db.refresh(item)
     return ChecklistItemResponse.model_validate(item, from_attributes=True)
+
+
+async def _set_completion(
+    db: AsyncSession,
+    item: TransitionChecklistItem,
+    *,
+    complete: bool,
+    user: User,
+) -> None:
+    """Complete or re-open an item, enforcing dependencies and evidence."""
+    if not complete:
+        item.is_complete = False
+        item.completed_at = None
+        item.completed_by_id = None
+        return
+
+    if item.depends_on_id:
+        blocker = (
+            await db.execute(
+                select(TransitionChecklistItem).where(
+                    TransitionChecklistItem.id == item.depends_on_id
+                )
+            )
+        ).scalar_one_or_none()
+        if blocker is not None and not blocker.is_complete:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f'"{blocker.item_label}" must be completed first.',
+            )
+
+    if item.requires_evidence and not (item.response or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This step requires a written response before it can be completed.",
+        )
+
+    item.is_complete = True
+    item.completed_at = datetime.now(timezone.utc)
+    item.completed_by_id = user.id

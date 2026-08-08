@@ -11,6 +11,10 @@ from app.tasks.webhook_retry import retry_failed_webhooks
 from app.tasks.insurance_reminders import check_insurance_expirations
 from app.tasks.maintenance_reminders import check_maintenance_reminders
 from app.tasks.pm_work_orders import generate_pm_work_orders
+from app.tasks.renewal_deadlines import (
+    escalate_overdue_transition_tasks,
+    open_renewal_deadlines,
+)
 from app.tasks.scheduled_reports import send_scheduled_reports
 from app.tasks.knowledge_index import reindex_knowledge
 from app.tasks.billing_hygiene import run_billing_hygiene
@@ -33,6 +37,8 @@ _JOBS = [
     ("hq_pm_reminders", check_hq_pm_reminders, "cron", {"hour": 7, "minute": 30}),
     ("maintenance_reminders", check_maintenance_reminders, "cron", {"hour": 7, "minute": 35}),
     ("pm_work_orders", generate_pm_work_orders, "cron", {"hour": 6, "minute": 30}),
+    ("renewal_deadlines", open_renewal_deadlines, "cron", {"hour": 6, "minute": 45}),
+    ("transition_escalation", escalate_overdue_transition_tasks, "cron", {"hour": 7, "minute": 40}),
     ("weekly_summary", send_weekly_summary, "cron", {"day_of_week": "mon", "hour": 7, "minute": 45}),
     ("ai_briefing", send_ai_briefings, "cron", {"day_of_week": "mon", "hour": 7, "minute": 50}),
     ("recurring_tickets", create_recurring_tickets, "cron", {"hour": 8, "minute": 0}),

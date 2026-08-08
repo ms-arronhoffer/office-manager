@@ -97,6 +97,11 @@ const AppNavigation: React.FC<AppNavigationProps> = ({ children }) => {
       text: 'Dashboard',
       href: '/',
     },
+    {
+      type: 'link' as const,
+      text: 'My work',
+      href: '/my-work',
+    },
     ...(pinnedOffices.length > 0
       ? [{
           type: 'section' as const,

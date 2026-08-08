@@ -33,6 +33,7 @@ from app.models.buildium import (
 from app.models.general_ledger import GLAccount
 from app.models.user import User
 from app.services.buildium.client import BuildiumApiError, BuildiumClient
+from app.services import import_assurance
 from app.services.buildium.migration_service import ENTITY_STEPS, run_migration
 from app.utils.crypto import decrypt_secret, encrypt_secret, mask_secret
 
@@ -424,6 +425,66 @@ async def get_run(
     if run is None or run.organization_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Migration run not found")
     return _run_to_out(run)
+
+
+@router.get("/runs/{run_id}/tie-out")
+async def get_run_tie_out(
+    run_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(Admin),
+):
+    """Cutover evidence: what the migration claimed against what is really here.
+
+    A run that reports "succeeded" is not the same as a migration that is
+    complete. This compares the per-entity counts the run recorded with the
+    rows actually present in the destination tables, and lists every row-level
+    exception in one place so nothing fails silently.
+    """
+    org_id = _require_org(current_user)
+    run = await db.get(BuildiumMigrationRun, run_id)
+    if run is None or run.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Migration run not found")
+
+    progress = run.progress or {}
+    # What the run says it wrote, per entity.
+    source_counts = {
+        entity: int(counts.get("created", 0)) + int(counts.get("updated", 0))
+        for entity, counts in progress.items()
+        if isinstance(counts, dict)
+    }
+    tie_out = await import_assurance.build_tie_out(
+        db, organization_id=org_id, source_counts=source_counts
+    )
+
+    exceptions = [
+        {"entity": entity, "error": error}
+        for entity, counts in progress.items()
+        if isinstance(counts, dict)
+        for error in (counts.get("errors") or [])
+    ]
+    skipped = {
+        entity: int(counts.get("skipped", 0))
+        for entity, counts in progress.items()
+        if isinstance(counts, dict) and counts.get("skipped")
+    }
+
+    return {
+        "run_id": str(run.id),
+        "run_status": run.status,
+        "dry_run": run.dry_run,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "balanced": tie_out["balanced"] and not exceptions,
+        "entities": tie_out["entities"],
+        "skipped_by_entity": skipped,
+        "exceptions": exceptions,
+        "sign_off_ready": (
+            run.status == "succeeded"
+            and not run.dry_run
+            and tie_out["balanced"]
+            and not exceptions
+        ),
+    }
 
 
 @router.post("/runs/{run_id}/cancel", response_model=MigrationRunOut)

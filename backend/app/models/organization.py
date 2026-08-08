@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
-from sqlalchemy import String, Boolean, Integer, DateTime, Text
+from sqlalchemy import String, Boolean, Integer, DateTime, Numeric, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
@@ -67,4 +68,24 @@ class Organization(TimestampMixin, Base):
     # letting platform staff force a category on or off for an org.
     category_overrides: Mapped[dict[str, bool]] = mapped_column(
         JSONB, default=dict, nullable=False, server_default="{}"
+    )
+    # --- Finance separation-of-duties policy ---
+    # When enabled, a finance document at or above the threshold must be
+    # approved by someone other than its preparer before it can post to the GL.
+    finance_approval_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, server_default="true"
+    )
+    # Documents with a total at or above this amount require a second approver.
+    # ``0`` means every document is routed for approval.
+    finance_approval_threshold: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), default=Decimal("0"), nullable=False, server_default="0"
+    )
+    # Purchase requisitions at or above this amount must show competing vendor
+    # quotes before a purchase order can be issued.
+    procurement_bid_threshold: Mapped[Decimal] = mapped_column(
+        Numeric(15, 2), default=Decimal("5000"), nullable=False, server_default="5000"
+    )
+    # Number of competing quotes required once the bid threshold is reached.
+    procurement_required_bids: Mapped[int] = mapped_column(
+        Integer, default=3, nullable=False, server_default="3"
     )

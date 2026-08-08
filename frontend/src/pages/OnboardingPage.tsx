@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Box from '@cloudscape-design/components/box';
 import Button from '@cloudscape-design/components/button';
@@ -35,27 +35,97 @@ const DEFAULT_CATEGORIES = [
 
 const STEPS = ['Add your first office', 'Ticket categories', 'Invite your team'];
 
+// Onboarding is the first thing a new customer does, and an accidental refresh
+// part-way through used to send them back to step one with their work lost.
+// Progress is persisted per organization so the wizard can be resumed.
+const progressKey = (orgId: string | undefined) => `onboarding-progress:${orgId ?? 'unknown'}`;
+
+interface PersistedProgress {
+  step: number;
+  officeNumber: string;
+  locationName: string;
+  locationType: string;
+  selectedCategories: string[];
+  invites: { email: string; role: string }[];
+  officeCreated: boolean;
+}
+
+const loadProgress = (orgId: string | undefined): Partial<PersistedProgress> => {
+  try {
+    const raw = window.localStorage.getItem(progressKey(orgId));
+    return raw ? (JSON.parse(raw) as Partial<PersistedProgress>) : {};
+  } catch {
+    return {};
+  }
+};
+
 const OnboardingPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const saved = React.useRef(loadProgress(user?.organization_id)).current;
 
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(saved.step ?? 0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Names of items that failed to create, so the user can see and retry them
+  // rather than discovering the gap later when a ticket form is empty.
+  const [failedCategories, setFailedCategories] = useState<string[]>([]);
+  const [failedInvites, setFailedInvites] = useState<string[]>([]);
 
   // Step 1 — Office
-  const [officeNumber, setOfficeNumber] = useState('1');
-  const [locationName, setLocationName] = useState('');
-  const [locationType, setLocationType] = useState<{ label: string; value: string } | null>(LOCATION_TYPES[0]);
+  const [officeNumber, setOfficeNumber] = useState(saved.officeNumber ?? '1');
+  const [locationName, setLocationName] = useState(saved.locationName ?? '');
+  const [locationType, setLocationType] = useState<{ label: string; value: string } | null>(
+    LOCATION_TYPES.find(t => t.value === saved.locationType) ?? LOCATION_TYPES[0],
+  );
+  // Prevents a duplicate office if the user steps back and forward again.
+  const [officeCreated, setOfficeCreated] = useState(saved.officeCreated ?? false);
 
   // Step 2 — Categories
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(
-    new Set(DEFAULT_CATEGORIES.slice(0, 5)),
+    new Set(saved.selectedCategories ?? DEFAULT_CATEGORIES.slice(0, 5)),
   );
   const [customCategory, setCustomCategory] = useState('');
 
   // Step 3 — Invite
-  const [invites, setInvites] = useState<{ email: string; role: string }[]>([{ email: '', role: 'editor' }]);
+  const [invites, setInvites] = useState<{ email: string; role: string }[]>(
+    saved.invites ?? [{ email: '', role: 'editor' }],
+  );
+
+  // Persist after every meaningful change so a refresh resumes where we were.
+  useEffect(() => {
+    const payload: PersistedProgress = {
+      step,
+      officeNumber,
+      locationName,
+      locationType: locationType?.value ?? 'Office',
+      selectedCategories: Array.from(selectedCategories),
+      invites,
+      officeCreated,
+    };
+    try {
+      window.localStorage.setItem(progressKey(user?.organization_id), JSON.stringify(payload));
+    } catch {
+      // A full or unavailable localStorage must not block setup.
+    }
+  }, [
+    step,
+    officeNumber,
+    locationName,
+    locationType,
+    selectedCategories,
+    invites,
+    officeCreated,
+    user?.organization_id,
+  ]);
+
+  const clearProgress = useCallback(() => {
+    try {
+      window.localStorage.removeItem(progressKey(user?.organization_id));
+    } catch {
+      // Nothing to do; the stale entry is harmless.
+    }
+  }, [user?.organization_id]);
 
   const ROLE_OPTIONS = [
     { label: 'Admin', value: 'admin' },
@@ -96,7 +166,7 @@ const OnboardingPage: React.FC = () => {
 
     if (step === 0) {
       // Validate + create office (optional — user can leave location_name blank to skip)
-      if (locationName.trim()) {
+      if (locationName.trim() && !officeCreated) {
         const num = parseInt(officeNumber, 10);
         if (isNaN(num) || num < 1) {
           setError('Office number must be a positive integer.');
@@ -110,6 +180,7 @@ const OnboardingPage: React.FC = () => {
             location_type: locationType?.value ?? 'Office',
             is_active: true,
           });
+          setOfficeCreated(true);
         } catch (err: unknown) {
           const msg =
             (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
@@ -126,55 +197,99 @@ const OnboardingPage: React.FC = () => {
     }
 
     if (step === 1) {
-      // Create selected categories
-      if (selectedCategories.size > 0) {
-        setIsSubmitting(true);
-        try {
-          await Promise.all(
-            Array.from(selectedCategories).map(name =>
-              ticketCategories.create({ name }).catch(() => null),
-            ),
-          );
-        } finally {
-          setIsSubmitting(false);
-        }
+      const created = await createCategories(Array.from(selectedCategories));
+      if (created.failed.length > 0) {
+        // Do not advance while categories are missing: the ticket forms that
+        // depend on them would silently come up empty.
+        setError(
+          `${created.failed.length} categor${created.failed.length === 1 ? 'y' : 'ies'} could not be created. Fix or remove them, then continue.`,
+        );
+        return;
       }
       setStep(2);
       return;
     }
 
     if (step === 2) {
-      // Send invites (best-effort)
       const validInvites = invites.filter(inv => inv.email.trim());
       if (validInvites.length > 0) {
-        setIsSubmitting(true);
-        try {
-          await Promise.all(
-            validInvites.map(inv =>
-              users
-                .create({ email: inv.email.trim(), display_name: inv.email.trim(), role: inv.role })
-                .catch(() => null),
-            ),
+        const result = await sendInvites(validInvites);
+        if (result.failed.length > 0) {
+          setError(
+            `${result.failed.length} invitation(s) could not be sent. Correct the address or remove the row, then finish.`,
           );
-        } finally {
-          setIsSubmitting(false);
+          return;
         }
       }
 
-      // Mark onboarding complete
+      // Only claim setup is complete once the steps above actually succeeded.
       if (user?.organization_id) {
         setIsSubmitting(true);
         try {
           await organizations.update(user.organization_id, { onboarding_complete: true });
-        } catch {
-          // non-fatal
+        } catch (err: unknown) {
+          const msg =
+            (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+            'Could not save your setup status. Please try again.';
+          setError(msg);
+          setIsSubmitting(false);
+          return;
         } finally {
           setIsSubmitting(false);
         }
       }
 
+      clearProgress();
       navigate('/', { replace: true });
     }
+  };
+
+  const createCategories = async (names: string[]) => {
+    if (names.length === 0) return { failed: [] as string[] };
+    setIsSubmitting(true);
+    const failed: string[] = [];
+    try {
+      await Promise.all(
+        names.map(async name => {
+          try {
+            await ticketCategories.create({ name });
+          } catch (err: unknown) {
+            // A category that already exists is not a failure worth blocking on.
+            const statusCode = (err as { response?: { status?: number } })?.response?.status;
+            if (statusCode !== 409) failed.push(name);
+          }
+        }),
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+    setFailedCategories(failed);
+    return { failed };
+  };
+
+  const sendInvites = async (rows: { email: string; role: string }[]) => {
+    setIsSubmitting(true);
+    const failed: string[] = [];
+    try {
+      await Promise.all(
+        rows.map(async inv => {
+          try {
+            await users.create({
+              email: inv.email.trim(),
+              display_name: inv.email.trim(),
+              role: inv.role,
+            });
+          } catch (err: unknown) {
+            const statusCode = (err as { response?: { status?: number } })?.response?.status;
+            if (statusCode !== 409) failed.push(inv.email.trim());
+          }
+        }),
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+    setFailedInvites(failed);
+    return { failed };
   };
 
   const stepContent = () => {
@@ -390,7 +505,10 @@ const OnboardingPage: React.FC = () => {
                 {step < STEPS.length - 1 && (
                   <Button
                     variant="link"
-                    onClick={() => setStep(s => s + 1)}
+                    onClick={() => {
+                      setError(null);
+                      setStep(s => s + 1);
+                    }}
                     disabled={isSubmitting}
                   >
                     Skip
@@ -404,6 +522,42 @@ const OnboardingPage: React.FC = () => {
             {error && (
               <Alert type="error" dismissible onDismiss={() => setError(null)}>
                 {error}
+              </Alert>
+            )}
+            {step === 1 && failedCategories.length > 0 && (
+              <Alert
+                type="warning"
+                header="These categories were not created"
+                action={
+                  <Button
+                    loading={isSubmitting}
+                    onClick={() => createCategories(failedCategories)}
+                  >
+                    Retry
+                  </Button>
+                }
+              >
+                {failedCategories.join(', ')}
+              </Alert>
+            )}
+            {step === 2 && failedInvites.length > 0 && (
+              <Alert
+                type="warning"
+                header="These invitations were not sent"
+                action={
+                  <Button
+                    loading={isSubmitting}
+                    onClick={() =>
+                      sendInvites(
+                        invites.filter(inv => failedInvites.includes(inv.email.trim())),
+                      )
+                    }
+                  >
+                    Retry
+                  </Button>
+                }
+              >
+                {failedInvites.join(', ')}
               </Alert>
             )}
             {stepContent()}

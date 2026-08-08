@@ -1,9 +1,11 @@
 import logging
 
 import aiosmtplib
+from email.header import Header
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
+from email.utils import formataddr
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,17 @@ def from_address_for(category: str) -> str:
         EmailCategory.WAIVERS: settings.SMTP_FROM_WAIVERS,
     }
     return (mapping.get(category) or "").strip() or settings.SMTP_FROM
+
+
+def _format_sender(address: str, sender_name: str | None) -> str:
+    """Combine a display name with the envelope address.
+
+    Recipients judge automated mail largely by who it appears to be from, so an
+    organization can put its own name in front of the shared mailbox address.
+    """
+    if not sender_name:
+        return address
+    return formataddr((str(Header(sender_name, "utf-8")), address))
 
 
 async def _send(message: MIMEMultipart) -> bool:
@@ -83,11 +96,17 @@ async def send_email(
     *,
     category: str = EmailCategory.SYSTEM,
     from_address: str | None = None,
+    sender_name: str | None = None,
+    reply_to: str | None = None,
 ) -> bool:
     message = MIMEMultipart("alternative")
-    message["From"] = from_address or from_address_for(category)
+    message["From"] = _format_sender(
+        from_address or from_address_for(category), sender_name
+    )
     message["To"] = to
     message["Subject"] = subject
+    if reply_to:
+        message["Reply-To"] = reply_to
     message.attach(MIMEText(html_body, "html"))
     return await _send(message)
 
@@ -102,11 +121,17 @@ async def send_email_with_attachment(
     *,
     category: str = EmailCategory.SYSTEM,
     from_address: str | None = None,
+    sender_name: str | None = None,
+    reply_to: str | None = None,
 ) -> bool:
     message = MIMEMultipart("mixed")
-    message["From"] = from_address or from_address_for(category)
+    message["From"] = _format_sender(
+        from_address or from_address_for(category), sender_name
+    )
     message["To"] = to
     message["Subject"] = subject
+    if reply_to:
+        message["Reply-To"] = reply_to
 
     message.attach(MIMEText(html_body, "html"))
 

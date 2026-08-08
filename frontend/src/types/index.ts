@@ -2663,7 +2663,22 @@ export interface BillPayment {
   created_at: string;
 }
 
-export interface VendorBill {
+/** Maker-checker state shared by every postable finance document. */
+export type ApprovalStatus = 'not_required' | 'pending' | 'approved' | 'rejected';
+
+export interface ApprovalFields {
+  approval_status: ApprovalStatus;
+  prepared_by_id: string | null;
+  submitted_at: string | null;
+  submitted_by_id: string | null;
+  approved_at: string | null;
+  approved_by_id: string | null;
+  rejected_at: string | null;
+  rejected_by_id: string | null;
+  rejection_reason: string | null;
+}
+
+export interface VendorBill extends ApprovalFields {
   id: string;
   organization_id: string | null;
   vendor_id: string;
@@ -2679,6 +2694,7 @@ export interface VendorBill {
   status: string;
   finalized_at: string | null;
   journal_entry_id: string | null;
+  purchase_order_id: string | null;
   created_at: string;
   updated_at: string;
   lines: BillLine[];
@@ -2764,7 +2780,7 @@ export interface CustomerReceipt {
   created_at: string;
 }
 
-export interface CustomerInvoice {
+export interface CustomerInvoice extends ApprovalFields {
   id: string;
   organization_id: string | null;
   customer_id: string;
@@ -4734,4 +4750,223 @@ export interface StorageOccupancySummary {
   potential_monthly_revenue: string;
   in_place_monthly_revenue: string;
   currency: string;
+}
+
+// ─── Procurement ─────────────────────────────────────────────────────────────
+export interface RequisitionLine {
+  id: string;
+  line_number: number;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  amount: number;
+  account_id: string | null;
+}
+
+export interface RequisitionLineInput {
+  description: string;
+  quantity: number;
+  unit_price: number;
+  account_id?: string | null;
+}
+
+export interface VendorQuote {
+  id: string;
+  requisition_id: string;
+  vendor_id: string;
+  amount: number;
+  quote_date: string | null;
+  valid_until: string | null;
+  reference: string | null;
+  notes: string | null;
+  is_selected: boolean;
+  selection_reason: string | null;
+  selected_at: string | null;
+}
+
+export interface VendorQuoteCreate {
+  vendor_id: string;
+  amount: number;
+  quote_date?: string | null;
+  valid_until?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+}
+
+export interface PurchaseRequisition extends ApprovalFields {
+  id: string;
+  organization_id: string | null;
+  requisition_number: string | null;
+  title: string;
+  description: string | null;
+  office_id: string | null;
+  category: string | null;
+  needed_by: string | null;
+  status: string;
+  estimated_total: number;
+  requested_by_id: string | null;
+  ordered_at: string | null;
+  created_at: string;
+  updated_at: string;
+  lines: RequisitionLine[];
+  quotes: VendorQuote[];
+}
+
+export interface RequisitionCreate {
+  title: string;
+  description?: string | null;
+  office_id?: string | null;
+  category?: string | null;
+  needed_by?: string | null;
+  requisition_number?: string | null;
+  lines: RequisitionLineInput[];
+}
+
+export interface PurchaseOrderLine {
+  id: string;
+  line_number: number;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  amount: number;
+  quantity_received: number;
+  account_id: string | null;
+}
+
+export interface PurchaseReceiptLine {
+  id: string;
+  purchase_order_line_id: string;
+  quantity: number;
+}
+
+export interface PurchaseReceipt {
+  id: string;
+  received_on: string;
+  received_by_id: string | null;
+  notes: string | null;
+  lines: PurchaseReceiptLine[];
+}
+
+export interface PurchaseReceiptCreate {
+  received_on?: string | null;
+  notes?: string | null;
+  lines: { purchase_order_line_id: string; quantity: number }[];
+}
+
+export interface PurchaseOrder {
+  id: string;
+  organization_id: string | null;
+  requisition_id: string | null;
+  vendor_id: string;
+  po_number: string | null;
+  order_date: string;
+  expected_date: string | null;
+  status: string;
+  total_amount: number;
+  match_tolerance_percent: number;
+  memo: string | null;
+  issued_by_id: string | null;
+  issued_at: string | null;
+  created_at: string;
+  updated_at: string;
+  lines: PurchaseOrderLine[];
+  receipts: PurchaseReceipt[];
+}
+
+export interface PurchaseOrderCreate {
+  vendor_id?: string | null;
+  order_date?: string | null;
+  expected_date?: string | null;
+  po_number?: string | null;
+  memo?: string | null;
+  match_tolerance_percent?: number | null;
+}
+
+// ─── Personal work queue ─────────────────────────────────────────────────────
+export type WorkItemUrgency =
+  | 'overdue'
+  | 'critical'
+  | 'urgent'
+  | 'upcoming'
+  | 'unscheduled';
+
+export interface WorkItem {
+  id: string;
+  kind: string;
+  category: string;
+  title: string;
+  detail: string | null;
+  due_date: string | null;
+  days_remaining: number | null;
+  urgency: WorkItemUrgency;
+  link: string;
+}
+
+export interface WorkQueueResponse {
+  items: WorkItem[];
+  counts: Record<string, number>;
+}
+
+// ─── Email customization ─────────────────────────────────────────────────────
+export interface EmailMergeField {
+  name: string;
+  label: string;
+  sample: string;
+}
+
+export interface EmailTemplateCatalogEntry {
+  key: string;
+  label: string;
+  category: string;
+  description: string;
+  is_customized: boolean;
+  is_active: boolean;
+  updated_at: string | null;
+}
+
+export interface EmailTemplateDetail {
+  key: string;
+  label: string;
+  category: string;
+  description: string;
+  subject: string;
+  body: string;
+  default_subject: string;
+  default_body: string;
+  is_customized: boolean;
+  is_active: boolean;
+  merge_fields: EmailMergeField[];
+}
+
+export interface EmailTemplatePreview {
+  subject: string;
+  html_body: string;
+  is_customized: boolean;
+  /** Placeholders the author used that this message does not provide. */
+  unknown_fields: string[];
+}
+
+export interface EmailBranding {
+  sender_name: string | null;
+  reply_to: string | null;
+  logo_url: string | null;
+  header_color: string;
+  accent_color: string;
+  signature: string | null;
+  footer_text: string | null;
+  postal_address: string | null;
+  is_active: boolean;
+  is_configured: boolean;
+}
+
+export interface EmailBrandingSave {
+  sender_name?: string | null;
+  reply_to?: string | null;
+  logo_url?: string | null;
+  header_color: string;
+  accent_color: string;
+  signature?: string | null;
+  footer_text?: string | null;
+  postal_address?: string | null;
+  is_active: boolean;
 }

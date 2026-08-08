@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, cast, Integer, extract
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -372,28 +372,63 @@ async def sla_analytics(
 
 @router.get("/lease-accounting-portfolio")
 async def lease_accounting_portfolio(
+    office_id: uuid.UUID | None = Query(default=None),
+    manager_id: uuid.UUID | None = Query(default=None),
+    region_number: int | None = Query(default=None),
+    accounting_standard: str | None = Query(default=None),
+    lease_classification: str | None = Query(default=None),
+    expiring_after: date | None = Query(default=None),
+    expiring_before: date | None = Query(default=None),
+    group_by: str | None = Query(
+        default=None,
+        description="office, manager, region, standard or classification.",
+    ),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
-    """
-    Portfolio-level ASC 842 / IFRS 16 summary for all leases with accounting data.
-    Returns per-lease ROU / liability values (remaining as of today) plus portfolio totals.
+    """Portfolio-level ASC 842 / IFRS 16 summary.
+
+    Returns per-lease ROU / liability values (remaining as of today) plus
+    portfolio totals. Every row carries the identifiers needed to drill through
+    to the underlying lease, and the same filters can be pivoted with
+    ``group_by`` so an executive can see the portfolio by region or manager
+    without exporting to a spreadsheet first.
     """
     from datetime import date as _date
-    from decimal import Decimal
     from sqlalchemy.orm import joinedload
     from app.models.lease import Lease
+    from app.models.office import Office
     from app.services.lease_accounting import compute_portfolio_row
 
-    result = await db.execute(
+    stmt = (
         select(Lease)
-        .options(joinedload(Lease.office))
+        .options(joinedload(Lease.office), joinedload(Lease.manager))
         .where(
+            Lease.organization_id == current_user.organization_id,
             Lease.is_deleted.is_(False),
             Lease.accounting_standard.is_not(None),
         )
     )
+    if office_id:
+        stmt = stmt.where(Lease.office_id == office_id)
+    if manager_id:
+        stmt = stmt.where(Lease.manager_id == manager_id)
+    if accounting_standard:
+        stmt = stmt.where(Lease.accounting_standard == accounting_standard)
+    if lease_classification:
+        stmt = stmt.where(Lease.lease_classification == lease_classification)
+    if expiring_after:
+        stmt = stmt.where(Lease.lease_expiration >= expiring_after)
+    if expiring_before:
+        stmt = stmt.where(Lease.lease_expiration <= expiring_before)
+    if region_number is not None:
+        stmt = stmt.join(Office, Office.id == Lease.office_id).where(
+            Office.region_number == region_number
+        )
+
+    result = await db.execute(stmt)
     leases = result.scalars().unique().all()
+    by_id = {lease.id: lease for lease in leases}
 
     today = _date.today()
     rows = []
@@ -415,12 +450,97 @@ async def lease_accounting_portfolio(
         wtd_ibr = None
         wtd_months = None
 
+    def _dimension(row) -> tuple[str, str]:
+        """Resolve the grouping key/label for a row."""
+        lease = by_id.get(row["lease_id"])
+        office = getattr(lease, "office", None) if lease else None
+        manager = getattr(lease, "manager", None) if lease else None
+        if group_by == "office":
+            return (
+                str(lease.office_id) if lease and lease.office_id else "unassigned",
+                row["office_name"] or "Unassigned",
+            )
+        if group_by == "manager":
+            return (
+                str(lease.manager_id) if lease and lease.manager_id else "unassigned",
+                getattr(manager, "name", None) or "Unassigned",
+            )
+        if group_by == "region":
+            region = getattr(office, "region_number", None)
+            return (
+                str(region) if region is not None else "unassigned",
+                f"Region {region}" if region is not None else "Unassigned",
+            )
+        if group_by == "classification":
+            value = row["lease_classification"] or "unclassified"
+            return value, str(value).title()
+        return (
+            row["accounting_standard"] or "unspecified",
+            str(row["accounting_standard"] or "Unspecified"),
+        )
+
+    groups: list[dict] = []
+    if group_by:
+        buckets: dict[str, dict] = {}
+        for row in rows:
+            key, label = _dimension(row)
+            bucket = buckets.setdefault(
+                key,
+                {
+                    "key": key,
+                    "label": label,
+                    "lease_count": 0,
+                    "remaining_rou": 0.0,
+                    "current_liability": 0.0,
+                    "noncurrent_liability": 0.0,
+                    "lease_ids": [],
+                },
+            )
+            bucket["lease_count"] += 1
+            bucket["remaining_rou"] += float(row["remaining_rou"])
+            bucket["current_liability"] += float(row["current_liability"])
+            bucket["noncurrent_liability"] += float(row["noncurrent_liability"])
+            # Carried so a total can be clicked through to its source leases.
+            bucket["lease_ids"].append(str(row["lease_id"]))
+        groups = sorted(
+            (
+                {**b, **{
+                    "remaining_rou": round(b["remaining_rou"], 2),
+                    "current_liability": round(b["current_liability"], 2),
+                    "noncurrent_liability": round(b["noncurrent_liability"], 2),
+                }}
+                for b in buckets.values()
+            ),
+            key=lambda b: b["remaining_rou"],
+            reverse=True,
+        )
+
     return {
+        "filters": {
+            "office_id": str(office_id) if office_id else None,
+            "manager_id": str(manager_id) if manager_id else None,
+            "region_number": region_number,
+            "accounting_standard": accounting_standard,
+            "lease_classification": lease_classification,
+            "expiring_after": expiring_after.isoformat() if expiring_after else None,
+            "expiring_before": expiring_before.isoformat() if expiring_before else None,
+            "group_by": group_by,
+        },
         "leases": [
             {
                 "lease_id": str(r["lease_id"]),
                 "lease_name": r["lease_name"],
+                "office_id": (
+                    str(by_id[r["lease_id"]].office_id)
+                    if by_id.get(r["lease_id"]) and by_id[r["lease_id"]].office_id
+                    else None
+                ),
                 "office_name": r["office_name"],
+                "manager_id": (
+                    str(by_id[r["lease_id"]].manager_id)
+                    if by_id.get(r["lease_id"]) and by_id[r["lease_id"]].manager_id
+                    else None
+                ),
                 "accounting_standard": r["accounting_standard"],
                 "lease_classification": r["lease_classification"],
                 "initial_rou_asset": float(r["initial_rou_asset"]),
@@ -433,6 +553,8 @@ async def lease_accounting_portfolio(
             }
             for r in rows
         ],
+        "groups": groups,
+        "lease_count": len(rows),
         "total_rou": round(total_rou, 2),
         "total_current_liability": round(total_current, 2),
         "total_noncurrent_liability": round(total_noncurrent, 2),

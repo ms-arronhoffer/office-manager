@@ -47,7 +47,7 @@ from app.schemas.lease import (
 )
 from app.services.activity_service import log_activity, compute_changes
 from app.services.lease_accounting import compute_lease_accounting
-from app.services import cam_schedule_service, lease_limits, metering_service
+from app.services import cam_schedule_service, lease_limits, metering_service, renewal_service
 from app.utils.tenant_scope import load_or_404
 from app.utils.search_vectors import update_search_vector
 from app.utils.sorting import apply_sorting
@@ -663,6 +663,8 @@ class RenewalCreate(BaseModel):
     target_expiration: str | None = None
     new_rent_amount: float | None = None
     notes: str | None = None
+    owner_id: uuid.UUID | None = None
+    notice_due_date: str | None = None
 
 
 class RenewalUpdate(BaseModel):
@@ -673,6 +675,15 @@ class RenewalUpdate(BaseModel):
     notice_sent_at: str | None = None
     terms_agreed_at: str | None = None
     executed_at: str | None = None
+    owner_id: uuid.UUID | None = None
+    notice_due_date: str | None = None
+
+
+class NoticeServed(BaseModel):
+    """Evidence that notice was actually delivered, not merely intended."""
+
+    method: str | None = None
+    reference: str | None = None
 
 
 def _renewal_out(r: LeaseRenewal) -> dict:
@@ -686,6 +697,15 @@ def _renewal_out(r: LeaseRenewal) -> dict:
         "notice_sent_at": r.notice_sent_at.isoformat() if r.notice_sent_at else None,
         "terms_agreed_at": r.terms_agreed_at.isoformat() if r.terms_agreed_at else None,
         "executed_at": r.executed_at.isoformat() if r.executed_at else None,
+        "owner_id": str(r.owner_id) if r.owner_id else None,
+        "notice_due_date": r.notice_due_date.isoformat() if r.notice_due_date else None,
+        "days_until_notice_due": renewal_service.days_remaining(r.notice_due_date),
+        "urgency": renewal_service.urgency(
+            renewal_service.days_remaining(r.notice_due_date)
+        ),
+        "auto_opened": r.auto_opened,
+        "notice_method": r.notice_method,
+        "notice_reference": r.notice_reference,
         "created_by_id": str(r.created_by_id) if r.created_by_id else None,
         "created_at": r.created_at.isoformat(),
         "updated_at": r.updated_at.isoformat(),
@@ -699,7 +719,7 @@ async def create_renewal(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("admin", "editor")),
 ):
-    await _load_lease(db, lease_id, current_user.organization_id)
+    lease = await _load_lease(db, lease_id, current_user.organization_id)
 
     from datetime import date as _date
     renewal = LeaseRenewal(
@@ -707,6 +727,12 @@ async def create_renewal(
         target_expiration=_date.fromisoformat(payload.target_expiration) if payload.target_expiration else None,
         new_rent_amount=payload.new_rent_amount,
         notes=payload.notes,
+        owner_id=payload.owner_id or current_user.id,
+        notice_due_date=(
+            _date.fromisoformat(payload.notice_due_date)
+            if payload.notice_due_date
+            else renewal_service.notice_due_date(lease)
+        ),
         created_by_id=current_user.id,
     )
     db.add(renewal)
@@ -761,8 +787,42 @@ async def update_renewal(
         renewal.terms_agreed_at = _dt.fromisoformat(payload.terms_agreed_at)
     if payload.executed_at is not None:
         renewal.executed_at = _dt.fromisoformat(payload.executed_at)
+    if payload.owner_id is not None:
+        renewal.owner_id = payload.owner_id
+    if payload.notice_due_date is not None:
+        renewal.notice_due_date = _date.fromisoformat(payload.notice_due_date)
     renewal.updated_at = _utcnow()
 
+    await db.commit()
+    await db.refresh(renewal)
+    return _renewal_out(renewal)
+
+
+@router.post("/{lease_id}/renewals/{renewal_id}/serve-notice")
+async def serve_renewal_notice(
+    lease_id: uuid.UUID,
+    renewal_id: uuid.UUID,
+    payload: NoticeServed,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    """Record that notice was delivered, with the evidence that proves it."""
+    await _load_lease(db, lease_id, current_user.organization_id)
+    result = await db.execute(
+        select(LeaseRenewal).where(LeaseRenewal.id == renewal_id, LeaseRenewal.lease_id == lease_id)
+    )
+    renewal = result.scalar_one_or_none()
+    if not renewal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Renewal not found")
+    if renewal.notice_sent_at:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Notice has already been recorded as served for this renewal.",
+        )
+    renewal_service.record_notice(
+        renewal, method=payload.method, reference=payload.reference
+    )
+    renewal.updated_at = _utcnow()
     await db.commit()
     await db.refresh(renewal)
     return _renewal_out(renewal)
@@ -1153,6 +1213,14 @@ def _option_out(o: LeaseOption) -> dict:
         "new_rent_amount": float(o.new_rent_amount) if o.new_rent_amount is not None else None,
         "status": o.status,
         "notes": o.notes,
+        "exercised_at": o.exercised_at.isoformat() if o.exercised_at else None,
+        "exercised_by_id": str(o.exercised_by_id) if o.exercised_by_id else None,
+        "renewal_id": str(o.renewal_id) if o.renewal_id else None,
+        "owner_id": str(o.owner_id) if o.owner_id else None,
+        "days_until_window_closes": renewal_service.days_remaining(o.exercise_window_end),
+        "urgency": renewal_service.urgency(
+            renewal_service.days_remaining(o.exercise_window_end)
+        ),
         "created_by_id": str(o.created_by_id) if o.created_by_id else None,
         "created_at": o.created_at.isoformat(),
         "updated_at": o.updated_at.isoformat(),
@@ -1199,6 +1267,61 @@ async def list_options(
         .order_by(LeaseOption.exercise_window_end.asc().nulls_last())
     )
     return [_option_out(o) for o in result.scalars().all()]
+
+
+@router.post("/{lease_id}/options/{option_id}/exercise", status_code=status.HTTP_201_CREATED)
+async def exercise_option(
+    lease_id: uuid.UUID,
+    option_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    """Exercise an option and open the renewal it commits the business to."""
+    lease = await _load_lease(db, lease_id, current_user.organization_id)
+    result = await db.execute(
+        select(LeaseOption).where(LeaseOption.id == option_id, LeaseOption.lease_id == lease_id)
+    )
+    option = result.scalar_one_or_none()
+    if not option:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Option not found")
+
+    today = date.today()
+    if option.exercise_window_end and today > option.exercise_window_end:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"The exercise window closed on {option.exercise_window_end.isoformat()}."
+            ),
+        )
+    if option.exercise_window_start and today < option.exercise_window_start:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"The exercise window does not open until "
+                f"{option.exercise_window_start.isoformat()}."
+            ),
+        )
+
+    try:
+        renewal = renewal_service.exercise_option(
+            option, user_id=current_user.id, lease_id=lease_id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+    if option.new_term_months and lease.lease_expiration:
+        renewal.target_expiration = lease.lease_expiration + timedelta(
+            days=30 * int(option.new_term_months)
+        )
+    renewal.notice_due_date = option.exercise_window_end
+    db.add(renewal)
+    await db.flush()
+    option.renewal_id = renewal.id
+    option.updated_at = _utcnow()
+    await db.commit()
+    await db.refresh(renewal)
+    await db.refresh(option)
+    return {"option": _option_out(option), "renewal": _renewal_out(renewal)}
 
 
 @router.put("/{lease_id}/options/{option_id}")

@@ -70,7 +70,7 @@ from app.routers import (  # noqa: E402
     support_requests, leasing, resident_portal, announcements, rent,
     leasing_funnel, financial_verifications, listings, owners, owner_portal, lease_templates,
     application_templates, buildium, self_storage, legal, sso, quickbooks, bank_feed,
-    integrations, resident_payment_webhooks,)
+    integrations, resident_payment_webhooks, procurement, workqueue, email_templates,)
 from app.routers.admin import orgs as admin_orgs, users as admin_users, metrics as admin_metrics, billing as admin_billing, audit as admin_audit, usage as admin_usage, support_requests as admin_support_requests  # noqa: E402
 from app.auth.dependencies import enforce_org_access, require_feature, require_category  # noqa: E402
 from fastapi import Depends  # noqa: E402
@@ -128,6 +128,7 @@ app.include_router(preferences.router, prefix="/api/v1/users", tags=["Preference
 app.include_router(vendors.router, prefix="/api/v1/vendors", tags=["Vendors"], dependencies=_org_guard)
 app.include_router(imports.router, prefix="/api/v1/imports", tags=["Imports"], dependencies=_org_guard)
 app.include_router(email_rules.router, prefix="/api/v1/email-rules", tags=["Email Rules"], dependencies=_org_guard)
+app.include_router(email_templates.router, prefix="/api/v1/email-templates", tags=["Email Customization"], dependencies=_org_guard)
 app.include_router(email_rules.public_router, prefix="/api/v1/email-rules", tags=["Email Rules"])
 app.include_router(trash.router, prefix="/api/v1/admin/trash", tags=["Admin - Trash"], dependencies=_org_guard)
 app.include_router(site_settings.router, prefix="/api/v1/site-settings", tags=["Site Settings"], dependencies=_org_guard)
@@ -150,6 +151,8 @@ app.include_router(gl.router, prefix="/api/v1/gl", tags=["General Ledger"], depe
 app.include_router(cam.router, prefix="/api/v1/cam", tags=["CAM Reconciliation"], dependencies=_accounting_guard)
 app.include_router(lifecycle.router, prefix="/api/v1/lifecycle", tags=["Lease Lifecycle Accounting"], dependencies=_accounting_guard)
 app.include_router(ap.router, prefix="/api/v1/ap", tags=["Accounts Payable"], dependencies=_accounting_guard)
+app.include_router(procurement.router, prefix="/api/v1/procurement", tags=["Procurement"], dependencies=_accounting_guard)
+app.include_router(workqueue.router, prefix="/api/v1/work-queue", tags=["Work Queue"], dependencies=_org_guard)
 app.include_router(ar.router, prefix="/api/v1/ar", tags=["Accounts Receivable"], dependencies=_accounting_guard)
 app.include_router(bank.router, prefix="/api/v1/bank", tags=["Bank Reconciliation"], dependencies=_accounting_guard)
 app.include_router(quickbooks.router, prefix="/api/v1/quickbooks", tags=["QuickBooks Sync"], dependencies=_accounting_guard)

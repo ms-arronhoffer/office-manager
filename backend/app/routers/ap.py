@@ -41,7 +41,11 @@ from app.models.vendor_bill import (
     VendorPayment,
 )
 from app.services import ap_service as svc
+from app.services import approval_notifications
+from app.services import approval_service
+from app.services import procurement_service
 from app.services.ap_service import APError
+from app.services.approval_service import ApprovalError
 from app.utils.tenant_scope import load_or_404
 
 router = APIRouter()
@@ -65,6 +69,7 @@ class BillCreate(BaseModel):
     bill_number: str | None = None
     currency: str = "USD"
     memo: str | None = None
+    purchase_order_id: uuid.UUID | None = None
     lines: list[BillLineInput]
 
 
@@ -125,10 +130,24 @@ class BillResponse(BaseModel):
     status: str
     finalized_at: datetime | None
     journal_entry_id: uuid.UUID | None
+    approval_status: str
+    prepared_by_id: uuid.UUID | None
+    submitted_at: datetime | None
+    submitted_by_id: uuid.UUID | None
+    approved_at: datetime | None
+    approved_by_id: uuid.UUID | None
+    rejected_at: datetime | None
+    rejected_by_id: uuid.UUID | None
+    rejection_reason: str | None
+    purchase_order_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
     lines: list[BillLineResponse]
     payments: list[PaymentResponse]
+
+
+class RejectInput(BaseModel):
+    reason: str | None = None
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
@@ -150,10 +169,12 @@ def _serialize_bill(bill: VendorBill) -> BillResponse:
         status=bill.status,
         finalized_at=bill.finalized_at,
         journal_entry_id=bill.journal_entry_id,
+        purchase_order_id=bill.purchase_order_id,
         created_at=bill.created_at,
         updated_at=bill.updated_at,
         lines=[BillLineResponse.model_validate(line) for line in bill.lines],
         payments=[PaymentResponse.model_validate(p) for p in bill.payments],
+        **approval_service.serialize(bill),
     )
 
 
@@ -273,10 +294,18 @@ async def create_bill(
         due_date=payload.due_date,
         currency=currency,
         memo=payload.memo,
+        purchase_order_id=payload.purchase_order_id,
         status="draft",
     )
     _set_lines(bill, payload.lines)
     bill.total_amount = svc.bill_total(bill)
+    await approval_service.initialize(
+        db,
+        bill,
+        organization_id=org_id,
+        amount=bill.total_amount,
+        prepared_by=current_user,
+    )
     db.add(bill)
     await db.commit()
     bill = await _load_bill(db, bill.id, org_id)
@@ -317,6 +346,15 @@ async def update_bill(
         _set_lines(bill, payload.lines)
 
     bill.total_amount = svc.bill_total(bill)
+    # Any edit invalidates a prior sign-off: the checker approved a different
+    # document than the one that would now post.
+    await approval_service.initialize(
+        db,
+        bill,
+        organization_id=org_id,
+        amount=bill.total_amount,
+        prepared_by=current_user,
+    )
     await db.commit()
     bill = await _load_bill(db, bill.id, org_id)
     return _serialize_bill(bill)
@@ -360,11 +398,19 @@ async def finalize_bill(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="A bill must have at least one line before it can be finalized.",
         )
+    bill.total_amount = svc.bill_total(bill)
+    try:
+        approval_service.assert_postable(bill, user=current_user)
+    except ApprovalError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    try:
+        await procurement_service.assert_bill_matches_order(db, bill)
+    except procurement_service.ProcurementError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
     bill.status = "finalized"
     bill.finalized_at = datetime.now(timezone.utc)
     bill.finalized_by_id = current_user.id
-    bill.total_amount = svc.bill_total(bill)
     try:
         await svc.post_bill_to_gl(db, org_id, bill, posted_by_id=current_user.id)
     except APError as e:
@@ -372,6 +418,89 @@ async def finalize_bill(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
+    bill = await _load_bill(db, bill.id, org_id)
+    return _serialize_bill(bill)
+
+
+@router.post("/bills/{bill_id}/submit", response_model=BillResponse)
+async def submit_bill(
+    bill_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(FinanceUser),
+):
+    """Send a draft bill for a second signature before it can post."""
+    org_id = current_user.organization_id
+    bill = await _load_bill(db, bill_id, org_id)
+    if bill.status != "draft":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only a draft bill can be submitted for approval.",
+        )
+    try:
+        await approval_service.submit(
+            db,
+            bill,
+            organization_id=org_id,
+            amount=svc.bill_total(bill),
+            user=current_user,
+        )
+    except ApprovalError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    await db.commit()
+    bill = await _load_bill(db, bill.id, org_id)
+
+    if bill.approval_status == "pending":
+        vendor = await db.get(Vendor, bill.vendor_id)
+        await approval_notifications.notify_approval_requested(
+            db,
+            organization_id=org_id,
+            document_type="vendor bill",
+            document_number=bill.bill_number or str(bill.id)[:8],
+            amount=bill.total_amount,
+            counterparty=getattr(vendor, "name", "") or "Unknown vendor",
+            prepared_by=current_user,
+            review_url="/finance/accounts-payable",
+            entity_type="vendor_bill",
+            entity_id=bill.id,
+        )
+        bill = await _load_bill(db, bill.id, org_id)
+
+    return _serialize_bill(bill)
+
+
+@router.post("/bills/{bill_id}/approve", response_model=BillResponse)
+async def approve_bill(
+    bill_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(FinanceUser),
+):
+    """Approve a bill awaiting review. The preparer may not approve their own."""
+    org_id = current_user.organization_id
+    bill = await _load_bill(db, bill_id, org_id)
+    try:
+        approval_service.approve(bill, user=current_user)
+    except ApprovalError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    await db.commit()
+    bill = await _load_bill(db, bill.id, org_id)
+    return _serialize_bill(bill)
+
+
+@router.post("/bills/{bill_id}/reject", response_model=BillResponse)
+async def reject_bill(
+    bill_id: uuid.UUID,
+    payload: RejectInput,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(FinanceUser),
+):
+    """Send a bill back to its preparer for correction."""
+    org_id = current_user.organization_id
+    bill = await _load_bill(db, bill_id, org_id)
+    try:
+        approval_service.reject(bill, user=current_user, reason=payload.reason)
+    except ApprovalError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    await db.commit()
     bill = await _load_bill(db, bill.id, org_id)
     return _serialize_bill(bill)
 

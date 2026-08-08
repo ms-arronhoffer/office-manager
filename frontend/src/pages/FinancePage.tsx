@@ -8,6 +8,7 @@ import GeneralLedgerPage from '@/pages/GeneralLedgerPage';
 import FinancialStatementsPage from '@/pages/FinancialStatementsPage';
 import CamReconciliationsPage from '@/pages/CamReconciliationsPage';
 import AccountsPayablePage from '@/pages/AccountsPayablePage';
+import ProcurementPage from '@/pages/ProcurementPage';
 import AccountsReceivablePage from '@/pages/AccountsReceivablePage';
 import BankReconciliationPage from '@/pages/BankReconciliationPage';
 import Tax1099Page from '@/pages/Tax1099Page';
@@ -63,6 +64,12 @@ const FinancePage: React.FC = () => {
           : []),
         ...(isFinance
           ? [
+              {
+                id: 'procurement',
+                label: 'Procurement',
+                href: '/finance/procurement',
+                content: <ProcurementPage />,
+              },
               {
                 id: 'accounts-payable',
                 label: 'Accounts Payable',

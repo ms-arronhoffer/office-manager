@@ -18,10 +18,10 @@ from datetime import datetime, date, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Cookie, Depends, File, Header, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Cookie, Depends, File, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -54,6 +54,11 @@ from app.schemas.entity_contact import (
 )
 from app.services import entitlements as ent
 from app.services.activity_service import log_activity
+from app.routers.portal_paging import (
+    PORTAL_MAX_PAGE_SIZE,
+    PORTAL_PAGE_SIZE,
+    TOTAL_COUNT_HEADER,
+)
 from app.utils.rls import set_session_org, set_system_bypass
 from app.utils.notifications import create_notification
 from app.utils import file_storage
@@ -768,17 +773,29 @@ def _lease_expiring_soon(expiration: date | None) -> bool:
 
 @router.get("/client-portal/offices", response_model=list[PortalOfficeResponse])
 async def portal_list_offices(
+    response: Response,
+    limit: int = Query(default=PORTAL_PAGE_SIZE, ge=1, le=PORTAL_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
     account: ClientPortalAccount = Depends(get_portal_account),
     db: AsyncSession = Depends(get_db),
 ):
     office_ids = await _scoped_office_ids(db, account)
     if not office_ids:
+        response.headers[TOTAL_COUNT_HEADER] = "0"
         return []
+    total = (
+        await db.execute(
+            select(func.count()).select_from(Office).where(Office.id.in_(office_ids))
+        )
+    ).scalar_one()
+    response.headers[TOTAL_COUNT_HEADER] = str(total)
     result = await db.execute(
         select(Office)
         .options(selectinload(Office.leases))
         .where(Office.id.in_(office_ids))
         .order_by(Office.office_number)
+        .offset(offset)
+        .limit(limit)
     )
     offices = result.scalars().all()
     return [
@@ -817,17 +834,31 @@ def _portal_lease_response(lease: Lease, office: Office | None) -> PortalLeaseRe
 
 @router.get("/client-portal/leases", response_model=list[PortalLeaseResponse])
 async def portal_list_leases(
+    response: Response,
+    limit: int = Query(default=PORTAL_PAGE_SIZE, ge=1, le=PORTAL_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
     account: ClientPortalAccount = Depends(get_portal_account),
     db: AsyncSession = Depends(get_db),
 ):
     office_ids = await _scoped_office_ids(db, account)
     if not office_ids:
+        response.headers[TOTAL_COUNT_HEADER] = "0"
         return []
+    total = (
+        await db.execute(
+            select(func.count())
+            .select_from(Lease)
+            .where(Lease.office_id.in_(office_ids), Lease.is_deleted.is_(False))
+        )
+    ).scalar_one()
+    response.headers[TOTAL_COUNT_HEADER] = str(total)
     result = await db.execute(
         select(Lease)
         .options(selectinload(Lease.office))
         .where(Lease.office_id.in_(office_ids), Lease.is_deleted.is_(False))
         .order_by(Lease.lease_expiration.asc().nullslast())
+        .offset(offset)
+        .limit(limit)
     )
     return [_portal_lease_response(l, l.office) for l in result.scalars().all()]
 
@@ -858,12 +889,27 @@ async def portal_get_lease(
 
 @router.get("/client-portal/maintenance", response_model=list[PortalMaintenanceResponse])
 async def portal_list_maintenance(
+    response: Response,
+    limit: int = Query(default=PORTAL_PAGE_SIZE, ge=1, le=PORTAL_MAX_PAGE_SIZE),
+    offset: int = Query(default=0, ge=0),
     account: ClientPortalAccount = Depends(get_portal_account),
     db: AsyncSession = Depends(get_db),
 ):
     office_ids = await _scoped_office_ids(db, account)
     if not office_ids:
+        response.headers[TOTAL_COUNT_HEADER] = "0"
         return []
+    total = (
+        await db.execute(
+            select(func.count())
+            .select_from(MaintenanceTicket)
+            .where(
+                MaintenanceTicket.office_id.in_(office_ids),
+                MaintenanceTicket.is_deleted.is_(False),
+            )
+        )
+    ).scalar_one()
+    response.headers[TOTAL_COUNT_HEADER] = str(total)
     result = await db.execute(
         select(MaintenanceTicket)
         .options(selectinload(MaintenanceTicket.office))
@@ -872,6 +918,8 @@ async def portal_list_maintenance(
             MaintenanceTicket.is_deleted.is_(False),
         )
         .order_by(MaintenanceTicket.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
     return [
         PortalMaintenanceResponse(

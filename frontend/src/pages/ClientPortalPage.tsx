@@ -1,10 +1,12 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { useConfirmDelete } from '@/hooks/useConfirmDelete';
+import { usePagedItems } from '@/hooks/usePagedItems';
 import ContentLayout from '@cloudscape-design/components/content-layout';
 import Header from '@cloudscape-design/components/header';
 import Container from '@cloudscape-design/components/container';
 import SpaceBetween from '@cloudscape-design/components/space-between';
 import Table from '@cloudscape-design/components/table';
+import Pagination from '@cloudscape-design/components/pagination';
 import Button from '@cloudscape-design/components/button';
 import Badge from '@cloudscape-design/components/badge';
 import Box from '@cloudscape-design/components/box';
@@ -99,6 +101,13 @@ const ClientPortalPage: React.FC = () => {
   const [offices, setOffices] = useState<ClientPortalOffice[]>([]);
   const [leases, setLeases] = useState<ClientPortalLease[]>([]);
   const [tickets, setTickets] = useState<ClientPortalTicket[]>([]);
+
+  // Portfolios can run to hundreds of rows; page them so the browser only ever
+  // renders a screenful.
+  const pagedLeases = usePagedItems(leases);
+  const pagedTickets = usePagedItems(tickets);
+  const pagedOffices = usePagedItems(offices);
+  const pagedDocuments = usePagedItems(documents);
 
   // Contact modal
   const [contactModal, setContactModal] = useState(false);
@@ -377,7 +386,18 @@ const ClientPortalPage: React.FC = () => {
               label: `Offices (${offices.length})`,
               content: (
                 <Table
-                  items={offices}
+                  items={pagedOffices.pageItems}
+                  pagination={
+                    pagedOffices.isPaginated ? (
+                      <Pagination
+                        currentPageIndex={pagedOffices.currentPageIndex}
+                        pagesCount={pagedOffices.pagesCount}
+                        onChange={({ detail }) =>
+                          pagedOffices.setCurrentPageIndex(detail.currentPageIndex)
+                        }
+                      />
+                    ) : undefined
+                  }
                   empty={<Box textAlign="center" color="inherit">No offices on file.</Box>}
                   columnDefinitions={[
                     { id: 'number', header: '#', cell: (o: ClientPortalOffice) => o.office_number, width: 80 },
@@ -406,7 +426,18 @@ const ClientPortalPage: React.FC = () => {
               label: `Leases (${leases.length})`,
               content: (
                 <Table
-                  items={leases}
+                  items={pagedLeases.pageItems}
+                  pagination={
+                    pagedLeases.isPaginated ? (
+                      <Pagination
+                        currentPageIndex={pagedLeases.currentPageIndex}
+                        pagesCount={pagedLeases.pagesCount}
+                        onChange={({ detail }) =>
+                          pagedLeases.setCurrentPageIndex(detail.currentPageIndex)
+                        }
+                      />
+                    ) : undefined
+                  }
                   empty={<Box textAlign="center" color="inherit">No leases on file.</Box>}
                   columnDefinitions={[
                     { id: 'name', header: 'Lease', cell: (l: ClientPortalLease) => l.lease_name },
@@ -443,7 +474,18 @@ const ClientPortalPage: React.FC = () => {
               label: `Maintenance (${tickets.length})`,
               content: (
                 <Table
-                  items={tickets}
+                  items={pagedTickets.pageItems}
+                  pagination={
+                    pagedTickets.isPaginated ? (
+                      <Pagination
+                        currentPageIndex={pagedTickets.currentPageIndex}
+                        pagesCount={pagedTickets.pagesCount}
+                        onChange={({ detail }) =>
+                          pagedTickets.setCurrentPageIndex(detail.currentPageIndex)
+                        }
+                      />
+                    ) : undefined
+                  }
                   empty={<Box textAlign="center" color="inherit">No work orders.</Box>}
                   columnDefinitions={[
                     { id: 'subject', header: 'Subject', cell: (t: ClientPortalTicket) => t.subject },
@@ -630,7 +672,18 @@ const ClientPortalPage: React.FC = () => {
                       </Box>
                     </div>
                     <Table
-                      items={documents}
+                      items={pagedDocuments.pageItems}
+                      pagination={
+                        pagedDocuments.isPaginated ? (
+                          <Pagination
+                            currentPageIndex={pagedDocuments.currentPageIndex}
+                            pagesCount={pagedDocuments.pagesCount}
+                            onChange={({ detail }) =>
+                              pagedDocuments.setCurrentPageIndex(detail.currentPageIndex)
+                            }
+                          />
+                        ) : undefined
+                      }
                       columnDefinitions={[
                         { id: 'name', header: 'File', cell: (d: Attachment) => d.original_filename },
                         { id: 'size', header: 'Size', cell: (d: Attachment) => formatBytes(d.file_size), width: 120 },

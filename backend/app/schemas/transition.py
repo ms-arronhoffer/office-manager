@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pydantic import BaseModel
 
 
@@ -8,6 +8,12 @@ class ChecklistItemCreate(BaseModel):
     response: str | None = None
     additional_notes: str | None = None
     extra_notes: str | None = None
+    assigned_to_id: uuid.UUID | None = None
+    due_date: date | None = None
+    vendor_id: uuid.UUID | None = None
+    depends_on_id: uuid.UUID | None = None
+    is_required: bool = True
+    requires_evidence: bool = False
 
 
 class ChecklistItemUpdate(BaseModel):
@@ -16,6 +22,12 @@ class ChecklistItemUpdate(BaseModel):
     additional_notes: str | None = None
     extra_notes: str | None = None
     is_complete: bool | None = None
+    assigned_to_id: uuid.UUID | None = None
+    due_date: date | None = None
+    vendor_id: uuid.UUID | None = None
+    depends_on_id: uuid.UUID | None = None
+    is_required: bool | None = None
+    requires_evidence: bool | None = None
 
 
 class ChecklistItemResponse(BaseModel):
@@ -26,6 +38,14 @@ class ChecklistItemResponse(BaseModel):
     extra_notes: str | None
     sort_order: int
     is_complete: bool
+    assigned_to_id: uuid.UUID | None
+    due_date: date | None
+    vendor_id: uuid.UUID | None
+    depends_on_id: uuid.UUID | None
+    is_required: bool
+    requires_evidence: bool
+    completed_at: datetime | None
+    completed_by_id: uuid.UUID | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

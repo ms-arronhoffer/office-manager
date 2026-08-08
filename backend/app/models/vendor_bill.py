@@ -35,6 +35,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.models.approval import ApprovalMixin
 from app.models.base import Base, TimestampMixin
 
 # Bill workflow states.
@@ -43,7 +44,7 @@ BILL_STATUSES = {"draft", "finalized", "void"}
 PAYMENT_STATES = {"open", "partial", "paid"}
 
 
-class VendorBill(TimestampMixin, Base):
+class VendorBill(ApprovalMixin, TimestampMixin, Base):
     """A vendor bill/invoice expensed to the GL and credited to Accounts Payable."""
 
     __tablename__ = "vendor_bills"
@@ -78,6 +79,11 @@ class VendorBill(TimestampMixin, Base):
     # GL journal entry created when the bill is finalized/posted.
     journal_entry_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("journal_entries.id", ondelete="SET NULL"), nullable=True
+    )
+    # Set when this bill settles a purchase order, enabling the three-way match
+    # against ordered price and received quantity before the bill can post.
+    purchase_order_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("purchase_orders.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
     vendor: Mapped["Vendor"] = relationship()

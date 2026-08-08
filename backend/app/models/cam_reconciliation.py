@@ -27,6 +27,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.models.approval import ApprovalMixin
 from app.models.base import Base, TimestampMixin
 
 # Cap structures for controllable-expense increase limits.
@@ -35,7 +36,7 @@ CAP_TYPES = {"cumulative_compounded", "cumulative", "non_cumulative"}
 RECON_STATUSES = {"draft", "finalized"}
 
 
-class CamReconciliation(TimestampMixin, Base):
+class CamReconciliation(ApprovalMixin, TimestampMixin, Base):
     """A CAM reconciliation statement for one lease and one year."""
 
     __tablename__ = "cam_reconciliations"

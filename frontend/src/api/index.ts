@@ -207,6 +207,18 @@ import type {
   BillCreate,
   BillUpdate,
   PaymentCreate,
+  PurchaseRequisition,
+  RequisitionCreate,
+  VendorQuoteCreate,
+  PurchaseOrder,
+  PurchaseOrderCreate,
+  PurchaseReceiptCreate,
+  WorkQueueResponse,
+  EmailTemplateCatalogEntry,
+  EmailTemplateDetail,
+  EmailTemplatePreview,
+  EmailBranding,
+  EmailBrandingSave,
   Customer,
   CustomerCreate,
   CustomerUpdate,
@@ -1944,6 +1956,13 @@ export const ap = {
   finalizeBill: (id: string) =>
     client.post<VendorBill>(`/ap/bills/${id}/finalize`),
 
+  submitBill: (id: string) => client.post<VendorBill>(`/ap/bills/${id}/submit`),
+
+  approveBill: (id: string) => client.post<VendorBill>(`/ap/bills/${id}/approve`),
+
+  rejectBill: (id: string, reason?: string) =>
+    client.post<VendorBill>(`/ap/bills/${id}/reject`, { reason }),
+
   voidBill: (id: string) => client.post<VendorBill>(`/ap/bills/${id}/void`),
 
   createPayment: (billId: string, data: PaymentCreate) =>
@@ -1982,6 +2001,15 @@ export const ar = {
   finalizeInvoice: (id: string) =>
     client.post<CustomerInvoice>(`/ar/invoices/${id}/finalize`),
 
+  submitInvoice: (id: string) =>
+    client.post<CustomerInvoice>(`/ar/invoices/${id}/submit`),
+
+  approveInvoice: (id: string) =>
+    client.post<CustomerInvoice>(`/ar/invoices/${id}/approve`),
+
+  rejectInvoice: (id: string, reason?: string) =>
+    client.post<CustomerInvoice>(`/ar/invoices/${id}/reject`, { reason }),
+
   voidInvoice: (id: string) => client.post<CustomerInvoice>(`/ar/invoices/${id}/void`),
 
   createReceipt: (invoiceId: string, data: ReceiptCreate) =>
@@ -1998,6 +2026,87 @@ export const ar = {
 
   aging: (params?: { as_of?: string }) =>
     client.get<ArAgingReport>('/ar/aging', { params }),
+};
+
+// ─── Procurement ─────────────────────────────────────────────────────────────
+export const procurement = {
+  listRequisitions: (params?: { status?: string; approval_status?: string; office_id?: string }) =>
+    client.get<PurchaseRequisition[]>('/procurement/requisitions', { params }),
+
+  getRequisition: (id: string) =>
+    client.get<PurchaseRequisition>(`/procurement/requisitions/${id}`),
+
+  createRequisition: (data: RequisitionCreate) =>
+    client.post<PurchaseRequisition>('/procurement/requisitions', data),
+
+  updateRequisition: (id: string, data: Partial<RequisitionCreate>) =>
+    client.patch<PurchaseRequisition>(`/procurement/requisitions/${id}`, data),
+
+  deleteRequisition: (id: string) => client.delete(`/procurement/requisitions/${id}`),
+
+  submitRequisition: (id: string) =>
+    client.post<PurchaseRequisition>(`/procurement/requisitions/${id}/submit`),
+
+  approveRequisition: (id: string) =>
+    client.post<PurchaseRequisition>(`/procurement/requisitions/${id}/approve`),
+
+  rejectRequisition: (id: string, reason?: string) =>
+    client.post<PurchaseRequisition>(`/procurement/requisitions/${id}/reject`, { reason }),
+
+  addQuote: (requisitionId: string, data: VendorQuoteCreate) =>
+    client.post<PurchaseRequisition>(`/procurement/requisitions/${requisitionId}/quotes`, data),
+
+  selectQuote: (quoteId: string, selection_reason?: string) =>
+    client.post<PurchaseRequisition>(`/procurement/quotes/${quoteId}/select`, { selection_reason }),
+
+  deleteQuote: (quoteId: string) => client.delete(`/procurement/quotes/${quoteId}`),
+
+  issuePurchaseOrder: (requisitionId: string, data: PurchaseOrderCreate) =>
+    client.post<PurchaseOrder>(`/procurement/requisitions/${requisitionId}/purchase-order`, data),
+
+  listPurchaseOrders: (params?: { status?: string; vendor_id?: string }) =>
+    client.get<PurchaseOrder[]>('/procurement/purchase-orders', { params }),
+
+  getPurchaseOrder: (id: string) =>
+    client.get<PurchaseOrder>(`/procurement/purchase-orders/${id}`),
+
+  recordReceipt: (orderId: string, data: PurchaseReceiptCreate) =>
+    client.post<PurchaseOrder>(`/procurement/purchase-orders/${orderId}/receipts`, data),
+
+  closePurchaseOrder: (id: string) =>
+    client.post<PurchaseOrder>(`/procurement/purchase-orders/${id}/close`),
+
+  cancelPurchaseOrder: (id: string) =>
+    client.post<PurchaseOrder>(`/procurement/purchase-orders/${id}/cancel`),
+};
+
+// ─── Personal work queue ─────────────────────────────────────────────────────
+export const workQueue = {
+  get: (params?: { limit?: number; category?: string }) =>
+    client.get<WorkQueueResponse>('/work-queue', { params }),
+};
+
+// ─── Email customization ─────────────────────────────────────────────────────
+export const emailTemplates = {
+  catalog: () => client.get<EmailTemplateCatalogEntry[]>('/email-templates/catalog'),
+
+  get: (key: string) => client.get<EmailTemplateDetail>(`/email-templates/${key}`),
+
+  save: (key: string, data: { subject: string; body: string; is_active?: boolean }) =>
+    client.put<EmailTemplateDetail>(`/email-templates/${key}`, data),
+
+  reset: (key: string) => client.delete<EmailTemplateDetail>(`/email-templates/${key}`),
+
+  preview: (key: string, data: { subject?: string; body?: string }) =>
+    client.post<EmailTemplatePreview>(`/email-templates/${key}/preview`, data),
+
+  test: (key: string, data: { to: string; subject?: string; body?: string }) =>
+    client.post<{ sent: boolean; to: string }>(`/email-templates/${key}/test`, data),
+
+  getBranding: () => client.get<EmailBranding>('/email-templates/branding'),
+
+  saveBranding: (data: EmailBrandingSave) =>
+    client.put<EmailBranding>('/email-templates/branding', data),
 };
 
 // ─── Bank Reconciliation ─────────────────────────────────────────────────────

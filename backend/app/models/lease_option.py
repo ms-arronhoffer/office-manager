@@ -22,6 +22,25 @@ class LeaseOption(Base):
     new_rent_amount: Mapped[Decimal | None] = mapped_column(Numeric(15, 2), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Recorded when the option is actually exercised, together with the renewal
+    # it produced, so the decision and its consequence stay linked.
+    exercised_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    exercised_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    renewal_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("lease_renewals.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    last_reminded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)

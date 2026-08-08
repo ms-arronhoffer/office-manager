@@ -40,6 +40,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.models.approval import ApprovalMixin
 from app.models.base import Base, TimestampMixin
 from app.models.mixins import SoftDeleteMixin
 
@@ -75,7 +76,7 @@ class Customer(SoftDeleteMixin, TimestampMixin, Base):
     )
 
 
-class CustomerInvoice(TimestampMixin, Base):
+class CustomerInvoice(ApprovalMixin, TimestampMixin, Base):
     """An invoice issued to a customer, receivable in the GL."""
 
     __tablename__ = "customer_invoices"

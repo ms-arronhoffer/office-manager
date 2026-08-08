@@ -47,6 +47,8 @@ from app.models.customer_invoice import (
 from app.models.general_ledger import GLAccount
 from app.models.user import User
 from app.services import ar_service as svc
+from app.services import approval_service
+from app.services.approval_service import ApprovalError
 from app.services.ar_service import ARError
 from app.utils.tenant_scope import load_or_404
 
@@ -178,10 +180,23 @@ class InvoiceResponse(BaseModel):
     source_ref: str | None
     finalized_at: datetime | None
     journal_entry_id: uuid.UUID | None
+    approval_status: str
+    prepared_by_id: uuid.UUID | None
+    submitted_at: datetime | None
+    submitted_by_id: uuid.UUID | None
+    approved_at: datetime | None
+    approved_by_id: uuid.UUID | None
+    rejected_at: datetime | None
+    rejected_by_id: uuid.UUID | None
+    rejection_reason: str | None
     created_at: datetime
     updated_at: datetime
     lines: list[InvoiceLineResponse]
     receipts: list[ReceiptResponse]
+
+
+class RejectInput(BaseModel):
+    reason: str | None = None
 
 
 class AgingInvoice(BaseModel):
@@ -234,6 +249,7 @@ def _serialize_invoice(invoice: CustomerInvoice) -> InvoiceResponse:
         updated_at=invoice.updated_at,
         lines=[InvoiceLineResponse.model_validate(line) for line in invoice.lines],
         receipts=[ReceiptResponse.model_validate(r) for r in invoice.receipts],
+        **approval_service.serialize(invoice),
     )
 
 
@@ -453,6 +469,13 @@ async def create_invoice(
     )
     _set_lines(invoice, payload.lines)
     invoice.total_amount = svc.invoice_total(invoice)
+    await approval_service.initialize(
+        db,
+        invoice,
+        organization_id=org_id,
+        amount=invoice.total_amount,
+        prepared_by=current_user,
+    )
     db.add(invoice)
     await db.commit()
     invoice = await _load_invoice(db, invoice.id, org_id)
@@ -523,6 +546,13 @@ async def create_invoice_from_cam(
         [InvoiceLineInput(**line) for line in line_dicts],
     )
     invoice.total_amount = svc.invoice_total(invoice)
+    await approval_service.initialize(
+        db,
+        invoice,
+        organization_id=org_id,
+        amount=invoice.total_amount,
+        prepared_by=current_user,
+    )
     db.add(invoice)
     await db.commit()
     invoice = await _load_invoice(db, invoice.id, org_id)
@@ -563,6 +593,15 @@ async def update_invoice(
         _set_lines(invoice, payload.lines)
 
     invoice.total_amount = svc.invoice_total(invoice)
+    # Any edit invalidates a prior sign-off: the checker approved a different
+    # document than the one that would now post.
+    await approval_service.initialize(
+        db,
+        invoice,
+        organization_id=org_id,
+        amount=invoice.total_amount,
+        prepared_by=current_user,
+    )
     await db.commit()
     invoice = await _load_invoice(db, invoice.id, org_id)
     return _serialize_invoice(invoice)
@@ -607,10 +646,15 @@ async def finalize_invoice(
             detail="An invoice must have at least one line before it can be finalized.",
         )
 
+    invoice.total_amount = svc.invoice_total(invoice)
+    try:
+        approval_service.assert_postable(invoice, user=current_user)
+    except ApprovalError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
     invoice.status = "finalized"
     invoice.finalized_at = datetime.now(timezone.utc)
     invoice.finalized_by_id = current_user.id
-    invoice.total_amount = svc.invoice_total(invoice)
     try:
         await svc.post_invoice_to_gl(db, org_id, invoice, posted_by_id=current_user.id)
     except ARError as e:
@@ -618,6 +662,72 @@ async def finalize_invoice(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
+    invoice = await _load_invoice(db, invoice.id, org_id)
+    return _serialize_invoice(invoice)
+
+
+@router.post("/invoices/{invoice_id}/submit", response_model=InvoiceResponse)
+async def submit_invoice(
+    invoice_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(FinanceUser),
+):
+    """Send a draft invoice for a second signature before it can post."""
+    org_id = current_user.organization_id
+    invoice = await _load_invoice(db, invoice_id, org_id)
+    if invoice.status != "draft":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only a draft invoice can be submitted for approval.",
+        )
+    try:
+        await approval_service.submit(
+            db,
+            invoice,
+            organization_id=org_id,
+            amount=svc.invoice_total(invoice),
+            user=current_user,
+        )
+    except ApprovalError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    await db.commit()
+    invoice = await _load_invoice(db, invoice.id, org_id)
+    return _serialize_invoice(invoice)
+
+
+@router.post("/invoices/{invoice_id}/approve", response_model=InvoiceResponse)
+async def approve_invoice(
+    invoice_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(FinanceUser),
+):
+    """Approve an invoice awaiting review. The preparer may not approve it."""
+    org_id = current_user.organization_id
+    invoice = await _load_invoice(db, invoice_id, org_id)
+    try:
+        approval_service.approve(invoice, user=current_user)
+    except ApprovalError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    await db.commit()
+    invoice = await _load_invoice(db, invoice.id, org_id)
+    return _serialize_invoice(invoice)
+
+
+@router.post("/invoices/{invoice_id}/reject", response_model=InvoiceResponse)
+async def reject_invoice(
+    invoice_id: uuid.UUID,
+    payload: RejectInput,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(FinanceUser),
+):
+    """Send an invoice back to its preparer for correction."""
+    org_id = current_user.organization_id
+    invoice = await _load_invoice(db, invoice_id, org_id)
+    try:
+        approval_service.reject(invoice, user=current_user, reason=payload.reason)
+    except ApprovalError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    await db.commit()
     invoice = await _load_invoice(db, invoice.id, org_id)
     return _serialize_invoice(invoice)
 

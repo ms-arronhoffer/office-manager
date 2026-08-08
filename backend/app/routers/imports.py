@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import io
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, Query, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
 from app.database import get_db
 from app.auth.dependencies import require_role
+from app.models.import_batch import ImportBatch, content_fingerprint
+from app.models.user import User
+from app.services import import_assurance
 from app.services.import_service import IMPORTERS
 
 router = APIRouter()
@@ -200,8 +204,12 @@ async def download_template(
 async def import_data(
     entity: str,
     file: UploadFile = File(...),
+    force: bool = Query(
+        default=False,
+        description="Re-apply a file that has already been imported.",
+    ),
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_role("admin", "editor")),
+    current_user: User = Depends(require_role("admin", "editor")),
 ):
     if entity not in VALID_ENTITIES:
         raise HTTPException(status_code=404, detail=f"Unknown entity: {entity}")
@@ -210,11 +218,111 @@ async def import_data(
         raise HTTPException(status_code=400, detail="File must be an XLSX file")
 
     contents = await file.read()
-    importer = IMPORTERS[entity]
+    org_id = current_user.organization_id
 
+    # Guard against the most common bulk-load accident: the same spreadsheet
+    # being uploaded twice. Callers can still override deliberately.
+    if force:
+        fingerprint = content_fingerprint(entity, contents)
+    else:
+        try:
+            fingerprint = await import_assurance.check_replay(
+                db, organization_id=org_id, entity_type=entity, payload=contents
+            )
+        except import_assurance.ReplayDetected as e:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": str(e),
+                    "previous_batch_id": str(e.batch.id),
+                    "hint": "Re-send with ?force=true to import it again.",
+                },
+            )
+
+    importer = IMPORTERS[entity]
     try:
         result = await importer(db, contents)
     except Exception as e:
+        await import_assurance.record_batch(
+            db,
+            organization_id=org_id,
+            source="xlsx",
+            entity_type=entity,
+            fingerprint=fingerprint,
+            file_name=file.filename,
+            created=0,
+            updated=0,
+            skipped=0,
+            errors=[str(e)],
+            imported_by_id=current_user.id,
+            status="failed",
+        )
         raise HTTPException(status_code=400, detail=f"Import failed: {str(e)}")
 
-    return result.to_dict()
+    batch = await import_assurance.record_batch(
+        db,
+        organization_id=org_id,
+        source="xlsx",
+        entity_type=entity,
+        fingerprint=fingerprint,
+        file_name=file.filename,
+        created=result.created,
+        updated=result.updated,
+        skipped=result.skipped,
+        errors=result.errors,
+        imported_by_id=current_user.id,
+    )
+
+    payload = result.to_dict()
+    payload["batch_id"] = str(batch.id)
+    return payload
+
+
+@router.get("/batches")
+async def list_import_batches(
+    entity: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    """History of bulk loads, including the rows that failed in each."""
+    stmt = (
+        select(ImportBatch)
+        .where(ImportBatch.organization_id == current_user.organization_id)
+        .order_by(ImportBatch.created_at.desc())
+        .limit(limit)
+    )
+    if entity:
+        stmt = stmt.where(ImportBatch.entity_type == entity)
+    batches = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "id": str(b.id),
+            "source": b.source,
+            "entity_type": b.entity_type,
+            "file_name": b.file_name,
+            "status": b.status,
+            "rows_total": b.rows_total,
+            "created_count": b.created_count,
+            "updated_count": b.updated_count,
+            "skipped_count": b.skipped_count,
+            "error_count": b.error_count,
+            "row_errors": b.row_errors,
+            "created_at": b.created_at.isoformat(),
+        }
+        for b in batches
+    ]
+
+
+@router.post("/tie-out")
+async def import_tie_out(
+    source_counts: dict[str, int],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("admin", "editor")),
+):
+    """Compare source-system record counts against what actually landed."""
+    return await import_assurance.build_tie_out(
+        db,
+        organization_id=current_user.organization_id,
+        source_counts=source_counts,
+    )

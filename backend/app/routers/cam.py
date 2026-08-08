@@ -30,7 +30,8 @@ from app.models.cam_reconciliation import CamReconciliation
 from app.models.lease import Lease, LeaseCamEntry
 from app.models.lease_abstract import LeaseAbstractClause
 from app.models.user import User
-from app.services import ai_service, cam_schedule_service, cam_service
+from app.services import ai_service, approval_service, cam_schedule_service, cam_service
+from app.services.approval_service import ApprovalError
 from app.services.cam_service import CamError
 from app.services.lease_abstract_catalog import CATEGORY_BY_KEY
 from app.utils.tenant_scope import load_or_404
@@ -142,10 +143,23 @@ class CamReconciliationResponse(BaseModel):
     status: str
     finalized_at: datetime | None
     journal_entry_id: uuid.UUID | None
+    approval_status: str
+    prepared_by_id: uuid.UUID | None
+    submitted_at: datetime | None
+    submitted_by_id: uuid.UUID | None
+    approved_at: datetime | None
+    approved_by_id: uuid.UUID | None
+    rejected_at: datetime | None
+    rejected_by_id: uuid.UUID | None
+    rejection_reason: str | None
     notes: str | None
     created_at: datetime
     updated_at: datetime
     lines: list[CamLineResponse]
+
+
+class ReconciliationRejectInput(BaseModel):
+    reason: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -476,12 +490,123 @@ async def finalize_reconciliation(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Reconciliation is already finalized."
         )
+    # A CAM true-up bills tenants real money, so it goes through the same
+    # second-signature gate as any other postable finance document.
+    needed, _ = await approval_service.requires_approval(
+        db,
+        current_user.organization_id,
+        abs(Decimal(str(recon.total_pool or 0))),
+    )
+    if needed and recon.approval_status != "approved":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This reconciliation must be submitted and approved by a second "
+                "reviewer before it can be finalized."
+            ),
+        )
+    try:
+        approval_service.assert_postable(recon, user=current_user)
+    except ApprovalError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     recon.status = "finalized"
     recon.finalized_at = datetime.now(timezone.utc)
     recon.finalized_by_id = current_user.id
     await db.commit()
     recon = await _load_with_lines(db, recon.id, current_user.organization_id)
     return CamReconciliationResponse.model_validate(recon)
+
+
+@router.post(
+    "/reconciliations/{recon_id}/submit",
+    response_model=CamReconciliationResponse,
+)
+async def submit_reconciliation(
+    recon_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(FinanceUser),
+):
+    """Route a draft reconciliation for a second signature."""
+    recon = await _load_for_approval(db, recon_id, current_user.organization_id)
+    if recon.status == "finalized":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Reconciliation is already finalized.",
+        )
+    if recon.prepared_by_id is None:
+        recon.prepared_by_id = current_user.id
+    try:
+        await approval_service.submit(
+            db,
+            recon,
+            organization_id=current_user.organization_id,
+            amount=abs(Decimal(str(recon.total_pool or 0))),
+            user=current_user,
+        )
+    except ApprovalError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    await db.commit()
+    recon = await _load_with_lines(db, recon.id, current_user.organization_id)
+    return CamReconciliationResponse.model_validate(recon)
+
+
+@router.post(
+    "/reconciliations/{recon_id}/approve",
+    response_model=CamReconciliationResponse,
+)
+async def approve_reconciliation(
+    recon_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(FinanceUser),
+):
+    """Approve a reconciliation awaiting review."""
+    recon = await _load_for_approval(db, recon_id, current_user.organization_id)
+    try:
+        approval_service.approve(recon, user=current_user)
+    except ApprovalError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    await db.commit()
+    recon = await _load_with_lines(db, recon.id, current_user.organization_id)
+    return CamReconciliationResponse.model_validate(recon)
+
+
+@router.post(
+    "/reconciliations/{recon_id}/reject",
+    response_model=CamReconciliationResponse,
+)
+async def reject_reconciliation(
+    recon_id: uuid.UUID,
+    payload: ReconciliationRejectInput,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(FinanceUser),
+):
+    """Send a reconciliation back to its preparer for correction."""
+    recon = await _load_for_approval(db, recon_id, current_user.organization_id)
+    try:
+        approval_service.reject(recon, user=current_user, reason=payload.reason)
+    except ApprovalError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    await db.commit()
+    recon = await _load_with_lines(db, recon.id, current_user.organization_id)
+    return CamReconciliationResponse.model_validate(recon)
+
+
+async def _load_for_approval(
+    db: AsyncSession, recon_id: uuid.UUID, org_id
+) -> CamReconciliation:
+    recon = (
+        await db.execute(
+            select(CamReconciliation).where(
+                CamReconciliation.id == recon_id,
+                CamReconciliation.organization_id == org_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not recon:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Reconciliation not found"
+        )
+    return recon
 
 
 @router.post("/reconciliations/{recon_id}/post-to-gl")

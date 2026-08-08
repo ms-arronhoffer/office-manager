@@ -36,6 +36,23 @@ const statusBadge = (s: string) => {
   return <Badge color={color as 'green' | 'red' | 'grey'}>{s}</Badge>;
 };
 
+const APPROVAL_LABEL: Record<string, string> = {
+  not_required: 'No approval needed',
+  pending: 'Awaiting approval',
+  approved: 'Approved',
+  rejected: 'Rejected',
+};
+
+const approvalBadge = (s: string) => {
+  const color =
+    s === 'approved' ? 'green' : s === 'rejected' ? 'red' : s === 'pending' ? 'blue' : 'grey';
+  return (
+    <Badge color={color as 'green' | 'red' | 'blue' | 'grey'}>
+      {APPROVAL_LABEL[s] ?? s}
+    </Badge>
+  );
+};
+
 const AccountsPayablePage: React.FC = () => {
   const { addFlash } = useFlashbar();
 
@@ -171,6 +188,17 @@ const AccountsPayablePage: React.FC = () => {
 
   const finalizeBill = (b: VendorBill) =>
     runAction('Bill finalized and posted to GL.', () => apApi.finalizeBill(b.id));
+
+  const submitBillForApproval = (b: VendorBill) =>
+    runAction('Bill submitted for approval.', () => apApi.submitBill(b.id));
+
+  const approveBill = (b: VendorBill) =>
+    runAction('Bill approved.', () => apApi.approveBill(b.id));
+
+  const rejectBill = (b: VendorBill) => {
+    const reason = window.prompt('Why is this bill being sent back?') ?? undefined;
+    return runAction('Bill returned to its preparer.', () => apApi.rejectBill(b.id, reason));
+  };
 
   const voidBill = (b: VendorBill) =>
     runAction('Bill voided.', () => apApi.voidBill(b.id));
@@ -365,6 +393,7 @@ const AccountsPayablePage: React.FC = () => {
             { id: 'paid', header: 'Paid', cell: (b) => <Box textAlign="right">{fmt(b.amount_paid)}</Box> },
             { id: 'balance', header: 'Balance', cell: (b) => <Box textAlign="right">{fmt(b.balance_due)}</Box> },
             { id: 'paystate', header: 'Payment', cell: (b) => stateBadge(b.payment_state) },
+            { id: 'approval', header: 'Approval', cell: (b) => approvalBadge(b.approval_status) },
             { id: 'status', header: 'Status', cell: (b) => statusBadge(b.status) },
           ]}
           empty={<Box textAlign="center" color="inherit">No bills yet.</Box>}
@@ -380,7 +409,28 @@ const AccountsPayablePage: React.FC = () => {
                     {selected.status === 'draft' && (
                       <>
                         <Button onClick={() => deleteBill(selected)}>Delete</Button>
-                        <Button variant="primary" onClick={() => finalizeBill(selected)}>Finalize &amp; post</Button>
+                        {selected.approval_status === 'pending' && !selected.submitted_at && (
+                          <Button onClick={() => submitBillForApproval(selected)}>Submit for approval</Button>
+                        )}
+                        {selected.approval_status === 'pending' && selected.submitted_at && (
+                          <>
+                            <Button onClick={() => rejectBill(selected)}>Reject</Button>
+                            <Button onClick={() => approveBill(selected)}>Approve</Button>
+                          </>
+                        )}
+                        {selected.approval_status === 'rejected' && (
+                          <Button onClick={() => submitBillForApproval(selected)}>Resubmit</Button>
+                        )}
+                        <Button
+                          variant="primary"
+                          disabled={
+                            selected.approval_status !== 'approved' &&
+                            selected.approval_status !== 'not_required'
+                          }
+                          onClick={() => finalizeBill(selected)}
+                        >
+                          Finalize &amp; post
+                        </Button>
                       </>
                     )}
                     {selected.status === 'finalized' && (

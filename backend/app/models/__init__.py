@@ -161,6 +161,14 @@ from app.models.buildium import (
     BuildiumConnection, BuildiumEntityMap, BuildiumGLAccountMap, BuildiumMigrationRun,
     BUILDIUM_ENTITY_TYPES, MIGRATION_RUN_STATUSES,
 )
+from app.models.approval import APPROVAL_STATUSES, ApprovalMixin
+from app.models.email_branding import EmailBranding, EmailTemplate
+from app.models.import_batch import ImportBatch, IMPORT_BATCH_STATUSES, content_fingerprint
+from app.models.procurement import (
+    PurchaseRequisition, RequisitionLine, VendorQuote,
+    PurchaseOrder, PurchaseOrderLine, PurchaseOrderReceipt, ReceiptLine,
+    REQUISITION_STATUSES, PURCHASE_ORDER_STATUSES, PO_OPEN_STATUSES,
+)
 from app.models.external_sync import (
     BankFeedConnection, ExternalSyncLog, QuickBooksAccountMap, QuickBooksConnection,
     QuickBooksEntrySync, CONNECTION_STATUSES, SYNC_CONNECTORS, SYNC_RUN_STATUSES,
@@ -250,6 +258,12 @@ __all__ = [
     "PlatformStripeConfig",
     "EnterpriseActivationCode",
     "BuildiumConnection", "BuildiumEntityMap", "BuildiumGLAccountMap", "BuildiumMigrationRun",
+    "APPROVAL_STATUSES", "ApprovalMixin",
+    "EmailBranding", "EmailTemplate",
+    "ImportBatch", "IMPORT_BATCH_STATUSES", "content_fingerprint",
+    "PurchaseRequisition", "RequisitionLine", "VendorQuote",
+    "PurchaseOrder", "PurchaseOrderLine", "PurchaseOrderReceipt", "ReceiptLine",
+    "REQUISITION_STATUSES", "PURCHASE_ORDER_STATUSES", "PO_OPEN_STATUSES",
     "BUILDIUM_ENTITY_TYPES", "MIGRATION_RUN_STATUSES",
     "BankFeedConnection", "ExternalSyncLog", "QuickBooksAccountMap", "QuickBooksConnection",
     "QuickBooksEntrySync", "CONNECTION_STATUSES", "SYNC_CONNECTORS", "SYNC_RUN_STATUSES",

@@ -59,6 +59,8 @@ const ManagementCompanyFormPage = lazy(() => import('@/pages/ManagementCompanyFo
 const DataDictionaryPage = lazy(() => import('@/pages/DataDictionaryPage'));
 const HelpPage = lazy(() => import('@/pages/HelpPage'));
 const EmailRulesPage = lazy(() => import('@/pages/EmailRulesPage'));
+const EmailCustomizationPage = lazy(() => import('@/pages/EmailCustomizationPage'));
+const ProcurementPage = lazy(() => import('@/pages/ProcurementPage'));
 const WaiversPage = lazy(() => import('@/pages/WaiversPage'));
 const WaiverSignPage = lazy(() => import('@/pages/WaiverSignPage'));
 const LeaseSignPage = lazy(() => import('@/pages/LeaseSignPage'));
@@ -81,6 +83,7 @@ const OwnerPortalPage = lazy(() => import('@/pages/OwnerPortalPage'));
 const InsuranceCertificatesPage = lazy(() => import('@/pages/InsuranceCertificatesPage'));
 const SpacePage = lazy(() => import('@/pages/SpacePage'));
 const DashboardHubPage = lazy(() => import('@/pages/DashboardHubPage'));
+const WorkQueuePage = lazy(() => import('@/pages/WorkQueuePage'));
 const FinancePage = lazy(() => import('@/pages/FinancePage'));
 const ResidentialPage = lazy(() => import('@/pages/ResidentialPage'));
 const ResidentDetailPage = lazy(() => import('@/pages/ResidentDetailPage'));
@@ -149,6 +152,7 @@ const App: React.FC = () => {
                     <Suspense fallback={<PageLoader />}>
                       <Routes>
                         <Route index element={<DashboardHubPage />} />
+                        <Route path="my-work" element={<WorkQueuePage />} />
                         <Route path="dashboard/financial" element={<DashboardHubPage />} />
                         <Route path="dashboard/analytics" element={<DashboardHubPage />} />
                         <Route path="dashboard/reports" element={<DashboardHubPage />} />
@@ -166,6 +170,7 @@ const App: React.FC = () => {
                         <Route path="finance/financial-statements" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="finance/cam" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="finance/accounts-payable" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
+                        <Route path="finance/procurement" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="finance/accounts-receivable" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="finance/bank-reconciliation" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
                         <Route path="finance/tax-1099" element={<RoleGuard allowedRoles={['admin', 'accountant']}><FinancePage /></RoleGuard>} />
@@ -242,6 +247,7 @@ const App: React.FC = () => {
                         <Route path="users" element={<RoleGuard allowedRoles={['admin']}><UsersPage /></RoleGuard>} />
                         <Route path="data-dictionary" element={<RoleGuard allowedRoles={['admin']}><DataDictionaryPage /></RoleGuard>} />
                         <Route path="email-rules" element={<RoleGuard allowedRoles={['admin']}><EmailRulesPage /></RoleGuard>} />
+                        <Route path="email-customization" element={<RoleGuard allowedRoles={['admin']}><EmailCustomizationPage /></RoleGuard>} />
                         <Route path="waivers" element={<RoleGuard allowedRoles={['admin', 'editor']}><WaiversPage /></RoleGuard>} />
                         <Route path="settings" element={<SettingsPage />} />
                         <Route path="help" element={<HelpPage />} />
